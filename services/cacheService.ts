@@ -1,6 +1,8 @@
+import { CharacterProfile } from '../types';
+
 const DB_NAME = 'GeminiInteractiveCharacterDB';
-const STORE_NAME = 'videoCache';
-const DB_VERSION = 1;
+const STORE_NAME = 'characters';
+const DB_VERSION = 2; // Incremented version to trigger onupgradeneeded
 
 let dbPromise: Promise<IDBDatabase> | null = null;
 
@@ -22,8 +24,13 @@ const initDB = (): Promise<IDBDatabase> => {
 
         request.onupgradeneeded = (event) => {
             const db = (event.target as IDBOpenDBRequest).result;
+            // Clean up old store if it exists
+            if (db.objectStoreNames.contains('videoCache')) {
+                db.deleteObjectStore('videoCache');
+            }
+            // Create new store
             if (!db.objectStoreNames.contains(STORE_NAME)) {
-                db.createObjectStore(STORE_NAME);
+                db.createObjectStore(STORE_NAME, { keyPath: 'id' });
             }
         };
     });
@@ -40,48 +47,51 @@ export const hashImage = async (base64: string): Promise<string> => {
     return hashHex;
 };
 
-
-export const getVideoCache = async (hash: string): Promise<Blob[] | null> => {
+export const getCharacters = async (): Promise<CharacterProfile[]> => {
     try {
         const db = await initDB();
         return new Promise((resolve, reject) => {
             const transaction = db.transaction(STORE_NAME, 'readonly');
             const store = transaction.objectStore(STORE_NAME);
-            const request = store.get(hash);
+            const request = store.getAll();
 
-            request.onerror = () => {
-                reject(request.error);
-            };
-
-            request.onsuccess = () => {
-                // request.result can be undefined if not found, which is fine.
-                resolve(request.result || null);
-            };
+            request.onerror = () => reject(request.error);
+            request.onsuccess = () => resolve(request.result || []);
         });
-    } catch(error) {
-        console.error("Failed to get video cache:", error);
-        return null; // Don't block the app if caching fails
+    } catch (error) {
+        console.error("Failed to get characters:", error);
+        return []; // Return empty array on failure
     }
 };
 
-export const setVideoCache = async (hash: string, blobs: Blob[]): Promise<void> => {
+export const saveCharacter = async (character: CharacterProfile): Promise<void> => {
     try {
         const db = await initDB();
         return new Promise((resolve, reject) => {
             const transaction = db.transaction(STORE_NAME, 'readwrite');
             const store = transaction.objectStore(STORE_NAME);
-            const request = store.put(blobs, hash);
+            const request = store.put(character);
 
-            request.onerror = () => {
-                reject(request.error);
-            };
-
-            request.onsuccess = () => {
-                resolve();
-            };
+            request.onerror = () => reject(request.error);
+            request.onsuccess = () => resolve();
         });
     } catch (error) {
-        console.error("Failed to set video cache:", error);
-        // Don't block the app if caching fails
+        console.error("Failed to save character:", error);
+    }
+};
+
+export const deleteCharacter = async (id: string): Promise<void> => {
+    try {
+        const db = await initDB();
+        return new Promise((resolve, reject) => {
+            const transaction = db.transaction(STORE_NAME, 'readwrite');
+            const store = transaction.objectStore(STORE_NAME);
+            const request = store.delete(id);
+
+            request.onerror = () => reject(request.error);
+            request.onsuccess = () => resolve();
+        });
+    } catch (error) {
+        console.error("Failed to delete character:", error);
     }
 };

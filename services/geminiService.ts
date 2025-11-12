@@ -1,6 +1,5 @@
 import { GoogleGenAI, Chat, Modality } from "@google/genai";
 import { UploadedImage } from '../types';
-import { hashImage, getVideoCache, setVideoCache } from './cacheService';
 
 // Utility to convert file to base64
 export const fileToBase64 = (file: File): Promise<string> => {
@@ -77,30 +76,12 @@ const generateSingleVideo = (image: UploadedImage, prompt: string) => {
     });
 };
 
-export const generateInitialVideo = async (image: UploadedImage): Promise<{ urls: string[], fromCache: boolean }> => {
-    const imageHash = await hashImage(image.base64);
-    const cachedBlobs = await getVideoCache(imageHash);
-
-    if (cachedBlobs && cachedBlobs.length > 0) {
-        console.log("Loading initial video from cache.");
-        const urls = cachedBlobs.map(blob => URL.createObjectURL(blob));
-        return { urls, fromCache: true };
-    }
-
+export const generateInitialVideo = async (image: UploadedImage): Promise<Blob> => {
     console.log("Generating new initial video.");
-    // Simplified to a single prompt to reduce API calls and avoid rate limits.
     const prompt = `Animate the character from this image to create a short, seamlessly looping video. The character should be sitting at a desk, looking forward with a pleasant, neutral expression, and subtly breathing, as if waiting for a conversation to start.`;
-
-    // Generate and poll for a single video
     const operation = await generateSingleVideo(image, prompt);
     const blob = await pollVideoOperation(operation);
-    
-    // Store as an array with one blob to maintain data structure consistency
-    await setVideoCache(imageHash, [blob]);
-    console.log("Initial video saved to cache.");
-
-    const urls = [URL.createObjectURL(blob)];
-    return { urls, fromCache: false };
+    return blob;
 };
 
 export const generateActionVideo = async (image: UploadedImage, command: string): Promise<string> => {
