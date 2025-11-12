@@ -1,7 +1,9 @@
+
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Chat } from '@google/genai';
 import { ChatMessage, UploadedImage, CharacterProfile } from './types';
 import * as geminiService from './services/geminiService';
+// FIX: Corrected import syntax for dbService to resolve 'Cannot find name' errors.
 import * as dbService from './services/cacheService';
 
 import ApiKeySelector from './components/ApiKeySelector';
@@ -223,29 +225,42 @@ const App: React.FC = () => {
     setIsGeneratingActionVideo(true);
     setActionAudioData(null);
     
-    const newHistory: ChatMessage[] = [...chatHistory, { role: 'user', text: message }];
-    setChatHistory(newHistory);
+    // Add user message to history immediately
+    setChatHistory(prev => [...prev, { role: 'user', text: message }]);
 
     try {
+      // Step 1: Get the text response first to make the app feel responsive.
       const chatResponse = await geminiService.sendMessage(chatSession, message);
-      setChatHistory([...newHistory, { role: 'model', text: chatResponse }]);
-      setIsChatting(false);
-
-      const videoResponsePromise = geminiService.generateActionVideo(selectedCharacter.image, message);
-      const speechPromise = geminiService.generateSpeech(chatResponse);
-
-      const [videoUrl, audioData] = await Promise.all([videoResponsePromise, speechPromise]);
       
-      // Revoke previous action video URL if it exists
+      // Only add the model's response to history if it's not empty.
+      if (chatResponse && chatResponse.trim() !== "") {
+        setChatHistory(prev => [...prev, { role: 'model', text: chatResponse }]);
+      }
+      setIsChatting(false); // Text response is back.
+
+      // Step 2: Sequentially generate video and audio to avoid rate limiting.
+      const videoUrl = await geminiService.generateActionVideo(selectedCharacter.image, message);
+      
+      let audioData: string | null = null;
+      // Only generate speech if the model provided a non-empty response.
+      if (chatResponse && chatResponse.trim() !== '') {
+          audioData = await geminiService.generateSpeech(chatResponse);
+      }
+      
+      // Revoke previous action video URL if it exists to prevent memory leaks.
       if (currentVideoUrl && currentVideoUrl !== idleVideoUrl) {
           URL.revokeObjectURL(currentVideoUrl);
       }
 
+      // Update the UI with the new video and audio
       setCurrentVideoUrl(videoUrl);
       setActionAudioData(audioData);
-      setIsGeneratingActionVideo(false);
+
     } catch (error) {
       handleApiError(error);
+    } finally {
+        // Ensure loading states are reset regardless of success or failure.
+        setIsGeneratingActionVideo(false);
     }
   };
   

@@ -24,7 +24,9 @@ const ApiKeySelector: React.FC<ApiKeySelectorProps> = ({ onApiKeySelected, error
     if (localApiKey.trim()) {
       // Mock process.env for local development
       if (!window.process) {
-        window.process = { env: {} };
+        // FIX: Cast `window` to `any` to avoid a type error when creating a mock `process` object,
+        // which conflicts with the global Node.js `Process` type.
+        (window as any).process = { env: {} };
       }
       window.process.env.API_KEY = localApiKey.trim();
       onApiKeySelected();
