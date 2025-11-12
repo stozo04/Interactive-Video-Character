@@ -96,7 +96,13 @@ export const startChatSession = async (): Promise<Chat> => {
     const chat = ai.chats.create({
         model: 'gemini-2.5-flash',
         config: {
-            systemInstruction: `You are the character in the video, an interactive AI assistant. A user will give you a command. Your response should be a brief, conversational text confirmation of the action you are about to perform in the video. For example, if the user says "Wave to the camera", you could say "Sure, waving now!" or "Hello there!". Keep responses under 15 words.`,
+            systemInstruction: `You are an interactive AI character. The user will give you a command to perform an action. Your response will be spoken by the character.
+- For commands that should have a verbal response, provide a brief, conversational text confirmation (under 15 words).
+- For purely physical actions where speech is unnatural (like a simple nod or wave), respond with an empty string.
+Examples:
+User: "Tell me a joke." -> Model: "Of course! Why don't scientists trust atoms? Because they make up everything!"
+User: "Wave to me." -> Model: "Hello there!"
+User: "Nod." -> Model: "" (an empty string)`,
         },
     });
     return chat;
