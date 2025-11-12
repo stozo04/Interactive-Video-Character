@@ -1,5 +1,6 @@
 import { GoogleGenAI, Chat, Modality } from "@google/genai";
 import { UploadedImage } from '../types';
+import { hashImage, getVideoCache, setVideoCache } from './cacheService';
 
 // Utility to convert file to base64
 export const fileToBase64 = (file: File): Promise<string> => {
@@ -24,11 +25,10 @@ const getAiClient = () => {
     return new GoogleGenAI({ apiKey: process.env.API_KEY });
 };
 
-const pollVideoOperation = async (operation: any): Promise<string> => {
+const pollVideoOperation = async (operation: any): Promise<Blob> => {
     const ai = getAiClient();
     let currentOperation = operation;
     while (!currentOperation.done) {
-        // Fix: Increased polling delay to 10 seconds as per API guidelines for video operations.
         await new Promise(resolve => setTimeout(resolve, 10000));
         try {
             currentOperation = await ai.operations.getVideosOperation({ operation: currentOperation });
@@ -51,17 +51,20 @@ const pollVideoOperation = async (operation: any): Promise<string> => {
     
     const response = await fetch(`${downloadLink}&key=${process.env.API_KEY}`);
     if (!response.ok) {
-        throw new Error(`Failed to download video: ${response.statusText}`);
+        const errorText = await response.text();
+        // The error from the Veo API is often a JSON object in the body
+        throw new Error(`Failed to download video: ${response.statusText} - ${errorText}`);
     }
     const blob = await response.blob();
-    return URL.createObjectURL(blob);
+    return blob;
 };
 
-export const generateInitialVideo = async (image: UploadedImage): Promise<string> => {
+// Helper function to abstract the video generation call
+const generateSingleVideo = (image: UploadedImage, prompt: string) => {
     const ai = getAiClient();
-    const operation = await ai.models.generateVideos({
+    return ai.models.generateVideos({
         model: 'veo-3.1-fast-generate-preview',
-        prompt: `Animate the character from this image to create a short, seamlessly looping video. The character should be sitting at a desk, looking forward with a pleasant, neutral expression, and subtly breathing, as if waiting for a conversation to start.`,
+        prompt,
         image: {
             imageBytes: image.base64,
             mimeType: image.mimeType,
@@ -69,31 +72,42 @@ export const generateInitialVideo = async (image: UploadedImage): Promise<string
         config: {
             numberOfVideos: 1,
             resolution: '720p',
-            // Fix: Changed aspect ratio to '9:16' as '1:1' is not a supported value for video generation.
             aspectRatio: '9:16'
         }
     });
+};
 
-    return pollVideoOperation(operation);
+export const generateInitialVideo = async (image: UploadedImage): Promise<{ urls: string[], fromCache: boolean }> => {
+    const imageHash = await hashImage(image.base64);
+    const cachedBlobs = await getVideoCache(imageHash);
+
+    if (cachedBlobs && cachedBlobs.length > 0) {
+        console.log("Loading initial video from cache.");
+        const urls = cachedBlobs.map(blob => URL.createObjectURL(blob));
+        return { urls, fromCache: true };
+    }
+
+    console.log("Generating new initial video.");
+    // Simplified to a single prompt to reduce API calls and avoid rate limits.
+    const prompt = `Animate the character from this image to create a short, seamlessly looping video. The character should be sitting at a desk, looking forward with a pleasant, neutral expression, and subtly breathing, as if waiting for a conversation to start.`;
+
+    // Generate and poll for a single video
+    const operation = await generateSingleVideo(image, prompt);
+    const blob = await pollVideoOperation(operation);
+    
+    // Store as an array with one blob to maintain data structure consistency
+    await setVideoCache(imageHash, [blob]);
+    console.log("Initial video saved to cache.");
+
+    const urls = [URL.createObjectURL(blob)];
+    return { urls, fromCache: false };
 };
 
 export const generateActionVideo = async (image: UploadedImage, command: string): Promise<string> => {
-    const ai = getAiClient();
-    const operation = await ai.models.generateVideos({
-        model: 'veo-3.1-fast-generate-preview',
-        prompt: `Animate the character from this image to perform the following action based on the command: "${command}". The action should be brief (a few seconds). After the action, the character should return to a neutral, waiting state.`,
-        image: {
-            imageBytes: image.base64,
-            mimeType: image.mimeType,
-        },
-        config: {
-            numberOfVideos: 1,
-            resolution: '720p',
-            // Fix: Changed aspect ratio to '9:16' as '1:1' is not a supported value for video generation.
-            aspectRatio: '9:16'
-        }
-    });
-    return pollVideoOperation(operation);
+    const prompt = `Animate the character from this image to perform the following action based on the command: "${command}". The action should be brief (a few seconds). After the action, the character should return to a neutral, waiting state.`;
+    const operation = await generateSingleVideo(image, prompt);
+    const blob = await pollVideoOperation(operation);
+    return URL.createObjectURL(blob);
 };
 
 export const startChatSession = async (): Promise<Chat> => {

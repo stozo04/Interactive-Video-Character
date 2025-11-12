@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { Chat } from '@google/genai';
 import { ChatMessage, UploadedImage } from './types';
 import * as geminiService from './services/geminiService';
+import { hashImage, setVideoCache } from './services/cacheService';
 
 import ApiKeySelector from './components/ApiKeySelector';
 import ImageUploader from './components/ImageUploader';
@@ -17,7 +18,7 @@ const App: React.FC = () => {
   const [isChatting, setIsChatting] = useState(false);
   const [chatSession, setChatSession] = useState<Chat | null>(null);
   const [chatHistory, setChatHistory] = useState<ChatMessage[]>([]);
-  const [initialVideoUrl, setInitialVideoUrl] = useState<string | null>(null);
+  const [initialVideoUrls, setInitialVideoUrls] = useState<string[] | null>(null);
   const [currentVideoUrl, setCurrentVideoUrl] = useState<string | null>(null);
   const [actionAudioData, setActionAudioData] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -26,6 +27,7 @@ const App: React.FC = () => {
     try {
       const hasKey = await window.aistudio.hasSelectedApiKey();
       setApiKeySelected(hasKey);
+      // Fix: Wrapped the catch block's content in curly braces to fix a syntax error.
     } catch (error) {
       console.error("Error checking for API key:", error);
       setApiKeySelected(false);
@@ -41,7 +43,13 @@ const App: React.FC = () => {
   };
   
   const handleApiError = useCallback((error: any) => {
-    const message = error instanceof Error ? error.message : String(error);
+    let message = error instanceof Error ? error.message : String(error);
+    
+    // Check for rate limit error
+    if (message.includes("429") || message.includes("RESOURCE_EXHAUSTED")) {
+        message = "You've made too many requests in a short period. Please wait a minute and try creating a character again.";
+    }
+
     setErrorMessage(message);
     if (message.includes("Requested entity was not found")) {
       setApiKeySelected(false);
@@ -62,14 +70,39 @@ const App: React.FC = () => {
     setIsGeneratingInitialVideo(true);
     setErrorMessage(null);
     try {
-      const videoUrl = await geminiService.generateInitialVideo(uploadedImage);
-      setInitialVideoUrl(videoUrl);
-      setCurrentVideoUrl(videoUrl);
+      const { urls: videoUrls } = await geminiService.generateInitialVideo(uploadedImage);
+      setInitialVideoUrls(videoUrls);
+      setCurrentVideoUrl(videoUrls[0]);
       const session = await geminiService.startChatSession();
       setChatSession(session);
       setChatHistory([{ role: 'model', text: 'Hello! What should I do next?' }]);
     } catch (error) {
       handleApiError(error);
+    } finally {
+      setIsGeneratingInitialVideo(false);
+    }
+  };
+
+  const handleSelectLocalVideo = async (videoFile: File) => {
+    if (!uploadedImage) return;
+
+    setIsGeneratingInitialVideo(true);
+    setErrorMessage(null);
+
+    try {
+      const videoUrl = URL.createObjectURL(videoFile);
+      const imageHash = await hashImage(uploadedImage.base64);
+      await setVideoCache(imageHash, [videoFile]);
+      console.log("Local idle video saved to cache.");
+
+      setInitialVideoUrls([videoUrl]);
+      setCurrentVideoUrl(videoUrl);
+      const session = await geminiService.startChatSession();
+      setChatSession(session);
+      setChatHistory([{ role: 'model', text: 'Hello! What should I do next?' }]);
+    } catch (error) {
+        console.error("Error processing local video:", error);
+        handleApiError(new Error("There was a problem processing your video file."));
     } finally {
       setIsGeneratingInitialVideo(false);
     }
@@ -106,9 +139,14 @@ const App: React.FC = () => {
     }
   };
 
-  const handleActionVideoEnd = () => {
-    // When the action video ends, revert to the initial looping video
-    setCurrentVideoUrl(initialVideoUrl);
+  const isActionVideoPlaying = initialVideoUrls !== null && currentVideoUrl !== null && !initialVideoUrls.includes(currentVideoUrl);
+
+  const handleVideoEnd = () => {
+    // When an action video finishes, revert to the initial looping video.
+    // The initial video will loop on its own via the <video> loop attribute.
+    if (isActionVideoPlaying && initialVideoUrls) {
+      setCurrentVideoUrl(initialVideoUrls[0]);
+    }
   };
 
   const handleActionAudioEnd = () => {
@@ -116,7 +154,6 @@ const App: React.FC = () => {
     setActionAudioData(null);
   };
 
-  const isActionVideoPlaying = initialVideoUrl !== null && currentVideoUrl !== initialVideoUrl;
   const isBusy = isGeneratingActionVideo || isChatting || isGeneratingInitialVideo || isActionVideoPlaying;
 
   const renderContent = () => {
@@ -126,22 +163,22 @@ const App: React.FC = () => {
     
     if (isGeneratingInitialVideo) {
       return (
-        <div className="flex flex-col items-center justify-center h-full">
-          <p className="text-2xl animate-pulse">Animating your character...</p>
-          <p className="mt-4 text-gray-400">This may take a few minutes. Please wait.</p>
+        <div className="flex flex-col items-center justify-center h-full text-center">
+          <p className="text-2xl animate-pulse">Loading character...</p>
+          <p className="mt-4 text-gray-400">This can take a few minutes for a new character. Previously used characters will load much faster!</p>
         </div>
       );
     }
 
-    if (initialVideoUrl) {
+    if (initialVideoUrls) {
       return (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 h-full">
           <div className="lg:col-span-2 h-full flex items-center justify-center bg-black rounded-lg">
             <VideoPlayer 
               src={currentVideoUrl}
-              onEnded={handleActionVideoEnd}
+              onEnded={handleVideoEnd}
               isLoading={isGeneratingActionVideo}
-              isActionVideo={isActionVideoPlaying}
+              loop={!isActionVideoPlaying}
             />
           </div>
           <div className="h-full">
@@ -159,6 +196,7 @@ const App: React.FC = () => {
       <ImageUploader 
         onImageUpload={handleImageUpload}
         onGenerate={handleGenerateInitialVideo}
+        onSelectLocalVideo={handleSelectLocalVideo}
         imagePreview={uploadedImage?.base64 ? `data:${uploadedImage.mimeType};base64,${uploadedImage.base64}` : null}
         isUploading={isBusy}
       />

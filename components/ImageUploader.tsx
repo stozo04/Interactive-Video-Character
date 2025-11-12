@@ -1,4 +1,3 @@
-
 import React, { useRef, useState } from 'react';
 import { UploadedImage } from '../types';
 import { fileToBase64 } from '../services/geminiService';
@@ -7,12 +6,14 @@ import LoadingSpinner from './LoadingSpinner';
 interface ImageUploaderProps {
   onImageUpload: (image: UploadedImage) => void;
   onGenerate: () => void;
+  onSelectLocalVideo: (videoFile: File) => void;
   imagePreview: string | null;
   isUploading: boolean;
 }
 
-const ImageUploader: React.FC<ImageUploaderProps> = ({ onImageUpload, onGenerate, imagePreview, isUploading }) => {
+const ImageUploader: React.FC<ImageUploaderProps> = ({ onImageUpload, onGenerate, onSelectLocalVideo, imagePreview, isUploading }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const videoFileInputRef = useRef<HTMLInputElement>(null);
   const [dragActive, setDragActive] = useState(false);
 
   const handleFileChange = async (files: FileList | null) => {
@@ -51,13 +52,34 @@ const ImageUploader: React.FC<ImageUploaderProps> = ({ onImageUpload, onGenerate
       {imagePreview ? (
         <div className="w-full max-w-md flex flex-col items-center gap-6">
           <img src={imagePreview} alt="Preview" className="rounded-lg shadow-lg max-h-80 object-contain"/>
-          <button 
-            onClick={onGenerate}
-            disabled={isUploading}
-            className="w-full bg-purple-600 text-white font-bold py-3 px-6 rounded-lg hover:bg-purple-500 transition-colors duration-300 disabled:bg-gray-500 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-          >
-            {isUploading ? <><LoadingSpinner /> Generating...</> : 'Create Interactive Character'}
-          </button>
+          <p className="text-gray-300 text-center">Your character is ready. How should we create the idle animation?</p>
+          <div className="w-full flex flex-col sm:flex-row gap-4">
+            <button 
+              onClick={onGenerate}
+              disabled={isUploading}
+              className="flex-1 bg-purple-600 text-white font-bold py-3 px-6 rounded-lg hover:bg-purple-500 transition-colors duration-300 disabled:bg-gray-500 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+            >
+              {isUploading ? <><LoadingSpinner /> Generating...</> : 'Generate Animation'}
+            </button>
+            <button
+              onClick={() => videoFileInputRef.current?.click()}
+              disabled={isUploading}
+              className="flex-1 bg-gray-600 text-white font-bold py-3 px-6 rounded-lg hover:bg-gray-500 transition-colors duration-300 disabled:bg-gray-500 disabled:cursor-not-allowed"
+            >
+              Upload Animation
+            </button>
+          </div>
+          <input
+            type="file"
+            ref={videoFileInputRef}
+            className="hidden"
+            accept="video/mp4,video/webm"
+            onChange={(e) => {
+              if (e.target.files && e.target.files[0]) {
+                onSelectLocalVideo(e.target.files[0]);
+              }
+            }}
+          />
         </div>
       ) : (
         <div 
