@@ -1,0 +1,5 @@
+{
+  "name": "Gemini Interactive Video Character",
+  "description": "Upload an image to generate an interactive video character. Chat with the character in real-time and watch them respond to your commands through dynamically generated video clips.",
+  "requestFramePermissions": []
+}
