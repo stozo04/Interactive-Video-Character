@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useCallback } from 'react';
 import { Chat } from '@google/genai';
 import { ChatMessage, UploadedImage } from './types';
@@ -8,6 +7,7 @@ import ApiKeySelector from './components/ApiKeySelector';
 import ImageUploader from './components/ImageUploader';
 import VideoPlayer from './components/VideoPlayer';
 import ChatPanel from './components/ChatPanel';
+import AudioPlayer from './components/AudioPlayer';
 
 const App: React.FC = () => {
   const [apiKeySelected, setApiKeySelected] = useState(false);
@@ -19,6 +19,7 @@ const App: React.FC = () => {
   const [chatHistory, setChatHistory] = useState<ChatMessage[]>([]);
   const [initialVideoUrl, setInitialVideoUrl] = useState<string | null>(null);
   const [currentVideoUrl, setCurrentVideoUrl] = useState<string | null>(null);
+  const [actionAudioData, setActionAudioData] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const checkApiKey = useCallback(async () => {
@@ -79,32 +80,44 @@ const App: React.FC = () => {
     setErrorMessage(null);
     setIsChatting(true);
     setIsGeneratingActionVideo(true);
+    setActionAudioData(null); // Clear previous audio
     
     const newHistory: ChatMessage[] = [...chatHistory, { role: 'user', text: message }];
     setChatHistory(newHistory);
 
     try {
-      // Start both requests in parallel
-      const chatResponsePromise = geminiService.sendMessage(chatSession, message);
-      const videoResponsePromise = geminiService.generateActionVideo(uploadedImage, message);
-
-      const chatResponse = await chatResponsePromise;
+      // Get chat response first so it appears in the UI quickly
+      const chatResponse = await geminiService.sendMessage(chatSession, message);
       setChatHistory([...newHistory, { role: 'model', text: chatResponse }]);
       setIsChatting(false);
 
-      const videoUrl = await videoResponsePromise;
-      setCurrentVideoUrl(videoUrl); // This will trigger the video player to play the new action video
+      // Now generate video and audio in parallel
+      const videoResponsePromise = geminiService.generateActionVideo(uploadedImage, message);
+      const speechPromise = geminiService.generateSpeech(chatResponse);
+
+      const [videoUrl, audioData] = await Promise.all([videoResponsePromise, speechPromise]);
+      
+      setCurrentVideoUrl(videoUrl);
+      setActionAudioData(audioData);
+      setIsGeneratingActionVideo(false);
+
     } catch (error) {
       handleApiError(error);
     }
   };
 
   const handleActionVideoEnd = () => {
+    // When the action video ends, revert to the initial looping video
     setCurrentVideoUrl(initialVideoUrl);
-    setIsGeneratingActionVideo(false);
   };
 
-  const isBusy = isGeneratingActionVideo || isChatting || isGeneratingInitialVideo;
+  const handleActionAudioEnd = () => {
+    // When audio ends, clear the data so it doesn't replay
+    setActionAudioData(null);
+  };
+
+  const isActionVideoPlaying = initialVideoUrl !== null && currentVideoUrl !== initialVideoUrl;
+  const isBusy = isGeneratingActionVideo || isChatting || isGeneratingInitialVideo || isActionVideoPlaying;
 
   const renderContent = () => {
     if (!apiKeySelected) {
@@ -128,7 +141,7 @@ const App: React.FC = () => {
               src={currentVideoUrl}
               onEnded={handleActionVideoEnd}
               isLoading={isGeneratingActionVideo}
-              isActionVideo={currentVideoUrl !== initialVideoUrl}
+              isActionVideo={isActionVideoPlaying}
             />
           </div>
           <div className="h-full">
@@ -164,6 +177,7 @@ const App: React.FC = () => {
         {errorMessage && <div className="bg-red-500/20 border border-red-500 text-red-300 p-3 rounded-lg mb-4 text-center">{errorMessage}</div>}
         {renderContent()}
       </main>
+      <AudioPlayer src={actionAudioData} onEnded={handleActionAudioEnd} />
     </div>
   );
 };
