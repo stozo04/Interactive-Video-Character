@@ -18,4 +18,21 @@ export interface CharacterProfile {
   idleVideo: Blob;
 }
 
-// Fix: Removed conflicting global type declaration for `window.aistudio`.
+// Add global type declarations for browser-specific objects
+// Fix for line 24: Define AIStudio interface to resolve type conflict.
+interface AIStudio {
+  hasSelectedApiKey: () => Promise<boolean>;
+  openSelectKey: () => Promise<void>;
+}
+
+declare global {
+  interface Window {
+    aistudio?: AIStudio;
+    process?: {
+      env: {
+        [key: string]: string | undefined;
+        API_KEY?: string;
+      };
+    };
+  }
+}
