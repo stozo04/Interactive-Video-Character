@@ -11,4 +11,11 @@ export interface UploadedImage {
   mimeType: string;
 }
 
+export interface CharacterProfile {
+  id: string; // image hash
+  createdAt: number;
+  image: UploadedImage;
+  idleVideo: Blob;
+}
+
 // Fix: Removed conflicting global type declaration for `window.aistudio`.

@@ -7,11 +7,12 @@ interface ImageUploaderProps {
   onImageUpload: (image: UploadedImage) => void;
   onGenerate: () => void;
   onSelectLocalVideo: (videoFile: File) => void;
+  onBack: () => void;
   imagePreview: string | null;
   isUploading: boolean;
 }
 
-const ImageUploader: React.FC<ImageUploaderProps> = ({ onImageUpload, onGenerate, onSelectLocalVideo, imagePreview, isUploading }) => {
+const ImageUploader: React.FC<ImageUploaderProps> = ({ onImageUpload, onGenerate, onSelectLocalVideo, onBack, imagePreview, isUploading }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const videoFileInputRef = useRef<HTMLInputElement>(null);
   const [dragActive, setDragActive] = useState(false);
@@ -48,7 +49,15 @@ const ImageUploader: React.FC<ImageUploaderProps> = ({ onImageUpload, onGenerate
   };
 
   return (
-    <div className="flex flex-col items-center justify-center h-full gap-8">
+    <div className="flex flex-col items-center justify-center h-full gap-8 relative">
+      <button 
+        onClick={onBack} 
+        className="absolute top-0 left-0 bg-gray-700/50 hover:bg-gray-600/80 text-white rounded-full p-2 transition-colors"
+        aria-label="Back to character selection"
+      >
+        <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
+      </button>
+
       {imagePreview ? (
         <div className="w-full max-w-md flex flex-col items-center gap-6">
           <img src={imagePreview} alt="Preview" className="rounded-lg shadow-lg max-h-80 object-contain"/>

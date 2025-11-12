@@ -1,24 +1,40 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Chat } from '@google/genai';
-import { ChatMessage, UploadedImage } from './types';
+import { ChatMessage, UploadedImage, CharacterProfile } from './types';
 import * as geminiService from './services/geminiService';
-import { hashImage, setVideoCache } from './services/cacheService';
+import * as dbService from './services/cacheService';
 
 import ApiKeySelector from './components/ApiKeySelector';
 import ImageUploader from './components/ImageUploader';
 import VideoPlayer from './components/VideoPlayer';
 import ChatPanel from './components/ChatPanel';
 import AudioPlayer from './components/AudioPlayer';
+import CharacterSelector from './components/CharacterSelector';
+import LoadingSpinner from './components/LoadingSpinner';
+
+type View = 'loading' | 'selectCharacter' | 'createCharacter' | 'chat';
+
+// A type for characters that includes their profile and the temporary URLs for display
+interface DisplayCharacter {
+  profile: CharacterProfile;
+  imageUrl: string;
+  videoUrl: string;
+}
 
 const App: React.FC = () => {
   const [apiKeySelected, setApiKeySelected] = useState(false);
+  const [view, setView] = useState<View>('loading');
+  const [characters, setCharacters] = useState<CharacterProfile[]>([]);
+  const [selectedCharacter, setSelectedCharacter] = useState<CharacterProfile | null>(null);
+  const [idleVideoUrl, setIdleVideoUrl] = useState<string | null>(null);
+
   const [uploadedImage, setUploadedImage] = useState<UploadedImage | null>(null);
   const [isGeneratingInitialVideo, setIsGeneratingInitialVideo] = useState(false);
   const [isGeneratingActionVideo, setIsGeneratingActionVideo] = useState(false);
   const [isChatting, setIsChatting] = useState(false);
   const [chatSession, setChatSession] = useState<Chat | null>(null);
   const [chatHistory, setChatHistory] = useState<ChatMessage[]>([]);
-  const [initialVideoUrls, setInitialVideoUrls] = useState<string[] | null>(null);
+  
   const [currentVideoUrl, setCurrentVideoUrl] = useState<string | null>(null);
   const [actionAudioData, setActionAudioData] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -27,16 +43,48 @@ const App: React.FC = () => {
     try {
       const hasKey = await window.aistudio.hasSelectedApiKey();
       setApiKeySelected(hasKey);
-      // Fix: Wrapped the catch block's content in curly braces to fix a syntax error.
     } catch (error) {
       console.error("Error checking for API key:", error);
       setApiKeySelected(false);
     }
   }, []);
 
+  const loadCharacters = useCallback(async () => {
+    setView('loading');
+    const savedCharacters = await dbService.getCharacters();
+    setCharacters(savedCharacters.sort((a, b) => b.createdAt - a.createdAt));
+    setView('selectCharacter');
+  }, []);
+
   useEffect(() => {
     checkApiKey();
-  }, [checkApiKey]);
+    loadCharacters();
+  }, [checkApiKey, loadCharacters]);
+
+  const displayCharacters = useMemo((): DisplayCharacter[] => {
+    try {
+      return characters.map(profile => ({
+        profile,
+        // Use base64 data URL for the image to avoid issues with File object serialization from IndexedDB.
+        imageUrl: `data:${profile.image.mimeType};base64,${profile.image.base64}`,
+        videoUrl: URL.createObjectURL(profile.idleVideo)
+      }));
+    } catch (e) {
+      console.error("Error creating object URLs for character list:", e);
+      setErrorMessage("Failed to load character data. Some characters may be corrupted.");
+      return [];
+    }
+  }, [characters]);
+
+  useEffect(() => {
+    // Cleanup object URLs when component unmounts or characters change.
+    return () => {
+      displayCharacters.forEach(c => {
+        // Only videoUrl needs to be revoked, as imageUrl is now a data URL.
+        URL.revokeObjectURL(c.videoUrl);
+      });
+    };
+  }, [displayCharacters]);
 
   const handleApiKeySelected = () => {
     setApiKeySelected(true);
@@ -44,12 +92,9 @@ const App: React.FC = () => {
   
   const handleApiError = useCallback((error: any) => {
     let message = error instanceof Error ? error.message : String(error);
-    
-    // Check for rate limit error
     if (message.includes("429") || message.includes("RESOURCE_EXHAUSTED")) {
-        message = "You've made too many requests in a short period. Please wait a minute and try creating a character again.";
+        message = "You've made too many requests. Please wait a minute and try again.";
     }
-
     setErrorMessage(message);
     if (message.includes("Requested entity was not found")) {
       setApiKeySelected(false);
@@ -65,17 +110,40 @@ const App: React.FC = () => {
     setErrorMessage(null);
   };
 
+  const handleCharacterCreated = async (image: UploadedImage, idleVideoBlob: Blob) => {
+    try {
+        const imageHash = await dbService.hashImage(image.base64);
+
+        // Check if character with this image already exists
+        const existingChar = characters.find(c => c.id === imageHash);
+        if (existingChar) {
+            alert("A character with this image already exists. Loading that character instead.");
+            handleSelectCharacter(existingChar);
+            return;
+        }
+
+        const newCharacter: CharacterProfile = {
+            id: imageHash,
+            createdAt: Date.now(),
+            image,
+            idleVideo: idleVideoBlob,
+        };
+        await dbService.saveCharacter(newCharacter);
+        setCharacters(prev => [newCharacter, ...prev]);
+        handleSelectCharacter(newCharacter);
+    } catch (error) {
+        console.error("Error saving character:", error);
+        handleApiError(new Error("Failed to save the new character."));
+    }
+  };
+
   const handleGenerateInitialVideo = async () => {
     if (!uploadedImage) return;
     setIsGeneratingInitialVideo(true);
     setErrorMessage(null);
     try {
-      const { urls: videoUrls } = await geminiService.generateInitialVideo(uploadedImage);
-      setInitialVideoUrls(videoUrls);
-      setCurrentVideoUrl(videoUrls[0]);
-      const session = await geminiService.startChatSession();
-      setChatSession(session);
-      setChatHistory([{ role: 'model', text: 'Hello! What should I do next?' }]);
+      const videoBlob = await geminiService.generateInitialVideo(uploadedImage);
+      await handleCharacterCreated(uploadedImage, videoBlob);
     } catch (error) {
       handleApiError(error);
     } finally {
@@ -85,122 +153,164 @@ const App: React.FC = () => {
 
   const handleSelectLocalVideo = async (videoFile: File) => {
     if (!uploadedImage) return;
-
     setIsGeneratingInitialVideo(true);
     setErrorMessage(null);
-
     try {
-      const videoUrl = URL.createObjectURL(videoFile);
-      const imageHash = await hashImage(uploadedImage.base64);
-      await setVideoCache(imageHash, [videoFile]);
-      console.log("Local idle video saved to cache.");
-
-      setInitialVideoUrls([videoUrl]);
-      setCurrentVideoUrl(videoUrl);
-      const session = await geminiService.startChatSession();
-      setChatSession(session);
-      setChatHistory([{ role: 'model', text: 'Hello! What should I do next?' }]);
+        await handleCharacterCreated(uploadedImage, videoFile);
     } catch (error) {
         console.error("Error processing local video:", error);
         handleApiError(new Error("There was a problem processing your video file."));
     } finally {
-      setIsGeneratingInitialVideo(false);
+        setIsGeneratingInitialVideo(false);
     }
   };
 
+  const handleSelectCharacter = async (character: CharacterProfile) => {
+    setSelectedCharacter(character);
+    const newIdleVideoUrl = URL.createObjectURL(character.idleVideo);
+    setIdleVideoUrl(newIdleVideoUrl);
+    setCurrentVideoUrl(newIdleVideoUrl);
+    const session = await geminiService.startChatSession();
+    setChatSession(session);
+    setChatHistory([{ role: 'model', text: 'Hello! What should I do next?' }]);
+    setView('chat');
+  };
+
+  const handleDeleteCharacter = async (id: string) => {
+    if (window.confirm("Are you sure you want to delete this character?")) {
+        await dbService.deleteCharacter(id);
+        setCharacters(prev => prev.filter(c => c.id !== id));
+    }
+  };
+
+  const handleBackToSelection = () => {
+    // Revoke the idle video URL when going back.
+    if (idleVideoUrl) {
+      URL.revokeObjectURL(idleVideoUrl);
+    }
+    // Also revoke the current action video if it's different and exists.
+    if (currentVideoUrl && currentVideoUrl !== idleVideoUrl) {
+        URL.revokeObjectURL(currentVideoUrl);
+    }
+    
+    // Reset all session-specific states
+    setSelectedCharacter(null);
+    setIdleVideoUrl(null);
+    setCurrentVideoUrl(null);
+    setChatSession(null);
+    setChatHistory([]);
+    setUploadedImage(null);
+    setErrorMessage(null);
+    setActionAudioData(null);
+    setView('selectCharacter');
+  }
+
   const handleSendMessage = async (message: string) => {
-    if (!chatSession || !uploadedImage) return;
+    if (!chatSession || !selectedCharacter) return;
     setErrorMessage(null);
     setIsChatting(true);
     setIsGeneratingActionVideo(true);
-    setActionAudioData(null); // Clear previous audio
+    setActionAudioData(null);
     
     const newHistory: ChatMessage[] = [...chatHistory, { role: 'user', text: message }];
     setChatHistory(newHistory);
 
     try {
-      // Get chat response first so it appears in the UI quickly
       const chatResponse = await geminiService.sendMessage(chatSession, message);
       setChatHistory([...newHistory, { role: 'model', text: chatResponse }]);
       setIsChatting(false);
 
-      // Now generate video and audio in parallel
-      const videoResponsePromise = geminiService.generateActionVideo(uploadedImage, message);
+      const videoResponsePromise = geminiService.generateActionVideo(selectedCharacter.image, message);
       const speechPromise = geminiService.generateSpeech(chatResponse);
 
       const [videoUrl, audioData] = await Promise.all([videoResponsePromise, speechPromise]);
       
+      // Revoke previous action video URL if it exists
+      if (currentVideoUrl && currentVideoUrl !== idleVideoUrl) {
+          URL.revokeObjectURL(currentVideoUrl);
+      }
+
       setCurrentVideoUrl(videoUrl);
       setActionAudioData(audioData);
       setIsGeneratingActionVideo(false);
-
     } catch (error) {
       handleApiError(error);
     }
   };
-
-  const isActionVideoPlaying = initialVideoUrls !== null && currentVideoUrl !== null && !initialVideoUrls.includes(currentVideoUrl);
+  
+  const isActionVideoPlaying = currentVideoUrl !== null && currentVideoUrl !== idleVideoUrl;
 
   const handleVideoEnd = () => {
-    // When an action video finishes, revert to the initial looping video.
-    // The initial video will loop on its own via the <video> loop attribute.
-    if (isActionVideoPlaying && initialVideoUrls) {
-      setCurrentVideoUrl(initialVideoUrls[0]);
+    if (isActionVideoPlaying && idleVideoUrl) {
+      // Revoke the object URL of the action video that just finished.
+      if (currentVideoUrl) {
+        URL.revokeObjectURL(currentVideoUrl);
+      }
+      setCurrentVideoUrl(idleVideoUrl);
     }
   };
 
   const handleActionAudioEnd = () => {
-    // When audio ends, clear the data so it doesn't replay
     setActionAudioData(null);
   };
 
-  const isBusy = isGeneratingActionVideo || isChatting || isGeneratingInitialVideo || isActionVideoPlaying;
+  const isBusy = isGeneratingActionVideo || isChatting || isGeneratingInitialVideo;
 
   const renderContent = () => {
     if (!apiKeySelected) {
       return <ApiKeySelector onApiKeySelected={handleApiKeySelected} errorMessage={errorMessage} />;
     }
     
-    if (isGeneratingInitialVideo) {
-      return (
-        <div className="flex flex-col items-center justify-center h-full text-center">
-          <p className="text-2xl animate-pulse">Loading character...</p>
-          <p className="mt-4 text-gray-400">This can take a few minutes for a new character. Previously used characters will load much faster!</p>
-        </div>
-      );
+    switch (view) {
+        case 'loading':
+            return <div className="flex items-center justify-center h-full"><LoadingSpinner /></div>;
+        case 'selectCharacter':
+            return <CharacterSelector 
+                characters={displayCharacters}
+                onSelectCharacter={handleSelectCharacter}
+                onCreateNew={() => setView('createCharacter')}
+                onDeleteCharacter={handleDeleteCharacter}
+            />;
+        case 'createCharacter':
+            return (
+              <ImageUploader 
+                onImageUpload={handleImageUpload}
+                onGenerate={handleGenerateInitialVideo}
+                onSelectLocalVideo={handleSelectLocalVideo}
+                imagePreview={uploadedImage?.base64 ? `data:${uploadedImage.mimeType};base64,${uploadedImage.base64}` : null}
+                isUploading={isGeneratingInitialVideo}
+                onBack={handleBackToSelection}
+              />
+            );
+        case 'chat':
+            if (!selectedCharacter) return null; // Should not happen
+            return (
+              <div className="relative grid grid-cols-1 lg:grid-cols-3 gap-8 h-full">
+                <button 
+                  onClick={handleBackToSelection} 
+                  className="absolute top-2 left-2 z-30 bg-gray-800/50 hover:bg-gray-700/80 text-white rounded-full p-2 transition-colors"
+                  aria-label="Back to character selection"
+                >
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
+                </button>
+                <div className="lg:col-span-2 h-full flex items-center justify-center bg-black rounded-lg">
+                  <VideoPlayer 
+                    src={currentVideoUrl}
+                    onEnded={handleVideoEnd}
+                    isLoading={isGeneratingActionVideo}
+                    loop={!isActionVideoPlaying}
+                  />
+                </div>
+                <div className="h-full">
+                  <ChatPanel
+                    history={chatHistory}
+                    onSendMessage={handleSendMessage}
+                    isSending={isBusy}
+                  />
+                </div>
+              </div>
+            );
     }
-
-    if (initialVideoUrls) {
-      return (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 h-full">
-          <div className="lg:col-span-2 h-full flex items-center justify-center bg-black rounded-lg">
-            <VideoPlayer 
-              src={currentVideoUrl}
-              onEnded={handleVideoEnd}
-              isLoading={isGeneratingActionVideo}
-              loop={!isActionVideoPlaying}
-            />
-          </div>
-          <div className="h-full">
-            <ChatPanel
-              history={chatHistory}
-              onSendMessage={handleSendMessage}
-              isSending={isBusy}
-            />
-          </div>
-        </div>
-      );
-    }
-
-    return (
-      <ImageUploader 
-        onImageUpload={handleImageUpload}
-        onGenerate={handleGenerateInitialVideo}
-        onSelectLocalVideo={handleSelectLocalVideo}
-        imagePreview={uploadedImage?.base64 ? `data:${uploadedImage.mimeType};base64,${uploadedImage.base64}` : null}
-        isUploading={isBusy}
-      />
-    );
   };
 
   return (
