@@ -1,4 +1,4 @@
-import { GoogleGenAI, Chat } from "@google/genai";
+import { GoogleGenAI, Chat, Modality } from "@google/genai";
 import { UploadedImage } from '../types';
 
 // Utility to convert file to base64
@@ -45,7 +45,8 @@ const pollVideoOperation = async (operation: any): Promise<string> => {
 
     const downloadLink = currentOperation.response?.generatedVideos?.[0]?.video?.uri;
     if (!downloadLink) {
-        throw new Error("Video generation completed, but no download link was found. The operation may have failed without a specific error message.");
+        console.error("Video generation completed without a download link. Full operation response:", JSON.stringify(currentOperation, null, 2));
+        throw new Error("Video generation failed. This may be due to safety filters blocking the input image. Please try using a different image.");
     }
     
     const response = await fetch(`${downloadLink}&key=${process.env.API_KEY}`);
@@ -109,4 +110,26 @@ export const startChatSession = async (): Promise<Chat> => {
 export const sendMessage = async (chat: Chat, message: string): Promise<string> => {
     const response = await chat.sendMessage({ message });
     return response.text;
+};
+
+export const generateSpeech = async (text: string): Promise<string> => {
+    const ai = getAiClient();
+    const response = await ai.models.generateContent({
+        model: "gemini-2.5-flash-preview-tts",
+        contents: [{ parts: [{ text }] }],
+        config: {
+            responseModalities: [Modality.AUDIO],
+            speechConfig: {
+                voiceConfig: {
+                    prebuiltVoiceConfig: { voiceName: 'Kore' }, // A friendly, standard voice
+                },
+            },
+        },
+    });
+
+    const base64Audio = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
+    if (!base64Audio) {
+        throw new Error("Speech generation failed, no audio data received.");
+    }
+    return base64Audio;
 };
