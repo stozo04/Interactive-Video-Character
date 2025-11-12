@@ -23,6 +23,7 @@ interface DisplayCharacter {
 
 const App: React.FC = () => {
   const [apiKeySelected, setApiKeySelected] = useState(false);
+  const [isAiStudio, setIsAiStudio] = useState(false);
   const [view, setView] = useState<View>('loading');
   const [characters, setCharacters] = useState<CharacterProfile[]>([]);
   const [selectedCharacter, setSelectedCharacter] = useState<CharacterProfile | null>(null);
@@ -40,8 +41,13 @@ const App: React.FC = () => {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const checkApiKey = useCallback(async () => {
+    const isStudioEnv = typeof window.aistudio?.hasSelectedApiKey === 'function';
+    setIsAiStudio(isStudioEnv);
     try {
-      const hasKey = await window.aistudio.hasSelectedApiKey();
+      // In local dev, we check a manually set key. In AI Studio, we use the provided API.
+      const hasKey = isStudioEnv
+        ? await window.aistudio.hasSelectedApiKey()
+        : !!window.process?.env?.API_KEY;
       setApiKeySelected(hasKey);
     } catch (error) {
       console.error("Error checking for API key:", error);
@@ -88,6 +94,7 @@ const App: React.FC = () => {
 
   const handleApiKeySelected = () => {
     setApiKeySelected(true);
+    setErrorMessage(null); // Clear previous errors
   };
   
   const handleApiError = useCallback((error: any) => {
@@ -96,9 +103,13 @@ const App: React.FC = () => {
         message = "You've made too many requests. Please wait a minute and try again.";
     }
     setErrorMessage(message);
-    if (message.includes("Requested entity was not found")) {
+    if (message.includes("Requested entity was not found") || message.toLowerCase().includes("api key not valid")) {
+      // Clear the bad key for local dev environments
+      if (window.process?.env) {
+          delete window.process.env.API_KEY;
+      }
       setApiKeySelected(false);
-      setErrorMessage("API Key is invalid. Please select a new key.");
+      setErrorMessage("API Key is invalid. Please select a new key or enter a valid one.");
     }
     setIsGeneratingInitialVideo(false);
     setIsGeneratingActionVideo(false);
@@ -258,7 +269,11 @@ const App: React.FC = () => {
 
   const renderContent = () => {
     if (!apiKeySelected) {
-      return <ApiKeySelector onApiKeySelected={handleApiKeySelected} errorMessage={errorMessage} />;
+      return <ApiKeySelector 
+                onApiKeySelected={handleApiKeySelected} 
+                errorMessage={errorMessage}
+                isAiStudio={isAiStudio} 
+              />;
     }
     
     switch (view) {
