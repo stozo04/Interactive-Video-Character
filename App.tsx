@@ -8,7 +8,9 @@ import {
 } from './types';
 import * as dbService from './services/cacheService';
 import { supabase } from './services/supabaseClient';
-import * as mockChatService from './services/mockChatService';
+import * as grokChatService from './services/grokChatService';
+import type { GrokChatSession } from './services/grokChatService';
+import * as conversationHistoryService from './services/conversationHistoryService';
 
 import ImageUploader from './components/ImageUploader';
 import VideoPlayer from './components/VideoPlayer';
@@ -23,6 +25,36 @@ const sanitizeText = (value: string): string =>
     .replace(/[^a-z0-9\s]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
+
+// Generate or retrieve a stable user ID (browser fingerprinting)
+const getUserId = (): string => {
+  const storageKey = 'interactive_video_character_user_id';
+  let userId = localStorage.getItem(storageKey);
+  
+  if (!userId) {
+    // Generate a unique ID based on browser fingerprint
+    const fingerprint = [
+      navigator.userAgent,
+      navigator.language,
+      screen.width,
+      screen.height,
+      new Date().getTime(),
+    ].join('|');
+    
+    // Simple hash function
+    let hash = 0;
+    for (let i = 0; i < fingerprint.length; i++) {
+      const char = fingerprint.charCodeAt(i);
+      hash = ((hash << 5) - hash) + char;
+      hash = hash & hash; // Convert to 32-bit integer
+    }
+    
+    userId = `user_${Math.abs(hash).toString(36)}`;
+    localStorage.setItem(storageKey, userId);
+  }
+  
+  return userId;
+};
 
 const ACTION_VIDEO_BUCKET = 'character-action-videos';
 const IDLE_ACTION_DELAY_MIN_MS = 10_000;
@@ -143,6 +175,8 @@ const App: React.FC = () => {
   const [isActionManagerOpen, setIsActionManagerOpen] = useState(false);
   const [lastInteractionAt, setLastInteractionAt] = useState(() => Date.now());
   const [isMuted, setIsMuted] = useState(false);
+  const [grokSession, setGrokSession] = useState<GrokChatSession | null>(null);
+  const [lastSavedMessageIndex, setLastSavedMessageIndex] = useState<number>(-1);
 
   const idleActionTimerRef = useRef<number | null>(null);
 
@@ -374,6 +408,8 @@ const App: React.FC = () => {
         image,
         idleVideo: idleVideoBlob,
         actions: [],
+        name: 'Kayley Adams',
+        displayName: 'Kayley',
       };
 
       await dbService.saveCharacter(newCharacter);
@@ -646,9 +682,37 @@ const App: React.FC = () => {
     setCurrentVideoUrl(newIdleVideoUrl);
     setCurrentActionId(null);
     
-    // Generate personalized greeting using mock ChatGPT
-    const greeting = await mockChatService.generateGreeting(character);
-    setChatHistory([{ role: 'model', text: greeting }]);
+    // Load conversation history for this character-user pair
+    const userId = getUserId();
+    const savedHistory = await conversationHistoryService.loadConversationHistory(character.id, userId);
+    
+    // Generate personalized greeting using Grok (with full history context)
+    try {
+      const session = grokChatService.getOrCreateSession(character.id, userId);
+      const { greeting, session: updatedSession } = await grokChatService.generateGrokGreeting(
+        character, 
+        session,
+        savedHistory // Pass saved history for context
+      );
+      setGrokSession(updatedSession);
+      
+      // Combine saved history with new greeting
+      const initialHistory = savedHistory.length > 0 
+        ? [...savedHistory, { role: 'model' as const, text: greeting }]
+        : [{ role: 'model' as const, text: greeting }];
+      setChatHistory(initialHistory);
+      // Track that all loaded messages are saved (greeting is new, so we're at savedHistory.length)
+      setLastSavedMessageIndex(savedHistory.length - 1);
+    } catch (error) {
+      console.error('Error generating Grok greeting:', error);
+      // Show error to user and start with saved history only (no greeting)
+      setErrorMessage('Failed to generate greeting. Please try again.');
+      const initialHistory = savedHistory.length > 0
+        ? savedHistory
+        : [];
+      setChatHistory(initialHistory);
+      setLastSavedMessageIndex(savedHistory.length - 1);
+    }
     setView('chat');
 
     // Check for greeting actions and play one automatically
@@ -687,8 +751,39 @@ const App: React.FC = () => {
     }
   };
 
-  const handleBackToSelection = () => {
+  const handleBackToSelection = async () => {
     registerInteraction();
+    
+    // Save any unsaved conversation history before leaving
+    // Note: We don't save greetings (they're generated fresh each time)
+    if (selectedCharacter && chatHistory.length > 0 && lastSavedMessageIndex < chatHistory.length - 1) {
+      const userId = getUserId();
+      // Only save messages that haven't been saved yet
+      // Filter out any greeting messages (they start with common greeting patterns)
+      const unsavedMessages = chatHistory
+        .slice(lastSavedMessageIndex + 1)
+        .filter(msg => {
+          // Don't save greeting messages - they're generated fresh each time
+          const text = msg.text.toLowerCase();
+          const isGreeting = text.includes('hi!') || text.includes('hello') || 
+            (text.includes('can perform') && text.length < 50);
+          return !isGreeting || msg.role === 'user'; // Always save user messages
+        });
+      
+      if (unsavedMessages.length > 0) {
+        try {
+          await conversationHistoryService.appendConversationHistory(
+            selectedCharacter.id,
+            userId,
+            unsavedMessages
+          );
+        } catch (error) {
+          console.error('Failed to save conversation history:', error);
+          // Don't block user from leaving
+        }
+      }
+    }
+    
     if (idleVideoUrl) {
       try {
         URL.revokeObjectURL(idleVideoUrl);
@@ -718,6 +813,8 @@ const App: React.FC = () => {
     setCurrentActionId(null);
     setActionVideoUrls({});
     setChatHistory([]);
+    setGrokSession(null);
+    setLastSavedMessageIndex(-1);
     setUploadedImage(null);
     setErrorMessage(null);
     setView('selectCharacter');
@@ -732,7 +829,10 @@ const App: React.FC = () => {
 
     registerInteraction();
     setErrorMessage(null);
-    setChatHistory((prev) => [...prev, { role: 'user', text: message }]);
+    
+    // Add user message to local state immediately
+    const updatedHistory = [...chatHistory, { role: 'user' as const, text: message }];
+    setChatHistory(updatedHistory);
     setIsProcessingAction(true);
 
     try {
@@ -741,11 +841,42 @@ const App: React.FC = () => {
         selectedCharacter.actions
       );
 
-      // Generate response from mock ChatGPT service
-      const response = await mockChatService.generateMockResponse(message, {
-        character: selectedCharacter,
-        matchingAction,
-        chatHistory,
+      // Generate response from Grok chat service
+      const userId = getUserId();
+      const session = grokSession || grokChatService.getOrCreateSession(selectedCharacter.id, userId);
+      
+      const { response, session: updatedSession } = await grokChatService.generateGrokResponse(
+        message,
+        {
+          character: selectedCharacter,
+          matchingAction,
+          chatHistory: updatedHistory, // Use updated history with new user message
+        },
+        session
+      );
+      
+      setGrokSession(updatedSession);
+      
+      // Add response to local state
+      const finalHistory = [...updatedHistory, { role: 'model' as const, text: response }];
+      setChatHistory(finalHistory);
+      
+      // Append new messages to conversation history in database
+      // We append incrementally to avoid re-saving the entire history each time
+      const newMessages: ChatMessage[] = [
+        { role: 'user', text: message },
+        { role: 'model', text: response },
+      ];
+      // Save asynchronously - don't block UI
+      conversationHistoryService.appendConversationHistory(
+        selectedCharacter.id,
+        userId,
+        newMessages
+      ).then(() => {
+        // Track that we've saved up to the current message count
+        setLastSavedMessageIndex(finalHistory.length - 1);
+      }).catch(error => {
+        console.error('Failed to save conversation history:', error);
       });
 
       // If action was matched, play it
@@ -786,11 +917,7 @@ const App: React.FC = () => {
         }
       }
 
-      // Add the generated response to chat
-      setChatHistory((prev) => [
-        ...prev,
-        { role: 'model', text: response },
-      ]);
+      // Response already added to chat history above
     } catch (error) {
       console.error('Error generating response:', error);
       setErrorMessage('Failed to generate response. Please try again.');

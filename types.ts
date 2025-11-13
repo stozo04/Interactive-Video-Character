@@ -25,6 +25,8 @@ export interface CharacterProfile {
   image: UploadedImage;
   idleVideo: Blob;
   actions: CharacterAction[];
+  name: string; // Full name: "Kayley Adams"
+  displayName: string; // Name to go by: "Kayley"
 }
 
 // FIX: Moved browser-specific interface declarations into `declare global` to resolve type errors.

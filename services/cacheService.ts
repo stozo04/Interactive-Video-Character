@@ -288,6 +288,8 @@ const buildCharacterProfile = async (row: CharacterRow): Promise<CharacterProfil
     },
     idleVideo: idleVideoBlob,
     actions,
+    name: 'Kayley Adams',
+    displayName: 'Kayley',
   };
 };
 
