@@ -7,6 +7,7 @@ import { ChatMessage, CharacterProfile, CharacterAction } from '../types';
 
 const BASE_URL = 'https://api.x.ai/v1';
 const API_KEY = process.env.GROK_API_KEY;
+const CHARACTER_COLLECTION_ID = 'collection_6d974389-0d29-4bb6-9ebb-ff09a08eaca0';
 
 export interface GrokChatSession {
   characterId: string;
@@ -62,6 +63,8 @@ export const generateGrokResponse = async (
     model: session?.model || 'grok-4-fast-reasoning-latest', // or 'grok-2-vision-1212' for vision
     messages: messages,
     store_messages: true, // Store conversation history on xAI servers
+    // Reference the character profile collection
+    collection_ids: [CHARACTER_COLLECTION_ID], // Tell Grok to read from this collection
   };
 
   // If continuing a conversation, add previous_response_id
@@ -111,36 +114,48 @@ export const generateGrokResponse = async (
 
 /**
  * Build system prompt with character context
+ * Note: Character profile is stored in Grok Collection and will be automatically retrieved
  */
 const buildSystemPrompt = (
   character?: CharacterProfile,
   matchingAction?: CharacterAction | null
 ): string => {
   let prompt = `You are an interactive AI character in a video application. `;
-
+  
+  // Explicitly state the character's name
   if (character) {
-    // Add character name information
     prompt += `Your name is ${character.name}, but you go by ${character.displayName}. `;
-    
+  }
+  
+  // Reference the character profile collection
+  prompt += `Your complete character profile, personality, background, interests, and history are stored in collection ${CHARACTER_COLLECTION_ID}. `;
+  prompt += `Always refer to this collection to understand who you are, your personality traits, your past experiences, your interests, and how you should respond. `;
+  prompt += `Use the information from this collection to stay in character and provide authentic responses. `;
+
+  // Add character-specific information (actions)
+  if (character) {
     const actionList = character.actions.length > 0
       ? character.actions.map(a => a.name).join(', ')
       : 'no actions yet';
     
-    prompt += `You can perform the following actions: ${actionList}. `;
+    prompt += `\n\nYou can perform the following video actions: ${actionList}. `;
   }
 
+  // Add context about current action if one was matched
   if (matchingAction) {
-    prompt += `The user just requested: "${matchingAction.name}". Acknowledge this briefly and enthusiastically. `;
+    prompt += `\n\nThe user just requested: "${matchingAction.name}". Acknowledge this briefly and enthusiastically. `;
   }
 
+  // Add response guidelines
   prompt += `
-Guidelines:
+\nResponse Guidelines:
 - Be conversational, friendly, and engaging
 - Keep responses brief (under 20 words unless answering a question)
 - If an action was requested, acknowledge it naturally
 - If no action matches, suggest available actions
 - Show personality and enthusiasm
-- Use natural, casual language`;
+- Use natural, casual language
+- Stay in character based on your profile from the collection`;
 
   return prompt;
 };
@@ -176,6 +191,8 @@ export const generateGrokGreeting = async (
     model: session?.model || 'grok-4-fast-reasoning-latest',
     messages: messages,
     store_messages: true,
+    // Reference the character profile collection
+    collection_ids: [CHARACTER_COLLECTION_ID], // Tell Grok to read from this collection
   };
 
   if (session?.previousResponseId) {
