@@ -157,11 +157,11 @@ This document outlines recommended features to enhance the Interactive Video Cha
 **Example Scenarios:**
 
 1. **First Interaction:**
-   - User: "Hi, my name is Alex"
-   - Character: "Nice to meet you, Alex! I'm excited to get to know you."
+   - User: "Hi, my name is Kayley"
+   - Character: "Nice to meet you, Kayley! I'm excited to get to know you."
 
 2. **Second Session (Next Day):**
-   - Character: "Hey Alex! Welcome back. How are you doing today?"
+   - Character: "Hey Kayley! Welcome back. How are you doing today?"
    - User: "I'm good, just finished work"
    - Character: "That's great! I remember you mentioned you work in tech. How was your day?"
 
