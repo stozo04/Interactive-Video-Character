@@ -92,6 +92,24 @@ const formatActionList = (actions: CharacterProfile['actions']): string => {
     .join(', ');
 };
 
+const isGreetingAction = (action: CharacterAction): boolean => {
+  const normalizedName = sanitizeText(action.name);
+  const normalizedPhrases = action.phrases.map(sanitizeText);
+  
+  return (
+    normalizedName.includes('greeting') ||
+    normalizedPhrases.some(phrase => phrase.includes('greeting'))
+  );
+};
+
+const getGreetingActions = (actions: CharacterProfile['actions']): CharacterAction[] => {
+  return actions.filter(isGreetingAction);
+};
+
+const getNonGreetingActions = (actions: CharacterProfile['actions']): CharacterAction[] => {
+  return actions.filter(action => !isGreetingAction(action));
+};
+
 type View = 'loading' | 'selectCharacter' | 'createCharacter' | 'chat';
 
 // A type for characters that includes their profile and the temporary URLs for display
@@ -114,6 +132,7 @@ const App: React.FC = () => {
   const [uploadedImage, setUploadedImage] = useState<UploadedImage | null>(null);
   const [chatHistory, setChatHistory] = useState<ChatMessage[]>([]);
   const [currentVideoUrl, setCurrentVideoUrl] = useState<string | null>(null);
+  const [currentActionId, setCurrentActionId] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isProcessingAction, setIsProcessingAction] = useState(false);
   const [isSavingCharacter, setIsSavingCharacter] = useState(false);
@@ -122,6 +141,7 @@ const App: React.FC = () => {
   const [deletingActionId, setDeletingActionId] = useState<string | null>(null);
   const [isActionManagerOpen, setIsActionManagerOpen] = useState(false);
   const [lastInteractionAt, setLastInteractionAt] = useState(() => Date.now());
+  const [isMuted, setIsMuted] = useState(false);
 
   const idleActionTimerRef = useRef<number | null>(null);
 
@@ -233,6 +253,7 @@ const App: React.FC = () => {
         phrases: action.phrases,
         videoUrl: localUrl,
         previewAssetUrl,
+        hasAudio: action.hasAudio ?? false,
       };
     });
   }, [selectedCharacter, actionVideoUrls]);
@@ -243,7 +264,11 @@ const App: React.FC = () => {
     if (!idleVideoUrl) return;
     if (currentVideoUrl && currentVideoUrl !== idleVideoUrl) return;
 
-    const action: CharacterAction = randomFromArray(selectedCharacter.actions);
+    // Exclude greeting actions from idle random actions
+    const nonGreetingActions = getNonGreetingActions(selectedCharacter.actions);
+    if (nonGreetingActions.length === 0) return;
+
+    const action: CharacterAction = randomFromArray(nonGreetingActions);
 
     let actionUrl = actionVideoUrls[action.id] ?? null;
     if (!actionUrl && action.videoPath) {
@@ -258,6 +283,7 @@ const App: React.FC = () => {
     }
 
     setCurrentVideoUrl(actionUrl);
+    setCurrentActionId(action.id);
     setLastInteractionAt(Date.now());
   }, [
     selectedCharacter,
@@ -604,19 +630,39 @@ const App: React.FC = () => {
       return map;
     }, {} as Record<string, string>);
 
-    const actionGreeting =
-      character.actions.length > 0
-        ? `Hi! I can perform: ${formatActionList(
-            character.actions
-          )}. Tell me what to play.`
-        : 'Hi! I do not have any saved actions yet.';
+    const actionGreeting = `Hi!. What's on your mind?`;
 
     setSelectedCharacter(character);
     setIdleVideoUrl(newIdleVideoUrl);
     setActionVideoUrls(newActionUrls);
     setCurrentVideoUrl(newIdleVideoUrl);
+    setCurrentActionId(null);
     setChatHistory([{ role: 'model', text: actionGreeting }]);
     setView('chat');
+
+    // Check for greeting actions and play one automatically
+    const greetingActions = getGreetingActions(character.actions);
+    if (greetingActions.length > 0) {
+      // Use setTimeout to ensure state is set before playing greeting
+      setTimeout(() => {
+        const greetingAction = randomFromArray(greetingActions);
+        const greetingUrl = newActionUrls[greetingAction.id] ?? null;
+        
+        if (!greetingUrl && greetingAction.videoPath) {
+          const { data } = supabase.storage
+            .from(ACTION_VIDEO_BUCKET)
+            .getPublicUrl(greetingAction.videoPath);
+          const fallbackUrl = data?.publicUrl ?? null;
+          if (fallbackUrl) {
+            setCurrentVideoUrl(fallbackUrl);
+            setCurrentActionId(greetingAction.id);
+          }
+        } else if (greetingUrl) {
+          setCurrentVideoUrl(greetingUrl);
+          setCurrentActionId(greetingAction.id);
+        }
+      }, 100);
+    }
   };
 
   const handleDeleteCharacter = async (id: string) => {
@@ -658,6 +704,7 @@ const App: React.FC = () => {
     setSelectedCharacter(null);
     setIdleVideoUrl(null);
     setCurrentVideoUrl(null);
+    setCurrentActionId(null);
     setActionVideoUrls({});
     setChatHistory([]);
     setUploadedImage(null);
@@ -726,6 +773,7 @@ const App: React.FC = () => {
       }
 
       setCurrentVideoUrl(actionUrl);
+      setCurrentActionId(matchingAction.id);
       setChatHistory((prev) => [
         ...prev,
         { role: 'model', text: `Playing "${matchingAction.name}".` },
@@ -741,6 +789,7 @@ const App: React.FC = () => {
   const handleVideoEnd = () => {
     if (isActionVideoPlaying && idleVideoUrl) {
       setCurrentVideoUrl(idleVideoUrl);
+      setCurrentActionId(null);
     }
   };
 
@@ -778,12 +827,29 @@ const App: React.FC = () => {
                 >
                     <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
                 </button>
-                <div className="xl:col-span-2 h-full flex items-center justify-center bg-black rounded-lg">
+                <div className="xl:col-span-2 h-full flex items-center justify-center bg-black rounded-lg relative">
+                  <button
+                    onClick={() => setIsMuted(!isMuted)}
+                    className="absolute top-2 right-2 z-30 bg-gray-800/50 hover:bg-gray-700/80 text-white rounded-full p-2 transition-colors"
+                    aria-label={isMuted ? "Unmute audio" : "Mute audio"}
+                  >
+                    {isMuted ? (
+                      <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2" />
+                      </svg>
+                    ) : (
+                      <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
+                      </svg>
+                    )}
+                  </button>
                   <VideoPlayer 
                     src={currentVideoUrl}
                     onEnded={handleVideoEnd}
                     isLoading={isProcessingAction}
                     loop={!isActionVideoPlaying}
+                    muted={isMuted}
                   />
                 </div>
                 <div className="h-full xl:col-span-2">

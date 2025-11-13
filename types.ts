@@ -16,6 +16,7 @@ export interface CharacterAction {
   video: Blob;
   videoPath: string;
   sortOrder?: number | null;
+  hasAudio?: boolean; // If true, video will play with sound
 }
 
 export interface CharacterProfile {

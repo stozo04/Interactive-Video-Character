@@ -6,9 +6,10 @@ interface VideoPlayerProps {
   onEnded: () => void;
   isLoading: boolean;
   loop: boolean;
+  muted?: boolean; // Default: false (all videos have audio)
 }
 
-const VideoPlayer: React.FC<VideoPlayerProps> = ({ src, onEnded, isLoading, loop }) => {
+const VideoPlayer: React.FC<VideoPlayerProps> = ({ src, onEnded, isLoading, loop, muted = false }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
 
   // This effect handles setting the video source and the ended event listener.
@@ -44,6 +45,13 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ src, onEnded, isLoading, loop
     }
   }, [loop]);
 
+  // This effect ensures the video's muted attribute is always in sync with the prop.
+  useEffect(() => {
+    if(videoRef.current) {
+      videoRef.current.muted = muted;
+    }
+  }, [muted]);
+
   return (
     <div className="relative w-full aspect-square max-w-full max-h-full bg-black rounded-lg overflow-hidden flex items-center justify-center">
       {isLoading && (
@@ -56,7 +64,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ src, onEnded, isLoading, loop
       {src ? (
           <video
             ref={videoRef}
-            muted
+            muted={muted}
             playsInline
             loop={loop}
             className="w-full h-full object-contain"
