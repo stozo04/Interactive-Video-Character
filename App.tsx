@@ -1,6 +1,5 @@
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { Chat } from '@google/genai';
 import { ChatMessage, UploadedImage, CharacterProfile } from './types';
 import * as geminiService from './services/geminiService';
 // FIX: Corrected import syntax for dbService to resolve 'Cannot find name' errors.
@@ -10,7 +9,6 @@ import ApiKeySelector from './components/ApiKeySelector';
 import ImageUploader from './components/ImageUploader';
 import VideoPlayer from './components/VideoPlayer';
 import ChatPanel from './components/ChatPanel';
-import AudioPlayer from './components/AudioPlayer';
 import CharacterSelector from './components/CharacterSelector';
 import LoadingSpinner from './components/LoadingSpinner';
 
@@ -34,12 +32,9 @@ const App: React.FC = () => {
   const [uploadedImage, setUploadedImage] = useState<UploadedImage | null>(null);
   const [isGeneratingInitialVideo, setIsGeneratingInitialVideo] = useState(false);
   const [isGeneratingActionVideo, setIsGeneratingActionVideo] = useState(false);
-  const [isChatting, setIsChatting] = useState(false);
-  const [chatSession, setChatSession] = useState<Chat | null>(null);
   const [chatHistory, setChatHistory] = useState<ChatMessage[]>([]);
   
   const [currentVideoUrl, setCurrentVideoUrl] = useState<string | null>(null);
-  const [actionAudioData, setActionAudioData] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const checkApiKey = useCallback(async () => {
@@ -115,7 +110,6 @@ const App: React.FC = () => {
     }
     setIsGeneratingInitialVideo(false);
     setIsGeneratingActionVideo(false);
-    setIsChatting(false);
   }, []);
 
   const handleImageUpload = (image: UploadedImage) => {
@@ -183,8 +177,6 @@ const App: React.FC = () => {
     const newIdleVideoUrl = URL.createObjectURL(character.idleVideo);
     setIdleVideoUrl(newIdleVideoUrl);
     setCurrentVideoUrl(newIdleVideoUrl);
-    const session = await geminiService.startChatSession();
-    setChatSession(session);
     setChatHistory([{ role: 'model', text: 'Hello! What should I do next?' }]);
     setView('chat');
   };
@@ -210,51 +202,31 @@ const App: React.FC = () => {
     setSelectedCharacter(null);
     setIdleVideoUrl(null);
     setCurrentVideoUrl(null);
-    setChatSession(null);
     setChatHistory([]);
     setUploadedImage(null);
     setErrorMessage(null);
-    setActionAudioData(null);
     setView('selectCharacter');
   }
 
   const handleSendMessage = async (message: string) => {
-    if (!chatSession || !selectedCharacter) return;
+    if (!selectedCharacter) return;
     setErrorMessage(null);
-    setIsChatting(true);
     setIsGeneratingActionVideo(true);
-    setActionAudioData(null);
     
     // Add user message to history immediately
     setChatHistory(prev => [...prev, { role: 'user', text: message }]);
 
     try {
-      // Step 1: Get the text response first to make the app feel responsive.
-      const chatResponse = await geminiService.sendMessage(chatSession, message);
-      
-      // Only add the model's response to history if it's not empty.
-      if (chatResponse && chatResponse.trim() !== "") {
-        setChatHistory(prev => [...prev, { role: 'model', text: chatResponse }]);
-      }
-      setIsChatting(false); // Text response is back.
-
-      // Step 2: Sequentially generate video and audio to avoid rate limiting.
+      // Generate video based on the user's command
       const videoUrl = await geminiService.generateActionVideo(selectedCharacter.image, message);
-      
-      let audioData: string | null = null;
-      // Only generate speech if the model provided a non-empty response.
-      if (chatResponse && chatResponse.trim() !== '') {
-          audioData = await geminiService.generateSpeech(chatResponse);
-      }
       
       // Revoke previous action video URL if it exists to prevent memory leaks.
       if (currentVideoUrl && currentVideoUrl !== idleVideoUrl) {
           URL.revokeObjectURL(currentVideoUrl);
       }
 
-      // Update the UI with the new video and audio
+      // Update the UI with the new video
       setCurrentVideoUrl(videoUrl);
-      setActionAudioData(audioData);
 
     } catch (error) {
       handleApiError(error);
@@ -276,11 +248,7 @@ const App: React.FC = () => {
     }
   };
 
-  const handleActionAudioEnd = () => {
-    setActionAudioData(null);
-  };
-
-  const isBusy = isGeneratingActionVideo || isChatting || isGeneratingInitialVideo;
+  const isBusy = isGeneratingActionVideo || isGeneratingInitialVideo;
 
   const renderContent = () => {
     if (!apiKeySelected) {
@@ -355,7 +323,6 @@ const App: React.FC = () => {
         {errorMessage && <div className="bg-red-500/20 border border-red-500 text-red-300 p-3 rounded-lg mb-4 text-center">{errorMessage}</div>}
         {renderContent()}
       </main>
-      <AudioPlayer src={actionAudioData} onEnded={handleActionAudioEnd} />
     </div>
   );
 };
