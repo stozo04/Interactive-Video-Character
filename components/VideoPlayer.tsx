@@ -49,7 +49,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ src, onEnded, isLoading, loop
       {isLoading && (
         <div className="absolute inset-0 bg-black/70 flex flex-col items-center justify-center z-20">
           <LoadingSpinner />
-          <p className="mt-2 text-gray-300">Generating response...</p>
+          <p className="mt-2 text-gray-300">Loading action...</p>
         </div>
       )}
       

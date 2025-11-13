@@ -112,7 +112,13 @@ const ChatPanel: React.FC<ChatPanelProps> = ({ history, onSendMessage, isSending
           type="text"
           value={input}
           onChange={(e) => setInput(e.target.value)}
-          placeholder={isSending ? "Waiting for response..." : isListening ? "Listening..." : "Type or hold mic to talk..."}
+          placeholder={
+            isSending
+              ? "Processing..."
+              : isListening
+              ? "Listening..."
+              : 'Type an action command (e.g., "Wave to the camera")'
+          }
           disabled={isSending || isListening}
           className="flex-grow bg-gray-700 rounded-full py-2 px-4 text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:opacity-50"
         />
