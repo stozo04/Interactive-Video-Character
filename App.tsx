@@ -8,6 +8,7 @@ import {
 } from './types';
 import * as dbService from './services/cacheService';
 import { supabase } from './services/supabaseClient';
+import * as mockChatService from './services/mockChatService';
 
 import ImageUploader from './components/ImageUploader';
 import VideoPlayer from './components/VideoPlayer';
@@ -597,7 +598,7 @@ const App: React.FC = () => {
     }
   };
 
-  const handleSelectCharacter = (character: CharacterProfile) => {
+  const handleSelectCharacter = async (character: CharacterProfile) => {
     setErrorMessage(null);
     setIsCreatingAction(false);
     setUpdatingActionId(null);
@@ -639,14 +640,15 @@ const App: React.FC = () => {
       return map;
     }, {} as Record<string, string>);
 
-    const actionGreeting = `Hi!. What's on your mind?`;
-
     setSelectedCharacter(character);
     setIdleVideoUrl(newIdleVideoUrl);
     setActionVideoUrls(newActionUrls);
     setCurrentVideoUrl(newIdleVideoUrl);
     setCurrentActionId(null);
-    setChatHistory([{ role: 'model', text: actionGreeting }]);
+    
+    // Generate personalized greeting using mock ChatGPT
+    const greeting = await mockChatService.generateGreeting(character);
+    setChatHistory([{ role: 'model', text: greeting }]);
     setView('chat');
 
     // Check for greeting actions and play one automatically
@@ -725,7 +727,7 @@ const App: React.FC = () => {
     setIsActionManagerOpen(false);
   };
 
-  const handleSendMessage = (message: string) => {
+  const handleSendMessage = async (message: string) => {
     if (!selectedCharacter) return;
 
     registerInteraction();
@@ -739,53 +741,62 @@ const App: React.FC = () => {
         selectedCharacter.actions
       );
 
-      if (!matchingAction) {
-        const availableActions = formatActionList(selectedCharacter.actions);
-        const response =
-          availableActions.length > 0
-            ? `I don't have a video for that command. Try one of: ${availableActions}.`
-            : "I don't have any actions saved yet.";
-        setChatHistory((prev) => [
-          ...prev,
-          { role: 'model', text: response },
-        ]);
-        setIsProcessingAction(false);
-        return;
-      }
+      // Generate response from mock ChatGPT service
+      const response = await mockChatService.generateMockResponse(message, {
+        character: selectedCharacter,
+        matchingAction,
+        chatHistory,
+      });
 
-      const actionUrl = actionVideoUrls[matchingAction.id];
-      if (!actionUrl) {
-        const response = `I couldn't find the video for "${matchingAction.name}".`;
-        setChatHistory((prev) => [
-          ...prev,
-          { role: 'model', text: response },
-        ]);
-        setIsProcessingAction(false);
-        return;
-      }
-
-      if (
-        currentVideoUrl &&
-        currentVideoUrl !== idleVideoUrl &&
-        currentVideoUrl !== actionUrl
-      ) {
-        const isKnownActionUrl = Object.values(actionVideoUrls).includes(
-          currentVideoUrl
-        );
-        if (!isKnownActionUrl) {
-          try {
-            URL.revokeObjectURL(currentVideoUrl);
-          } catch (error) {
-            console.warn('Failed to revoke previous action video URL', error);
+      // If action was matched, play it
+      if (matchingAction) {
+        const actionUrl = actionVideoUrls[matchingAction.id];
+        if (!actionUrl) {
+          // Fallback to Supabase URL if local URL not available
+          if (matchingAction.videoPath) {
+            const { data } = supabase.storage
+              .from(ACTION_VIDEO_BUCKET)
+              .getPublicUrl(matchingAction.videoPath);
+            const fallbackUrl = data?.publicUrl ?? null;
+            if (fallbackUrl) {
+              setCurrentVideoUrl(fallbackUrl);
+              setCurrentActionId(matchingAction.id);
+            }
           }
+        } else {
+          if (
+            currentVideoUrl &&
+            currentVideoUrl !== idleVideoUrl &&
+            currentVideoUrl !== actionUrl
+          ) {
+            const isKnownActionUrl = Object.values(actionVideoUrls).includes(
+              currentVideoUrl
+            );
+            if (!isKnownActionUrl) {
+              try {
+                URL.revokeObjectURL(currentVideoUrl);
+              } catch (error) {
+                console.warn('Failed to revoke previous action video URL', error);
+              }
+            }
+          }
+
+          setCurrentVideoUrl(actionUrl);
+          setCurrentActionId(matchingAction.id);
         }
       }
 
-      setCurrentVideoUrl(actionUrl);
-      setCurrentActionId(matchingAction.id);
+      // Add the generated response to chat
       setChatHistory((prev) => [
         ...prev,
-        { role: 'model', text: `Playing "${matchingAction.name}".` },
+        { role: 'model', text: response },
+      ]);
+    } catch (error) {
+      console.error('Error generating response:', error);
+      setErrorMessage('Failed to generate response. Please try again.');
+      setChatHistory((prev) => [
+        ...prev,
+        { role: 'model', text: "Sorry, I'm having trouble responding right now." },
       ]);
     } finally {
       setIsProcessingAction(false);
