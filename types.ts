@@ -1,5 +1,3 @@
-import { Chat } from "@google/genai";
-
 export interface ChatMessage {
   role: 'user' | 'model';
   text: string;
@@ -11,11 +9,21 @@ export interface UploadedImage {
   mimeType: string;
 }
 
+export interface CharacterAction {
+  id: string;
+  name: string;
+  phrases: string[];
+  video: Blob;
+  videoPath: string;
+  sortOrder?: number | null;
+}
+
 export interface CharacterProfile {
   id: string; // image hash
   createdAt: number;
   image: UploadedImage;
   idleVideo: Blob;
+  actions: CharacterAction[];
 }
 
 // FIX: Moved browser-specific interface declarations into `declare global` to resolve type errors.

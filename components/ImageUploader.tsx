@@ -1,18 +1,37 @@
 import React, { useRef, useState } from 'react';
 import { UploadedImage } from '../types';
-import { fileToBase64 } from '../services/geminiService';
 import LoadingSpinner from './LoadingSpinner';
 
 interface ImageUploaderProps {
   onImageUpload: (image: UploadedImage) => void;
-  onGenerate: () => void;
   onSelectLocalVideo: (videoFile: File) => void;
   onBack: () => void;
   imagePreview: string | null;
-  isUploading: boolean;
+  isSaving: boolean;
 }
 
-const ImageUploader: React.FC<ImageUploaderProps> = ({ onImageUpload, onGenerate, onSelectLocalVideo, onBack, imagePreview, isUploading }) => {
+const fileToBase64 = (file: File): Promise<string> =>
+  new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.readAsDataURL(file);
+    reader.onload = () => {
+      if (typeof reader.result !== 'string') {
+        reject(new Error('Failed to read image as base64 string.'));
+        return;
+      }
+      const [, base64Data] = reader.result.split(',');
+      resolve(base64Data || '');
+    };
+    reader.onerror = (error) => reject(error);
+  });
+
+const ImageUploader: React.FC<ImageUploaderProps> = ({
+  onImageUpload,
+  onSelectLocalVideo,
+  onBack,
+  imagePreview,
+  isSaving,
+}) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const videoFileInputRef = useRef<HTMLInputElement>(null);
   const [dragActive, setDragActive] = useState(false);
@@ -26,6 +45,9 @@ const ImageUploader: React.FC<ImageUploaderProps> = ({ onImageUpload, onGenerate
         base64,
         mimeType: file.type,
       });
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
     }
   };
 
@@ -61,23 +83,22 @@ const ImageUploader: React.FC<ImageUploaderProps> = ({ onImageUpload, onGenerate
       {imagePreview ? (
         <div className="w-full max-w-md flex flex-col items-center gap-6">
           <img src={imagePreview} alt="Preview" className="rounded-lg shadow-lg max-h-80 object-contain"/>
-          <p className="text-gray-300 text-center">Your character is ready. How should we create the idle animation?</p>
-          <div className="w-full flex flex-col sm:flex-row gap-4">
-            <button 
-              onClick={onGenerate}
-              disabled={isUploading}
-              className="flex-1 bg-purple-600 text-white font-bold py-3 px-6 rounded-lg hover:bg-purple-500 transition-colors duration-300 disabled:bg-gray-500 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-            >
-              {isUploading ? <><LoadingSpinner /> Generating...</> : 'Generate Animation'}
-            </button>
-            <button
-              onClick={() => videoFileInputRef.current?.click()}
-              disabled={isUploading}
-              className="flex-1 bg-gray-600 text-white font-bold py-3 px-6 rounded-lg hover:bg-gray-500 transition-colors duration-300 disabled:bg-gray-500 disabled:cursor-not-allowed"
-            >
-              Upload Animation
-            </button>
-          </div>
+          <p className="text-gray-300 text-center">
+            Your character image is set. Upload a short idle animation video to continue.
+          </p>
+          <button
+            onClick={() => videoFileInputRef.current?.click()}
+            disabled={isSaving}
+            className="w-full bg-purple-600 text-white font-bold py-3 px-6 rounded-lg hover:bg-purple-500 transition-colors duration-300 disabled:bg-gray-500 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+          >
+            {isSaving ? (
+              <>
+                <LoadingSpinner /> Saving...
+              </>
+            ) : (
+              'Upload Animation'
+            )}
+          </button>
           <input
             type="file"
             ref={videoFileInputRef}
@@ -86,6 +107,7 @@ const ImageUploader: React.FC<ImageUploaderProps> = ({ onImageUpload, onGenerate
             onChange={(e) => {
               if (e.target.files && e.target.files[0]) {
                 onSelectLocalVideo(e.target.files[0]);
+                e.target.value = '';
               }
             }}
           />

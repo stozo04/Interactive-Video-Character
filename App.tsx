@@ -1,18 +1,96 @@
 
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { Chat } from '@google/genai';
-import { ChatMessage, UploadedImage, CharacterProfile } from './types';
-import * as geminiService from './services/geminiService';
-// FIX: Corrected import syntax for dbService to resolve 'Cannot find name' errors.
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import {
+  ChatMessage,
+  UploadedImage,
+  CharacterProfile,
+  CharacterAction,
+} from './types';
 import * as dbService from './services/cacheService';
+import { supabase } from './services/supabaseClient';
 
-import ApiKeySelector from './components/ApiKeySelector';
 import ImageUploader from './components/ImageUploader';
 import VideoPlayer from './components/VideoPlayer';
 import ChatPanel from './components/ChatPanel';
-import AudioPlayer from './components/AudioPlayer';
 import CharacterSelector from './components/CharacterSelector';
 import LoadingSpinner from './components/LoadingSpinner';
+import ActionManager from './components/ActionManager';
+
+const sanitizeText = (value: string): string =>
+  value
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+const ACTION_VIDEO_BUCKET = 'character-action-videos';
+const IDLE_ACTION_DELAY_MIN_MS = 10_000;
+const IDLE_ACTION_DELAY_MAX_MS = 45_000;
+
+const randomFromArray = <T,>(items: T[]): T => {
+  if (items.length === 0) {
+    throw new Error('Cannot select a random item from an empty array.');
+  }
+  const index = Math.floor(Math.random() * items.length);
+  return items[index];
+};
+
+const buildActionTerms = (
+  action: CharacterProfile['actions'][number]
+): string[] => {
+  const terms = new Set<string>();
+  const addTerm = (term: string | undefined | null) => {
+    if (!term) return;
+    const cleaned = sanitizeText(term);
+    if (cleaned) {
+      terms.add(cleaned);
+    }
+  };
+
+  addTerm(action.id);
+  addTerm(action.name);
+  action.phrases.forEach(addTerm);
+
+  return Array.from(terms);
+};
+
+const findMatchingAction = (
+  message: string,
+  actions: CharacterProfile['actions']
+) => {
+  const normalizedMessage = sanitizeText(message);
+  if (!normalizedMessage) return null;
+
+  const candidates: CharacterProfile['actions'] = [];
+
+  for (const action of actions) {
+    const terms = buildActionTerms(action);
+    if (
+      terms.some(
+        (term) =>
+          term === normalizedMessage ||
+          normalizedMessage.includes(term) ||
+          term.includes(normalizedMessage)
+      )
+    ) {
+      candidates.push(action);
+    }
+  }
+
+  if (candidates.length === 0) {
+    return null;
+  }
+
+  return randomFromArray(candidates);
+};
+
+const formatActionList = (actions: CharacterProfile['actions']): string => {
+  if (actions.length === 0) return '';
+  return actions
+    .map((action) => action.name.trim())
+    .filter((name) => name.length > 0)
+    .join(', ');
+};
 
 type View = 'loading' | 'selectCharacter' | 'createCharacter' | 'chat';
 
@@ -24,38 +102,78 @@ interface DisplayCharacter {
 }
 
 const App: React.FC = () => {
-  const [apiKeySelected, setApiKeySelected] = useState(false);
-  const [isAiStudio, setIsAiStudio] = useState(false);
   const [view, setView] = useState<View>('loading');
   const [characters, setCharacters] = useState<CharacterProfile[]>([]);
-  const [selectedCharacter, setSelectedCharacter] = useState<CharacterProfile | null>(null);
+  const [selectedCharacter, setSelectedCharacter] =
+    useState<CharacterProfile | null>(null);
   const [idleVideoUrl, setIdleVideoUrl] = useState<string | null>(null);
+  const [actionVideoUrls, setActionVideoUrls] = useState<Record<string, string>>(
+    {}
+  );
 
   const [uploadedImage, setUploadedImage] = useState<UploadedImage | null>(null);
-  const [isGeneratingInitialVideo, setIsGeneratingInitialVideo] = useState(false);
-  const [isGeneratingActionVideo, setIsGeneratingActionVideo] = useState(false);
-  const [isChatting, setIsChatting] = useState(false);
-  const [chatSession, setChatSession] = useState<Chat | null>(null);
   const [chatHistory, setChatHistory] = useState<ChatMessage[]>([]);
-  
   const [currentVideoUrl, setCurrentVideoUrl] = useState<string | null>(null);
-  const [actionAudioData, setActionAudioData] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [isProcessingAction, setIsProcessingAction] = useState(false);
+  const [isSavingCharacter, setIsSavingCharacter] = useState(false);
+  const [isCreatingAction, setIsCreatingAction] = useState(false);
+  const [updatingActionId, setUpdatingActionId] = useState<string | null>(null);
+  const [deletingActionId, setDeletingActionId] = useState<string | null>(null);
+  const [isActionManagerOpen, setIsActionManagerOpen] = useState(false);
+  const [lastInteractionAt, setLastInteractionAt] = useState(() => Date.now());
 
-  const checkApiKey = useCallback(async () => {
-    const isStudioEnv = typeof window.aistudio?.hasSelectedApiKey === 'function';
-    setIsAiStudio(isStudioEnv);
-    try {
-      // In local dev, we check a manually set key. In AI Studio, we use the provided API.
-      const hasKey = isStudioEnv
-        ? await window.aistudio.hasSelectedApiKey()
-        : !!window.process?.env?.API_KEY;
-      setApiKeySelected(hasKey);
-    } catch (error) {
-      console.error("Error checking for API key:", error);
-      setApiKeySelected(false);
-    }
+  const idleActionTimerRef = useRef<number | null>(null);
+
+  const reportError = useCallback((message: string, error?: unknown) => {
+    console.error(message, error);
+    setErrorMessage(message);
   }, []);
+
+  const registerInteraction = useCallback(() => {
+    setLastInteractionAt(Date.now());
+  }, []);
+
+  const cleanupActionUrls = useCallback((urls: Record<string, string>) => {
+    Object.values(urls).forEach((url) => {
+      try {
+        URL.revokeObjectURL(url);
+      } catch (error) {
+        console.warn('Failed to revoke action video URL', error);
+      }
+    });
+  }, []);
+
+  const applyCharacterUpdate = useCallback(
+    (
+      characterId: string,
+      updater: (character: CharacterProfile) => CharacterProfile
+    ) => {
+      let updatedCharacter: CharacterProfile | null = null;
+
+      setCharacters((chars) =>
+        chars.map((char) => {
+          if (char.id !== characterId) {
+            return char;
+          }
+          const next = updater(char);
+          updatedCharacter = next;
+          return next;
+        })
+      );
+
+      setSelectedCharacter((current) => {
+        if (!current || current.id !== characterId) {
+          return current;
+        }
+        if (updatedCharacter) {
+          return updatedCharacter;
+        }
+        return updater(current);
+      });
+    },
+    []
+  );
 
   const loadCharacters = useCallback(async () => {
     setView('loading');
@@ -65,9 +183,8 @@ const App: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    checkApiKey();
     loadCharacters();
-  }, [checkApiKey, loadCharacters]);
+  }, [loadCharacters]);
 
   const displayCharacters = useMemo((): DisplayCharacter[] => {
     try {
@@ -94,203 +211,540 @@ const App: React.FC = () => {
     };
   }, [displayCharacters]);
 
-  const handleApiKeySelected = () => {
-    setApiKeySelected(true);
-    setErrorMessage(null); // Clear previous errors
-  };
-  
-  const handleApiError = useCallback((error: any) => {
-    let message = error instanceof Error ? error.message : String(error);
-    if (message.includes("429") || message.includes("RESOURCE_EXHAUSTED")) {
-        message = "You've made too many requests. Please wait a minute and try again.";
-    }
-    setErrorMessage(message);
-    if (message.includes("Requested entity was not found") || message.toLowerCase().includes("api key not valid")) {
-      // Clear the bad key for local dev environments
-      if (window.process?.env) {
-          delete window.process.env.API_KEY;
+  const managedActions = useMemo(() => {
+    if (!selectedCharacter) return [];
+
+    return selectedCharacter.actions.map((action) => {
+      const localUrl = actionVideoUrls[action.id] ?? null;
+      let fallbackUrl: string | null = null;
+
+      if (!localUrl && action.videoPath) {
+        const { data } = supabase.storage
+          .from(ACTION_VIDEO_BUCKET)
+          .getPublicUrl(action.videoPath);
+        fallbackUrl = data?.publicUrl ?? null;
       }
-      setApiKeySelected(false);
-      setErrorMessage("API Key is invalid. Please select a new key or enter a valid one.");
+
+      const previewAssetUrl = localUrl ?? fallbackUrl;
+
+      return {
+        id: action.id,
+        name: action.name,
+        phrases: action.phrases,
+        videoUrl: localUrl,
+        previewAssetUrl,
+      };
+    });
+  }, [selectedCharacter, actionVideoUrls]);
+
+  const triggerIdleAction = useCallback(() => {
+    if (!selectedCharacter) return;
+    if (selectedCharacter.actions.length === 0) return;
+    if (!idleVideoUrl) return;
+    if (currentVideoUrl && currentVideoUrl !== idleVideoUrl) return;
+
+    const action = randomFromArray(selectedCharacter.actions);
+
+    let actionUrl = actionVideoUrls[action.id] ?? null;
+    if (!actionUrl && action.videoPath) {
+      const { data } = supabase.storage
+        .from(ACTION_VIDEO_BUCKET)
+        .getPublicUrl(action.videoPath);
+      actionUrl = data?.publicUrl ?? null;
     }
-    setIsGeneratingInitialVideo(false);
-    setIsGeneratingActionVideo(false);
-    setIsChatting(false);
+
+    if (!actionUrl) {
+      return;
+    }
+
+    setCurrentVideoUrl(actionUrl);
+    setLastInteractionAt(Date.now());
+  }, [
+    selectedCharacter,
+    idleVideoUrl,
+    currentVideoUrl,
+    actionVideoUrls,
+  ]);
+
+  const clearIdleActionTimer = useCallback(() => {
+    if (idleActionTimerRef.current !== null) {
+      window.clearTimeout(idleActionTimerRef.current);
+      idleActionTimerRef.current = null;
+    }
   }, []);
+
+  const scheduleIdleAction = useCallback(() => {
+    clearIdleActionTimer();
+
+    if (!selectedCharacter) return;
+    if (selectedCharacter.actions.length === 0) return;
+    if (!idleVideoUrl) return;
+    if (!currentVideoUrl) return;
+    if (currentVideoUrl !== idleVideoUrl) return;
+    if (isProcessingAction) return;
+
+    const delay =
+      Math.floor(
+        Math.random() *
+          (IDLE_ACTION_DELAY_MAX_MS - IDLE_ACTION_DELAY_MIN_MS + 1)
+      ) + IDLE_ACTION_DELAY_MIN_MS;
+
+    idleActionTimerRef.current = window.setTimeout(() => {
+      triggerIdleAction();
+    }, delay);
+  }, [
+    clearIdleActionTimer,
+    selectedCharacter,
+    idleVideoUrl,
+    currentVideoUrl,
+    isProcessingAction,
+    triggerIdleAction,
+  ]);
+
+  useEffect(() => {
+    scheduleIdleAction();
+    return () => {
+      clearIdleActionTimer();
+    };
+  }, [scheduleIdleAction, clearIdleActionTimer, lastInteractionAt]);
 
   const handleImageUpload = (image: UploadedImage) => {
     setUploadedImage(image);
     setErrorMessage(null);
   };
 
-  const handleCharacterCreated = async (image: UploadedImage, idleVideoBlob: Blob) => {
+  const handleCharacterCreated = async (
+    image: UploadedImage,
+    idleVideoBlob: Blob
+  ) => {
+    registerInteraction();
+    setIsSavingCharacter(true);
+    setErrorMessage(null);
     try {
-        const imageHash = await dbService.hashImage(image.base64);
+      const imageHash = await dbService.hashImage(image.base64);
 
-        // Check if character with this image already exists
-        const existingChar = characters.find(c => c.id === imageHash);
-        if (existingChar) {
-            alert("A character with this image already exists. Loading that character instead.");
-            handleSelectCharacter(existingChar);
-            return;
-        }
+      const existingChar = characters.find((c) => c.id === imageHash);
+      if (existingChar) {
+        alert(
+          'A character with this image already exists. Loading that character instead.'
+        );
+        handleSelectCharacter(existingChar);
+        return;
+      }
 
-        const newCharacter: CharacterProfile = {
-            id: imageHash,
-            createdAt: Date.now(),
-            image,
-            idleVideo: idleVideoBlob,
-        };
-        await dbService.saveCharacter(newCharacter);
-        setCharacters(prev => [newCharacter, ...prev]);
-        handleSelectCharacter(newCharacter);
+      const newCharacter: CharacterProfile = {
+        id: imageHash,
+        createdAt: Date.now(),
+        image,
+        idleVideo: idleVideoBlob,
+        actions: [],
+      };
+
+      await dbService.saveCharacter(newCharacter);
+      setCharacters((prev) => [newCharacter, ...prev]);
+      handleSelectCharacter(newCharacter);
     } catch (error) {
-        console.error("Error saving character:", error);
-        handleApiError(new Error("Failed to save the new character."));
+      reportError('Failed to save the new character.', error);
+    } finally {
+      setIsSavingCharacter(false);
     }
   };
 
-  const handleGenerateInitialVideo = async () => {
-    if (!uploadedImage) return;
-    setIsGeneratingInitialVideo(true);
-    setErrorMessage(null);
+  const handleCreateAction = async ({
+    name,
+    phrases,
+    videoFile,
+  }: {
+    name: string;
+    phrases: string[];
+    videoFile: File;
+  }) => {
+    if (!selectedCharacter) return;
+    registerInteraction();
+    const characterId = selectedCharacter.id;
+    setIsCreatingAction(true);
+
+    let videoUrl: string | null = null;
+
     try {
-      const videoBlob = await geminiService.generateInitialVideo(uploadedImage);
-      await handleCharacterCreated(uploadedImage, videoBlob);
+      const metadata = await dbService.createCharacterAction(characterId, {
+        name,
+        phrases,
+        video: videoFile,
+      });
+
+      const newAction: CharacterAction = {
+        id: metadata.id,
+        name: metadata.name,
+        phrases: metadata.phrases,
+        video: videoFile,
+        videoPath: metadata.videoPath,
+        sortOrder: metadata.sortOrder ?? null,
+      };
+
+      const createdUrl = URL.createObjectURL(videoFile);
+      videoUrl = createdUrl;
+
+      applyCharacterUpdate(characterId, (character) => ({
+        ...character,
+        actions: [...character.actions, newAction],
+      }));
+
+      setActionVideoUrls((prev) => ({
+        ...prev,
+        [newAction.id]: createdUrl,
+      }));
     } catch (error) {
-      handleApiError(error);
+      if (videoUrl) {
+        try {
+          URL.revokeObjectURL(videoUrl);
+        } catch (revokeError) {
+          console.warn(
+            'Failed to revoke action video URL after creation error',
+            revokeError
+          );
+        }
+      }
+      reportError('Failed to create new action.', error);
     } finally {
-      setIsGeneratingInitialVideo(false);
+      setIsCreatingAction(false);
+    }
+  };
+
+  const handleUpdateAction = async (
+    actionId: string,
+    {
+      name,
+      phrases,
+      videoFile,
+    }: {
+      name: string;
+      phrases: string[];
+      videoFile?: File;
+    }
+  ) => {
+    if (!selectedCharacter) return;
+    registerInteraction();
+    const characterId = selectedCharacter.id;
+    const previousUrl = actionVideoUrls[actionId] ?? null;
+
+    setUpdatingActionId(actionId);
+
+    let newVideoUrl: string | null = null;
+
+    try {
+      const metadata = await dbService.updateCharacterAction(
+        characterId,
+        actionId,
+        {
+          name,
+          phrases,
+          video: videoFile,
+        }
+      );
+
+      if (videoFile) {
+        newVideoUrl = URL.createObjectURL(videoFile);
+      }
+
+      applyCharacterUpdate(characterId, (character) => ({
+        ...character,
+        actions: character.actions.map((action) =>
+          action.id === actionId
+            ? {
+                ...action,
+                name: metadata.name,
+                phrases: metadata.phrases,
+                sortOrder:
+                  metadata.sortOrder !== undefined
+                    ? metadata.sortOrder
+                    : action.sortOrder ?? null,
+                videoPath: metadata.videoPath,
+                video: videoFile ?? action.video,
+              }
+            : action
+        ),
+      }));
+
+      if (videoFile && newVideoUrl) {
+        setActionVideoUrls((prev) => {
+          const updated = { ...prev };
+          const existingUrl = updated[actionId];
+          if (existingUrl && existingUrl !== newVideoUrl) {
+            try {
+              URL.revokeObjectURL(existingUrl);
+            } catch (error) {
+              console.warn(
+                'Failed to revoke previous action video URL',
+                error
+              );
+            }
+          }
+          updated[actionId] = newVideoUrl;
+          return updated;
+        });
+
+        if (currentVideoUrl && previousUrl && currentVideoUrl === previousUrl) {
+          setCurrentVideoUrl(newVideoUrl);
+        }
+      }
+    } catch (error) {
+      if (newVideoUrl) {
+        try {
+          URL.revokeObjectURL(newVideoUrl);
+        } catch (revokeError) {
+          console.warn(
+            'Failed to revoke updated action video URL after error',
+            revokeError
+          );
+        }
+      }
+      reportError('Failed to update action.', error);
+    } finally {
+      setUpdatingActionId(null);
+    }
+  };
+
+  const handleDeleteAction = async (actionId: string) => {
+    if (!selectedCharacter) return;
+    registerInteraction();
+    const characterId = selectedCharacter.id;
+    const previousUrl = actionVideoUrls[actionId] ?? null;
+
+    setDeletingActionId(actionId);
+
+    try {
+      await dbService.deleteCharacterAction(characterId, actionId);
+
+      applyCharacterUpdate(characterId, (character) => ({
+        ...character,
+        actions: character.actions.filter((action) => action.id !== actionId),
+      }));
+
+      setActionVideoUrls((prev) => {
+        if (!(actionId in prev)) {
+          return prev;
+        }
+        const updated = { ...prev };
+        const url = updated[actionId];
+        delete updated[actionId];
+        if (url) {
+          try {
+            URL.revokeObjectURL(url);
+          } catch (error) {
+            console.warn('Failed to revoke deleted action video URL', error);
+          }
+        }
+        return updated;
+      });
+
+      if (currentVideoUrl && previousUrl && currentVideoUrl === previousUrl) {
+        setCurrentVideoUrl(idleVideoUrl ?? null);
+      }
+    } catch (error) {
+      reportError('Failed to delete action.', error);
+    } finally {
+      setDeletingActionId(null);
     }
   };
 
   const handleSelectLocalVideo = async (videoFile: File) => {
-    if (!uploadedImage) return;
-    setIsGeneratingInitialVideo(true);
+    if (isSavingCharacter) return;
+    if (!uploadedImage) {
+      reportError('Upload a character image before selecting an animation.');
+      return;
+    }
     setErrorMessage(null);
     try {
-        await handleCharacterCreated(uploadedImage, videoFile);
+      await handleCharacterCreated(uploadedImage, videoFile);
     } catch (error) {
-        console.error("Error processing local video:", error);
-        handleApiError(new Error("There was a problem processing your video file."));
-    } finally {
-        setIsGeneratingInitialVideo(false);
+      reportError('There was a problem processing your video file.', error);
     }
   };
 
-  const handleSelectCharacter = async (character: CharacterProfile) => {
-    setSelectedCharacter(character);
+  const handleSelectCharacter = (character: CharacterProfile) => {
+    setErrorMessage(null);
+    setIsCreatingAction(false);
+    setUpdatingActionId(null);
+    setDeletingActionId(null);
+    setIsActionManagerOpen(false);
+    registerInteraction();
+
+    if (idleVideoUrl) {
+      try {
+        URL.revokeObjectURL(idleVideoUrl);
+      } catch (error) {
+        console.warn('Failed to revoke idle video URL', error);
+      }
+    }
+
+    if (currentVideoUrl && currentVideoUrl !== idleVideoUrl) {
+      const isKnownActionUrl = Object.values(actionVideoUrls).includes(
+        currentVideoUrl
+      );
+      if (!isKnownActionUrl) {
+        try {
+          URL.revokeObjectURL(currentVideoUrl);
+        } catch (error) {
+          console.warn('Failed to revoke previous action video URL', error);
+        }
+      }
+    }
+
+    cleanupActionUrls(actionVideoUrls);
+
     const newIdleVideoUrl = URL.createObjectURL(character.idleVideo);
+    const newActionUrls = character.actions.reduce((map, action) => {
+      if (map[action.id]) {
+        console.warn(
+          `Duplicate action id "${action.id}" detected for character "${character.id}".`
+        );
+      }
+      map[action.id] = URL.createObjectURL(action.video);
+      return map;
+    }, {} as Record<string, string>);
+
+    const actionGreeting =
+      character.actions.length > 0
+        ? `Hi! I can perform: ${formatActionList(
+            character.actions
+          )}. Tell me what to play.`
+        : 'Hi! I do not have any saved actions yet.';
+
+    setSelectedCharacter(character);
     setIdleVideoUrl(newIdleVideoUrl);
+    setActionVideoUrls(newActionUrls);
     setCurrentVideoUrl(newIdleVideoUrl);
-    const session = await geminiService.startChatSession();
-    setChatSession(session);
-    setChatHistory([{ role: 'model', text: 'Hello! What should I do next?' }]);
+    setChatHistory([{ role: 'model', text: actionGreeting }]);
     setView('chat');
   };
 
   const handleDeleteCharacter = async (id: string) => {
     if (window.confirm("Are you sure you want to delete this character?")) {
+        registerInteraction();
+        if (selectedCharacter?.id === id) {
+          handleBackToSelection();
+        }
         await dbService.deleteCharacter(id);
         setCharacters(prev => prev.filter(c => c.id !== id));
     }
   };
 
   const handleBackToSelection = () => {
-    // Revoke the idle video URL when going back.
+    registerInteraction();
     if (idleVideoUrl) {
-      URL.revokeObjectURL(idleVideoUrl);
+      try {
+        URL.revokeObjectURL(idleVideoUrl);
+      } catch (error) {
+        console.warn('Failed to revoke idle video URL', error);
+      }
     }
-    // Also revoke the current action video if it's different and exists.
+
     if (currentVideoUrl && currentVideoUrl !== idleVideoUrl) {
-        URL.revokeObjectURL(currentVideoUrl);
+      const isKnownActionUrl = Object.values(actionVideoUrls).includes(
+        currentVideoUrl
+      );
+      if (!isKnownActionUrl) {
+        try {
+          URL.revokeObjectURL(currentVideoUrl);
+        } catch (error) {
+          console.warn('Failed to revoke current action video URL', error);
+        }
+      }
     }
-    
-    // Reset all session-specific states
+
+    cleanupActionUrls(actionVideoUrls);
+
     setSelectedCharacter(null);
     setIdleVideoUrl(null);
     setCurrentVideoUrl(null);
-    setChatSession(null);
+    setActionVideoUrls({});
     setChatHistory([]);
     setUploadedImage(null);
     setErrorMessage(null);
-    setActionAudioData(null);
     setView('selectCharacter');
-  }
+    setIsCreatingAction(false);
+    setUpdatingActionId(null);
+    setDeletingActionId(null);
+    setIsActionManagerOpen(false);
+  };
 
-  const handleSendMessage = async (message: string) => {
-    if (!chatSession || !selectedCharacter) return;
+  const handleSendMessage = (message: string) => {
+    if (!selectedCharacter) return;
+
+    registerInteraction();
     setErrorMessage(null);
-    setIsChatting(true);
-    setIsGeneratingActionVideo(true);
-    setActionAudioData(null);
-    
-    // Add user message to history immediately
-    setChatHistory(prev => [...prev, { role: 'user', text: message }]);
+    setChatHistory((prev) => [...prev, { role: 'user', text: message }]);
+    setIsProcessingAction(true);
 
     try {
-      // Step 1: Get the text response first to make the app feel responsive.
-      const chatResponse = await geminiService.sendMessage(chatSession, message);
-      
-      // Only add the model's response to history if it's not empty.
-      if (chatResponse && chatResponse.trim() !== "") {
-        setChatHistory(prev => [...prev, { role: 'model', text: chatResponse }]);
-      }
-      setIsChatting(false); // Text response is back.
+      const matchingAction = findMatchingAction(
+        message,
+        selectedCharacter.actions
+      );
 
-      // Step 2: Sequentially generate video and audio to avoid rate limiting.
-      const videoUrl = await geminiService.generateActionVideo(selectedCharacter.image, message);
-      
-      let audioData: string | null = null;
-      // Only generate speech if the model provided a non-empty response.
-      if (chatResponse && chatResponse.trim() !== '') {
-          audioData = await geminiService.generateSpeech(chatResponse);
-      }
-      
-      // Revoke previous action video URL if it exists to prevent memory leaks.
-      if (currentVideoUrl && currentVideoUrl !== idleVideoUrl) {
-          URL.revokeObjectURL(currentVideoUrl);
+      if (!matchingAction) {
+        const availableActions = formatActionList(selectedCharacter.actions);
+        const response =
+          availableActions.length > 0
+            ? `I don't have a video for that command. Try one of: ${availableActions}.`
+            : "I don't have any actions saved yet.";
+        setChatHistory((prev) => [
+          ...prev,
+          { role: 'model', text: response },
+        ]);
+        return;
       }
 
-      // Update the UI with the new video and audio
-      setCurrentVideoUrl(videoUrl);
-      setActionAudioData(audioData);
+      const actionUrl = actionVideoUrls[matchingAction.id];
+      if (!actionUrl) {
+        const response = `I couldn't find the video for "${matchingAction.name}".`;
+        setChatHistory((prev) => [
+          ...prev,
+          { role: 'model', text: response },
+        ]);
+        return;
+      }
 
-    } catch (error) {
-      handleApiError(error);
+      if (
+        currentVideoUrl &&
+        currentVideoUrl !== idleVideoUrl &&
+        currentVideoUrl !== actionUrl
+      ) {
+        const isKnownActionUrl = Object.values(actionVideoUrls).includes(
+          currentVideoUrl
+        );
+        if (!isKnownActionUrl) {
+          try {
+            URL.revokeObjectURL(currentVideoUrl);
+          } catch (error) {
+            console.warn('Failed to revoke previous action video URL', error);
+          }
+        }
+      }
+
+      setCurrentVideoUrl(actionUrl);
+      setChatHistory((prev) => [
+        ...prev,
+        { role: 'model', text: `Playing "${matchingAction.name}".` },
+      ]);
     } finally {
-        // Ensure loading states are reset regardless of success or failure.
-        setIsGeneratingActionVideo(false);
+      setIsProcessingAction(false);
     }
   };
   
-  const isActionVideoPlaying = currentVideoUrl !== null && currentVideoUrl !== idleVideoUrl;
+  const isActionVideoPlaying =
+    currentVideoUrl !== null && currentVideoUrl !== idleVideoUrl;
 
   const handleVideoEnd = () => {
     if (isActionVideoPlaying && idleVideoUrl) {
-      // Revoke the object URL of the action video that just finished.
-      if (currentVideoUrl) {
-        URL.revokeObjectURL(currentVideoUrl);
-      }
       setCurrentVideoUrl(idleVideoUrl);
     }
   };
 
-  const handleActionAudioEnd = () => {
-    setActionAudioData(null);
-  };
-
-  const isBusy = isGeneratingActionVideo || isChatting || isGeneratingInitialVideo;
+  const isBusy = isProcessingAction;
 
   const renderContent = () => {
-    if (!apiKeySelected) {
-      return <ApiKeySelector 
-                onApiKeySelected={handleApiKeySelected} 
-                errorMessage={errorMessage}
-                isAiStudio={isAiStudio} 
-              />;
-    }
-    
     switch (view) {
         case 'loading':
             return <div className="flex items-center justify-center h-full"><LoadingSpinner /></div>;
@@ -305,17 +759,16 @@ const App: React.FC = () => {
             return (
               <ImageUploader 
                 onImageUpload={handleImageUpload}
-                onGenerate={handleGenerateInitialVideo}
                 onSelectLocalVideo={handleSelectLocalVideo}
                 imagePreview={uploadedImage?.base64 ? `data:${uploadedImage.mimeType};base64,${uploadedImage.base64}` : null}
-                isUploading={isGeneratingInitialVideo}
+                isSaving={isSavingCharacter}
                 onBack={handleBackToSelection}
               />
             );
         case 'chat':
             if (!selectedCharacter) return null; // Should not happen
             return (
-              <div className="relative grid grid-cols-1 lg:grid-cols-3 gap-8 h-full">
+              <div className="relative grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-5 gap-8 h-full">
                 <button 
                   onClick={handleBackToSelection} 
                   className="absolute top-2 left-2 z-30 bg-gray-800/50 hover:bg-gray-700/80 text-white rounded-full p-2 transition-colors"
@@ -323,20 +776,43 @@ const App: React.FC = () => {
                 >
                     <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
                 </button>
-                <div className="lg:col-span-2 h-full flex items-center justify-center bg-black rounded-lg">
+                <div className="xl:col-span-2 h-full flex items-center justify-center bg-black rounded-lg">
                   <VideoPlayer 
                     src={currentVideoUrl}
                     onEnded={handleVideoEnd}
-                    isLoading={isGeneratingActionVideo}
+                    isLoading={isProcessingAction}
                     loop={!isActionVideoPlaying}
                   />
                 </div>
-                <div className="h-full">
+                <div className="h-full xl:col-span-2">
                   <ChatPanel
                     history={chatHistory}
                     onSendMessage={handleSendMessage}
                     isSending={isBusy}
                   />
+                </div>
+                <div className="lg:col-span-2 xl:col-span-1 h-full flex flex-col gap-4">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      registerInteraction();
+                      setIsActionManagerOpen((previous) => !previous);
+                    }}
+                    className="inline-flex items-center justify-center gap-2 rounded-md bg-gray-700 text-white px-4 py-2 hover:bg-gray-600 transition-colors self-end shadow"
+                  >
+                    {isActionManagerOpen ? 'Hide Actions' : 'Show Actions'}
+                  </button>
+                  {isActionManagerOpen && (
+                    <ActionManager
+                      actions={managedActions}
+                      onCreateAction={handleCreateAction}
+                      onUpdateAction={handleUpdateAction}
+                      onDeleteAction={handleDeleteAction}
+                      isCreating={isCreatingAction}
+                      updatingActionId={updatingActionId}
+                      deletingActionId={deletingActionId}
+                    />
+                  )}
                 </div>
               </div>
             );
@@ -347,15 +823,16 @@ const App: React.FC = () => {
     <div className="bg-gray-900 text-gray-100 min-h-screen flex flex-col p-4 md:p-8">
       <header className="text-center mb-8">
         <h1 className="text-4xl md:text-5xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-purple-400 to-indigo-600">
-          Gemini Interactive Character
+          Interactive Video Character
         </h1>
-        <p className="text-gray-400 mt-2">Bring your images to life and chat with them in real-time.</p>
+        <p className="text-gray-400 mt-2">
+          Play pre-recorded character animations stored in Supabase.
+        </p>
       </header>
       <main className="flex-grow bg-gray-800/50 rounded-2xl p-4 md:p-6 shadow-2xl shadow-black/30 backdrop-blur-sm border border-gray-700">
         {errorMessage && <div className="bg-red-500/20 border border-red-500 text-red-300 p-3 rounded-lg mb-4 text-center">{errorMessage}</div>}
         {renderContent()}
       </main>
-      <AudioPlayer src={actionAudioData} onEnded={handleActionAudioEnd} />
     </div>
   );
 };
