@@ -110,16 +110,34 @@ const base64ToBlob = (base64: string, mimeType: string): Blob => {
 };
 
 const downloadIdleVideo = async (path: string): Promise<Blob | null> => {
-  const { data, error } = await supabase.storage
-    .from(IDLE_VIDEO_BUCKET)
-    .download(path);
+  try {
+    const { data, error } = await supabase.storage
+      .from(IDLE_VIDEO_BUCKET)
+      .download(path);
 
-  if (error) {
-    console.error(`Failed to download idle video at path "${path}":`, error);
+    if (error) {
+      console.error(
+        `Failed to download idle video at path "${path}":`,
+        error,
+        `\nError details: ${JSON.stringify(error, null, 2)}`
+      );
+      // Try to provide helpful debugging info
+      const errorMessage = error.message || String(error);
+      if (errorMessage.includes('400') || errorMessage.includes('Bad Request')) {
+        console.error(
+          `\n400 Bad Request suggests the path might be incorrect or the file doesn't exist. ` +
+          `Expected format: "{character_id}/idle-video.{extension}" ` +
+          `Actual path: "${path}"`
+        );
+      }
+      return null;
+    }
+
+    return data;
+  } catch (err) {
+    console.error(`Unexpected error downloading idle video at path "${path}":`, err);
     return null;
   }
-
-  return data;
 };
 
 const downloadActionVideo = async (path: string): Promise<Blob | null> => {
@@ -222,9 +240,7 @@ export const getCharacterActions = async (
     })
   );
 
-  return actions.filter(
-    (action): action is CharacterAction => action !== null
-  );
+  return actions.filter((action) => action !== null) as CharacterAction[];
 };
 
 const buildCharacterProfile = async (row: CharacterRow): Promise<CharacterProfile | null> => {
@@ -235,7 +251,11 @@ const buildCharacterProfile = async (row: CharacterRow): Promise<CharacterProfil
 
   const idleVideoBlob = await downloadIdleVideo(row.idle_video_path);
   if (!idleVideoBlob) {
-    console.warn(`Character "${row.id}" idle video could not be retrieved.`);
+    console.warn(
+      `Character "${row.id}" idle video could not be retrieved from path "${row.idle_video_path}". ` +
+      `This might be due to: 1) File doesn't exist at that path, 2) Incorrect path format, 3) Storage permissions issue. ` +
+      `Character will be skipped. Check Supabase storage bucket "${IDLE_VIDEO_BUCKET}" for the correct path.`
+    );
     return null;
   }
 

@@ -197,9 +197,18 @@ const App: React.FC = () => {
 
   const loadCharacters = useCallback(async () => {
     setView('loading');
-    const savedCharacters = await dbService.getCharacters();
-    setCharacters(savedCharacters.sort((a, b) => b.createdAt - a.createdAt));
-    setView('selectCharacter');
+    try {
+      const savedCharacters = await dbService.getCharacters();
+      if (savedCharacters.length === 0) {
+        console.warn('No characters loaded. This could mean: 1) No characters in database, 2) All characters have missing video files, 3) Storage access issues.');
+      }
+      setCharacters(savedCharacters.sort((a, b) => b.createdAt - a.createdAt));
+      setView('selectCharacter');
+    } catch (error) {
+      console.error('Failed to load characters:', error);
+      setErrorMessage('Failed to load characters. Check console for details.');
+      setView('selectCharacter');
+    }
   }, []);
 
   useEffect(() => {
