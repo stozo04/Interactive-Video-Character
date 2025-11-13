@@ -1,4 +1,4 @@
-import { GoogleGenAI, Chat, Modality } from "@google/genai";
+import { GoogleGenAI } from "@google/genai";
 import { UploadedImage } from '../types';
 
 // Utility to convert file to base64
@@ -89,48 +89,4 @@ export const generateActionVideo = async (image: UploadedImage, command: string)
     const operation = await generateSingleVideo(image, prompt);
     const blob = await pollVideoOperation(operation);
     return URL.createObjectURL(blob);
-};
-
-export const startChatSession = async (): Promise<Chat> => {
-    const ai = getAiClient();
-    const chat = ai.chats.create({
-        model: 'gemini-2.5-flash',
-        config: {
-            systemInstruction: `You are an interactive AI character. The user will give you a command to perform an action. Your response will be spoken by the character.
-- For commands that should have a verbal response, provide a brief, conversational text confirmation (under 15 words).
-- For purely physical actions where speech is unnatural (like a simple nod or wave), respond with an empty string.
-Examples:
-User: "Tell me a joke." -> Model: "Of course! Why don't scientists trust atoms? Because they make up everything!"
-User: "Wave to me." -> Model: "Hello there!"
-User: "Nod." -> Model: "" (an empty string)`,
-        },
-    });
-    return chat;
-};
-
-export const sendMessage = async (chat: Chat, message: string): Promise<string> => {
-    const response = await chat.sendMessage({ message });
-    return response.text;
-};
-
-export const generateSpeech = async (text: string): Promise<string> => {
-    const ai = getAiClient();
-    const response = await ai.models.generateContent({
-        model: "gemini-2.5-flash-preview-tts",
-        contents: [{ parts: [{ text }] }],
-        config: {
-            responseModalities: [Modality.AUDIO],
-            speechConfig: {
-                voiceConfig: {
-                    prebuiltVoiceConfig: { voiceName: 'Kore' }, // A friendly, standard voice
-                },
-            },
-        },
-    });
-
-    const base64Audio = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
-    if (!base64Audio) {
-        throw new Error("Speech generation failed, no audio data received.");
-    }
-    return base64Audio;
 };

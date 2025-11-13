@@ -243,7 +243,7 @@ const App: React.FC = () => {
     if (!idleVideoUrl) return;
     if (currentVideoUrl && currentVideoUrl !== idleVideoUrl) return;
 
-    const action = randomFromArray(selectedCharacter.actions);
+    const action: CharacterAction = randomFromArray(selectedCharacter.actions);
 
     let actionUrl = actionVideoUrls[action.id] ?? null;
     if (!actionUrl && action.videoPath) {
@@ -693,6 +693,7 @@ const App: React.FC = () => {
           ...prev,
           { role: 'model', text: response },
         ]);
+        setIsProcessingAction(false);
         return;
       }
 
@@ -703,6 +704,7 @@ const App: React.FC = () => {
           ...prev,
           { role: 'model', text: response },
         ]);
+        setIsProcessingAction(false);
         return;
       }
 
