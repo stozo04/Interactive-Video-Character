@@ -97,7 +97,7 @@ const ChatPanel: React.FC<ChatPanelProps> = ({ history, onSendMessage, isSending
 
   return (
     <div className="bg-gray-800/70 h-full flex flex-col rounded-lg p-4 border border-gray-700 shadow-lg">
-      <div className="flex-grow overflow-y-auto pr-2 space-y-4 mb-4">
+      <div className="flex-1 min-h-0 overflow-y-auto pr-2 space-y-4 mb-4" style={{ scrollbarWidth: 'thin', scrollbarColor: '#4B5563 #1F2937' }}>
         {history.map((msg, index) => (
           <div key={index} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
             <div className={`max-w-xs md:max-w-md lg:max-w-sm xl:max-w-md px-4 py-2 rounded-2xl ${msg.role === 'user' ? 'bg-indigo-600 text-white rounded-br-none' : 'bg-gray-700 text-gray-200 rounded-bl-none'}`}>
@@ -107,7 +107,7 @@ const ChatPanel: React.FC<ChatPanelProps> = ({ history, onSendMessage, isSending
         ))}
         <div ref={messagesEndRef} />
       </div>
-      <form onSubmit={handleSubmit} className="flex items-center gap-2 border-t border-gray-700 pt-4">
+      <form onSubmit={handleSubmit} className="flex-shrink-0 flex items-center gap-2 border-t border-gray-700 pt-4">
         <input
           type="text"
           value={input}
