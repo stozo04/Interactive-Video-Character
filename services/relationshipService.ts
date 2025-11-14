@@ -236,6 +236,11 @@ export const updateRelationship = async (
       return null;
     }
 
+    if (!data) {
+      console.warn('updateRelationship received null data from update');
+      return null;
+    }
+
     // Log the event
     await logRelationshipEvent(
       data.id,
@@ -446,7 +451,7 @@ function fallbackSentimentAnalysis(
  * Calculate score changes based on sentiment, intensity, and message content
  * Phase 2: Enhanced dimension score interactions based on interaction type
  */
-function calculateScoreChanges(
+export function calculateScoreChanges(
   sentiment: 'positive' | 'neutral' | 'negative',
   intensity: number,
   message: string,
@@ -567,7 +572,7 @@ function calculateScoreChanges(
 /**
  * Detect if an event constitutes a rupture
  */
-function detectRupture(
+export function detectRupture(
   event: RelationshipEvent,
   previousScore: number,
   newScore: number
