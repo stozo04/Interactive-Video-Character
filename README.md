@@ -14,14 +14,46 @@ View your app in AI Studio: https://ai.studio/apps/drive/1LmtG-2ZBmNS1apPZ-Ac80A
 
 
 1. Install dependencies:
-   `npm install`
-2. Create a `.env.local` file with the following values:
+   ```bash
+   npm install
    ```
-   NEXT_PUBLIC_SUPABASE_URL=your-supabase-url
-   NEXT_PUBLIC_SUPABASE_ANON_KEY=your-supabase-anon-key
+
+2. Create a `.env` file in the root directory with the following values:
+   ```env
+   # Supabase Configuration
+   VITE_SUPABASE_URL=your-supabase-url
+   VITE_SUPABASE_ANON_KEY=your-supabase-anon-key
+   
+   # Google OAuth (Optional - for Gmail integration)
+   VITE_GOOGLE_CLIENT_ID=your-google-client-id.apps.googleusercontent.com
    ```
+
 3. Run the app:
-   `npm run dev`
+   ```bash
+   npm run dev
+   ```
+
+### Google OAuth Setup (Required)
+
+⚠️ **Authentication is now required** - Users must sign in with Google to access the app.
+
+To enable authentication:
+
+1. Follow the [Google OAuth Setup Guide](docs/GOOGLE_OAUTH_SETUP.md)
+2. Add your Google Client ID to the `.env` file
+3. Users will see a login page when opening the app
+
+**Features:**
+- Standalone OAuth flow (no backend required)
+- Automatic token refresh
+- Secure session management
+- Professional login page
+- Session persistence across page reloads
+- Gmail integration (read email metadata)
+
+**Important:** Without configuring the Google Client ID, users cannot access the application.
+
+See [docs/GOOGLE_OAUTH_SETUP.md](docs/GOOGLE_OAUTH_SETUP.md) for detailed setup instructions.
 
 ## Project Structure
 

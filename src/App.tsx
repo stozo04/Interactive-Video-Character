@@ -20,6 +20,9 @@ import ChatPanel from './components/ChatPanel';
 import CharacterSelector from './components/CharacterSelector';
 import LoadingSpinner from './components/LoadingSpinner';
 import ActionManager from './components/ActionManager';
+import { SettingsPanel } from './components/SettingsPanel';
+import { LoginPage } from './components/LoginPage';
+import { useGoogleAuth } from './contexts/GoogleAuthContext';
 
 const sanitizeText = (value: string): string =>
   value
@@ -155,6 +158,7 @@ interface DisplayCharacter {
 }
 
 const App: React.FC = () => {
+  const { session, status: authStatus } = useGoogleAuth();
   const [view, setView] = useState<View>('loading');
   const [characters, setCharacters] = useState<CharacterProfile[]>([]);
   const [selectedCharacter, setSelectedCharacter] =
@@ -1076,15 +1080,33 @@ const App: React.FC = () => {
     }
   };
 
+  // Show loading screen while checking authentication
+  if (authStatus === 'loading') {
+    return (
+      <div className="bg-gray-900 text-gray-100 min-h-screen flex items-center justify-center">
+        <LoadingSpinner />
+      </div>
+    );
+  }
+
+  // Show login page if not authenticated
+  if (!session || authStatus !== 'connected') {
+    return <LoginPage />;
+  }
+
+  // Show main app only when authenticated
   return (
     <div className="bg-gray-900 text-gray-100 min-h-screen flex flex-col p-4 md:p-8">
-      <header className="text-center mb-8">
+      <header className="text-center mb-8 relative">
         <h1 className="text-4xl md:text-5xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-purple-400 to-indigo-600">
           Interactive Video Character
         </h1>
         <p className="text-gray-400 mt-2">
           Play pre-recorded character animations stored in Supabase.
         </p>
+        <div className="absolute top-0 right-0">
+          <SettingsPanel />
+        </div>
       </header>
       <main className="flex-grow bg-gray-800/50 rounded-2xl p-4 md:p-6 shadow-2xl shadow-black/30 backdrop-blur-sm border border-gray-700">
         {errorMessage && <div className="bg-red-500/20 border border-red-500 text-red-300 p-3 rounded-lg mb-4 text-center">{errorMessage}</div>}
