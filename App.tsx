@@ -11,6 +11,8 @@ import { supabase } from './services/supabaseClient';
 import * as grokChatService from './services/grokChatService';
 import type { GrokChatSession } from './services/grokChatService';
 import * as conversationHistoryService from './services/conversationHistoryService';
+import * as relationshipService from './services/relationshipService';
+import type { RelationshipMetrics } from './services/relationshipService';
 
 import ImageUploader from './components/ImageUploader';
 import VideoPlayer from './components/VideoPlayer';
@@ -177,6 +179,7 @@ const App: React.FC = () => {
   const [isMuted, setIsMuted] = useState(false);
   const [grokSession, setGrokSession] = useState<GrokChatSession | null>(null);
   const [lastSavedMessageIndex, setLastSavedMessageIndex] = useState<number>(-1);
+  const [relationship, setRelationship] = useState<RelationshipMetrics | null>(null);
 
   const idleActionTimerRef = useRef<number | null>(null);
 
@@ -682,17 +685,20 @@ const App: React.FC = () => {
     setCurrentVideoUrl(newIdleVideoUrl);
     setCurrentActionId(null);
     
-    // Load conversation history for this character-user pair
+    // Load conversation history and relationship for this character-user pair
     const userId = getUserId();
     const savedHistory = await conversationHistoryService.loadConversationHistory(character.id, userId);
+    const relationshipData = await relationshipService.getRelationship(character.id, userId);
+    setRelationship(relationshipData);
     
-    // Generate personalized greeting using Grok (with full history context)
+    // Generate personalized greeting using Grok (with full history and relationship context)
     try {
       const session = grokChatService.getOrCreateSession(character.id, userId);
       const { greeting, session: updatedSession } = await grokChatService.generateGrokGreeting(
         character, 
         session,
-        savedHistory // Pass saved history for context
+        savedHistory, // Pass saved history for context
+        relationshipData // Pass relationship context
       );
       setGrokSession(updatedSession);
       
@@ -815,6 +821,7 @@ const App: React.FC = () => {
     setChatHistory([]);
     setGrokSession(null);
     setLastSavedMessageIndex(-1);
+    setRelationship(null);
     setUploadedImage(null);
     setErrorMessage(null);
     setView('selectCharacter');
@@ -841,8 +848,25 @@ const App: React.FC = () => {
         selectedCharacter.actions
       );
 
-      // Generate response from Grok chat service
+      // Analyze message sentiment and update relationship
       const userId = getUserId();
+      const relationshipEvent = await relationshipService.analyzeMessageSentiment(
+        message,
+        chatHistory
+      );
+      
+      // Update relationship based on sentiment
+      const updatedRelationship = await relationshipService.updateRelationship(
+        selectedCharacter.id,
+        userId,
+        relationshipEvent
+      );
+      
+      if (updatedRelationship) {
+        setRelationship(updatedRelationship);
+      }
+
+      // Generate response from Grok chat service (with relationship context)
       const session = grokSession || grokChatService.getOrCreateSession(selectedCharacter.id, userId);
       
       const { response, session: updatedSession } = await grokChatService.generateGrokResponse(
@@ -851,6 +875,7 @@ const App: React.FC = () => {
           character: selectedCharacter,
           matchingAction,
           chatHistory: updatedHistory, // Use updated history with new user message
+          relationship: updatedRelationship, // Pass relationship context
         },
         session
       );
