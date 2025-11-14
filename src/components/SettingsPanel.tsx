@@ -4,9 +4,10 @@ import { GmailConnectButton } from './GmailConnectButton';
 
 interface SettingsPanelProps {
   className?: string;
+  onGmailConnectionChange?: (isConnected: boolean) => void;
 }
 
-export function SettingsPanel({ className = '' }: SettingsPanelProps) {
+export function SettingsPanel({ className = '', onGmailConnectionChange }: SettingsPanelProps) {
   const [isOpen, setIsOpen] = useState(false);
 
   return (
@@ -80,7 +81,7 @@ export function SettingsPanel({ className = '' }: SettingsPanelProps) {
                 <h3 className="text-sm font-medium text-gray-300 mb-3">
                   Gmail Integration
                 </h3>
-                <GmailConnectButton />
+                <GmailConnectButton onConnectionChange={onGmailConnectionChange} />
               </div>
             </div>
           </div>
