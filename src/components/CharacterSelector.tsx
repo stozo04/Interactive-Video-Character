@@ -2,6 +2,7 @@
 import React from 'react';
 import { CharacterProfile } from '../types';
 import CharacterCard from './CharacterCard';
+import LoadingSpinner from './LoadingSpinner';
 
 interface DisplayCharacter {
   profile: CharacterProfile;
@@ -14,31 +15,35 @@ interface CharacterSelectorProps {
   onSelectCharacter: (character: CharacterProfile) => void;
   onCreateNew: () => void;
   onDeleteCharacter: (id: string) => void;
+  isLoading?: boolean;
 }
 
-const CharacterSelector: React.FC<CharacterSelectorProps> = ({ characters, onSelectCharacter, onCreateNew, onDeleteCharacter }) => {
+const CharacterSelector: React.FC<CharacterSelectorProps> = ({ characters, onSelectCharacter, onCreateNew, onDeleteCharacter, isLoading = false }) => {
   return (
-    <div className="flex flex-col items-center justify-center h-full">
+    <div className="flex flex-col items-center justify-center h-full relative">
       <h2 className="text-3xl font-bold mb-8">Select a Character</h2>
       {characters.length === 0 ? (
         <p className="text-gray-400">You haven't created any characters yet. Get started by creating a new one!</p>
       ) : null}
       <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4 md:gap-6 w-full max-w-7xl p-4 overflow-y-auto">
         {characters.map(char => (
-          <CharacterCard
-            key={char.profile.id}
-            characterImageUrl={char.imageUrl}
-            characterVideoUrl={char.videoUrl}
-            onSelect={() => onSelectCharacter(char.profile)}
-            onDelete={(e) => {
-              e.stopPropagation();
-              onDeleteCharacter(char.profile.id);
-            }}
-          />
+          <div key={char.profile.id} className={isLoading ? 'pointer-events-none opacity-50' : ''}>
+            <CharacterCard
+              characterImageUrl={char.imageUrl}
+              characterVideoUrl={char.videoUrl}
+              onSelect={() => onSelectCharacter(char.profile)}
+              onDelete={(e) => {
+                e.stopPropagation();
+                onDeleteCharacter(char.profile.id);
+              }}
+            />
+          </div>
         ))}
         <div
-          onClick={onCreateNew}
-          className="aspect-[9/16] rounded-lg border-2 border-dashed border-gray-600 flex items-center justify-center cursor-pointer hover:bg-gray-700/50 hover:border-purple-500 transition-all text-gray-400 hover:text-white"
+          onClick={isLoading ? undefined : onCreateNew}
+          className={`aspect-[9/16] rounded-lg border-2 border-dashed border-gray-600 flex items-center justify-center ${
+            isLoading ? 'cursor-not-allowed opacity-50' : 'cursor-pointer hover:bg-gray-700/50 hover:border-purple-500'
+          } transition-all text-gray-400 hover:text-white`}
         >
           <div className="text-center">
             <svg xmlns="http://www.w3.org/2000/svg" className="h-12 w-12 mx-auto" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -48,6 +53,13 @@ const CharacterSelector: React.FC<CharacterSelectorProps> = ({ characters, onSel
           </div>
         </div>
       </div>
+      {isLoading && (
+        <div className="absolute inset-0 bg-gray-900/80 backdrop-blur-sm flex flex-col items-center justify-center z-50">
+          <LoadingSpinner />
+          <p className="text-white mt-4 text-lg font-semibold">Loading character...</p>
+          <p className="text-gray-400 mt-2 text-sm">Loading conversation history and generating greeting</p>
+        </div>
+      )}
     </div>
   );
 };

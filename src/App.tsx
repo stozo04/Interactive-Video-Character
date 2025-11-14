@@ -13,6 +13,7 @@ import type { GrokChatSession } from './services/grokChatService';
 import * as conversationHistoryService from './services/conversationHistoryService';
 import * as relationshipService from './services/relationshipService';
 import type { RelationshipMetrics } from './services/relationshipService';
+import { gmailService, type NewEmailPayload } from './services/gmailService';
 
 import ImageUploader from './components/ImageUploader';
 import VideoPlayer from './components/VideoPlayer';
@@ -23,6 +24,7 @@ import ActionManager from './components/ActionManager';
 import { SettingsPanel } from './components/SettingsPanel';
 import { LoginPage } from './components/LoginPage';
 import { useGoogleAuth } from './contexts/GoogleAuthContext';
+import { useDebounce } from './hooks/useDebounce';
 
 const sanitizeText = (value: string): string =>
   value
@@ -185,6 +187,12 @@ const App: React.FC = () => {
   const [lastSavedMessageIndex, setLastSavedMessageIndex] = useState<number>(-1);
   const [relationship, setRelationship] = useState<RelationshipMetrics | null>(null);
   const [isVideoVisible, setIsVideoVisible] = useState(true);
+  const [isLoadingCharacter, setIsLoadingCharacter] = useState(false);
+
+  // Gmail Integration State
+  const [isGmailConnected, setIsGmailConnected] = useState(false);
+  const [emailQueue, setEmailQueue] = useState<NewEmailPayload[]>([]);
+  const debouncedEmailQueue = useDebounce(emailQueue, 5000); // 5 second debounce
 
   const idleActionTimerRef = useRef<number | null>(null);
 
@@ -385,6 +393,100 @@ const App: React.FC = () => {
       clearIdleActionTimer();
     };
   }, [scheduleIdleAction, clearIdleActionTimer, lastInteractionAt]);
+
+  // Gmail Integration: Polling Loop
+  useEffect(() => {
+    if (!isGmailConnected || !session) {
+      return; // Don't poll if not connected
+    }
+
+    const pollNow = async () => {
+      try {
+        await gmailService.pollForNewMail(session.accessToken);
+      } catch (error) {
+        console.error('Gmail polling error:', error);
+      }
+    };
+
+    // Poll immediately on connection
+    pollNow();
+
+    // Then poll every 60 seconds (configurable via env var)
+    const pollInterval = Number(import.meta.env.VITE_GMAIL_POLL_INTERVAL_MS) || 60000;
+    const intervalId = setInterval(pollNow, pollInterval);
+
+    // Cleanup: Stop polling when component unmounts or disconnects
+    return () => clearInterval(intervalId);
+  }, [isGmailConnected, session]);
+
+  // Gmail Integration: Event Listeners
+  useEffect(() => {
+    // Handler for new emails
+    const handleNewMail = (event: Event) => {
+      const customEvent = event as CustomEvent<NewEmailPayload[]>;
+      console.log('📧 New emails received:', customEvent.detail);
+      
+      // Add to queue instead of immediately processing
+      // (in case more emails arrive quickly)
+      setEmailQueue(prev => [...prev, ...customEvent.detail]);
+    };
+
+    // Handler for auth errors (token expired)
+    const handleAuthError = () => {
+      console.error('🔒 Gmail authentication error - token likely expired');
+      setIsGmailConnected(false);
+      localStorage.removeItem('gmail_history_id');
+      setErrorMessage('Gmail session expired. Please reconnect your Gmail account.');
+    };
+
+    // Start listening
+    gmailService.addEventListener('new-mail', handleNewMail);
+    gmailService.addEventListener('auth-error', handleAuthError);
+
+    // Stop listening on cleanup
+    return () => {
+      gmailService.removeEventListener('new-mail', handleNewMail);
+      gmailService.removeEventListener('auth-error', handleAuthError);
+    };
+  }, []); // Only set up once - handlers don't depend on changing values
+
+  // Gmail Integration: Process Debounced Emails and Notify Character
+  useEffect(() => {
+    if (debouncedEmailQueue.length === 0 || !selectedCharacter) {
+      return; // No emails to process or no character selected
+    }
+
+    const processEmailNotification = async () => {
+      // Create a message for the character
+      let systemMessage = '';
+      
+      if (debouncedEmailQueue.length === 1) {
+        const email = debouncedEmailQueue[0];
+        systemMessage = 
+          `[📧 System Notification] You just received a new email.\n` +
+          `From: ${email.from}\n` +
+          `Subject: ${email.subject}\n` +
+          `Preview: ${email.snippet}`;
+      } else {
+        systemMessage = 
+          `[📧 System Notification] You just received ${debouncedEmailQueue.length} new emails.\n` +
+          `Most recent:\n` +
+          `From: ${debouncedEmailQueue[0].from}\n` +
+          `Subject: ${debouncedEmailQueue[0].subject}`;
+      }
+
+      console.log('💬 Notifying character about emails:', systemMessage);
+
+      // Automatically trigger character response to the email notification
+      await handleSendMessage(systemMessage);
+
+      // Clear the queue after processing
+      setEmailQueue([]);
+    };
+
+    processEmailNotification();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [debouncedEmailQueue, selectedCharacter]);
 
   const handleImageUpload = (image: UploadedImage) => {
     setUploadedImage(image);
@@ -648,6 +750,7 @@ const App: React.FC = () => {
     setUpdatingActionId(null);
     setDeletingActionId(null);
     setIsActionManagerOpen(false);
+    setIsLoadingCharacter(true);
     registerInteraction();
 
     if (idleVideoUrl) {
@@ -690,41 +793,49 @@ const App: React.FC = () => {
     setCurrentVideoUrl(newIdleVideoUrl);
     setCurrentActionId(null);
     
-    // Load conversation history and relationship for this character-user pair
-    const userId = getUserId();
-    const savedHistory = await conversationHistoryService.loadConversationHistory(character.id, userId);
-    const relationshipData = await relationshipService.getRelationship(character.id, userId);
-    setRelationship(relationshipData);
-    
-    // Generate personalized greeting using Grok (with full history and relationship context)
     try {
-      const session = grokChatService.getOrCreateSession(character.id, userId);
-      const { greeting, session: updatedSession } = await grokChatService.generateGrokGreeting(
-        character, 
-        session,
-        savedHistory, // Pass saved history for context
-        relationshipData // Pass relationship context
-      );
-      setGrokSession(updatedSession);
+      // Load conversation history and relationship for this character-user pair
+      const userId = getUserId();
+      const savedHistory = await conversationHistoryService.loadConversationHistory(character.id, userId);
+      const relationshipData = await relationshipService.getRelationship(character.id, userId);
+      setRelationship(relationshipData);
       
-      // Combine saved history with new greeting
-      const initialHistory = savedHistory.length > 0 
-        ? [...savedHistory, { role: 'model' as const, text: greeting }]
-        : [{ role: 'model' as const, text: greeting }];
-      setChatHistory(initialHistory);
-      // Track that all loaded messages are saved (greeting is new, so we're at savedHistory.length)
-      setLastSavedMessageIndex(savedHistory.length - 1);
+      // Generate personalized greeting using Grok (with full history and relationship context)
+      try {
+        const session = grokChatService.getOrCreateSession(character.id, userId);
+        const { greeting, session: updatedSession } = await grokChatService.generateGrokGreeting(
+          character, 
+          session,
+          savedHistory, // Pass saved history for context
+          relationshipData // Pass relationship context
+        );
+        setGrokSession(updatedSession);
+        
+        // Combine saved history with new greeting
+        const initialHistory = savedHistory.length > 0 
+          ? [...savedHistory, { role: 'model' as const, text: greeting }]
+          : [{ role: 'model' as const, text: greeting }];
+        setChatHistory(initialHistory);
+        // Track that all loaded messages are saved (greeting is new, so we're at savedHistory.length)
+        setLastSavedMessageIndex(savedHistory.length - 1);
+      } catch (error) {
+        console.error('Error generating Grok greeting:', error);
+        // Show error to user and start with saved history only (no greeting)
+        setErrorMessage('Failed to generate greeting. Please try again.');
+        const initialHistory = savedHistory.length > 0
+          ? savedHistory
+          : [];
+        setChatHistory(initialHistory);
+        setLastSavedMessageIndex(savedHistory.length - 1);
+      }
+      
+      setView('chat');
     } catch (error) {
-      console.error('Error generating Grok greeting:', error);
-      // Show error to user and start with saved history only (no greeting)
-      setErrorMessage('Failed to generate greeting. Please try again.');
-      const initialHistory = savedHistory.length > 0
-        ? savedHistory
-        : [];
-      setChatHistory(initialHistory);
-      setLastSavedMessageIndex(savedHistory.length - 1);
+      console.error('Error loading character:', error);
+      setErrorMessage('Failed to load character data. Please try again.');
+    } finally {
+      setIsLoadingCharacter(false);
     }
-    setView('chat');
 
     // Check for greeting actions and play one automatically
     const greetingActions = getGreetingActions(character.actions);
@@ -982,6 +1093,7 @@ const App: React.FC = () => {
                 onSelectCharacter={handleSelectCharacter}
                 onCreateNew={() => setView('createCharacter')}
                 onDeleteCharacter={handleDeleteCharacter}
+                isLoading={isLoadingCharacter}
             />;
         case 'createCharacter':
             return (
@@ -1010,12 +1122,22 @@ const App: React.FC = () => {
                 >
                     <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
                 </button>
-                <div className="absolute top-2 right-2 z-30 flex gap-2">
+                <div className="absolute top-2 right-2 z-30 flex flex-col sm:flex-row gap-2">
                   <button
                     onClick={() => setIsVideoVisible((prev) => !prev)}
-                    className="bg-gray-800/50 hover:bg-gray-700/80 text-white rounded-full px-4 py-2 transition-colors"
+                    className="bg-gray-800/50 hover:bg-gray-700/80 text-white rounded-full px-4 py-2 transition-colors whitespace-nowrap"
                   >
                     {isVideoVisible ? 'Hide Video' : 'Show Video'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      registerInteraction();
+                      setIsActionManagerOpen((previous) => !previous);
+                    }}
+                    className="bg-gray-800/50 hover:bg-gray-700/80 text-white rounded-full px-4 py-2 transition-colors whitespace-nowrap"
+                  >
+                    {isActionManagerOpen ? 'Hide Actions' : 'Show Actions'}
                   </button>
                 </div>
                 {isVideoVisible && (
@@ -1053,16 +1175,6 @@ const App: React.FC = () => {
                   />
                 </div>
                 <div className="lg:col-span-2 xl:col-span-1 h-full flex flex-col gap-4">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      registerInteraction();
-                      setIsActionManagerOpen((previous) => !previous);
-                    }}
-                    className="inline-flex items-center justify-center gap-2 rounded-md bg-gray-700 text-white px-4 py-2 hover:bg-gray-600 transition-colors self-end shadow"
-                  >
-                    {isActionManagerOpen ? 'Hide Actions' : 'Show Actions'}
-                  </button>
                   {isActionManagerOpen && (
                     <ActionManager
                       actions={managedActions}
@@ -1105,7 +1217,7 @@ const App: React.FC = () => {
           Play pre-recorded character animations stored in Supabase.
         </p>
         <div className="absolute top-0 right-0">
-          <SettingsPanel />
+          <SettingsPanel onGmailConnectionChange={setIsGmailConnected} />
         </div>
       </header>
       <main className="flex-grow bg-gray-800/50 rounded-2xl p-4 md:p-6 shadow-2xl shadow-black/30 backdrop-blur-sm border border-gray-700">
