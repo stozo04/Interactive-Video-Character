@@ -180,6 +180,7 @@ const App: React.FC = () => {
   const [grokSession, setGrokSession] = useState<GrokChatSession | null>(null);
   const [lastSavedMessageIndex, setLastSavedMessageIndex] = useState<number>(-1);
   const [relationship, setRelationship] = useState<RelationshipMetrics | null>(null);
+  const [isVideoVisible, setIsVideoVisible] = useState(true);
 
   const idleActionTimerRef = useRef<number | null>(null);
 
@@ -991,7 +992,13 @@ const App: React.FC = () => {
         case 'chat':
             if (!selectedCharacter) return null; // Should not happen
             return (
-              <div className="relative grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-5 gap-8 h-full">
+              <div
+                className={`relative grid gap-8 h-full ${
+                  isVideoVisible
+                    ? 'grid-cols-1 lg:grid-cols-2 xl:grid-cols-5'
+                    : 'grid-cols-1 lg:grid-cols-1 xl:grid-cols-4'
+                }`}
+              >
                 <button 
                   onClick={handleBackToSelection} 
                   className="absolute top-2 left-2 z-30 bg-gray-800/50 hover:bg-gray-700/80 text-white rounded-full p-2 transition-colors"
@@ -999,32 +1006,42 @@ const App: React.FC = () => {
                 >
                     <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
                 </button>
-                <div className="xl:col-span-2 h-full flex items-center justify-center bg-black rounded-lg relative">
+                <div className="absolute top-2 right-2 z-30 flex gap-2">
                   <button
-                    onClick={() => setIsMuted(!isMuted)}
-                    className="absolute top-2 right-2 z-30 bg-gray-800/50 hover:bg-gray-700/80 text-white rounded-full p-2 transition-colors"
-                    aria-label={isMuted ? "Unmute audio" : "Mute audio"}
+                    onClick={() => setIsVideoVisible((prev) => !prev)}
+                    className="bg-gray-800/50 hover:bg-gray-700/80 text-white rounded-full px-4 py-2 transition-colors"
                   >
-                    {isMuted ? (
-                      <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2" />
-                      </svg>
-                    ) : (
-                      <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
-                      </svg>
-                    )}
+                    {isVideoVisible ? 'Hide Video' : 'Show Video'}
                   </button>
-                  <VideoPlayer 
-                    src={currentVideoUrl}
-                    onEnded={handleVideoEnd}
-                    isLoading={isProcessingAction}
-                    loop={!isActionVideoPlaying}
-                    muted={isMuted}
-                  />
                 </div>
-                <div className="h-full xl:col-span-2">
+                {isVideoVisible && (
+                  <div className="xl:col-span-2 h-full flex items-center justify-center bg-black rounded-lg relative">
+                    <button
+                      onClick={() => setIsMuted(!isMuted)}
+                      className="absolute top-2 right-2 z-30 bg-gray-800/50 hover:bg-gray-700/80 text-white rounded-full p-2 transition-colors"
+                      aria-label={isMuted ? "Unmute audio" : "Mute audio"}
+                    >
+                      {isMuted ? (
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2" />
+                        </svg>
+                      ) : (
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
+                        </svg>
+                      )}
+                    </button>
+                    <VideoPlayer 
+                      src={currentVideoUrl}
+                      onEnded={handleVideoEnd}
+                      isLoading={isProcessingAction}
+                      loop={!isActionVideoPlaying}
+                      muted={isMuted}
+                    />
+                  </div>
+                )}
+                <div className={`h-full ${isVideoVisible ? 'xl:col-span-2' : 'xl:col-span-3'}`}>
                   <ChatPanel
                     history={chatHistory}
                     onSendMessage={handleSendMessage}
