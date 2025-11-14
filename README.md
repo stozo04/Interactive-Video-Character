@@ -23,6 +23,24 @@ View your app in AI Studio: https://ai.studio/apps/drive/1LmtG-2ZBmNS1apPZ-Ac80A
 3. Run the app:
    `npm run dev`
 
+## Project Structure
+
+```
+/
+├─ docs/                  # Planning guides, relationship system notes, setup walkthroughs
+├─ src/
+│  ├─ App.tsx             # Root application component
+│  ├─ main.tsx            # Vite entry point
+│  ├─ components/         # UI building blocks (chat panel, selectors, media players, etc.)
+│  ├─ services/           # Supabase, Grok, cache, and relationship service layers (+ tests)
+│  └─ domain/
+│     ├─ characters/      # Character-specific domain models (e.g., Kayley profile scaffold)
+│     └─ relationships/   # Relationship insight schemas and helpers
+├─ supabase/migrations/   # SQL migrations for tables, relationships, and insights
+├─ index.html             # Vite HTML template (loads src/main.tsx)
+└─ vite.config.ts         # Vite config with @ alias pointing to src/
+```
+
 ## Supabase Schema Setup
 
 1. Create three storage buckets:

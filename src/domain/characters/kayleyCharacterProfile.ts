@@ -1,7 +1,7 @@
 /**
  * Kayley Adams Character Profile
- * 
- * Fill out this profile using the KAYLEY_CHARACTER_PROFILE_GUIDE.md as a reference.
+ *
+ * Fill out this profile using docs/KAYLEY_CHARACTER_PROFILE_GUIDE.md as a reference.
  * This profile will be sent to Grok with every chat session to ensure consistent,
  * authentic character responses.
  */

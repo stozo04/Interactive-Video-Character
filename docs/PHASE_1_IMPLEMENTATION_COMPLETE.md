@@ -62,7 +62,7 @@
 3. Create a new query
 4. Copy and paste the entire contents of:
    ```
-   supabase_migrations/create_relationship_system.sql
+   supabase/migrations/create_relationship_system.sql
    ```
 5. Run the query
 
