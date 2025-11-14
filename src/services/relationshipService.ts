@@ -10,7 +10,7 @@ import {
   createNewInsightFromInput,
   applyObservationToInsight,
   mapInsightRowToDomain,
-} from '../patternInsights';
+} from '../domain/relationships/patternInsights';
 
 const RELATIONSHIPS_TABLE = 'character_relationships';
 const RELATIONSHIP_EVENTS_TABLE = 'relationship_events';

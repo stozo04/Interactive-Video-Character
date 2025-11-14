@@ -1,4 +1,4 @@
-// src/domain/relationship/patternInsights.ts
+// src/domain/relationships/patternInsights.ts
 
 import { z } from "zod";
 

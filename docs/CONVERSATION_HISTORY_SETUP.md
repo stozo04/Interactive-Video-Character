@@ -11,7 +11,7 @@ The application now persists conversation history for each character-user pair i
 Run the SQL migration script in your Supabase SQL editor:
 
 ```sql
--- File: supabase_migrations/create_conversation_history.sql
+-- File: supabase/migrations/create_conversation_history.sql
 ```
 
 Or manually create the table:

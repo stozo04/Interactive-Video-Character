@@ -3,15 +3,15 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
 // FIX: Import the service AND the newly exported internal functions
-import * as relationshipService from "./relationshipService";
+import * as relationshipService from "../relationshipService";
 import { 
   detectRupture, 
   calculateScoreChanges 
-} from "./relationshipService";
+} from "../relationshipService";
 import type {
   RelationshipMetrics,
   RelationshipEvent,
-} from "./relationshipService";
+} from "../relationshipService";
 
 // Hardcoded valid UUIDs for testing purposes (Required for Zod UUID validation)
 const MOCK_RELATIONSHIP_ID = "00000000-0000-4000-8000-000000000123";
@@ -34,7 +34,7 @@ const { globalMocks, insertResolvedValues } = vi.hoisted(() => {
 });
 
 // Mock the supabase client module - must be hoisted, so use factory function
-vi.mock("./supabaseClient", () => {
+vi.mock("../supabaseClient", () => {
   const mocks = globalMocks;
 
   // Helper to create a chainable eq builder that supports multiple eq() calls

@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { ChatMessage } from "../types";
+import { ChatMessage } from "@/types";
 
 // --- MOCK SETUP ---
 // Create mocks using vi.hoisted() so they're available in the mock factory
@@ -18,7 +18,7 @@ const { globalMocks } = vi.hoisted(() => {
 });
 
 // Mock the supabase client module
-vi.mock("./supabaseClient", () => {
+vi.mock("../supabaseClient", () => {
   const mocks = globalMocks;
 
   // Track the resolved value for the next chainable call
@@ -95,10 +95,10 @@ import {
   loadConversationHistory,
   appendConversationHistory,
   clearConversationHistory,
-} from "./conversationHistoryService";
+} from "../conversationHistoryService";
 
 // Import the mocked supabase client for utility functions
-import { supabase as mockedSupabase } from './supabaseClient';
+import { supabase as mockedSupabase } from '../supabaseClient';
 
 
 // --- TEST DATA ---
