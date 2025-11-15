@@ -2,6 +2,11 @@
 
 // Gmail scopes - using metadata scope for privacy
 const GMAIL_SCOPE = "https://www.googleapis.com/auth/gmail.metadata";
+// Calendar scope for read/write access
+const CALENDAR_SCOPE = "https://www.googleapis.com/auth/calendar.events";
+
+// Combine all scopes into one string
+const SCOPES = [GMAIL_SCOPE, CALENDAR_SCOPE].join(' ');
 
 // Buffer time before token expiry to refresh (5 minutes)
 const TOKEN_REFRESH_BUFFER_MS = 5 * 60 * 1000;
@@ -87,7 +92,7 @@ function getTokenClient(): any {
     const clientId = validateClientId();
     tokenClientInstance = google.accounts.oauth2.initTokenClient({
       client_id: clientId,
-      scope: GMAIL_SCOPE,
+      scope: SCOPES,
       callback: () => {}, // Will be overridden per request
       error_callback: () => {}, // Will be overridden per request
     });
@@ -112,7 +117,7 @@ export async function getAccessToken(
       
       const client = google.accounts.oauth2.initTokenClient({
         client_id: clientId,
-        scope: GMAIL_SCOPE,
+        scope: SCOPES,
         // 'prompt' is the key:
         // 'consent' = always show popup
         // '' (empty) = try silent sign-in

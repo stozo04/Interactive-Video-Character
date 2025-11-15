@@ -14,6 +14,11 @@ import * as conversationHistoryService from './services/conversationHistoryServi
 import * as relationshipService from './services/relationshipService';
 import type { RelationshipMetrics } from './services/relationshipService';
 import { gmailService, type NewEmailPayload } from './services/gmailService';
+import { 
+  calendarService, 
+  type CalendarEvent, 
+  type NewEventPayload 
+} from './services/calendarService';
 
 import ImageUploader from './components/ImageUploader';
 import VideoPlayer from './components/VideoPlayer';
@@ -193,6 +198,10 @@ const App: React.FC = () => {
   const [isGmailConnected, setIsGmailConnected] = useState(false);
   const [emailQueue, setEmailQueue] = useState<NewEmailPayload[]>([]);
   const debouncedEmailQueue = useDebounce(emailQueue, 5000); // 5 second debounce
+
+  // Calendar Integration State
+  const [upcomingEvents, setUpcomingEvents] = useState<CalendarEvent[]>([]);
+  const [notifiedEventIds, setNotifiedEventIds] = useState<Set<string>>(new Set());
 
   const idleActionTimerRef = useRef<number | null>(null);
 
@@ -419,6 +428,62 @@ const App: React.FC = () => {
     return () => clearInterval(intervalId);
   }, [isGmailConnected, session]);
 
+  // Calendar Integration: Polling Loop
+  const pollCalendar = useCallback(async () => {
+    if (!isGmailConnected || !session) return; // Use same connection flag
+
+    try {
+      const events = await calendarService.getUpcomingEvents(session.accessToken);
+      setUpcomingEvents(events); // Update state for the AI to read
+
+      // Proactive reminder logic
+      const now = Date.now();
+      const reminderWindowMs = 15 * 60 * 1000; // 15 minutes
+
+      for (const event of events) {
+        if (!event.start?.dateTime) continue; // Skip all-day events
+
+        const startTime = new Date(event.start.dateTime).getTime();
+        
+        // Check if event is starting soon and hasn't been notified
+        if (
+          startTime > now &&
+          startTime < (now + reminderWindowMs) &&
+          !notifiedEventIds.has(event.id)
+        ) {
+          console.log(`⏰ Notifying character about upcoming event: ${event.summary}`);
+          
+          const systemMessage = 
+            `[⏰ System Notification] You have an event starting in less than 15 minutes:\n` +
+            `Event: ${event.summary}\n` +
+            `Time: ${new Date(startTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+          
+          // Send this notification to the AI
+          await handleSendMessage(systemMessage);
+          
+          // Mark as notified
+          setNotifiedEventIds(prev => new Set(prev).add(event.id));
+        }
+      }
+    } catch (error) {
+      console.error('Calendar polling error:', error);
+    }
+  }, [isGmailConnected, session, notifiedEventIds]);
+
+  useEffect(() => {
+    if (!isGmailConnected || !session) {
+      return;
+    }
+
+    // Poll immediately
+    pollCalendar();
+
+    const pollInterval = 5 * 60 * 1000; // Poll calendar every 5 minutes
+    const intervalId = setInterval(pollCalendar, pollInterval);
+
+    return () => clearInterval(intervalId);
+  }, [isGmailConnected, session, pollCalendar]);
+
   // Gmail Integration: Event Listeners
   useEffect(() => {
     // Handler for new emails
@@ -433,20 +498,23 @@ const App: React.FC = () => {
 
     // Handler for auth errors (token expired)
     const handleAuthError = () => {
-      console.error('🔒 Gmail authentication error - token likely expired');
+      console.error('🔒 Google authentication error - token likely expired');
       setIsGmailConnected(false);
       localStorage.removeItem('gmail_history_id');
-      setErrorMessage('Gmail session expired. Please reconnect your Gmail account.');
+      setUpcomingEvents([]); // Clear calendar events
+      setErrorMessage('Google session expired. Please reconnect your account.');
     };
 
     // Start listening
     gmailService.addEventListener('new-mail', handleNewMail);
     gmailService.addEventListener('auth-error', handleAuthError);
+    calendarService.addEventListener('auth-error', handleAuthError);
 
     // Stop listening on cleanup
     return () => {
       gmailService.removeEventListener('new-mail', handleNewMail);
       gmailService.removeEventListener('auth-error', handleAuthError);
+      calendarService.removeEventListener('auth-error', handleAuthError);
     };
   }, []); // Only set up once - handlers don't depend on changing values
 
@@ -938,6 +1006,8 @@ const App: React.FC = () => {
     setGrokSession(null);
     setLastSavedMessageIndex(-1);
     setRelationship(null);
+    setUpcomingEvents([]);
+    setNotifiedEventIds(new Set());
     setUploadedImage(null);
     setErrorMessage(null);
     setView('selectCharacter');
@@ -948,7 +1018,7 @@ const App: React.FC = () => {
   };
 
   const handleSendMessage = async (message: string) => {
-    if (!selectedCharacter) return;
+    if (!selectedCharacter || !session) return;
 
     registerInteraction();
     setErrorMessage(null);
@@ -982,8 +1052,8 @@ const App: React.FC = () => {
         setRelationship(updatedRelationship);
       }
 
-      // Generate response from Grok chat service (with relationship context)
-      const session = grokSession || grokChatService.getOrCreateSession(selectedCharacter.id, userId);
+      // Generate response from Grok chat service (with relationship context and calendar events)
+      const grokSessionToUse = grokSession || grokChatService.getOrCreateSession(selectedCharacter.id, userId);
       
       const { response, session: updatedSession } = await grokChatService.generateGrokResponse(
         message,
@@ -992,11 +1062,54 @@ const App: React.FC = () => {
           matchingAction,
           chatHistory: updatedHistory, // Use updated history with new user message
           relationship: updatedRelationship, // Pass relationship context
+          upcomingEvents: upcomingEvents, // Pass calendar events
         },
-        session
+        grokSessionToUse
       );
       
       setGrokSession(updatedSession);
+      
+      // Check if response is a calendar action
+      if (response.startsWith('[CALENDAR_CREATE]')) {
+        try {
+          const jsonString = response.substring('[CALENDAR_CREATE]'.length);
+          const eventData: NewEventPayload = JSON.parse(jsonString);
+
+          // Add a confirmation message to chat *before* making API call
+          const confirmationText = `Okay, I'll add "${eventData.summary}" to your calendar.`;
+          const finalHistory = [...updatedHistory, { role: 'model' as const, text: confirmationText }];
+          setChatHistory(finalHistory);
+
+          // Asynchronously save this confirmation
+          conversationHistoryService.appendConversationHistory(
+            selectedCharacter.id,
+            userId,
+            [
+              { role: 'user', text: message },
+              { role: 'model', text: confirmationText },
+            ]
+          ).then(() => {
+            setLastSavedMessageIndex(finalHistory.length - 1);
+          }).catch(error => {
+            console.error('Failed to save conversation history:', error);
+          });
+          
+          // Now, create the event
+          await calendarService.createEvent(session.accessToken, eventData);
+          
+          // Refresh calendar events immediately
+          pollCalendar();
+          
+        } catch (err) {
+          console.error("Failed to create calendar event:", err);
+          setErrorMessage("I tried to create the event, but something went wrong.");
+          // Add error message to chat
+          setChatHistory(prev => [...prev, { role: 'model', text: "Sorry, I ran into an error trying to add that to your calendar." }]);
+        }
+        
+        setIsProcessingAction(false);
+        return; // Stop here, we've handled the response
+      }
       
       // Add response to local state
       const finalHistory = [...updatedHistory, { role: 'model' as const, text: response }];
