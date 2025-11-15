@@ -10,6 +10,8 @@ import * as dbService from './services/cacheService';
 import { supabase } from './services/supabaseClient';
 import * as grokChatService from './services/grokChatService';
 import type { GrokChatSession } from './services/grokChatService';
+// NEW: Import the response type from the schema
+import type { GrokActionResponse } from './services/grokSchema';
 import * as conversationHistoryService from './services/conversationHistoryService';
 import * as relationshipService from './services/relationshipService';
 import type { RelationshipMetrics } from './services/relationshipService';
@@ -80,6 +82,9 @@ const randomFromArray = <T,>(items: T[]): T => {
   return items[index];
 };
 
+// --- THESE FUNCTIONS ARE NO LONGER NEEDED ---
+// Grok will now decide which actions to play based on intent
+/*
 const buildActionTerms = (
   action: CharacterProfile['actions'][number]
 ): string[] => {
@@ -103,31 +108,9 @@ const findMatchingAction = (
   message: string,
   actions: CharacterProfile['actions']
 ) => {
-  const normalizedMessage = sanitizeText(message);
-  if (!normalizedMessage) return null;
-
-  const candidates: CharacterProfile['actions'] = [];
-
-  for (const action of actions) {
-    const terms = buildActionTerms(action);
-    if (
-      terms.some(
-        (term) =>
-          term === normalizedMessage ||
-          normalizedMessage.includes(term) ||
-          term.includes(normalizedMessage)
-      )
-    ) {
-      candidates.push(action);
-    }
-  }
-
-  if (candidates.length === 0) {
-    return null;
-  }
-
-  return randomFromArray(candidates);
+  // ... (all of this logic is now handled by Grok)
 };
+*/
 
 const formatActionList = (actions: CharacterProfile['actions']): string => {
   if (actions.length === 0) return '';
@@ -1029,11 +1012,6 @@ const App: React.FC = () => {
     setIsProcessingAction(true);
 
     try {
-      const matchingAction = findMatchingAction(
-        message,
-        selectedCharacter.actions
-      );
-
       // Analyze message sentiment and update relationship
       const userId = getUserId();
       const relationshipEvent = await relationshipService.analyzeMessageSentiment(
@@ -1059,8 +1037,7 @@ const App: React.FC = () => {
         message,
         {
           character: selectedCharacter,
-          matchingAction,
-          chatHistory: updatedHistory, // Use updated history with new user message
+          chatHistory: chatHistory, // Use chat history without adding the new user message
           relationship: updatedRelationship, // Pass relationship context
           upcomingEvents: upcomingEvents, // Pass calendar events
         },
@@ -1069,10 +1046,16 @@ const App: React.FC = () => {
       
       setGrokSession(updatedSession);
       
-      // Check if response is a calendar action
-      if (response.startsWith('[CALENDAR_CREATE]')) {
+      // --- NEW LOGIC: Parse the Structured Response ---
+      // 'response' is now our GrokActionResponse object
+      const grokResponse: GrokActionResponse = response;
+      const textResponse = grokResponse.text_response;
+      const actionIdToPlay = grokResponse.action_id; // This will be "WAVE", "KISS", "GREETING", or null
+      
+      // Check if response is a calendar action (textResponse might still contain this)
+      if (textResponse.startsWith('[CALENDAR_CREATE]')) {
         try {
-          const jsonString = response.substring('[CALENDAR_CREATE]'.length);
+          const jsonString = textResponse.substring('[CALENDAR_CREATE]'.length);
           const eventData: NewEventPayload = JSON.parse(jsonString);
 
           // Add a confirmation message to chat *before* making API call
@@ -1111,15 +1094,15 @@ const App: React.FC = () => {
         return; // Stop here, we've handled the response
       }
       
-      // Add response to local state
-      const finalHistory = [...updatedHistory, { role: 'model' as const, text: response }];
+      // Add Grok's *text response* to local state
+      const finalHistory = [...updatedHistory, { role: 'model' as const, text: textResponse }];
       setChatHistory(finalHistory);
       
       // Append new messages to conversation history in database
       // We append incrementally to avoid re-saving the entire history each time
       const newMessages: ChatMessage[] = [
         { role: 'user', text: message },
-        { role: 'model', text: response },
+        { role: 'model', text: textResponse }, // <-- Use textResponse
       ];
       // Save asynchronously - don't block UI
       conversationHistoryService.appendConversationHistory(
@@ -1133,22 +1116,28 @@ const App: React.FC = () => {
         console.error('Failed to save conversation history:', error);
       });
 
-      // If action was matched, play it
-      if (matchingAction) {
-        const actionUrl = actionVideoUrls[matchingAction.id];
+      // --- NEW: Play the action Grok decided on ---
+      if (actionIdToPlay) {
+        // 'actionIdToPlay' is an ID like "WAVE". We find its URL in state.
+        const actionUrl = actionVideoUrls[actionIdToPlay];
+        
         if (!actionUrl) {
           // Fallback to Supabase URL if local URL not available
-          if (matchingAction.videoPath) {
+          const matchedAction = selectedCharacter.actions.find(a => a.id === actionIdToPlay);
+          if (matchedAction?.videoPath) {
             const { data } = supabase.storage
               .from(ACTION_VIDEO_BUCKET)
-              .getPublicUrl(matchingAction.videoPath);
+              .getPublicUrl(matchedAction.videoPath);
             const fallbackUrl = data?.publicUrl ?? null;
             if (fallbackUrl) {
               setCurrentVideoUrl(fallbackUrl);
-              setCurrentActionId(matchingAction.id);
+              setCurrentActionId(matchedAction.id);
             }
+          } else {
+            console.warn(`Grok chose action "${actionIdToPlay}" but it could not be found.`);
           }
         } else {
+          // Clean up previous action video URL if needed
           if (
             currentVideoUrl &&
             currentVideoUrl !== idleVideoUrl &&
@@ -1167,7 +1156,7 @@ const App: React.FC = () => {
           }
 
           setCurrentVideoUrl(actionUrl);
-          setCurrentActionId(matchingAction.id);
+          setCurrentActionId(actionIdToPlay);
         }
       }
 

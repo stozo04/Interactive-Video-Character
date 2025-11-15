@@ -1,14 +1,23 @@
-import { ChatMessage, CharacterProfile, CharacterAction } from '../types';
+import { ChatMessage, CharacterProfile } from '../types';
 import type { RelationshipMetrics } from './relationshipService';
+// NEW: Import the XAI SDK and AI SDK
+import { createXai } from '@ai-sdk/xai';
+import { generateText, generateObject } from 'ai';
+// NEW: Import our Zod schema and type
+import { GrokActionResponseSchema, type GrokActionResponse } from './grokSchema';
 
 /**
  * Grok Chat Service using xAI API with stateful conversations
  * Implements multi-turn conversations with state preservation
  */
 
-const BASE_URL = 'https://api.x.ai/v1';
-const API_KEY = process.env.GROK_API_KEY;
+const API_KEY = process.env.VITE_GROK_API_KEY;
 const CHARACTER_COLLECTION_ID = 'collection_6d974389-0d29-4bb6-9ebb-ff09a08eaca0';
+
+// Create a custom xai client with our API key
+const xai = createXai({
+  apiKey: API_KEY || '', // Pass the API key explicitly
+});
 
 export interface GrokChatSession {
   characterId: string;
@@ -18,7 +27,7 @@ export interface GrokChatSession {
 }
 
 if (!API_KEY) {
-  console.warn("GROK_API_KEY environment variable not set. Grok chat will not work.");
+  console.warn("VITE_GROK_API_KEY environment variable not set. Grok chat will not work.");
 }
 
 interface GrokMessage {
@@ -28,28 +37,28 @@ interface GrokMessage {
 
 interface GrokChatOptions {
   character?: CharacterProfile;
-  matchingAction?: CharacterAction | null;
+  // matchingAction removed - Grok will decide actions now
   chatHistory?: ChatMessage[];
   relationship?: RelationshipMetrics | null;
   upcomingEvents?: any[];
 }
 
 /**
- * Generate a response using Grok API with stateful conversations
+ * Generate a response using Grok API with structured output
  */
 export const generateGrokResponse = async (
   userMessage: string,
   options: GrokChatOptions = {},
   session?: GrokChatSession
-): Promise<{ response: string; session: GrokChatSession }> => {
+): Promise<{ response: GrokActionResponse; session: GrokChatSession }> => {
   if (!API_KEY) {
-    throw new Error("GROK_API_KEY not configured. Please set it in your .env.local file.");
+    throw new Error("VITE_GROK_API_KEY not configured. Please set it in your .env.local file.");
   }
 
-  const { character, matchingAction, chatHistory = [], relationship, upcomingEvents } = options;
+  const { character, chatHistory = [], relationship, upcomingEvents } = options;
 
-  // Build system prompt with character context and relationship state
-  const systemPrompt = buildSystemPrompt(character, matchingAction, relationship, upcomingEvents);
+  // Build system prompt with character context and ACTION instructions
+  const systemPrompt = buildSystemPrompt(character, relationship, upcomingEvents);
 
   // Prepare messages for API
   const messages: GrokMessage[] = [
@@ -61,52 +70,47 @@ export const generateGrokResponse = async (
     { role: 'user', content: userMessage },
   ];
 
-  // Prepare request body
-  const requestBody: any = {
-    model: session?.model || 'grok-4-fast-reasoning-latest', // or 'grok-2-vision-1212' for vision
-    messages: messages,
-    store_messages: true, // Store conversation history on xAI servers
-    // Reference the character profile collection
-    collection_ids: [CHARACTER_COLLECTION_ID], // Tell Grok to read from this collection
-  };
-
-  // If continuing a conversation, add previous_response_id
-  if (session?.previousResponseId) {
-    requestBody.previous_response_id = session.previousResponseId;
-  }
-
   try {
-    const response = await fetch(`${BASE_URL}/chat/completions`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${API_KEY}`,
+    // Use the AI SDK's generateObject for structured output
+    const result = await generateObject({
+      model: xai(session?.model || 'grok-4-fast-reasoning-latest'),
+      messages: messages.map(msg => ({
+        role: msg.role,
+        content: msg.content,
+      })),
+      // This is the magic! We tell Grok to use our Zod schema.
+      schema: GrokActionResponseSchema,
+      providerOptions: {
+        xai: {
+          // Store messages for conversation continuity
+          store_messages: true,
+          // Reference the character profile collection
+          collection_ids: [CHARACTER_COLLECTION_ID],
+          // Continue previous conversation if available
+          ...(session?.previousResponseId && {
+            previous_response_id: session.previousResponseId,
+          }),
+        },
       },
-      body: JSON.stringify(requestBody),
     });
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error('Grok API error:', response.status, errorText);
-      throw new Error(`Grok API error: ${response.statusText} - ${errorText}`);
-    }
+    // The result.object is already typed and validated by Zod
+    const structuredResponse: GrokActionResponse = result.object;
+    
+    // Extract response ID for session continuation
+    // Note: The AI SDK might not expose response_id directly, so we'll use what's available
+    const responseId = (result as any).response?.id || (result as any).id;
 
-    const data = await response.json();
-    const responseText = data.choices[0]?.message?.content || "I'm having trouble responding right now.";
-
-    // Update session with new response ID for continuation
-    // The response ID might be in data.id or data.response_id depending on API version
-    const responseId = data.id || data.response_id || data.choices[0]?.id;
-
+    // Update session
     const updatedSession: GrokChatSession = {
       characterId: session?.characterId || character?.id || 'unknown',
       userId: session?.userId || 'default',
-      previousResponseId: responseId, // Store response ID for next turn
+      previousResponseId: responseId,
       model: session?.model || 'grok-4-fast-reasoning-latest',
     };
 
     return {
-      response: responseText,
+      response: structuredResponse,
       session: updatedSession,
     };
   } catch (error) {
@@ -116,12 +120,10 @@ export const generateGrokResponse = async (
 };
 
 /**
- * Build system prompt with character context and relationship state
- * Note: Character profile is stored in Grok Collection and will be automatically retrieved
+ * Build system prompt with character context, relationship state, and ACTION menu
  */
 const buildSystemPrompt = (
   character?: CharacterProfile,
-  matchingAction?: CharacterAction | null,
   relationship?: RelationshipMetrics | null,
   upcomingEvents: any[] = []
 ): string => {
@@ -156,18 +158,31 @@ Based on your relationship tier (${relationship.relationshipTier}), adjust your 
 ${getRelationshipGuidelines(relationship.relationshipTier, relationship.familiarityStage, relationship.isRuptured, relationship)}`;
   }
 
-  // Add character-specific information (actions)
-  if (character) {
-    const actionList = character.actions.length > 0
-      ? character.actions.map(a => a.name).join(', ')
-      : 'no actions yet';
+  // --- NEW: Define the Action Menu ---
+  if (character && character.actions.length > 0) {
+    const actionsMenu = character.actions.map(action => ({
+      action_id: action.id,
+      description: `${action.name}. Trigger phrases: ${action.phrases.join(', ')}`
+    }));
     
-    prompt += `\n\nYou can perform the following video actions: ${actionList}. `;
-  }
+    prompt += `\n\n[Character Actions]:
+You can perform the video actions listed below. Your job is to analyze the user's *intent*.
+${JSON.stringify(actionsMenu, null, 2)}
 
-  // Add context about current action if one was matched
-  if (matchingAction) {
-    prompt += `\n\nThe user just requested: "${matchingAction.name}". Acknowledge this briefly and enthusiastically. `;
+[Action Rules]:
+1. Your response **must** be a JSON object with 'text_response' and 'action_id'.
+2. 'text_response' is your natural, in-character verbal reply.
+3. 'action_id' is the action you will perform.
+4. **THIS IS THE MOST IMPORTANT RULE:** The 'action_id' field **MUST be \`null\`** for 90% of normal conversation.
+5. Only set the 'action_id' to a string (e.g., "WAVE") if the user's message is a *direct command* ("Please wave") or a *very strong emotional match* ("I just got a raise!" -> "CLAP" if available, "Hello!" -> "GREETING").
+6. If you are in doubt, **ALWAYS use \`null\`**. Do not over-trigger actions.
+7. Consider the relationship tier when choosing actions. For example, KISS should only be used in 'close_friend' or 'deeply_loving' relationships.
+`;
+  } else {
+    // No actions available
+    prompt += `\n\n[Character Actions]:
+You currently have no video actions available. Always set 'action_id' to null in your responses.
+`;
   }
 
   // Add calendar context
@@ -358,7 +373,7 @@ function getRelationshipGuidelines(
 }
 
 /**
- * Generate a greeting message using Grok
+ * Generate a greeting message using Grok (using AI SDK for consistency)
  */
 export const generateGrokGreeting = async (
   character: CharacterProfile,
@@ -367,10 +382,10 @@ export const generateGrokGreeting = async (
   relationship?: RelationshipMetrics | null
 ): Promise<{ greeting: string; session: GrokChatSession }> => {
   if (!API_KEY) {
-    throw new Error("GROK_API_KEY not configured.");
+    throw new Error("VITE_GROK_API_KEY not configured.");
   }
 
-  const systemPrompt = buildSystemPrompt(character, null, relationship);
+  const systemPrompt = buildSystemPrompt(character, relationship);
   const greetingPrompt = character.actions.length > 0
     ? "Generate a friendly, brief greeting that introduces yourself and mentions your available actions. Keep it under 15 words."
     : "Generate a friendly, brief greeting. Keep it under 15 words.";
@@ -385,43 +400,30 @@ export const generateGrokGreeting = async (
     { role: 'user', content: greetingPrompt },
   ];
 
-  const requestBody: any = {
-    model: session?.model || 'grok-4-fast-reasoning-latest',
-    messages: messages,
-    store_messages: true,
-    // Reference the character profile collection
-    collection_ids: [CHARACTER_COLLECTION_ID], // Tell Grok to read from this collection
-  };
-
-  if (session?.previousResponseId) {
-    requestBody.previous_response_id = session.previousResponseId;
-  }
-
   try {
-    const response = await fetch(`${BASE_URL}/chat/completions`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${API_KEY}`,
+    // Use AI SDK for greeting generation (no schema needed, just text)
+    const result = await generateText({
+      model: xai(session?.model || 'grok-4-fast-reasoning-latest'),
+      messages: messages.map(msg => ({
+        role: msg.role,
+        content: msg.content,
+      })),
+      providerOptions: {
+        xai: {
+          store_messages: true,
+          collection_ids: [CHARACTER_COLLECTION_ID],
+          ...(session?.previousResponseId && {
+            previous_response_id: session.previousResponseId,
+          }),
+        },
       },
-      body: JSON.stringify(requestBody),
     });
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`Grok API error: ${response.statusText} - ${errorText}`);
-    }
-
-    const data = await response.json();
-    const greeting = data.choices[0]?.message?.content;
-
-    if (!greeting) {
-      throw new Error('Grok API returned empty greeting response');
-    }
-
-    // The response ID might be in data.id or data.response_id depending on API version
-    const responseId = data.id || data.response_id || data.choices[0]?.id;
-
+    const greeting = result.text || "Hi there!";
+    
+    // Extract response ID for session continuation
+    const responseId = (result as any).response?.id || (result as any).id;
+    
     const updatedSession: GrokChatSession = {
       characterId: character.id,
       userId: session?.userId || 'default',
@@ -429,13 +431,9 @@ export const generateGrokGreeting = async (
       model: session?.model || 'grok-4-fast-reasoning-latest',
     };
 
-    return {
-      greeting,
-      session: updatedSession,
-    };
+    return { greeting, session: updatedSession };
   } catch (error) {
     console.error('Error generating Grok greeting:', error);
-    // Re-throw error - let the caller handle it
     throw error;
   }
 };
