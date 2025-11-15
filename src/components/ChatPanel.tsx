@@ -2,6 +2,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { ChatMessage } from '../types';
 import LoadingSpinner from './LoadingSpinner';
+import TypingIndicator from './TypingIndicator';
 
 interface ChatPanelProps {
   history: ChatMessage[];
@@ -105,6 +106,7 @@ const ChatPanel: React.FC<ChatPanelProps> = ({ history, onSendMessage, isSending
             </div>
           </div>
         ))}
+        {isSending && <TypingIndicator />}
         <div ref={messagesEndRef} />
       </div>
       <form onSubmit={handleSubmit} className="flex-shrink-0 flex items-center gap-2 border-t border-gray-700 pt-4">
