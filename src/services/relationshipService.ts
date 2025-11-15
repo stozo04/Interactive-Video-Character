@@ -278,9 +278,9 @@ export const analyzeMessageSentiment = async (
 ): Promise<RelationshipEvent> => {
   try {
     // Call Grok for sentiment analysis
-    const API_KEY = process.env.GROK_API_KEY;
+    const API_KEY = process.env.VITE_GROK_API_KEY;
     if (!API_KEY) {
-      console.warn('GROK_API_KEY not set, using fallback sentiment analysis');
+      console.warn('VITE_GROK_API_KEY not set, using fallback sentiment analysis');
       return fallbackSentimentAnalysis(message, conversationContext);
     }
 

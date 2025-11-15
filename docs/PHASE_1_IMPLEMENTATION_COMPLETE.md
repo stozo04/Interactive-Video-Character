@@ -231,7 +231,7 @@ Check browser console for relationship updates.
 - Verify user_id and character_id are correct
 
 **Issue: Sentiment analysis failing**
-- Check GROK_API_KEY is set
+- Check VITE_GROK_API_KEY is set
 - Check network requests in browser dev tools
 - Falls back to keyword matching automatically
 
