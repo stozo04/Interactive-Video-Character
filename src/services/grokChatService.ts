@@ -31,6 +31,7 @@ interface GrokChatOptions {
   matchingAction?: CharacterAction | null;
   chatHistory?: ChatMessage[];
   relationship?: RelationshipMetrics | null;
+  upcomingEvents?: any[];
 }
 
 /**
@@ -45,10 +46,10 @@ export const generateGrokResponse = async (
     throw new Error("GROK_API_KEY not configured. Please set it in your .env.local file.");
   }
 
-  const { character, matchingAction, chatHistory = [], relationship } = options;
+  const { character, matchingAction, chatHistory = [], relationship, upcomingEvents } = options;
 
   // Build system prompt with character context and relationship state
-  const systemPrompt = buildSystemPrompt(character, matchingAction, relationship);
+  const systemPrompt = buildSystemPrompt(character, matchingAction, relationship, upcomingEvents);
 
   // Prepare messages for API
   const messages: GrokMessage[] = [
@@ -121,7 +122,8 @@ export const generateGrokResponse = async (
 const buildSystemPrompt = (
   character?: CharacterProfile,
   matchingAction?: CharacterAction | null,
-  relationship?: RelationshipMetrics | null
+  relationship?: RelationshipMetrics | null,
+  upcomingEvents: any[] = []
 ): string => {
   let prompt = `You are an interactive AI character in a video application. `;
   
@@ -167,6 +169,27 @@ ${getRelationshipGuidelines(relationship.relationshipTier, relationship.familiar
   if (matchingAction) {
     prompt += `\n\nThe user just requested: "${matchingAction.name}". Acknowledge this briefly and enthusiastically. `;
   }
+
+  // Add calendar context
+  if (upcomingEvents.length > 0) {
+    prompt += `\n\n[User's Calendar for next 24 hours]:\n`;
+    upcomingEvents.forEach(event => {
+      const startTime = new Date(event.start.dateTime || event.start.date);
+      prompt += `- "${event.summary}" at ${startTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}\n`;
+    });
+    prompt += `You can proactively remind the user if an event is starting soon.`;
+  } else {
+    prompt += `\n\n[User's Calendar for next 24 hours]: No upcoming events.`;
+  }
+  
+  prompt += `
+\n[Calendar Actions]:
+- To create a calendar event, you MUST respond ONLY with the following JSON format:
+[CALENDAR_CREATE]{"summary": "Title of event", "start": {"dateTime": "YYYY-MM-DDTHH:MM:SS", "timeZone": "America/New_York"}, "end": {"dateTime": "YYYY-MM-DDTHH:MM:SS", "timeZone": "America/New_York"}}
+- You MUST guess the user's timezone (e.g., "America/New_York", "Europe/London", "America/Chicago", "America/Los_Angeles").
+- You MUST get the full date and time for start and end. If the user says "tomorrow at 10", you must calculate that date. Assume today's date is ${new Date().toISOString().split('T')[0]}.
+- If you don't have enough info (e.g., duration), you must ask the user for it. DO NOT use the [CALENDAR_CREATE] format until you have all info.
+`;
 
   // Add response guidelines
   prompt += `
