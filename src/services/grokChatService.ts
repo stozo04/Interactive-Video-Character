@@ -380,15 +380,13 @@ export const generateGrokGreeting = async (
   session?: GrokChatSession,
   previousHistory?: ChatMessage[],
   relationship?: RelationshipMetrics | null
-): Promise<{ greeting: string; session: GrokChatSession }> => {
+): Promise<{ greeting: GrokActionResponse; session: GrokChatSession }> => { 
   if (!API_KEY) {
-    throw new Error("VITE_GROK_API_KEY not configured.");
+    throw new Error("GROK_API_KEY not configured.");
   }
 
   const systemPrompt = buildSystemPrompt(character, relationship);
-  const greetingPrompt = character.actions.length > 0
-    ? "Generate a friendly, brief greeting that introduces yourself and mentions your available actions. Keep it under 15 words."
-    : "Generate a friendly, brief greeting. Keep it under 15 words.";
+  const greetingPrompt = "Generate a friendly, brief greeting. Keep it under 15 words.";
 
   // Include previous conversation history if available
   const messages: GrokMessage[] = [
@@ -401,13 +399,14 @@ export const generateGrokGreeting = async (
   ];
 
   try {
-    // Use AI SDK for greeting generation (no schema needed, just text)
-    const result = await generateText({
+    // --- UPDATED: Use generateObject instead of generateText ---
+    const result = await generateObject({
       model: xai(session?.model || 'grok-4-fast-reasoning-latest'),
       messages: messages.map(msg => ({
         role: msg.role,
         content: msg.content,
       })),
+      schema: GrokActionResponseSchema, 
       providerOptions: {
         xai: {
           store_messages: true,
@@ -419,13 +418,14 @@ export const generateGrokGreeting = async (
       },
     });
 
-    const greeting = result.text || "Hi there!";
+    // Now 'greeting' is a real Object, not a string
+    const greeting = result.object; 
     
     // Extract response ID for session continuation
     const responseId = (result as any).response?.id || (result as any).id;
     
     const updatedSession: GrokChatSession = {
-      characterId: character.id,
+      characterId: session?.characterId || character.id,
       userId: session?.userId || 'default',
       previousResponseId: responseId,
       model: session?.model || 'grok-4-fast-reasoning-latest',

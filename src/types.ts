@@ -27,6 +27,7 @@ export interface CharacterProfile {
   actions: CharacterAction[];
   name: string; // Full name: "Kayley Adams"
   displayName: string; // Name to go by: "Kayley"
+  personaId?: string; // Optional canonical persona/relationship anchor
 }
 
 // FIX: Moved browser-specific interface declarations into `declare global` to resolve type errors.
