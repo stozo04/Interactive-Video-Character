@@ -147,6 +147,37 @@ interface DisplayCharacter {
   videoUrl: string;
 }
 
+const slugifyIdentifier = (value: string): string =>
+  value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+
+const getCharacterRelationshipAnchor = (character: CharacterProfile): string => {
+  const candidates = [
+    character.personaId,
+    character.name,
+    character.displayName,
+    character.id,
+  ];
+
+  for (const candidate of candidates) {
+    if (typeof candidate !== 'string') continue;
+    const trimmed = candidate.trim();
+    if (!trimmed) continue;
+    if (candidate === character.id) {
+      // character.id is already a stable hash—no need to slugify
+      return candidate;
+    }
+    const slug = slugifyIdentifier(trimmed);
+    if (slug.length > 0) {
+      return slug;
+    }
+  }
+
+  return character.id;
+};
+
 const App: React.FC = () => {
   const { session, status: authStatus } = useGoogleAuth();
   const [view, setView] = useState<View>('loading');
@@ -803,6 +834,7 @@ const App: React.FC = () => {
     setIsActionManagerOpen(false);
     setIsLoadingCharacter(true);
     registerInteraction();
+    const personaId = getCharacterRelationshipAnchor(character);
 
     if (idleVideoUrl) {
       try {
@@ -847,29 +879,54 @@ const App: React.FC = () => {
     try {
       // Load conversation history and relationship for this character-user pair
       const userId = getUserId();
-      const savedHistory = await conversationHistoryService.loadConversationHistory(character.id, userId);
-      const relationshipData = await relationshipService.getRelationship(character.id, userId);
+      const savedHistory = await conversationHistoryService.loadConversationHistory(personaId, userId);
+      const relationshipData = await relationshipService.getRelationship(personaId, userId);
       setRelationship(relationshipData);
       
       // Generate personalized greeting using Grok (with full history and relationship context)
-      try {
-        const session = grokChatService.getOrCreateSession(character.id, userId);
-        const { greeting, session: updatedSession } = await grokChatService.generateGrokGreeting(
-          character, 
-          session,
-          savedHistory, // Pass saved history for context
-          relationshipData // Pass relationship context
-        );
-        setGrokSession(updatedSession);
-        
-        // Combine saved history with new greeting
-        const initialHistory = savedHistory.length > 0 
-          ? [...savedHistory, { role: 'model' as const, text: greeting }]
-          : [{ role: 'model' as const, text: greeting }];
-        setChatHistory(initialHistory);
-        // Track that all loaded messages are saved (greeting is new, so we're at savedHistory.length)
-        setLastSavedMessageIndex(savedHistory.length - 1);
-      } catch (error) {
+     // Generate personalized greeting using Grok (with full history and relationship context)
+     try {
+      const session = grokChatService.getOrCreateSession(personaId, userId);
+
+      // --- FIX START ---
+      // 1. generateGrokGreeting now returns a GrokActionResponse object, not a string.
+      const { greeting, session: updatedSession } = await grokChatService.generateGrokGreeting(
+        character,
+        session,
+        savedHistory, // Pass saved history for context
+        relationshipData // Pass relationship context
+      );
+      setGrokSession(updatedSession);
+
+      // 2. Parse the response object
+      const textResponse = greeting.text_response;
+      const actionIdToPlay = greeting.action_id;
+
+      // 3. Combine saved history with the new text_response
+      const initialHistory = savedHistory.length > 0
+        ? [...savedHistory, { role: 'model' as const, text: textResponse }]
+        : [{ role: 'model' as const, text: textResponse }];
+      setChatHistory(initialHistory);
+
+      // 4. Play the greeting action (e.g., a wave) if one was sent
+      if (actionIdToPlay) {
+        const actionUrl = newActionUrls[actionIdToPlay];
+        if (actionUrl) {
+          // Use setTimeout to ensure state is set before playing greeting
+          setTimeout(() => {
+            setCurrentVideoUrl(actionUrl);
+            setCurrentActionId(actionIdToPlay);
+          }, 100);
+        } else {
+          console.warn(`Greeting action "${actionIdToPlay}" not found.`);
+        }
+      }
+      // --- FIX END ---
+
+      // Track that all loaded messages are saved (greeting is new, so we're at savedHistory.length)
+      setLastSavedMessageIndex(savedHistory.length - 1);
+
+    } catch (error) {
         console.error('Error generating Grok greeting:', error);
         // Show error to user and start with saved history only (no greeting)
         setErrorMessage('Failed to generate greeting. Please try again.');
@@ -926,6 +983,9 @@ const App: React.FC = () => {
 
   const handleBackToSelection = async () => {
     registerInteraction();
+    const personaId = selectedCharacter
+      ? getCharacterRelationshipAnchor(selectedCharacter)
+      : null;
     
     // Save any unsaved conversation history before leaving
     // Note: We don't save greetings (they're generated fresh each time)
@@ -946,7 +1006,7 @@ const App: React.FC = () => {
       if (unsavedMessages.length > 0) {
         try {
           await conversationHistoryService.appendConversationHistory(
-            selectedCharacter.id,
+            personaId ?? selectedCharacter.id,
             userId,
             unsavedMessages
           );
@@ -1005,6 +1065,7 @@ const App: React.FC = () => {
 
     registerInteraction();
     setErrorMessage(null);
+    const personaId = getCharacterRelationshipAnchor(selectedCharacter);
     
     // Add user message to local state immediately
     const updatedHistory = [...chatHistory, { role: 'user' as const, text: message }];
@@ -1021,7 +1082,7 @@ const App: React.FC = () => {
       
       // Update relationship based on sentiment
       const updatedRelationship = await relationshipService.updateRelationship(
-        selectedCharacter.id,
+        personaId,
         userId,
         relationshipEvent
       );
@@ -1031,7 +1092,7 @@ const App: React.FC = () => {
       }
 
       // Generate response from Grok chat service (with relationship context and calendar events)
-      const grokSessionToUse = grokSession || grokChatService.getOrCreateSession(selectedCharacter.id, userId);
+      const grokSessionToUse = grokSession || grokChatService.getOrCreateSession(personaId, userId);
       
       const { response, session: updatedSession } = await grokChatService.generateGrokResponse(
         message,
@@ -1065,7 +1126,7 @@ const App: React.FC = () => {
 
           // Asynchronously save this confirmation
           conversationHistoryService.appendConversationHistory(
-            selectedCharacter.id,
+            personaId,
             userId,
             [
               { role: 'user', text: message },
@@ -1106,7 +1167,7 @@ const App: React.FC = () => {
       ];
       // Save asynchronously - don't block UI
       conversationHistoryService.appendConversationHistory(
-        selectedCharacter.id,
+        personaId,
         userId,
         newMessages
       ).then(() => {
