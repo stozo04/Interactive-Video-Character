@@ -27,7 +27,7 @@ import VideoPlayer from './components/VideoPlayer';
 import ChatPanel from './components/ChatPanel';
 import CharacterSelector from './components/CharacterSelector';
 import LoadingSpinner from './components/LoadingSpinner';
-import ActionManager from './components/ActionManager';
+import ActionManagementView from './components/ActionManagementView';
 import { SettingsPanel } from './components/SettingsPanel';
 import { LoginPage } from './components/LoginPage';
 import { useGoogleAuth } from './contexts/GoogleAuthContext';
@@ -138,7 +138,7 @@ const getNonGreetingActions = (actions: CharacterProfile['actions']): CharacterA
   return actions.filter(action => !isGreetingAction(action));
 };
 
-type View = 'loading' | 'selectCharacter' | 'createCharacter' | 'chat';
+type View = 'loading' | 'selectCharacter' | 'createCharacter' | 'chat' | 'manageActions';
 
 // A type for characters that includes their profile and the temporary URLs for display
 interface DisplayCharacter {
@@ -199,7 +199,7 @@ const App: React.FC = () => {
   const [isCreatingAction, setIsCreatingAction] = useState(false);
   const [updatingActionId, setUpdatingActionId] = useState<string | null>(null);
   const [deletingActionId, setDeletingActionId] = useState<string | null>(null);
-  const [isActionManagerOpen, setIsActionManagerOpen] = useState(false);
+  const [characterForActionManagement, setCharacterForActionManagement] = useState<CharacterProfile | null>(null);
   const [lastInteractionAt, setLastInteractionAt] = useState(() => Date.now());
   const [isMuted, setIsMuted] = useState(false);
   const [grokSession, setGrokSession] = useState<GrokChatSession | null>(null);
@@ -315,9 +315,10 @@ const App: React.FC = () => {
   }, [displayCharacters]);
 
   const managedActions = useMemo(() => {
-    if (!selectedCharacter) return [];
+    const character = characterForActionManagement || selectedCharacter;
+    if (!character) return [];
 
-    return selectedCharacter.actions.map((action) => {
+    return character.actions.map((action) => {
       const localUrl = actionVideoUrls[action.id] ?? null;
       let fallbackUrl: string | null = null;
 
@@ -339,7 +340,7 @@ const App: React.FC = () => {
         hasAudio: action.hasAudio ?? false,
       };
     });
-  }, [selectedCharacter, actionVideoUrls]);
+  }, [characterForActionManagement, selectedCharacter, actionVideoUrls]);
 
   const triggerIdleAction = useCallback(() => {
     if (!selectedCharacter) return;
@@ -826,12 +827,35 @@ const App: React.FC = () => {
     }
   };
 
+  const handleManageActions = (character: CharacterProfile) => {
+    registerInteraction();
+    
+    // Load action video URLs for this character if not already loaded
+    const newActionUrls = character.actions.reduce((map, action) => {
+      if (!actionVideoUrls[action.id]) {
+        map[action.id] = URL.createObjectURL(action.video);
+      } else {
+        map[action.id] = actionVideoUrls[action.id];
+      }
+      return map;
+    }, {} as Record<string, string>);
+    
+    setActionVideoUrls((prev) => ({ ...prev, ...newActionUrls }));
+    setCharacterForActionManagement(character);
+    setView('manageActions');
+  };
+
+  const handleBackFromActionManagement = () => {
+    registerInteraction();
+    setCharacterForActionManagement(null);
+    setView('selectCharacter');
+  };
+
   const handleSelectCharacter = async (character: CharacterProfile) => {
     setErrorMessage(null);
     setIsCreatingAction(false);
     setUpdatingActionId(null);
     setDeletingActionId(null);
-    setIsActionManagerOpen(false);
     setIsLoadingCharacter(true);
     registerInteraction();
     const personaId = getCharacterRelationshipAnchor(character);
@@ -1057,7 +1081,6 @@ const App: React.FC = () => {
     setIsCreatingAction(false);
     setUpdatingActionId(null);
     setDeletingActionId(null);
-    setIsActionManagerOpen(false);
   };
 
   const handleSendMessage = async (message: string) => {
@@ -1256,8 +1279,24 @@ const App: React.FC = () => {
                 onSelectCharacter={handleSelectCharacter}
                 onCreateNew={() => setView('createCharacter')}
                 onDeleteCharacter={handleDeleteCharacter}
+                onManageActions={handleManageActions}
                 isLoading={isLoadingCharacter}
             />;
+        case 'manageActions':
+            if (!characterForActionManagement) return null;
+            return (
+              <ActionManagementView
+                character={characterForActionManagement}
+                actions={managedActions}
+                onCreateAction={handleCreateAction}
+                onUpdateAction={handleUpdateAction}
+                onDeleteAction={handleDeleteAction}
+                onBack={handleBackFromActionManagement}
+                isCreating={isCreatingAction}
+                updatingActionId={updatingActionId}
+                deletingActionId={deletingActionId}
+              />
+            );
         case 'createCharacter':
             return (
               <ImageUploader 
@@ -1274,8 +1313,8 @@ const App: React.FC = () => {
               <div
                 className={`relative grid gap-8 h-full ${
                   isVideoVisible
-                    ? 'grid-cols-1 lg:grid-cols-2 xl:grid-cols-5'
-                    : 'grid-cols-1 lg:grid-cols-1 xl:grid-cols-4'
+                    ? 'grid-cols-1 lg:grid-cols-2'
+                    : 'grid-cols-1'
                 }`}
               >
                 <button 
@@ -1285,26 +1324,16 @@ const App: React.FC = () => {
                 >
                     <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
                 </button>
-                <div className="absolute top-2 right-2 z-30 flex flex-col sm:flex-row gap-2">
+                <div className="absolute top-2 right-2 z-30">
                   <button
                     onClick={() => setIsVideoVisible((prev) => !prev)}
                     className="bg-gray-800/50 hover:bg-gray-700/80 text-white rounded-full px-4 py-2 transition-colors whitespace-nowrap"
                   >
                     {isVideoVisible ? 'Hide Video' : 'Show Video'}
                   </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      registerInteraction();
-                      setIsActionManagerOpen((previous) => !previous);
-                    }}
-                    className="bg-gray-800/50 hover:bg-gray-700/80 text-white rounded-full px-4 py-2 transition-colors whitespace-nowrap"
-                  >
-                    {isActionManagerOpen ? 'Hide Actions' : 'Show Actions'}
-                  </button>
                 </div>
                 {isVideoVisible && (
-                  <div className="xl:col-span-2 h-full flex items-center justify-center bg-black rounded-lg relative">
+                  <div className="h-full flex items-center justify-center bg-black rounded-lg relative">
                     <button
                       onClick={() => setIsMuted(!isMuted)}
                       className="absolute top-2 right-2 z-30 bg-gray-800/50 hover:bg-gray-700/80 text-white rounded-full p-2 transition-colors"
@@ -1330,25 +1359,12 @@ const App: React.FC = () => {
                     />
                   </div>
                 )}
-                <div className={`h-full ${isVideoVisible ? 'xl:col-span-2' : 'xl:col-span-3'}`}>
+                <div className="h-full">
                   <ChatPanel
                     history={chatHistory}
                     onSendMessage={handleSendMessage}
                     isSending={isBusy}
                   />
-                </div>
-                <div className="lg:col-span-2 xl:col-span-1 h-full flex flex-col gap-4">
-                  {isActionManagerOpen && (
-                    <ActionManager
-                      actions={managedActions}
-                      onCreateAction={handleCreateAction}
-                      onUpdateAction={handleUpdateAction}
-                      onDeleteAction={handleDeleteAction}
-                      isCreating={isCreatingAction}
-                      updatingActionId={updatingActionId}
-                      deletingActionId={deletingActionId}
-                    />
-                  )}
                 </div>
               </div>
             );

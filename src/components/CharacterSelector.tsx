@@ -15,10 +15,11 @@ interface CharacterSelectorProps {
   onSelectCharacter: (character: CharacterProfile) => void;
   onCreateNew: () => void;
   onDeleteCharacter: (id: string) => void;
+  onManageActions: (character: CharacterProfile) => void;
   isLoading?: boolean;
 }
 
-const CharacterSelector: React.FC<CharacterSelectorProps> = ({ characters, onSelectCharacter, onCreateNew, onDeleteCharacter, isLoading = false }) => {
+const CharacterSelector: React.FC<CharacterSelectorProps> = ({ characters, onSelectCharacter, onCreateNew, onDeleteCharacter, onManageActions, isLoading = false }) => {
   return (
     <div className="flex flex-col items-center justify-center h-full relative">
       <h2 className="text-3xl font-bold mb-8">Select a Character</h2>
@@ -35,6 +36,10 @@ const CharacterSelector: React.FC<CharacterSelectorProps> = ({ characters, onSel
               onDelete={(e) => {
                 e.stopPropagation();
                 onDeleteCharacter(char.profile.id);
+              }}
+              onManageActions={(e) => {
+                e.stopPropagation();
+                onManageActions(char.profile);
               }}
             />
           </div>
