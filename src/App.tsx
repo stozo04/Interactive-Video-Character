@@ -837,7 +837,11 @@ const App: React.FC = () => {
         )}
 
         {view === 'chat' && selectedCharacter && (
-             <div className={`relative grid gap-8 h-full ${isVideoVisible ? 'grid-cols-1 lg:grid-cols-2' : 'grid-cols-1'}`}>
+             <div className={`relative grid gap-8 h-full ${
+               isVideoVisible 
+                 ? 'grid-cols-1 grid-rows-[auto_minmax(0,1fr)] lg:grid-cols-2 lg:grid-rows-1' 
+                 : 'grid-cols-1 grid-rows-[minmax(0,1fr)]'
+             }`}>
                 <button 
                   onClick={handleBackToSelection} 
                   className="absolute top-2 left-2 z-30 bg-gray-800/50 hover:bg-gray-700/80 text-white rounded-full p-2 transition-colors"
@@ -846,7 +850,7 @@ const App: React.FC = () => {
                 </button>
                 
                 {isVideoVisible && (
-                  <div className="h-full flex items-center justify-center bg-black rounded-lg relative">
+                  <div className="h-64 lg:h-full flex items-center justify-center bg-black rounded-lg relative">
                      <button onClick={() => setIsMuted(!isMuted)} className="absolute top-2 right-2 z-30 bg-gray-800/50 hover:bg-gray-700/80 text-white rounded-full p-2">
                         {isMuted ? "🔇" : "🔊"}
                      </button>
@@ -858,7 +862,7 @@ const App: React.FC = () => {
                      />
                   </div>
                 )}
-                <div className="h-full">
+                <div className="h-full min-h-0">
                   <ChatPanel
                     history={chatHistory}
                     onSendMessage={handleSendMessage}
