@@ -4,9 +4,10 @@ import { IAIChatService, AIChatOptions, AIChatSession } from './aiService';
 import { buildSystemPrompt } from './promptUtils';
 import { AIActionResponse } from './aiSchema';
 
-const GEMINI_MODEL = import.meta.env.VITE_GEMINI_MODEL;
+const GEMINI_MODEL = import.meta.env.VITE_GEMINI_TTS_MODEL;
 const USER_ID = import.meta.env.VITE_USER_ID;
 const GEMINI_VIDEO_MODEL = import.meta.env.VITE_GEMINI_VIDEO_MODEL;
+const TTS_MODEL = import.meta.env.VITE_GEMINI_TTS_MODEL;
 const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
 
 if (!GEMINI_MODEL || !USER_ID || !GEMINI_VIDEO_MODEL || !GEMINI_API_KEY) {
@@ -18,10 +19,46 @@ const getAiClient = () => {
     return new GoogleGenAI({ apiKey: GEMINI_API_KEY });
 };
 
+// --- NEW: TTS Generation Helper ---
+async function generateSpeech(text: string): Promise<string | undefined> {
+  if (!text) return undefined;
+  try {
+      const ai = getAiClient();
+      // Using the Gemini 2.5 Flash TTS model
+      const response = await ai.models.generateContent({
+          model: TTS_MODEL,
+          contents: [{ parts: [{ text }] }],
+          config: {
+              responseModalities: ['AUDIO'],
+              speechConfig: {
+                  voiceConfig: {
+                      prebuiltVoiceConfig: { 
+                          // 'Aoede' is described as "Breezy", fits the "Alexis Rose" vibe well.
+                          // Options: 'Puck' (Upbeat), 'Kore' (Firm), 'Fenrir' (Excitable)
+                          voiceName: 'Aoede' 
+                      }
+                  }
+              }
+          }
+      });
+      
+      // The audio comes back as inlineData in base64
+      return response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data || undefined;
+  } catch (e) {
+      console.error("TTS Generation failed:", e);
+      return undefined; // Fail gracefully, just won't have audio
+  }
+}
+
 // Helper to map chat history safely
 function convertToGeminiHistory(history: ChatMessage[]) {
   return history
-    .filter(msg => msg.text && msg.text.trim().length > 0) // Remove empty messages to prevent API 400 errors
+    .filter(msg => {
+        // FIX ISSUE 3: Filter out empty messages AND the placeholder text
+        // so Gemini doesn't think you are literally saying "Audio Message"
+        const text = msg.text?.trim();
+        return text && text.length > 0 && text !== "🎤 [Audio Message]";
+    }) 
     .map(msg => ({
       role: msg.role === 'user' ? 'user' : 'model',
       parts: [{ text: msg.text }]
@@ -31,8 +68,9 @@ function convertToGeminiHistory(history: ChatMessage[]) {
 // Helper to handle model inconsistency (e.g., returning "response" instead of "text_response")
 function normalizeAiResponse(rawJson: any, rawText: string): AIActionResponse {
   return {
-      text_response: rawJson.text_response || rawJson.response || rawText, // Fallback chain
-      action_id: rawJson.action_id || null
+      text_response: rawJson.text_response || rawJson.response || rawText,
+      action_id: rawJson.action_id || null,
+      user_transcription: rawJson.user_transcription || null // Capture transcription
   };
 }
 
@@ -40,7 +78,6 @@ export const geminiChatService: IAIChatService = {
   generateResponse: async (message, options, session) => {
     const ai = getAiClient();
     const { character, chatHistory = [], relationship, upcomingEvents } = options;
-
     // 1. Use the SHARED brain logic for the system prompt
     const systemPrompt = buildSystemPrompt(character, relationship, upcomingEvents);
 
@@ -98,6 +135,9 @@ export const geminiChatService: IAIChatService = {
         };
       }
 
+      // --- NEW: Generate Audio for the response ---
+      const audioData = await generateSpeech(structuredResponse.text_response);
+
       return {
         response: structuredResponse,
         session: {
@@ -105,7 +145,8 @@ export const geminiChatService: IAIChatService = {
             // Gemini manages its own history in the 'chat' object during a session,
             // but since we recreate 'chat' every turn (stateless), we don't need to persist a session token.
             model: GEMINI_MODEL,
-        }
+        },
+        audioData
       };
 
     } catch (error) {
@@ -114,7 +155,7 @@ export const geminiChatService: IAIChatService = {
     }
   },
 
-  generateGreeting: async (character, session, previousHistory, relationship) => {
+  generateGreeting: async (character, session, chatHistory, relationship) => {
     const ai = getAiClient();
     const systemPrompt = buildSystemPrompt(character, relationship);
     const greetingPrompt = "Generate a friendly, brief greeting. Keep it under 15 words.";
@@ -129,7 +170,7 @@ export const geminiChatService: IAIChatService = {
                 role: "user"
               },
             },
-            history: convertToGeminiHistory(previousHistory || []),
+            history: convertToGeminiHistory(chatHistory || []),
         });
 
         const result = await chat.sendMessage({
@@ -148,12 +189,16 @@ export const geminiChatService: IAIChatService = {
           structuredResponse = { text_response: responseText, action_id: null };
       }
 
+        // --- NEW: Generate Audio for the greeting ---
+        const audioData = await generateSpeech(structuredResponse.text_response);
+
         return { 
             greeting: structuredResponse, 
             session: { 
                 userId: session?.userId || USER_ID, 
                 model: GEMINI_MODEL, 
-            } 
+            },
+            audioData
         }; 
     } catch (error) {
         console.error('Gemini Greeting Error:', error);

@@ -19,6 +19,15 @@ export const AIActionResponseSchema = z.object({
    */
   action_id: z.string().nullable().describe(
     "The ID of the video action to play, or null if no action is appropriate."
+  ),
+
+  /**
+   * If the user provided audio input, this field MUST contain the
+   * text transcription of what the user said.
+   * If the input was text, this can be null or the same as the input.
+   */
+  user_transcription: z.string().nullable().optional().describe(
+    "The transcription of the user's audio input, if applicable."
   )
 });
 
