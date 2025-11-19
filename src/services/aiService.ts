@@ -3,6 +3,10 @@ import { ChatMessage, CharacterProfile } from '../types';
 import { RelationshipMetrics } from './relationshipService';
 import { AIActionResponse } from './aiSchema';
 
+export type UserContent = 
+  | { type: 'text'; text: string }
+  | { type: 'audio'; data: string; mimeType: string }; // data is base64
+
 export interface AIChatOptions {
   character?: CharacterProfile;
   chatHistory?: ChatMessage[];
@@ -19,7 +23,7 @@ export interface AIMessage {
 // A unified session object that can hold state for either provider
 export interface AIChatSession {
   userId: string;
-  model?: string;  
+  model: string;  
   // Grok specific
   previousResponseId?: string;  
   // Gemini specific (optional, usually managed by startChat but good to have if needed)
@@ -28,7 +32,7 @@ export interface AIChatSession {
 
 export interface IAIChatService {
   generateResponse(
-    message: string,
+    message: UserContent,
     options: AIChatOptions,
     session?: AIChatSession
   ): Promise<{ response: AIActionResponse; session: AIChatSession }>;
