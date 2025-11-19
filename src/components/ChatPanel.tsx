@@ -6,8 +6,8 @@ import TypingIndicator from './TypingIndicator';
 interface ChatPanelProps {
   history: ChatMessage[];
   onSendMessage: (message: string) => void;
-  onSendAudio?: (audioBlob: Blob) => void; // NEW Prop
-  useAudioInput?: boolean;                 // NEW Prop to toggle logic
+  onSendAudio?: (audioBlob: Blob) => void; 
+  useAudioInput?: boolean;                 
   isSending: boolean;
 }
 
@@ -22,7 +22,7 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
   const [isListening, setIsListening] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   
-  // STT (Grok)
+  // STT (Grok/Legacy)
   const recognitionRef = useRef<SpeechRecognition | null>(null);
   // Audio Recorder (Gemini)
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -34,8 +34,8 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
 
   useEffect(scrollToBottom, [history]);
 
+  // Initialize STT (Only used if useAudioInput is FALSE)
   useEffect(() => {
-    // Initialize STT (for Grok mode)
     const SpeechRecognition = window.SpeechRecognition || (window as any).webkitSpeechRecognition;
     if (SpeechRecognition) {
       const recognition = new SpeechRecognition();
@@ -55,7 +55,6 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
         setInput(finalTranscript || interimTranscript);
       };
       recognition.onend = () => setIsListening(false);
-      recognition.onerror = (event) => { console.error('Speech error', event.error); setIsListening(false); };
       recognitionRef.current = recognition;
     }
   }, []);
@@ -75,7 +74,7 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
     setIsListening(true);
 
     if (useAudioInput && onSendAudio) {
-      // --- GEMINI MODE: Record Audio ---
+      // --- GEMINI MODE: Record Audio Blob ---
       try {
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
         const mediaRecorder = new MediaRecorder(stream);
@@ -89,16 +88,16 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
         };
 
         mediaRecorder.start();
-        console.log("🎤 Recording audio...");
+        console.log("🎤 Started Recording (Gemini Mode)...");
       } catch (err) {
         console.error("Error accessing microphone:", err);
         setIsListening(false);
       }
     } else if (recognitionRef.current) {
-      // --- GROK MODE: Speech to Text ---
+      // --- GROK MODE: Text to Speech ---
       try {
         recognitionRef.current.start();
-        console.log("🎤 Listening for text...");
+        console.log("🎤 Listening for text (STT Mode)...");
       } catch (e) {
         console.error("STT Error:", e);
       }
@@ -109,17 +108,16 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
     if (!isListening) return;
     
     if (useAudioInput && mediaRecorderRef.current && onSendAudio) {
-      // --- GEMINI MODE: Stop & Send ---
+      // --- GEMINI MODE: Stop & Auto-Send ---
       const recorder = mediaRecorderRef.current;
       if (recorder.state !== 'inactive') {
         recorder.onstop = () => {
-            const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' }); // webm is typical for browsers
-            console.log("🎤 Audio recorded, size:", audioBlob.size);
-            onSendAudio(audioBlob);
+            const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+            console.log("🎤 Recording stopped. Sending audio blob...");
+            onSendAudio(audioBlob); // Auto-Send!
             
-            // Cleanup
-            const tracks = recorder.stream.getTracks();
-            tracks.forEach(track => track.stop());
+            // Cleanup tracks
+            recorder.stream.getTracks().forEach(track => track.stop());
         };
         recorder.stop();
       }
@@ -130,18 +128,19 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
       recognitionRef.current.stop();
       setIsListening(false);
       
-      // Small delay to let final transcript settle
+      // Auto-send for Grok mode too (if enabled)
       setTimeout(() => {
         const finalInput = input;
         if (finalInput.trim() && !isSending) {
             onSendMessage(finalInput.trim());
             setInput('');
         }
-      }, 100);
+      }, 200);
     }
   };
 
   const isMicSupported = useAudioInput ? !!navigator.mediaDevices : !!recognitionRef.current;
+  const micLabel = useAudioInput ? "Hold to Record" : "Text Mode";
 
   return (
     <div className="bg-gray-800/70 h-full flex flex-col rounded-lg p-4 border border-gray-700 shadow-lg">
@@ -177,6 +176,7 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
              onTouchStart={handleMicPress}
              onTouchEnd={handleMicRelease}
              disabled={isSending}
+             title={micLabel}
              className={`p-3 rounded-full text-white transition-colors ${
                 isListening 
                 ? 'bg-red-600 animate-pulse' 

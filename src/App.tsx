@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
   ChatMessage,
@@ -83,14 +82,11 @@ const getNonGreetingActions = (actions: CharacterProfile['actions']): CharacterA
 
 type View = 'loading' | 'selectCharacter' | 'createCharacter' | 'chat' | 'manageActions';
 
-// A type for characters that includes their profile and the temporary URLs for display
 interface DisplayCharacter {
   profile: CharacterProfile;
   imageUrl: string;
   videoUrl: string;
 }
-
-// Removed getCharacterRelationshipAnchor - no longer needed since we use userId only
 
 const App: React.FC = () => {
   const { session, status: authStatus } = useGoogleAuth();
@@ -103,7 +99,6 @@ const App: React.FC = () => {
   const [actionVideoUrls, setActionVideoUrls] = useState<Record<string, string>>(
     {}
   );
-  // NEW STATE: Source for AI Voice Audio
   const [responseAudioSrc, setResponseAudioSrc] = useState<string | null>(null);
   const [uploadedImage, setUploadedImage] = useState<UploadedImage | null>(null);
   const [chatHistory, setChatHistory] = useState<ChatMessage[]>([]);
@@ -127,22 +122,22 @@ const App: React.FC = () => {
   // Gmail Integration State
   const [isGmailConnected, setIsGmailConnected] = useState(false);
   const [emailQueue, setEmailQueue] = useState<NewEmailPayload[]>([]);
-  const debouncedEmailQueue = useDebounce(emailQueue, 5000); // 5 second debounce
+  const debouncedEmailQueue = useDebounce(emailQueue, 5000); 
 
   // Calendar Integration State
   const [upcomingEvents, setUpcomingEvents] = useState<CalendarEvent[]>([]);
   const [notifiedEventIds, setNotifiedEventIds] = useState<Set<string>>(new Set());
   const idleActionTimerRef = useRef<number | null>(null);
 
-  // --- NEW: Handle Audio Input ---
+  // --- UPDATED: Handle Audio Input ---
   const handleSendAudio = async (audioBlob: Blob) => {
       if (!selectedCharacter || !session) return;
       registerInteraction();
       setErrorMessage(null);
 
-      // 1. Add placeholder
-      const updatedHistory = [...chatHistory, { role: 'user' as const, text: "🎤 [Audio Message]" }];
-      setChatHistory(updatedHistory);
+      // 1. Add placeholder to UI immediately so you know it's working
+      const placeholderText = "🎤 [Sending Audio...]";
+      setChatHistory(prev => [...prev, { role: 'user' as const, text: placeholderText }]);
       setIsProcessingAction(true);
 
       try {
@@ -167,7 +162,7 @@ const App: React.FC = () => {
                   input,
                   {
                       character: selectedCharacter,
-                      chatHistory: chatHistory, // Pass OLD history
+                      chatHistory: chatHistory, 
                       relationship: relationship, 
                       upcomingEvents: upcomingEvents,
                   },
@@ -176,36 +171,37 @@ const App: React.FC = () => {
 
               setAiSession(updatedSession);
               
-              const textResponse = response.text_response;
-              const actionIdToPlay = response.action_id;
-              const userTranscription = response.user_transcription;
-
-              // 3. Update Placeholder
+              // 3. Update Chat History: Replace Placeholder with Transcript + Add Response
               setChatHistory(currentHistory => {
                   const newHistory = [...currentHistory];
-                  const lastMsgIndex = newHistory.length - 1;
-                  if (lastMsgIndex >= 0 && newHistory[lastMsgIndex].text === "🎤 [Audio Message]") {
-                      newHistory[lastMsgIndex] = { 
+                  const lastIndex = newHistory.length - 1;
+                  
+                  // Find the placeholder we added and replace it
+                  if (newHistory[lastIndex].text === placeholderText) {
+                      newHistory[lastIndex] = { 
                           role: 'user', 
-                          text: userTranscription ? `🎤 ${userTranscription}` : "🎤 [Audio Sent]" 
+                          text: response.user_transcription 
+                              ? `🎤 ${response.user_transcription}` 
+                              : "🎤 [Audio Message]" 
                       };
                   }
-                  return [...newHistory, { role: 'model' as const, text: textResponse }];
+                  
+                  // Append the AI's text response
+                  newHistory.push({ role: 'model' as const, text: response.text_response });
+                  return newHistory;
               });
 
-              // 4. Play Audio Response
-              if (!isMuted) {
-                if (audioData) {
-                    setResponseAudioSrc(audioData);
-                }
+              // 4. Play Audio Response (if returned)
+              if (!isMuted && audioData) {
+                setResponseAudioSrc(audioData);
               }
 
-              // 5. Play Action
-              if (actionIdToPlay) {
-                 const actionUrl = actionVideoUrls[actionIdToPlay];
+              // 5. Play Action Video (if needed)
+              if (response.action_id) {
+                 const actionUrl = actionVideoUrls[response.action_id];
                  if (actionUrl) {
                      setCurrentVideoUrl(actionUrl);
-                     setCurrentActionId(actionIdToPlay);
+                     setCurrentActionId(response.action_id);
                  }
               }
               
@@ -270,15 +266,11 @@ const App: React.FC = () => {
 
   const loadCharacters = useCallback(async () => {
     setView('loading');
-    const startTime = performance.now(); // Performance tracking
+    const startTime = performance.now(); 
     try {
       const savedCharacters = await dbService.getCharacters();
       const loadTime = performance.now() - startTime;
       console.log(`✅ Loaded ${savedCharacters.length} character(s) in ${loadTime.toFixed(0)}ms`);
-      
-      if (savedCharacters.length === 0) {
-        console.warn('No characters loaded. This could mean: 1) No characters in database, 2) All characters have missing video files, 3) Storage access issues.');
-      }
       setCharacters(savedCharacters.sort((a, b) => b.createdAt - a.createdAt));
       setView('selectCharacter');
     } catch (error) {
@@ -296,22 +288,18 @@ const App: React.FC = () => {
     try {
       return characters.map(profile => ({
         profile,
-        // Use base64 data URL for the image to avoid issues with File object serialization from IndexedDB.
         imageUrl: `data:${profile.image.mimeType};base64,${profile.image.base64}`,
         videoUrl: URL.createObjectURL(profile.idleVideo)
       }));
     } catch (e) {
-      console.error("Error creating object URLs for character list:", e);
-      setErrorMessage("Failed to load character data. Some characters may be corrupted.");
+      console.error("Error creating object URLs:", e);
       return [];
     }
   }, [characters]);
 
   useEffect(() => {
-    // Cleanup object URLs when component unmounts or characters change.
     return () => {
       displayCharacters.forEach(c => {
-        // Only videoUrl needs to be revoked, as imageUrl is now a data URL.
         URL.revokeObjectURL(c.videoUrl);
       });
     };
@@ -340,7 +328,6 @@ const App: React.FC = () => {
         phrases: action.phrases,
         videoUrl: localUrl,
         previewAssetUrl,
-        hasAudio: action.hasAudio ?? false,
       };
     });
   }, [characterForActionManagement, selectedCharacter, actionVideoUrls]);
@@ -351,7 +338,6 @@ const App: React.FC = () => {
     if (!idleVideoUrl) return;
     if (currentVideoUrl && currentVideoUrl !== idleVideoUrl) return;
 
-    // Exclude greeting actions from idle random actions
     const nonGreetingActions = getNonGreetingActions(selectedCharacter.actions);
     if (nonGreetingActions.length === 0) return;
 
@@ -421,11 +407,9 @@ const App: React.FC = () => {
     };
   }, [scheduleIdleAction, clearIdleActionTimer, lastInteractionAt]);
 
-  // Gmail Integration: Polling Loop
+  // Gmail Integration Hooks
   useEffect(() => {
-    if (!isGmailConnected || !session) {
-      return; // Don't poll if not connected
-    }
+    if (!isGmailConnected || !session) return;
 
     const pollNow = async () => {
       try {
@@ -435,162 +419,71 @@ const App: React.FC = () => {
       }
     };
 
-    // Add small delay before first poll to ensure initialization completes
-    const initialDelayTimer = setTimeout(() => {
-      pollNow();
-    }, 2000); // 2 second initial delay
+    const initialDelayTimer = setTimeout(pollNow, 2000);
+    const intervalId = setInterval(pollNow, 60000);
 
-    // Then poll every 60 seconds (configurable via env var)
-    const pollInterval = Number(import.meta.env.VITE_GMAIL_POLL_INTERVAL_MS) || 60000;
-    const intervalId = setInterval(pollNow, pollInterval);
-
-    // Cleanup: Stop polling when component unmounts or disconnects
     return () => {
       clearTimeout(initialDelayTimer);
       clearInterval(intervalId);
     };
   }, [isGmailConnected, session]);
 
-  // Calendar Integration: Polling Loop
-  const pollCalendar = useCallback(async () => {
-    if (!isGmailConnected || !session) return; // Use same connection flag
-
-    try {
-      const events = await calendarService.getUpcomingEvents(session.accessToken);
-      setUpcomingEvents(events); // Update state for the AI to read
-
-      // Proactive reminder logic
-      const now = Date.now();
-      const reminderWindowMs = 15 * 60 * 1000; // 15 minutes
-
-      for (const event of events) {
-        if (!event.start?.dateTime) continue; // Skip all-day events
-
-        const startTime = new Date(event.start.dateTime).getTime();
-        
-        // Check if event is starting soon and hasn't been notified
-        if (
-          startTime > now &&
-          startTime < (now + reminderWindowMs) &&
-          !notifiedEventIds.has(event.id)
-        ) {
-          console.log(`⏰ Character notifying about upcoming event: ${event.summary}`);
-          
-          const characterMessage = 
-            `⏰ Hey! Just a reminder - you have an event starting in less than 15 minutes:\n` +
-            `Event: ${event.summary}\n` +
-            `Time: ${new Date(startTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
-          
-          // Add character notification directly to chat (character-initiated message)
-          setChatHistory(prev => [...prev, { role: 'model' as const, text: characterMessage }]);
-          
-          // Save to conversation history
-          if (selectedCharacter) {
-            const userId = getUserId();
-            try {
-              await conversationHistoryService.appendConversationHistory(
-                userId,
-                [{ role: 'model', text: characterMessage }]
-              );
-            } catch (error) {
-              console.error('Failed to save calendar notification to history:', error);
-            }
-          }
-          
-          // Mark as notified
-          setNotifiedEventIds(prev => new Set(prev).add(event.id));
-        }
-      }
-    } catch (error) {
-      console.error('Calendar polling error:', error);
-    }
-  }, [isGmailConnected, session, notifiedEventIds]);
-
   useEffect(() => {
-    if (!isGmailConnected || !session) {
-      return;
-    }
+    if (!isGmailConnected || !session) return;
 
-    // Add small delay before first poll to ensure initialization completes
-    const initialDelayTimer = setTimeout(() => {
-      pollCalendar();
-    }, 3000); // 3 second initial delay for calendar
+    const pollCalendar = async () => {
+        try {
+            const events = await calendarService.getUpcomingEvents(session.accessToken);
+            setUpcomingEvents(events); 
+        } catch(e) { console.error(e); }
+    };
 
-    const pollInterval = 5 * 60 * 1000; // Poll calendar every 5 minutes
-    const intervalId = setInterval(pollCalendar, pollInterval);
+    const initialDelayTimer = setTimeout(pollCalendar, 3000);
+    const intervalId = setInterval(pollCalendar, 300000);
 
     return () => {
-      clearTimeout(initialDelayTimer);
-      clearInterval(intervalId);
+        clearTimeout(initialDelayTimer);
+        clearInterval(intervalId);
     };
-  }, [isGmailConnected, session, pollCalendar]);
+  }, [isGmailConnected, session]);
 
-  // Gmail Integration: Event Listeners
+
   useEffect(() => {
-    // Handler for new emails
     const handleNewMail = (event: Event) => {
       const customEvent = event as CustomEvent<NewEmailPayload[]>;
-      console.log('📧 New emails received:', customEvent.detail);
-      
-      // Add to queue instead of immediately processing
-      // (in case more emails arrive quickly)
       setEmailQueue(prev => [...prev, ...customEvent.detail]);
     };
 
-    // Handler for auth errors (token expired)
     const handleAuthError = () => {
-      console.error('🔒 Google authentication error - token likely expired');
       setIsGmailConnected(false);
       localStorage.removeItem('gmail_history_id');
-      setUpcomingEvents([]); // Clear calendar events
-      setErrorMessage('Google session expired. Please reconnect your account.');
+      setErrorMessage('Google session expired. Please reconnect.');
     };
 
-    // Start listening
     gmailService.addEventListener('new-mail', handleNewMail);
     gmailService.addEventListener('auth-error', handleAuthError);
-    calendarService.addEventListener('auth-error', handleAuthError);
 
-    // Stop listening on cleanup
     return () => {
       gmailService.removeEventListener('new-mail', handleNewMail);
       gmailService.removeEventListener('auth-error', handleAuthError);
-      calendarService.removeEventListener('auth-error', handleAuthError);
     };
-  }, []); // Only set up once - handlers don't depend on changing values
+  }, []); 
 
-  // Gmail Integration: Process Debounced Emails and Notify Character
   useEffect(() => {
-    if (debouncedEmailQueue.length === 0 || !selectedCharacter) {
-      return; // No emails to process or no character selected
-    }
+    if (debouncedEmailQueue.length === 0 || !selectedCharacter) return;
 
     const processEmailNotification = async () => {
-      // Create a notification message from the character
       let characterMessage = '';
-      
       if (debouncedEmailQueue.length === 1) {
         const email = debouncedEmailQueue[0];
-        characterMessage = 
-          `📧 Hey! You just got a new email.\n` +
-          `From: ${email.from}\n` +
-          `Subject: ${email.subject}\n` +
-          `${email.snippet ? `Preview: ${email.snippet}` : ''}`;
+        characterMessage = `📧 New email from ${email.from}: ${email.subject}`;
       } else {
-        characterMessage = 
-          `📧 Hey! You just received ${debouncedEmailQueue.length} new emails.\n` +
-          `Most recent:\n` +
-          `From: ${debouncedEmailQueue[0].from}\n` +
-          `Subject: ${debouncedEmailQueue[0].subject}`;
+        characterMessage = `📧 You have ${debouncedEmailQueue.length} new emails.`;
       }
 
-      console.log('💬 Character notifying about emails:', characterMessage);
-
-      // Add character notification directly to chat (character-initiated message)
       const updatedHistory = [...chatHistory, { role: 'model' as const, text: characterMessage }];
       setChatHistory(updatedHistory);
 
-      // Save to conversation history
       const userId = getUserId();
       try {
         await conversationHistoryService.appendConversationHistory(
@@ -598,16 +491,12 @@ const App: React.FC = () => {
           [{ role: 'model', text: characterMessage }]
         );
         setLastSavedMessageIndex(updatedHistory.length - 1);
-      } catch (error) {
-        console.error('Failed to save email notification to history:', error);
-      }
+      } catch (error) { console.error(error); }
 
-      // Clear the queue after processing
       setEmailQueue([]);
     };
 
     processEmailNotification();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [debouncedEmailQueue, selectedCharacter]);
 
   const handleImageUpload = (image: UploadedImage) => {
@@ -624,12 +513,9 @@ const App: React.FC = () => {
     setErrorMessage(null);
     try {
       const imageHash = await dbService.hashImage(image.base64);
-
       const existingChar = characters.find((c) => c.id === imageHash);
       if (existingChar) {
-        alert(
-          'A character with this image already exists. Loading that character instead.'
-        );
+        alert('Character exists. Loading...');
         handleSelectCharacter(existingChar);
         return;
       }
@@ -648,228 +534,83 @@ const App: React.FC = () => {
       setCharacters((prev) => [newCharacter, ...prev]);
       handleSelectCharacter(newCharacter);
     } catch (error) {
-      reportError('Failed to save the new character.', error);
+      reportError('Failed to save character.', error);
     } finally {
       setIsSavingCharacter(false);
     }
   };
 
-  const handleCreateAction = async ({
-    name,
-    phrases,
-    videoFile,
-  }: {
-    name: string;
-    phrases: string[];
-    videoFile: File;
-  }) => {
+  const handleCreateAction = async (input: { name: string; phrases: string[]; videoFile: File }) => {
     if (!selectedCharacter) return;
     registerInteraction();
-    const characterId = selectedCharacter.id;
     setIsCreatingAction(true);
-
-    let videoUrl: string | null = null;
-
     try {
-      const metadata = await dbService.createCharacterAction(characterId, {
-        name,
-        phrases,
-        video: videoFile,
+      const metadata = await dbService.createCharacterAction(selectedCharacter.id, {
+        name: input.name,
+        phrases: input.phrases,
+        video: input.videoFile,
       });
-
-      const newAction: CharacterAction = {
+      
+      // Optimistic update
+      const newAction = {
         id: metadata.id,
         name: metadata.name,
         phrases: metadata.phrases,
-        video: videoFile,
+        video: input.videoFile,
         videoPath: metadata.videoPath,
         sortOrder: metadata.sortOrder ?? null,
       };
-
-      const createdUrl = URL.createObjectURL(videoFile);
-      videoUrl = createdUrl;
-
-      applyCharacterUpdate(characterId, (character) => ({
-        ...character,
-        actions: [...character.actions, newAction],
+      
+      applyCharacterUpdate(selectedCharacter.id, char => ({
+          ...char, actions: [...char.actions, newAction]
       }));
+      setActionVideoUrls(prev => ({ ...prev, [metadata.id]: URL.createObjectURL(input.videoFile) }));
 
-      setActionVideoUrls((prev) => ({
-        ...prev,
-        [newAction.id]: createdUrl,
-      }));
     } catch (error) {
-      if (videoUrl) {
-        try {
-          URL.revokeObjectURL(videoUrl);
-        } catch (revokeError) {
-          console.warn(
-            'Failed to revoke action video URL after creation error',
-            revokeError
-          );
-        }
-      }
-      reportError('Failed to create new action.', error);
+      reportError('Failed to create action.', error);
     } finally {
       setIsCreatingAction(false);
     }
   };
 
-  const handleUpdateAction = async (
-    actionId: string,
-    {
-      name,
-      phrases,
-      videoFile,
-    }: {
-      name: string;
-      phrases: string[];
-      videoFile?: File;
-    }
-  ) => {
+  const handleUpdateAction = async (actionId: string, input: any) => {
     if (!selectedCharacter) return;
-    registerInteraction();
-    const characterId = selectedCharacter.id;
-    const previousUrl = actionVideoUrls[actionId] ?? null;
-
     setUpdatingActionId(actionId);
-
-    let newVideoUrl: string | null = null;
-
     try {
-      const metadata = await dbService.updateCharacterAction(
-        characterId,
-        actionId,
-        {
-          name,
-          phrases,
-          video: videoFile,
+        const metadata = await dbService.updateCharacterAction(selectedCharacter.id, actionId, input);
+        applyCharacterUpdate(selectedCharacter.id, char => ({
+            ...char, 
+            actions: char.actions.map(a => a.id === actionId ? { ...a, ...metadata, video: input.videoFile || a.video } : a)
+        }));
+        if(input.videoFile) {
+            setActionVideoUrls(prev => ({...prev, [actionId]: URL.createObjectURL(input.videoFile)}));
         }
-      );
-
-      if (videoFile) {
-        newVideoUrl = URL.createObjectURL(videoFile);
-      }
-
-      applyCharacterUpdate(characterId, (character) => ({
-        ...character,
-        actions: character.actions.map((action) =>
-          action.id === actionId
-            ? {
-                ...action,
-                name: metadata.name,
-                phrases: metadata.phrases,
-                sortOrder:
-                  metadata.sortOrder !== undefined
-                    ? metadata.sortOrder
-                    : action.sortOrder ?? null,
-                videoPath: metadata.videoPath,
-                video: videoFile ?? action.video,
-              }
-            : action
-        ),
-      }));
-
-      if (videoFile && newVideoUrl) {
-        setActionVideoUrls((prev) => {
-          const updated = { ...prev };
-          const existingUrl = updated[actionId];
-          if (existingUrl && existingUrl !== newVideoUrl) {
-            try {
-              URL.revokeObjectURL(existingUrl);
-            } catch (error) {
-              console.warn(
-                'Failed to revoke previous action video URL',
-                error
-              );
-            }
-          }
-          updated[actionId] = newVideoUrl;
-          return updated;
-        });
-
-        if (currentVideoUrl && previousUrl && currentVideoUrl === previousUrl) {
-          setCurrentVideoUrl(newVideoUrl);
-        }
-      }
-    } catch (error) {
-      if (newVideoUrl) {
-        try {
-          URL.revokeObjectURL(newVideoUrl);
-        } catch (revokeError) {
-          console.warn(
-            'Failed to revoke updated action video URL after error',
-            revokeError
-          );
-        }
-      }
-      reportError('Failed to update action.', error);
-    } finally {
-      setUpdatingActionId(null);
-    }
+    } catch (e) { reportError('Failed to update', e); } 
+    finally { setUpdatingActionId(null); }
   };
 
   const handleDeleteAction = async (actionId: string) => {
     if (!selectedCharacter) return;
-    registerInteraction();
-    const characterId = selectedCharacter.id;
-    const previousUrl = actionVideoUrls[actionId] ?? null;
-
     setDeletingActionId(actionId);
-
     try {
-      await dbService.deleteCharacterAction(characterId, actionId);
-
-      applyCharacterUpdate(characterId, (character) => ({
-        ...character,
-        actions: character.actions.filter((action) => action.id !== actionId),
-      }));
-
-      setActionVideoUrls((prev) => {
-        if (!(actionId in prev)) {
-          return prev;
-        }
-        const updated = { ...prev };
-        const url = updated[actionId];
-        delete updated[actionId];
-        if (url) {
-          try {
-            URL.revokeObjectURL(url);
-          } catch (error) {
-            console.warn('Failed to revoke deleted action video URL', error);
-          }
-        }
-        return updated;
-      });
-
-      if (currentVideoUrl && previousUrl && currentVideoUrl === previousUrl) {
-        setCurrentVideoUrl(idleVideoUrl ?? null);
-      }
-    } catch (error) {
-      reportError('Failed to delete action.', error);
-    } finally {
-      setDeletingActionId(null);
-    }
+        await dbService.deleteCharacterAction(selectedCharacter.id, actionId);
+        applyCharacterUpdate(selectedCharacter.id, char => ({
+            ...char, actions: char.actions.filter(a => a.id !== actionId)
+        }));
+    } catch(e) { reportError('Failed to delete', e); }
+    finally { setDeletingActionId(null); }
   };
 
   const handleSelectLocalVideo = async (videoFile: File) => {
-    if (isSavingCharacter) return;
     if (!uploadedImage) {
-      reportError('Upload a character image before selecting an animation.');
+      reportError('Upload an image first.');
       return;
     }
-    setErrorMessage(null);
-    try {
-      await handleCharacterCreated(uploadedImage, videoFile);
-    } catch (error) {
-      reportError('There was a problem processing your video file.', error);
-    }
+    await handleCharacterCreated(uploadedImage, videoFile);
   };
 
   const handleManageActions = (character: CharacterProfile) => {
     registerInteraction();
-    
-    // Load action video URLs for this character if not already loaded
     const newActionUrls = character.actions.reduce((map, action) => {
       if (!actionVideoUrls[action.id]) {
         map[action.id] = URL.createObjectURL(action.video);
@@ -884,50 +625,16 @@ const App: React.FC = () => {
     setView('manageActions');
   };
 
-  const handleBackFromActionManagement = () => {
-    registerInteraction();
-    setCharacterForActionManagement(null);
-    setView('selectCharacter');
-  };
-
   const handleSelectCharacter = async (character: CharacterProfile) => {
     setErrorMessage(null);
-    setIsCreatingAction(false);
-    setUpdatingActionId(null);
-    setDeletingActionId(null);
     setIsLoadingCharacter(true);
     registerInteraction();
 
-    if (idleVideoUrl) {
-      try {
-        URL.revokeObjectURL(idleVideoUrl);
-      } catch (error) {
-        console.warn('Failed to revoke idle video URL', error);
-      }
-    }
-
-    if (currentVideoUrl && currentVideoUrl !== idleVideoUrl) {
-      const isKnownActionUrl = Object.values(actionVideoUrls).includes(
-        currentVideoUrl
-      );
-      if (!isKnownActionUrl) {
-        try {
-          URL.revokeObjectURL(currentVideoUrl);
-        } catch (error) {
-          console.warn('Failed to revoke previous action video URL', error);
-        }
-      }
-    }
-
+    if (idleVideoUrl) URL.revokeObjectURL(idleVideoUrl);
     cleanupActionUrls(actionVideoUrls);
 
     const newIdleVideoUrl = URL.createObjectURL(character.idleVideo);
     const newActionUrls = character.actions.reduce((map, action) => {
-      if (map[action.id]) {
-        console.warn(
-          `Duplicate action id "${action.id}" detected for character "${character.id}".`
-        );
-      }
       map[action.id] = URL.createObjectURL(action.video);
       return map;
     }, {} as Record<string, string>);
@@ -939,181 +646,59 @@ const App: React.FC = () => {
     setCurrentActionId(null);
     
     try {
-      // Load conversation history and relationship for this user
       const userId = getUserId();
       const savedHistory = await conversationHistoryService.loadConversationHistory(userId);
       const relationshipData = await relationshipService.getRelationship(userId);
       setRelationship(relationshipData);
       
-      // Generate personalized greeting using Active Service (with full history and relationship context)
-     try {
-      // Generate greeting
-      // Using simplified session creation for now, as state is managed inside App
-      const session: AIChatSession = { userId, model: activeService.model }; 
-      
-      const { greeting, session: updatedSession } = await activeService.generateGreeting(
-        character,
-        session,
-        savedHistory, // Pass saved history for context
-        relationshipData // Pass relationship context
-      );
-      setAiSession(updatedSession);
+      try {
+        const session: AIChatSession = { userId, model: activeService.model }; 
+        const { greeting, session: updatedSession } = await activeService.generateGreeting(
+            character, session, savedHistory, relationshipData
+        );
+        setAiSession(updatedSession);
 
-      // 2. Parse the response object
-      const textResponse = greeting.text_response;
-      const actionIdToPlay = greeting.action_id;
-
-      // 3. Combine saved history with the new text_response
-      const initialHistory = savedHistory.length > 0
-        ? [...savedHistory, { role: 'model' as const, text: textResponse }]
-        : [{ role: 'model' as const, text: textResponse }];
-      setChatHistory(initialHistory);
-
-      // 4. Play the greeting action (e.g., a wave) if one was sent
-      if (actionIdToPlay) {
-        const actionUrl = newActionUrls[actionIdToPlay];
-        if (actionUrl) {
-          // Use setTimeout to ensure state is set before playing greeting
-          setTimeout(() => {
-            setCurrentVideoUrl(actionUrl);
-            setCurrentActionId(actionIdToPlay);
-          }, 100);
-        } else {
-          console.warn(`Greeting action "${actionIdToPlay}" not found.`);
-        }
-      }
-      // --- FIX END ---
-
-      // Track that all loaded messages are saved (greeting is new, so we're at savedHistory.length)
-      setLastSavedMessageIndex(savedHistory.length - 1);
-
-    } catch (error) {
-        console.error('Error generating greeting:', error);
-        // Show error to user and start with saved history only (no greeting)
-        setErrorMessage('Failed to generate greeting. Please try again.');
         const initialHistory = savedHistory.length > 0
-          ? savedHistory
-          : [];
+            ? [...savedHistory, { role: 'model' as const, text: greeting.text_response }]
+            : [{ role: 'model' as const, text: greeting.text_response }];
         setChatHistory(initialHistory);
+
+        if (greeting.action_id && newActionUrls[greeting.action_id]) {
+            setTimeout(() => {
+                setCurrentVideoUrl(newActionUrls[greeting.action_id]);
+                setCurrentActionId(greeting.action_id);
+            }, 100);
+        }
         setLastSavedMessageIndex(savedHistory.length - 1);
+
+      } catch (error) {
+        console.error('Error generating greeting:', error);
+        setChatHistory(savedHistory);
       }
-      
       setView('chat');
     } catch (error) {
-      console.error('Error loading character:', error);
-      setErrorMessage('Failed to load character data. Please try again.');
+      setErrorMessage('Failed to load character data.');
     } finally {
       setIsLoadingCharacter(false);
-    }
-
-    // Check for greeting actions and play one automatically
-    const greetingActions = getGreetingActions(character.actions);
-    if (greetingActions.length > 0) {
-      // Use setTimeout to ensure state is set before playing greeting
-      setTimeout(() => {
-        const greetingAction = randomFromArray(greetingActions);
-        const greetingUrl = newActionUrls[greetingAction.id] ?? null;
-        
-        if (!greetingUrl && greetingAction.videoPath) {
-          const { data } = supabase.storage
-            .from(ACTION_VIDEO_BUCKET)
-            .getPublicUrl(greetingAction.videoPath);
-          const fallbackUrl = data?.publicUrl ?? null;
-          if (fallbackUrl) {
-            setCurrentVideoUrl(fallbackUrl);
-            setCurrentActionId(greetingAction.id);
-          }
-        } else if (greetingUrl) {
-          setCurrentVideoUrl(greetingUrl);
-          setCurrentActionId(greetingAction.id);
-        }
-      }, 100);
     }
   };
 
   const handleDeleteCharacter = async (id: string) => {
-    if (window.confirm("Are you sure you want to delete this character?")) {
-        registerInteraction();
-        if (selectedCharacter?.id === id) {
-          handleBackToSelection();
-        }
+    if (window.confirm("Delete character?")) {
+        if (selectedCharacter?.id === id) handleBackToSelection();
         await dbService.deleteCharacter(id);
         setCharacters(prev => prev.filter(c => c.id !== id));
     }
   };
 
   const handleBackToSelection = async () => {
-    registerInteraction();
-    
-    // Save any unsaved conversation history before leaving
-    // Note: We don't save greetings (they're generated fresh each time)
-    if (selectedCharacter && chatHistory.length > 0 && lastSavedMessageIndex < chatHistory.length - 1) {
-      const userId = getUserId();
-      // Only save messages that haven't been saved yet
-      // Filter out any greeting messages (they start with common greeting patterns)
-      const unsavedMessages = chatHistory
-        .slice(lastSavedMessageIndex + 1)
-        .filter(msg => {
-          // Don't save greeting messages - they're generated fresh each time
-          const text = msg.text.toLowerCase();
-          const isGreeting = text.includes('hi!') || text.includes('hello') || 
-            (text.includes('can perform') && text.length < 50);
-          return !isGreeting || msg.role === 'user'; // Always save user messages
-        });
-      
-      if (unsavedMessages.length > 0) {
-        try {
-          await conversationHistoryService.appendConversationHistory(
-            userId,
-            unsavedMessages
-          );
-        } catch (error) {
-          console.error('Failed to save conversation history:', error);
-          // Don't block user from leaving
-        }
-      }
-    }
-    
-    if (idleVideoUrl) {
-      try {
-        URL.revokeObjectURL(idleVideoUrl);
-      } catch (error) {
-        console.warn('Failed to revoke idle video URL', error);
-      }
-    }
-
-    if (currentVideoUrl && currentVideoUrl !== idleVideoUrl) {
-      const isKnownActionUrl = Object.values(actionVideoUrls).includes(
-        currentVideoUrl
-      );
-      if (!isKnownActionUrl) {
-        try {
-          URL.revokeObjectURL(currentVideoUrl);
-        } catch (error) {
-          console.warn('Failed to revoke current action video URL', error);
-        }
-      }
-    }
-
-    cleanupActionUrls(actionVideoUrls);
-
     setSelectedCharacter(null);
     setIdleVideoUrl(null);
     setCurrentVideoUrl(null);
-    setCurrentActionId(null);
-    setActionVideoUrls({});
     setChatHistory([]);
     setAiSession(null);
-    setLastSavedMessageIndex(-1);
-    setRelationship(null);
-    setUpcomingEvents([]);
-    setNotifiedEventIds(new Set());
-    setUploadedImage(null);
-    setErrorMessage(null);
+    setResponseAudioSrc(null);
     setView('selectCharacter');
-    setIsCreatingAction(false);
-    setUpdatingActionId(null);
-    setDeletingActionId(null);
   };
 
   const handleSendMessage = async (message: string) => {
@@ -1127,15 +712,13 @@ const App: React.FC = () => {
 
     try {
       const userId = getUserId();
-      // Note: analyzeMessageSentiment needs 'grok' or 'gemini' passed to it if we want to switch sentimental brains too.
-      // For now using default.
       const relationshipEvent = await relationshipService.analyzeMessageSentiment(message, chatHistory);
       const updatedRelationship = await relationshipService.updateRelationship(userId, relationshipEvent);
       if (updatedRelationship) setRelationship(updatedRelationship);
 
       const sessionToUse: AIChatSession = aiSession || { userId, characterId: selectedCharacter.id };
       
-      // Send TEXT content
+      // Send Text -> Get Text (and optionally Audio if configured in service)
       const { response, session: updatedSession, audioData } = await activeService.generateResponse(
         { type: 'text', text: message }, 
         {
@@ -1148,146 +731,126 @@ const App: React.FC = () => {
       );
       
       setAiSession(updatedSession);
+      setChatHistory(prev => [...prev, { role: 'model' as const, text: response.text_response }]);
       
-      const textResponse = response.text_response;
-      const actionIdToPlay = response.action_id;
-      
-      // (Calendar logic omitted for brevity, assumes same as before)
-
-      setChatHistory(prev => [...prev, { role: 'model' as const, text: textResponse }]);
-      
-      // Save History
-      conversationHistoryService.appendConversationHistory(
+      await conversationHistoryService.appendConversationHistory(
         userId,
-        [{ role: 'user', text: message }, { role: 'model', text: textResponse }]
-      ).then(() => setLastSavedMessageIndex(updatedHistory.length));
+        [{ role: 'user', text: message }, { role: 'model', text: response.text_response }]
+      );
+      setLastSavedMessageIndex(updatedHistory.length);
 
-      // --- NEW: Play Audio Response ---
-      if (!isMuted) {
-        if (audioData) {
+      // Play Audio (if generated for text inputs)
+      if (!isMuted && audioData) {
           setResponseAudioSrc(audioData);
-        }
-
       }
 
-      // Play Action
-      if (actionIdToPlay) {
-        const actionUrl = actionVideoUrls[actionIdToPlay];
-        // ... (fallback fetch logic) ...
-        if (actionUrl) {
-             setCurrentVideoUrl(actionUrl);
-             setCurrentActionId(actionIdToPlay);
-        }
+      if (response.action_id && actionVideoUrls[response.action_id]) {
+           setCurrentVideoUrl(actionVideoUrls[response.action_id]);
+           setCurrentActionId(response.action_id);
       }
 
     } catch (error) {
-      console.error('Error generating response:', error);
+      console.error('Error:', error);
       setErrorMessage('Failed to generate response.');
     } finally {
       setIsProcessingAction(false);
     }
   };
   
-  const isActionVideoPlaying =
-    currentVideoUrl !== null && currentVideoUrl !== idleVideoUrl;
-
   const handleVideoEnd = () => {
-    if (isActionVideoPlaying && idleVideoUrl) {
+    if (currentVideoUrl !== idleVideoUrl && idleVideoUrl) {
       setCurrentVideoUrl(idleVideoUrl);
       setCurrentActionId(null);
     }
   };
 
-  const isBusy = isProcessingAction;
+  // Show login if not authenticated
+  if (!session || authStatus !== 'connected') {
+    return <LoginPage />;
+  }
 
-  const renderContent = () => {
-    switch (view) {
-        case 'loading':
-            return <div className="flex items-center justify-center h-full"><LoadingSpinner /></div>;
-        case 'selectCharacter':
-            return <CharacterSelector 
+  return (
+    <div className="bg-gray-900 text-gray-100 min-h-screen flex flex-col p-4 md:p-8">
+      {/* Audio Player (Hidden) - Plays base64 audio from responseAudioSrc */}
+      {responseAudioSrc && (
+        <AudioPlayer 
+            src={responseAudioSrc} 
+            onEnded={() => setResponseAudioSrc(null)} 
+        />
+      )}
+
+      <header className="text-center mb-8 relative">
+        <h1 className="text-4xl md:text-5xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-purple-400 to-indigo-600">
+          Interactive Video Character
+        </h1>
+        <div className="absolute top-0 right-0">
+          <SettingsPanel onGmailConnectionChange={setIsGmailConnected} />
+        </div>
+      </header>
+      <main className="flex-grow bg-gray-800/50 rounded-2xl p-4 md:p-6 shadow-2xl shadow-black/30 backdrop-blur-sm border border-gray-700">
+        {errorMessage && <div className="bg-red-500/20 border border-red-500 text-red-300 p-3 rounded-lg mb-4 text-center">{errorMessage}</div>}
+        
+        {view === 'loading' && <div className="flex items-center justify-center h-full"><LoadingSpinner /></div>}
+        
+        {view === 'selectCharacter' && (
+            <CharacterSelector 
                 characters={displayCharacters}
                 onSelectCharacter={handleSelectCharacter}
                 onCreateNew={() => setView('createCharacter')}
                 onDeleteCharacter={handleDeleteCharacter}
                 onManageActions={handleManageActions}
                 isLoading={isLoadingCharacter}
-            />;
-        case 'manageActions':
-            if (!characterForActionManagement) return null;
-            return (
-              <ActionManagementView
-                character={characterForActionManagement}
-                actions={managedActions}
-                onCreateAction={handleCreateAction}
-                onUpdateAction={handleUpdateAction}
-                onDeleteAction={handleDeleteAction}
-                onBack={handleBackFromActionManagement}
-                isCreating={isCreatingAction}
-                updatingActionId={updatingActionId}
-                deletingActionId={deletingActionId}
-              />
-            );
-        case 'createCharacter':
-            return (
-              <ImageUploader 
+            />
+        )}
+
+        {view === 'createCharacter' && (
+             <ImageUploader 
                 onImageUpload={handleImageUpload}
                 onSelectLocalVideo={handleSelectLocalVideo}
                 imagePreview={uploadedImage?.base64 ? `data:${uploadedImage.mimeType};base64,${uploadedImage.base64}` : null}
                 isSaving={isSavingCharacter}
                 onBack={handleBackToSelection}
               />
-            );
-        case 'chat':
-            if (!selectedCharacter) return null; // Should not happen
-            return (
-              <div
-                className={`relative grid gap-8 h-full ${
-                  isVideoVisible
-                    ? 'grid-cols-1 lg:grid-cols-2'
-                    : 'grid-cols-1'
-                }`}
-              >
+        )}
+
+        {view === 'manageActions' && characterForActionManagement && (
+            <ActionManagementView
+                character={characterForActionManagement}
+                actions={managedActions}
+                onCreateAction={handleCreateAction}
+                onUpdateAction={handleUpdateAction}
+                onDeleteAction={handleDeleteAction}
+                onBack={() => {
+                    setCharacterForActionManagement(null);
+                    setView('selectCharacter');
+                }}
+                isCreating={isCreatingAction}
+                updatingActionId={updatingActionId}
+                deletingActionId={deletingActionId}
+            />
+        )}
+
+        {view === 'chat' && selectedCharacter && (
+             <div className={`relative grid gap-8 h-full ${isVideoVisible ? 'grid-cols-1 lg:grid-cols-2' : 'grid-cols-1'}`}>
                 <button 
                   onClick={handleBackToSelection} 
                   className="absolute top-2 left-2 z-30 bg-gray-800/50 hover:bg-gray-700/80 text-white rounded-full p-2 transition-colors"
-                  aria-label="Back to character selection"
                 >
                     <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
                 </button>
-                <div className="absolute top-2 right-2 z-30">
-                  <button
-                    onClick={() => setIsVideoVisible((prev) => !prev)}
-                    className="bg-gray-800/50 hover:bg-gray-700/80 text-white rounded-full px-4 py-2 transition-colors whitespace-nowrap"
-                  >
-                    {isVideoVisible ? 'Hide Video' : 'Show Video'}
-                  </button>
-                </div>
+                
                 {isVideoVisible && (
                   <div className="h-full flex items-center justify-center bg-black rounded-lg relative">
-                    <button
-                      onClick={() => setIsMuted(!isMuted)}
-                      className="absolute top-2 right-2 z-30 bg-gray-800/50 hover:bg-gray-700/80 text-white rounded-full p-2 transition-colors"
-                      aria-label={isMuted ? "Unmute audio" : "Mute audio"}
-                    >
-                      {isMuted ? (
-                        <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2" />
-                        </svg>
-                      ) : (
-                        <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
-                        </svg>
-                      )}
-                    </button>
-                    <VideoPlayer 
-                      src={currentVideoUrl}
-                      onEnded={handleVideoEnd}
-                      isLoading={isProcessingAction}
-                      loop={!isActionVideoPlaying}
-                      muted={isMuted}
-                    />
+                     <button onClick={() => setIsMuted(!isMuted)} className="absolute top-2 right-2 z-30 bg-gray-800/50 hover:bg-gray-700/80 text-white rounded-full p-2">
+                        {isMuted ? "🔇" : "🔊"}
+                     </button>
+                     <VideoPlayer 
+                       src={currentVideoUrl}
+                       onEnded={handleVideoEnd}
+                       isLoading={isProcessingAction}
+                       loop={currentVideoUrl === idleVideoUrl}
+                       muted={isMuted}
+                     />
                   </div>
                 )}
                 <div className="h-full">
@@ -1295,46 +858,12 @@ const App: React.FC = () => {
                     history={chatHistory}
                     onSendMessage={handleSendMessage}
                     onSendAudio={handleSendAudio}
-                    useAudioInput={activeServiceId === 'gemini'}
-                    isSending={isBusy}
+                    useAudioInput={activeServiceId === 'gemini'} 
+                    isSending={isProcessingAction}
                   />
                 </div>
-              </div>
-            );
-    }
-  };
-
-  // Show loading screen while checking authentication
-  if (authStatus === 'loading') {
-    return (
-      <div className="bg-gray-900 text-gray-100 min-h-screen flex items-center justify-center">
-        <LoadingSpinner />
-      </div>
-    );
-  }
-
-  // Show login page if not authenticated
-  if (!session || authStatus !== 'connected') {
-    return <LoginPage />;
-  }
-
-  // Show main app only when authenticated
-  return (
-    <div className="bg-gray-900 text-gray-100 min-h-screen flex flex-col p-4 md:p-8">
-      <header className="text-center mb-8 relative">
-        <h1 className="text-4xl md:text-5xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-purple-400 to-indigo-600">
-          Interactive Video Character
-        </h1>
-        <p className="text-gray-400 mt-2">
-          Play pre-recorded character animations stored in Supabase.
-        </p>
-        <div className="absolute top-0 right-0">
-          <SettingsPanel onGmailConnectionChange={setIsGmailConnected} />
-        </div>
-      </header>
-      <main className="flex-grow bg-gray-800/50 rounded-2xl p-4 md:p-6 shadow-2xl shadow-black/30 backdrop-blur-sm border border-gray-700">
-        {errorMessage && <div className="bg-red-500/20 border border-red-500 text-red-300 p-3 rounded-lg mb-4 text-center">{errorMessage}</div>}
-        {renderContent()}
+             </div>
+        )}
       </main>
     </div>
   );
