@@ -58,9 +58,23 @@ export const geminiChatService: IAIChatService = {
         history: convertToGeminiHistory(chatHistory),
       });
 
+
+     // --- NEW: Handle Text vs Audio Input ---
+     let messageParts: any[] = [];
+     if (message.type === 'text') {
+       messageParts = [{ text: message.text }];
+     } else if (message.type === 'audio') {
+       // Send Audio to Gemini
+       messageParts = [{
+           inlineData: {
+               mimeType: message.mimeType,
+               data: message.data // Base64 string
+           }
+       }];
+     }
       // 3. Send Message
       const result = await chat.sendMessage({
-        message: message,
+        message: messageParts,
       });
 
       // 4. Parse the text result into your JSON schema

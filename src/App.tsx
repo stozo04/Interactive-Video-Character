@@ -30,7 +30,7 @@ import { LoginPage } from './components/LoginPage';
 import { useGoogleAuth } from './contexts/GoogleAuthContext';
 import { useDebounce } from './hooks/useDebounce';
 import { useAIService } from './contexts/AIServiceContext';
-import { AIChatSession } from './services/aiService';
+import { AIChatSession, UserContent } from './services/aiService';
 
 const sanitizeText = (value: string): string =>
   value
@@ -93,7 +93,7 @@ interface DisplayCharacter {
 
 const App: React.FC = () => {
   const { session, status: authStatus } = useGoogleAuth();
-  const { activeService } = useAIService();
+  const { activeService, activeServiceId } = useAIService();
   const [view, setView] = useState<View>('loading');
   const [characters, setCharacters] = useState<CharacterProfile[]>([]);
   const [selectedCharacter, setSelectedCharacter] =
@@ -130,8 +130,80 @@ const App: React.FC = () => {
   // Calendar Integration State
   const [upcomingEvents, setUpcomingEvents] = useState<CalendarEvent[]>([]);
   const [notifiedEventIds, setNotifiedEventIds] = useState<Set<string>>(new Set());
-
   const idleActionTimerRef = useRef<number | null>(null);
+  // --- NEW: Handle Audio Input ---
+  const handleSendAudio = async (audioBlob: Blob) => {
+    if (!selectedCharacter || !session) return;
+    registerInteraction();
+    setErrorMessage(null);
+
+    // We don't know what the user said yet, so we add a placeholder or just wait for the response
+    // For now, let's add a visual indicator
+    const updatedHistory = [...chatHistory, { role: 'user' as const, text: "🎤 [Audio Message]" }];
+    setChatHistory(updatedHistory);
+    setIsProcessingAction(true);
+
+    try {
+        // Convert Blob to Base64
+        const reader = new FileReader();
+        reader.readAsDataURL(audioBlob);
+        reader.onloadend = async () => {
+            const base64data = reader.result as string;
+            const base64Content = base64data.split(',')[1];
+            const mimeType = audioBlob.type || 'audio/webm';
+
+            const userId = getUserId();
+            const sessionToUse: AIChatSession = aiSession || { userId, model: activeService.model };
+
+            // Send Audio Content
+            const input: UserContent = { 
+                type: 'audio', 
+                data: base64Content, 
+                mimeType: mimeType 
+            };
+
+            // Call AI Service
+            const { response, session: updatedSession } = await activeService.generateResponse(
+                input,
+                {
+                    character: selectedCharacter,
+                    chatHistory: chatHistory, // Pass history without the placeholder? Or keep it? 
+                    // Note: passing [Audio Message] placeholder text to Gemini might be confusing if converted to history. 
+                    // Ideally we filter it out in the service or use the previous state.
+                    relationship: relationship, 
+                    upcomingEvents: upcomingEvents,
+                },
+                sessionToUse
+            );
+
+            setAiSession(updatedSession);
+            
+            // Process Response (same as text flow)
+            const aiResponse = response; // Type casting handled in service
+            const textResponse = aiResponse.text_response;
+            const actionIdToPlay = aiResponse.action_id;
+
+            // Add response to chat
+            setChatHistory(prev => [...prev, { role: 'model' as const, text: textResponse }]);
+            
+            // Play Action
+            if (actionIdToPlay) {
+               const actionUrl = actionVideoUrls[actionIdToPlay];
+               if (actionUrl) {
+                   setCurrentVideoUrl(actionUrl);
+                   setCurrentActionId(actionIdToPlay);
+               }
+            }
+            
+            setIsProcessingAction(false);
+        };
+
+    } catch (error) {
+        console.error("Audio Error:", error);
+        setErrorMessage("Failed to process audio.");
+        setIsProcessingAction(false);
+    }
+};
 
   const reportError = useCallback((message: string, error?: unknown) => {
     console.error(message, error);
@@ -864,7 +936,7 @@ const App: React.FC = () => {
      try {
       // Generate greeting
       // Using simplified session creation for now, as state is managed inside App
-      const session: AIChatSession = { userId }; 
+      const session: AIChatSession = { userId, model: activeService.model }; 
       
       const { greeting, session: updatedSession } = await activeService.generateGreeting(
         character,
@@ -1061,7 +1133,7 @@ const App: React.FC = () => {
       }
 
       // Generate response from Active AI service (with relationship context and calendar events)
-      const sessionToUse: AIChatSession = aiSession || { userId };
+      const sessionToUse: AIChatSession = aiSession || { userId, model: activeService.model };
       
       const { response, session: updatedSession } = await activeService.generateResponse(
         message,
@@ -1305,6 +1377,8 @@ const App: React.FC = () => {
                   <ChatPanel
                     history={chatHistory}
                     onSendMessage={handleSendMessage}
+                    onSendAudio={handleSendAudio}
+                    useAudioInput={activeServiceId === 'gemini'}
                     isSending={isBusy}
                   />
                 </div>
