@@ -1,5 +1,4 @@
-// src/contexts/AIServiceContext.tsx
-import React, { createContext, useContext, useState } from 'react';
+import React, { createContext, useContext, useState, useEffect } from 'react';
 import { IAIChatService } from '../services/aiService';
 import { geminiChatService } from '../services/geminiChatService';
 import { grokService } from '../services/grokChatService';
@@ -17,10 +16,19 @@ const AIServiceContext = createContext<AIServiceContextType | undefined>(undefin
 export function AIServiceProvider({ children }: { children: React.ReactNode }) {
   const [activeServiceId, setActiveServiceId] = useState<ServiceType>('grok');
 
+  const setService = (id: ServiceType) => {
+    console.log(`🧠 [AIServiceContext] Switching active brain to: ${id.toUpperCase()}`);
+    setActiveServiceId(id);
+  };
+
   const activeService = activeServiceId === 'grok' ? grokService : geminiChatService;
 
+  useEffect(() => {
+    console.log(`✅ [AIServiceContext] Active Service is now: ${activeServiceId}`);
+  }, [activeServiceId]);
+
   return (
-    <AIServiceContext.Provider value={{ activeServiceId, activeService, setService: setActiveServiceId }}>
+    <AIServiceContext.Provider value={{ activeServiceId, activeService, setService }}>
       {children}
     </AIServiceContext.Provider>
   );

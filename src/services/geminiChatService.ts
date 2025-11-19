@@ -1,5 +1,5 @@
 import { GoogleGenAI } from "@google/genai";
-import { UploadedImage } from '../types';
+import { ChatMessage, UploadedImage } from '../types';
 import { IAIChatService, AIChatOptions, AIChatSession } from './aiService';
 import { buildSystemPrompt } from './promptUtils';
 import { AIActionResponse } from './aiSchema';
@@ -7,26 +7,25 @@ import { AIActionResponse } from './aiSchema';
 const GEMINI_MODEL = import.meta.env.VITE_GEMINI_MODEL;
 const USER_ID = import.meta.env.VITE_USER_ID;
 const GEMINI_VIDEO_MODEL = import.meta.env.VITE_GEMINI_VIDEO_MODEL;
+const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
 
-if (!GEMINI_MODEL || !USER_ID || !GEMINI_VIDEO_MODEL) {
-    console.error("VITE_GEMINI_MODEL, VITE_USER_ID, and VITE_GEMINI_VIDEO_MODEL must be set in the environment variables.");
+if (!GEMINI_MODEL || !USER_ID || !GEMINI_VIDEO_MODEL || !GEMINI_API_KEY) {
+    console.error("VITE_GEMINI_MODEL, VITE_USER_ID, VITE_GEMINI_VIDEO_MODEL, and VITE_GEMINI_API_KEY must be set in the environment variables.");
     throw new Error("Missing environment variables for Gemini chat service.");
 }
 
 const getAiClient = () => {
-    const key = import.meta.env.VITE_GEMINI_API_KEY; 
-    if (!key) {
-        throw new Error("Gemini API Key not set (VITE_GEMINI_API_KEY)");
-    }
-    return new GoogleGenAI({ apiKey: key });
+    return new GoogleGenAI({ apiKey: GEMINI_API_KEY });
 };
 
-// Helper to map app chat history to Gemini history format
-function convertToGeminiHistory(history: any[]) {
-  return history.map(msg => ({
-    role: msg.role === 'user' ? 'user' : 'model',
-    parts: [{ text: msg.text }]
-  }));
+// Helper to map chat history safely
+function convertToGeminiHistory(history: ChatMessage[]) {
+  return history
+    .filter(msg => msg.text && msg.text.trim().length > 0) // Remove empty messages to prevent API 400 errors
+    .map(msg => ({
+      role: msg.role === 'user' ? 'user' : 'model',
+      parts: [{ text: msg.text }]
+    }));
 }
 
 export const geminiChatService: IAIChatService = {
@@ -43,7 +42,10 @@ export const geminiChatService: IAIChatService = {
         model: GEMINI_MODEL,
         config: {
           responseMimeType: "application/json",
-          systemInstruction: systemPrompt, // Pass system prompt here
+          systemInstruction: {
+            parts: [{ text: systemPrompt }],
+            role: "user" // System instructions are often passed as 'user' or specialized role depending on model version, but SDK handles this via config usually.
+          },
         },
         history: convertToGeminiHistory(chatHistory),
       });
@@ -95,7 +97,10 @@ export const geminiChatService: IAIChatService = {
             model: GEMINI_MODEL,
             config: {
               responseMimeType: "application/json",
-              systemInstruction: systemPrompt,
+              systemInstruction: {
+                parts: [{ text: systemPrompt }],
+                role: "user"
+              },
             },
             history: convertToGeminiHistory(previousHistory || []),
         });

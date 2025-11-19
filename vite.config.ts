@@ -12,8 +12,6 @@ export default defineConfig(({ mode }) => {
       plugins: [react()],
       define: {
         // Legacy API keys (non-VITE prefix - need manual mapping)
-        'process.env.API_KEY': JSON.stringify(env.GEMINI_API_KEY),
-        'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY),
         'process.env.NEXT_PUBLIC_SUPABASE_URL': JSON.stringify(env.NEXT_PUBLIC_SUPABASE_URL),
         'process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY': JSON.stringify(env.NEXT_PUBLIC_SUPABASE_ANON_KEY),
         // Note: All VITE_* prefixed variables are automatically available via import.meta.env
