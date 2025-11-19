@@ -33,7 +33,7 @@ export const grokService: IAIChatService = {
 
     try {
       const result = await generateObject({
-        model: xai(session?.model || GROK_MODEL),
+        model: xai(GROK_MODEL),
         messages,
         schema: AIActionResponseSchema,
         providerOptions: {
@@ -50,9 +50,9 @@ export const grokService: IAIChatService = {
       const responseId = (result as any).response?.id || (result as any).id;
 
       const updatedSession: AIChatSession = {
-        userId: session?.userId || 'default',
+        userId: session?.userId || USER_ID,
         previousResponseId: responseId,
-        model: session?.model || GROK_MODEL,
+        model: GROK_MODEL,
       };
 
       return { response: result.object, session: updatedSession };
@@ -77,7 +77,7 @@ export const grokService: IAIChatService = {
     ];
 
     const result = await generateObject({
-      model: xai(session?.model || GROK_MODEL),
+      model: xai(GROK_MODEL),
       messages,
       schema: AIActionResponseSchema,
       providerOptions: {
@@ -95,9 +95,8 @@ export const grokService: IAIChatService = {
         greeting: result.object, 
         session: {
             userId: session?.userId || USER_ID,
-            characterId: character.id,
             previousResponseId: responseId,
-            model: session?.model || GROK_MODEL,
+            model: GROK_MODEL,
         }
     };
   }
