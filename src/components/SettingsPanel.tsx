@@ -2,6 +2,7 @@
 import React, { useState } from 'react';
 import { GmailConnectButton } from './GmailConnectButton';
 import { useGoogleAuth } from '../contexts/GoogleAuthContext';
+import { useAIService } from '../contexts/AIServiceContext';
 
 interface SettingsPanelProps {
   className?: string;
@@ -11,6 +12,7 @@ interface SettingsPanelProps {
 export function SettingsPanel({ className = '', onGmailConnectionChange }: SettingsPanelProps) {
   const [isOpen, setIsOpen] = useState(false);
   const { session, signOut, status } = useGoogleAuth();
+  const { activeServiceId, setService } = useAIService();
 
   const handleSignOut = async () => {
     try {
@@ -84,6 +86,19 @@ export function SettingsPanel({ className = '', onGmailConnectionChange }: Setti
                   />
                 </svg>
               </button>
+            </div>
+
+            {/* AI Intelligence Section */}
+            <div className="mb-4">
+              <h3 className="text-sm font-medium text-gray-300 mb-2">AI Intelligence</h3>
+              <select 
+                value={activeServiceId}
+                onChange={(e) => setService(e.target.value as 'grok' | 'gemini')}
+                className="w-full bg-gray-900 text-white text-sm rounded-md p-2 border border-gray-600"
+              >
+                <option value="grok">Grok (xAI) - Beta</option>
+                <option value="gemini">Gemini 1.5 Flash</option>
+              </select>
             </div>
 
             {/* Gmail Integration Section */}
@@ -181,4 +196,3 @@ export function SettingsPanel({ className = '', onGmailConnectionChange }: Setti
     </div>
   );
 }
-
