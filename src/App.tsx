@@ -15,7 +15,6 @@ import { gmailService, type NewEmailPayload } from './services/gmailService';
 import { 
   calendarService, 
   type CalendarEvent, 
-  type NewEventPayload 
 } from './services/calendarService';
 
 import ImageUploader from './components/ImageUploader';
@@ -32,6 +31,7 @@ import { useDebounce } from './hooks/useDebounce';
 import { useAIService } from './contexts/AIServiceContext';
 import { AIChatSession, UserContent } from './services/aiService';
 
+// Helper to sanitize text for comparison
 const sanitizeText = (value: string): string =>
   value
     .toLowerCase()
@@ -126,6 +126,7 @@ const App: React.FC = () => {
 
   // Calendar Integration State
   const [upcomingEvents, setUpcomingEvents] = useState<CalendarEvent[]>([]);
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [notifiedEventIds, setNotifiedEventIds] = useState<Set<string>>(new Set());
   const idleActionTimerRef = useRef<number | null>(null);
 
@@ -135,8 +136,10 @@ const App: React.FC = () => {
       registerInteraction();
       setErrorMessage(null);
 
-      // 1. Add placeholder to UI immediately so you know it's working
-      const placeholderText = "🎤 [Sending Audio...]";
+      // BUG FIX #1: Use the consistent placeholder text you saw
+      const placeholderText = "🎤 [Audio Message]";
+      
+      // Add placeholder immediately
       setChatHistory(prev => [...prev, { role: 'user' as const, text: placeholderText }]);
       setIsProcessingAction(true);
 
@@ -769,9 +772,10 @@ const App: React.FC = () => {
     return <LoginPage />;
   }
 
+  // BUG FIX #3: Updated classes for full screen with no growth (h-screen + overflow-hidden)
   return (
-    <div className="bg-gray-900 text-gray-100 min-h-screen flex flex-col p-4 md:p-8">
-      {/* Audio Player (Hidden) - Plays base64 audio from responseAudioSrc */}
+    <div className="bg-gray-900 text-gray-100 h-screen overflow-hidden flex flex-col p-4 md:p-8">
+      {/* Audio Player (Hidden) */}
       {responseAudioSrc && (
         <AudioPlayer 
             src={responseAudioSrc} 
@@ -779,7 +783,7 @@ const App: React.FC = () => {
         />
       )}
 
-      <header className="text-center mb-8 relative">
+      <header className="text-center mb-4 relative flex-shrink-0">
         <h1 className="text-4xl md:text-5xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-purple-400 to-indigo-600">
           Interactive Video Character
         </h1>
@@ -787,7 +791,9 @@ const App: React.FC = () => {
           <SettingsPanel onGmailConnectionChange={setIsGmailConnected} />
         </div>
       </header>
-      <main className="flex-grow bg-gray-800/50 rounded-2xl p-4 md:p-6 shadow-2xl shadow-black/30 backdrop-blur-sm border border-gray-700">
+      
+      {/* BUG FIX #3: Added min-h-0 to allow flex child (ChatPanel) to scroll internally */}
+      <main className="flex-grow min-h-0 bg-gray-800/50 rounded-2xl p-4 md:p-6 shadow-2xl shadow-black/30 backdrop-blur-sm border border-gray-700">
         {errorMessage && <div className="bg-red-500/20 border border-red-500 text-red-300 p-3 rounded-lg mb-4 text-center">{errorMessage}</div>}
         
         {view === 'loading' && <div className="flex items-center justify-center h-full"><LoadingSpinner /></div>}
@@ -847,7 +853,6 @@ const App: React.FC = () => {
                      <VideoPlayer 
                        src={currentVideoUrl}
                        onEnded={handleVideoEnd}
-                       isLoading={isProcessingAction}
                        loop={currentVideoUrl === idleVideoUrl}
                        muted={isMuted}
                      />
