@@ -8,10 +8,7 @@ import {
 } from './types';
 import * as dbService from './services/cacheService';
 import { supabase } from './services/supabaseClient';
-import * as grokChatService from './services/grokChatService';
-import type { GrokChatSession } from './services/grokChatService';
-// NEW: Import the response type from the schema
-import type { GrokActionResponse } from './services/grokSchema';
+import type { AIActionResponse } from './services/aiSchema';
 import * as conversationHistoryService from './services/conversationHistoryService';
 import * as relationshipService from './services/relationshipService';
 import type { RelationshipMetrics } from './services/relationshipService';
@@ -32,6 +29,8 @@ import { SettingsPanel } from './components/SettingsPanel';
 import { LoginPage } from './components/LoginPage';
 import { useGoogleAuth } from './contexts/GoogleAuthContext';
 import { useDebounce } from './hooks/useDebounce';
+import { useAIService } from './contexts/AIServiceContext';
+import { AIChatSession } from './services/aiService';
 
 const sanitizeText = (value: string): string =>
   value
@@ -94,6 +93,7 @@ interface DisplayCharacter {
 
 const App: React.FC = () => {
   const { session, status: authStatus } = useGoogleAuth();
+  const { activeService } = useAIService();
   const [view, setView] = useState<View>('loading');
   const [characters, setCharacters] = useState<CharacterProfile[]>([]);
   const [selectedCharacter, setSelectedCharacter] =
@@ -116,7 +116,7 @@ const App: React.FC = () => {
   const [characterForActionManagement, setCharacterForActionManagement] = useState<CharacterProfile | null>(null);
   const [lastInteractionAt, setLastInteractionAt] = useState(() => Date.now());
   const [isMuted, setIsMuted] = useState(false);
-  const [grokSession, setGrokSession] = useState<GrokChatSession | null>(null);
+  const [aiSession, setAiSession] = useState<AIChatSession | null>(null);
   const [lastSavedMessageIndex, setLastSavedMessageIndex] = useState<number>(-1);
   const [relationship, setRelationship] = useState<RelationshipMetrics | null>(null);
   const [isVideoVisible, setIsVideoVisible] = useState(true);
@@ -860,17 +860,19 @@ const App: React.FC = () => {
       const relationshipData = await relationshipService.getRelationship(userId);
       setRelationship(relationshipData);
       
-      // Generate personalized greeting using Grok (with full history and relationship context)
+      // Generate personalized greeting using Active Service (with full history and relationship context)
      try {
-      // Generate greeting with Grok
-      const session = grokChatService.getOrCreateSession(userId);
-      const { greeting, session: updatedSession } = await grokChatService.generateGrokGreeting(
+      // Generate greeting
+      // Using simplified session creation for now, as state is managed inside App
+      const session: AIChatSession = { userId }; 
+      
+      const { greeting, session: updatedSession } = await activeService.generateGreeting(
         character,
         session,
         savedHistory, // Pass saved history for context
         relationshipData // Pass relationship context
       );
-      setGrokSession(updatedSession);
+      setAiSession(updatedSession);
 
       // 2. Parse the response object
       const textResponse = greeting.text_response;
@@ -901,7 +903,7 @@ const App: React.FC = () => {
       setLastSavedMessageIndex(savedHistory.length - 1);
 
     } catch (error) {
-        console.error('Error generating Grok greeting:', error);
+        console.error('Error generating greeting:', error);
         // Show error to user and start with saved history only (no greeting)
         setErrorMessage('Failed to generate greeting. Please try again.');
         const initialHistory = savedHistory.length > 0
@@ -1016,7 +1018,7 @@ const App: React.FC = () => {
     setCurrentActionId(null);
     setActionVideoUrls({});
     setChatHistory([]);
-    setGrokSession(null);
+    setAiSession(null);
     setLastSavedMessageIndex(-1);
     setRelationship(null);
     setUpcomingEvents([]);
@@ -1058,10 +1060,10 @@ const App: React.FC = () => {
         setRelationship(updatedRelationship);
       }
 
-      // Generate response from Grok chat service (with relationship context and calendar events)
-      const grokSessionToUse = grokSession || grokChatService.getOrCreateSession(userId);
+      // Generate response from Active AI service (with relationship context and calendar events)
+      const sessionToUse: AIChatSession = aiSession || { userId };
       
-      const { response, session: updatedSession } = await grokChatService.generateGrokResponse(
+      const { response, session: updatedSession } = await activeService.generateResponse(
         message,
         {
           character: selectedCharacter,
@@ -1069,16 +1071,14 @@ const App: React.FC = () => {
           relationship: updatedRelationship, // Pass relationship context
           upcomingEvents: upcomingEvents, // Pass calendar events
         },
-        grokSessionToUse
+        sessionToUse
       );
       
-      setGrokSession(updatedSession);
+      setAiSession(updatedSession);
       
-      // --- NEW LOGIC: Parse the Structured Response ---
-      // 'response' is now our GrokActionResponse object
-      const grokResponse: GrokActionResponse = response;
-      const textResponse = grokResponse.text_response;
-      const actionIdToPlay = grokResponse.action_id; // This will be "WAVE", "KISS", "GREETING", or null
+      const aiResponse: AIActionResponse = response;
+      const textResponse = aiResponse.text_response;
+      const actionIdToPlay = aiResponse.action_id;
       
       // Check if response is a calendar action (textResponse might still contain this)
       if (textResponse.startsWith('[CALENDAR_CREATE]')) {
@@ -1121,7 +1121,7 @@ const App: React.FC = () => {
         return; // Stop here, we've handled the response
       }
       
-      // Add Grok's *text response* to local state
+      // Add AI's *text response* to local state
       const finalHistory = [...updatedHistory, { role: 'model' as const, text: textResponse }];
       setChatHistory(finalHistory);
       
@@ -1142,7 +1142,7 @@ const App: React.FC = () => {
         console.error('Failed to save conversation history:', error);
       });
 
-      // --- NEW: Play the action Grok decided on ---
+      // --- NEW: Play the action AI decided on ---
       if (actionIdToPlay) {
         // 'actionIdToPlay' is an ID like "WAVE". We find its URL in state.
         const actionUrl = actionVideoUrls[actionIdToPlay];
@@ -1160,7 +1160,7 @@ const App: React.FC = () => {
               setCurrentActionId(matchedAction.id);
             }
           } else {
-            console.warn(`Grok chose action "${actionIdToPlay}" but it could not be found.`);
+            console.warn(`AI chose action "${actionIdToPlay}" but it could not be found.`);
           }
         } else {
           // Clean up previous action video URL if needed

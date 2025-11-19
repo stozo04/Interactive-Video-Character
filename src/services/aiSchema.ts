@@ -1,10 +1,10 @@
-// src/services/grokSchema.ts
+// src/services/aiSchema.ts
 import { z } from 'zod';
 
 /**
- * Defines the strict JSON structure we want Grok to return.
+ * Defines the strict JSON structure we want ANY AI Service (Grok or Gemini) to return.
  */
-export const GrokActionResponseSchema = z.object({
+export const AIActionResponseSchema = z.object({
   /**
    * The conversational text response to display in the chat.
    */
@@ -16,7 +16,6 @@ export const GrokActionResponseSchema = z.object({
    * The video action to play.
    * This MUST be null unless the user's intent *strongly*
    * matches one of the available actions.
-   * We use z.string() here because action IDs are dynamic UUIDs.
    */
   action_id: z.string().nullable().describe(
     "The ID of the video action to play, or null if no action is appropriate."
@@ -24,4 +23,4 @@ export const GrokActionResponseSchema = z.object({
 });
 
 // Infer the TypeScript type from the schema
-export type GrokActionResponse = z.infer<typeof GrokActionResponseSchema>;
+export type AIActionResponse = z.infer<typeof AIActionResponseSchema>;

@@ -1,9 +1,8 @@
 import { supabase } from './supabaseClient';
 import { ChatMessage } from '../types';
+import { GoogleGenAI } from "@google/genai"; // Import Google GenAI SDK
 import {
   InsightType,
-  RelationshipInsight,
-  RelationshipInsightRow,
   UpsertRelationshipInsightInput,
   relationshipInsightRowSchema,
   buildInsightKey,
@@ -15,6 +14,10 @@ import {
 const RELATIONSHIPS_TABLE = 'character_relationships';
 const RELATIONSHIP_EVENTS_TABLE = 'relationship_events';
 const RELATIONSHIP_INSIGHTS_TABLE = 'relationship_insights';
+
+// Environment Variables
+const GROK_API_KEY = import.meta.env.VITE_GROK_API_KEY;
+const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
 
 export interface RelationshipMetrics {
   id: string;
@@ -248,7 +251,6 @@ export const updateRelationship = async (
     // Record pattern insights (if mood + action present)
     if (event.userMood && event.actionType) {
       await recordPatternObservation(data.id, {
-        relationshipId: data.id,
         insightType: 'pattern' as InsightType,
         key: buildInsightKey(event.userMood, event.actionType),
         observedAt: new Date().toISOString(),
@@ -263,21 +265,15 @@ export const updateRelationship = async (
 };
 
 /**
- * Analyze message sentiment using Grok (LLM-based)
+ * Analyze message sentiment using the active AI Service
  * This provides deep emotional understanding
  */
 export const analyzeMessageSentiment = async (
   message: string,
-  conversationContext: ChatMessage[]
+  conversationContext: ChatMessage[],
+  aiService: 'grok' | 'gemini' = 'grok'
 ): Promise<RelationshipEvent> => {
   try {
-    // Call Grok for sentiment analysis
-    const API_KEY = process.env.VITE_GROK_API_KEY;
-    if (!API_KEY) {
-      console.warn('VITE_GROK_API_KEY not set, using fallback sentiment analysis');
-      return fallbackSentimentAnalysis(message, conversationContext);
-    }
-
     // Prepare context (last 3 messages)
     const recentMessages = conversationContext.slice(-3).map(msg => ({
       role: msg.role === 'user' ? 'user' : 'assistant',
@@ -301,44 +297,68 @@ Return ONLY valid JSON (no markdown, no code blocks):
   "user_mood": "stressed" | "bored" | "calm" | "hyped" | "sad" | "happy" | null
 }`;
 
-    const response = await fetch('https://api.x.ai/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${API_KEY}`,
-      },
-      body: JSON.stringify({
-        model: 'grok-4-fast-reasoning-latest',
-        messages: [
-          {
-            role: 'system',
-            content: 'You are a sentiment analysis tool. Analyze user messages for emotional tone and sentiment toward the character. Return only valid JSON.',
-          },
-          {
-            role: 'user',
-            content: analysisPrompt,
-          },
-        ],
-        temperature: 0.3, // Lower temperature for more consistent analysis
-      }),
-    });
-
-    if (!response.ok) {
-      console.warn('Grok sentiment analysis failed, using fallback');
-      return fallbackSentimentAnalysis(message, conversationContext);
-    }
-
-    const data = await response.json();
-    const analysisText = data.choices[0]?.message?.content || '{}';
-    
-    // Parse JSON (handle markdown code blocks if present)
     let analysis: any;
-    try {
+
+    if (aiService === 'gemini') {
+      // --- GEMINI IMPLEMENTATION ---
+      if (!GEMINI_API_KEY) {
+         console.warn('VITE_GEMINI_API_KEY not set, falling back to keyword matching.');
+         return fallbackSentimentAnalysis(message, conversationContext);
+      }
+
+      const genAI = new GoogleGenAI({ apiKey: GEMINI_API_KEY });
+      const model = genAI.getGenerativeModel({ 
+        model: "gemini-2.0-flash-exp", 
+        generationConfig: { responseMimeType: "application/json" } 
+      });
+
+      const result = await model.generateContent({
+        contents: [{ role: 'user', parts: [{ text: analysisPrompt }] }]
+      });
+      
+      const responseText = result.response.text();
+      analysis = JSON.parse(responseText);
+
+    } else {
+      // --- GROK IMPLEMENTATION ---
+      if (!GROK_API_KEY) {
+        console.warn('VITE_GROK_API_KEY not set, using fallback sentiment analysis');
+        return fallbackSentimentAnalysis(message, conversationContext);
+      }
+
+      const response = await fetch('https://api.x.ai/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${GROK_API_KEY}`,
+        },
+        body: JSON.stringify({
+          model: 'grok-4-fast-reasoning-latest',
+          messages: [
+            {
+              role: 'system',
+              content: 'You are a sentiment analysis tool. Analyze user messages for emotional tone and sentiment toward the character. Return only valid JSON.',
+            },
+            {
+              role: 'user',
+              content: analysisPrompt,
+            },
+          ],
+          temperature: 0.3, 
+        }),
+      });
+
+      if (!response.ok) {
+        console.warn('Grok sentiment analysis failed, using fallback');
+        return fallbackSentimentAnalysis(message, conversationContext);
+      }
+
+      const data = await response.json();
+      const analysisText = data.choices[0]?.message?.content || '{}';
+      
+      // Clean up potential markdown
       const cleaned = analysisText.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
       analysis = JSON.parse(cleaned);
-    } catch (parseError) {
-      console.warn('Failed to parse sentiment analysis, using fallback');
-      return fallbackSentimentAnalysis(message, conversationContext);
     }
 
     const sentiment = analysis.sentiment || 'neutral';
@@ -358,8 +378,9 @@ Return ONLY valid JSON (no markdown, no code blocks):
       userMessage: message,
       notes: analysis.reasoning || undefined,
     };
+
   } catch (error) {
-    console.error('Error in sentiment analysis:', error);
+    console.error(`Error in sentiment analysis (${aiService}):`, error);
     return fallbackSentimentAnalysis(message, conversationContext);
   }
 };
@@ -443,7 +464,6 @@ function fallbackSentimentAnalysis(
 
 /**
  * Calculate score changes based on sentiment, intensity, and message content
- * Phase 2: Enhanced dimension score interactions based on interaction type
  */
 export function calculateScoreChanges(
   sentiment: 'positive' | 'neutral' | 'negative',
@@ -458,8 +478,7 @@ export function calculateScoreChanges(
   stabilityChange: number;
 } {
   const baseMultiplier = intensity / 10; // Scale by intensity (0.1 to 1.0)
-  const lowerMessage = message.toLowerCase();
-
+  
   // Detect interaction type for nuanced dimension updates
   const isCompliment = /(amazing|great|wonderful|love|awesome|fantastic|perfect|excellent|brilliant|beautiful)/i.test(message);
   const isApology = /(sorry|apologize|my\s+bad|my\s+fault|forgive)/i.test(message);
@@ -478,30 +497,30 @@ export function calculateScoreChanges(
 
     // Compliments boost warmth significantly
     if (isCompliment) {
-      warmthChange += Math.round(1 * baseMultiplier * 10) / 10; // Extra warmth
-      trustChange += Math.round(0.3 * baseMultiplier * 10) / 10; // Slight trust boost
+      warmthChange += Math.round(1 * baseMultiplier * 10) / 10; 
+      trustChange += Math.round(0.3 * baseMultiplier * 10) / 10; 
     }
 
-    // Apologies build trust and stability (more than warmth)
+    // Apologies build trust and stability
     if (isApology) {
-      trustChange += Math.round(1.5 * baseMultiplier * 10) / 10; // Trust rebuilds
-      stabilityChange += Math.round(1 * baseMultiplier * 10) / 10; // Stability increases
-      warmthChange += Math.round(0.3 * baseMultiplier * 10) / 10; // Less warmth boost
+      trustChange += Math.round(1.5 * baseMultiplier * 10) / 10; 
+      stabilityChange += Math.round(1 * baseMultiplier * 10) / 10; 
+      warmthChange += Math.round(0.3 * baseMultiplier * 10) / 10;
     }
 
     // Jokes/banter boost playfulness
     if (isJokeOrBanter) {
-      playfulnessChange = Math.round((0.5 + 1 * baseMultiplier) * 10) / 10; // 0.5-1.5 points
-      warmthChange += Math.round(0.3 * baseMultiplier * 10) / 10; // Slight warmth
+      playfulnessChange = Math.round((0.5 + 1 * baseMultiplier) * 10) / 10; 
+      warmthChange += Math.round(0.3 * baseMultiplier * 10) / 10; 
     }
 
     // Personal sharing builds trust
     if (isPersonalShare) {
-      trustChange += Math.round(1 * baseMultiplier * 10) / 10; // Trust builds
-      warmthChange += Math.round(0.5 * baseMultiplier * 10) / 10; // Some warmth
+      trustChange += Math.round(1 * baseMultiplier * 10) / 10; 
+      warmthChange += Math.round(0.5 * baseMultiplier * 10) / 10; 
     }
 
-    // Engagement (questions, longer messages) builds stability
+    // Engagement builds stability
     if (isEngagement) {
       stabilityChange += Math.round(0.3 * baseMultiplier * 10) / 10;
       trustChange += Math.round(0.2 * baseMultiplier * 10) / 10;
@@ -515,23 +534,21 @@ export function calculateScoreChanges(
       stabilityChange: Math.round(stabilityChange * 10) / 10,
     };
   } else if (sentiment === 'negative') {
-    let scoreChange = Math.round(-(5 + 10 * baseMultiplier) * 10) / 10; // -5 to -15 points
-    let warmthChange = Math.round(-(2 + 3 * baseMultiplier) * 10) / 10; // -2 to -5 points
-    let trustChange = Math.round(-(1 + 2 * baseMultiplier) * 10) / 10; // -1 to -3 points
+    let scoreChange = Math.round(-(5 + 10 * baseMultiplier) * 10) / 10; 
+    let warmthChange = Math.round(-(2 + 3 * baseMultiplier) * 10) / 10; 
+    let trustChange = Math.round(-(1 + 2 * baseMultiplier) * 10) / 10; 
     let playfulnessChange = -1;
-    let stabilityChange = Math.round(-(1 + 1 * baseMultiplier) * 10) / 10; // -1 to -2 points
+    let stabilityChange = Math.round(-(1 + 1 * baseMultiplier) * 10) / 10; 
 
-    // Dismissive behavior hurts trust and stability more
     if (isDismissive) {
-      trustChange += Math.round(-1 * baseMultiplier * 10) / 10; // Extra trust damage
-      stabilityChange += Math.round(-0.5 * baseMultiplier * 10) / 10; // Extra stability damage
-      warmthChange += Math.round(-0.5 * baseMultiplier * 10) / 10; // Some warmth damage
+      trustChange += Math.round(-1 * baseMultiplier * 10) / 10; 
+      stabilityChange += Math.round(-0.5 * baseMultiplier * 10) / 10; 
+      warmthChange += Math.round(-0.5 * baseMultiplier * 10) / 10; 
     }
 
-    // Insults hurt warmth and trust significantly
     if (/(stupid|dumb|hate|useless|worthless|annoying)/i.test(message)) {
-      warmthChange += Math.round(-1 * baseMultiplier * 10) / 10; // Extra warmth damage
-      trustChange += Math.round(-0.5 * baseMultiplier * 10) / 10; // Extra trust damage
+      warmthChange += Math.round(-1 * baseMultiplier * 10) / 10; 
+      trustChange += Math.round(-0.5 * baseMultiplier * 10) / 10; 
     }
 
     return {
@@ -543,10 +560,10 @@ export function calculateScoreChanges(
     };
   }
 
-  // Neutral - minimal changes, but engagement can still help
+  // Neutral
   if (isEngagement || isQuestion) {
     return {
-      scoreChange: Math.round(0.3 * 10) / 10, // Slight positive for engagement
+      scoreChange: Math.round(0.3 * 10) / 10, 
       warmthChange: Math.round(0.2 * 10) / 10,
       trustChange: 0,
       playfulnessChange: 0,
@@ -571,7 +588,6 @@ export function detectRupture(
   previousScore: number,
   newScore: number
 ): boolean {
-  // Strong negative sentiment with high intensity
   if (
     event.sentimentTowardCharacter === 'negative' &&
     event.sentimentIntensity &&
@@ -581,13 +597,11 @@ export function detectRupture(
     return true;
   }
 
-  // Large score drop in one interaction
   const scoreDrop = previousScore - newScore;
   if (scoreDrop >= 15) {
     return true;
   }
 
-  // Check for hostile phrases in message
   if (event.userMessage) {
     const hostilePhrases = [
       'hate you',
@@ -606,9 +620,6 @@ export function detectRupture(
   return false;
 }
 
-/**
- * Get relationship tier from score
- */
 function getRelationshipTier(score: number): string {
   if (score <= -50) return 'adversarial';
   if (score <= -10) return 'neutral_negative';
@@ -618,10 +629,6 @@ function getRelationshipTier(score: number): string {
   return 'deeply_loving';
 }
 
-/**
- * Calculate familiarity stage based on interaction count and time since first interaction
- * Controls how bold Kayley can be with observations and emotional intimacy
- */
 function calculateFamiliarityStage(
   totalInteractions: number,
   firstInteractionAt: Date | null
@@ -635,9 +642,6 @@ function calculateFamiliarityStage(
   return 'established';
 }
 
-/**
- * Log a relationship event
- */
 async function logRelationshipEvent(
   relationshipId: string,
   event: RelationshipEvent,
@@ -668,14 +672,9 @@ async function logRelationshipEvent(
     });
   } catch (error) {
     console.error('Error logging relationship event:', error);
-    // Don't throw - event logging failure shouldn't break the flow
   }
 }
 
-/**
- * Record or update a pattern insight observation
- * This tracks behavioral patterns like "user asks for action videos when stressed"
- */
 async function recordPatternObservation(
   relationshipId: string,
   input: Omit<UpsertRelationshipInsightInput, 'relationshipId'>
@@ -686,7 +685,6 @@ async function recordPatternObservation(
       relationshipId,
     };
 
-    // Fetch existing insight
     const { data: existingRow, error } = await supabase
       .from(RELATIONSHIP_INSIGHTS_TABLE)
       .select('*')
@@ -700,9 +698,7 @@ async function recordPatternObservation(
     }
 
     if (!existingRow) {
-      // Create new insight
       const newInsight = createNewInsightFromInput(baseInput);
-
       const insertPayload = {
         id: newInsight.id,
         relationship_id: newInsight.relationshipId,
@@ -715,18 +711,10 @@ async function recordPatternObservation(
         created_at: newInsight.createdAt,
       };
 
-      const { error: insertError } = await supabase
-        .from(RELATIONSHIP_INSIGHTS_TABLE)
-        .insert(insertPayload);
-
-      if (insertError) {
-        console.error('Failed to insert relationship insight:', insertError);
-      }
-
+      await supabase.from(RELATIONSHIP_INSIGHTS_TABLE).insert(insertPayload);
       return;
     }
 
-    // Update existing insight
     const parsed = relationshipInsightRowSchema.safeParse(existingRow);
     if (!parsed.success) {
       console.error('Invalid insight row:', parsed.error);
@@ -743,23 +731,15 @@ async function recordPatternObservation(
       summary: updated.summary,
     };
 
-    const { error: updateError } = await supabase
+    await supabase
       .from(RELATIONSHIP_INSIGHTS_TABLE)
       .update(updatePayload)
       .eq('id', updated.id);
-
-    if (updateError) {
-      console.error('Failed to update relationship insight:', updateError);
-    }
   } catch (error) {
     console.error('Unexpected error in recordPatternObservation:', error);
-    // Don't throw - pattern tracking failures shouldn't break the main flow
   }
 }
 
-/**
- * Map database row to RelationshipMetrics
- */
 function mapRelationshipRowToMetrics(row: RelationshipRow): RelationshipMetrics {
   return {
     id: row.id,
@@ -781,10 +761,6 @@ function mapRelationshipRowToMetrics(row: RelationshipRow): RelationshipMetrics 
   };
 }
 
-/**
- * Clamp a value between min and max
- */
 function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value));
 }
-
