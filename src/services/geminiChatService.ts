@@ -28,6 +28,14 @@ function convertToGeminiHistory(history: ChatMessage[]) {
     }));
 }
 
+// Helper to handle model inconsistency (e.g., returning "response" instead of "text_response")
+function normalizeAiResponse(rawJson: any, rawText: string): AIActionResponse {
+  return {
+      text_response: rawJson.text_response || rawJson.response || rawText, // Fallback chain
+      action_id: rawJson.action_id || null
+  };
+}
+
 export const geminiChatService: IAIChatService = {
   generateResponse: async (message, options, session) => {
     const ai = getAiClient();
@@ -61,13 +69,18 @@ export const geminiChatService: IAIChatService = {
       let structuredResponse: AIActionResponse;
       
       try {
-        structuredResponse = JSON.parse(responseText);
+        // Handle Markdown code blocks if the model adds them (common Gemini quirk)
+        const cleanedText = responseText.replace(/```json\n?|\n?```/g, '').trim();
+        const parsed = JSON.parse(cleanedText);
+        
+        // NORMALIZE the response to fix the bug
+        structuredResponse = normalizeAiResponse(parsed, cleanedText);
+        
       } catch (e) {
-        console.error("Failed to parse Gemini JSON:", responseText);
-        // Fallback
+        console.warn("Failed to parse Gemini JSON, attempting cleanup or fallback:", responseText);
         structuredResponse = { 
-          text_response: responseText, 
-          action_id: null 
+            text_response: responseText, 
+            action_id: null 
         };
       }
 
@@ -113,10 +126,13 @@ export const geminiChatService: IAIChatService = {
         let structuredResponse: AIActionResponse;
 
         try {
-            structuredResponse = JSON.parse(responseText);
-        } catch (e) {
-            structuredResponse = { text_response: responseText, action_id: null };
-        }
+          const cleanedText = responseText.replace(/```json\n?|\n?```/g, '').trim();
+          const parsed = JSON.parse(cleanedText);
+          structuredResponse = normalizeAiResponse(parsed, cleanedText);
+      } catch (e) {
+          console.warn("Failed to parse Gemini JSON, attempting cleanup or fallback:", responseText);
+          structuredResponse = { text_response: responseText, action_id: null };
+      }
 
         return { 
             greeting: structuredResponse, 
