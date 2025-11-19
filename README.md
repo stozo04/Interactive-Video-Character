@@ -81,7 +81,6 @@ See [docs/GOOGLE_OAUTH_SETUP.md](docs/GOOGLE_OAUTH_SETUP.md) for detailed setup 
    - `video-cache` – caches legacy generated assets (optional)
 2. Create a table named `characters` with the following columns:
    - `id` (text, primary key)
-   - `created_at_ms` (bigint)
    - `image_base64` (text)
    - `image_mime_type` (text)
    - `image_file_name` (text, nullable)
@@ -89,7 +88,6 @@ See [docs/GOOGLE_OAUTH_SETUP.md](docs/GOOGLE_OAUTH_SETUP.md) for detailed setup 
    ```sql
    create table public.characters (
      id text primary key,
-     created_at_ms bigint,
      image_base64 text not null,
      image_mime_type text not null,
      image_file_name text,

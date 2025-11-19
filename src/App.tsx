@@ -40,31 +40,12 @@ const sanitizeText = (value: string): string =>
     .replace(/\s+/g, ' ')
     .trim();
 
-// Generate or retrieve a stable user ID (browser fingerprinting)
+// Get user ID from environment variable
 const getUserId = (): string => {
-  const storageKey = 'interactive_video_character_user_id';
-  let userId = localStorage.getItem(storageKey);
+  const userId = import.meta.env.VITE_USER_ID;
   
   if (!userId) {
-    // Generate a unique ID based on browser fingerprint
-    const fingerprint = [
-      navigator.userAgent,
-      navigator.language,
-      screen.width,
-      screen.height,
-      new Date().getTime(),
-    ].join('|');
-    
-    // Simple hash function
-    let hash = 0;
-    for (let i = 0; i < fingerprint.length; i++) {
-      const char = fingerprint.charCodeAt(i);
-      hash = ((hash << 5) - hash) + char;
-      hash = hash & hash; // Convert to 32-bit integer
-    }
-    
-    userId = `user_${Math.abs(hash).toString(36)}`;
-    localStorage.setItem(storageKey, userId);
+    throw new Error('VITE_USER_ID environment variable is not set. Please add it to your .env file.');
   }
   
   return userId;
@@ -80,44 +61,6 @@ const randomFromArray = <T,>(items: T[]): T => {
   }
   const index = Math.floor(Math.random() * items.length);
   return items[index];
-};
-
-// --- THESE FUNCTIONS ARE NO LONGER NEEDED ---
-// Grok will now decide which actions to play based on intent
-/*
-const buildActionTerms = (
-  action: CharacterProfile['actions'][number]
-): string[] => {
-  const terms = new Set<string>();
-  const addTerm = (term: string | undefined | null) => {
-    if (!term) return;
-    const cleaned = sanitizeText(term);
-    if (cleaned) {
-      terms.add(cleaned);
-    }
-  };
-
-  addTerm(action.id);
-  addTerm(action.name);
-  action.phrases.forEach(addTerm);
-
-  return Array.from(terms);
-};
-
-const findMatchingAction = (
-  message: string,
-  actions: CharacterProfile['actions']
-) => {
-  // ... (all of this logic is now handled by Grok)
-};
-*/
-
-const formatActionList = (actions: CharacterProfile['actions']): string => {
-  if (actions.length === 0) return '';
-  return actions
-    .map((action) => action.name.trim())
-    .filter((name) => name.length > 0)
-    .join(', ');
 };
 
 const isGreetingAction = (action: CharacterAction): boolean => {
@@ -147,36 +90,7 @@ interface DisplayCharacter {
   videoUrl: string;
 }
 
-const slugifyIdentifier = (value: string): string =>
-  value
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '');
-
-const getCharacterRelationshipAnchor = (character: CharacterProfile): string => {
-  const candidates = [
-    character.personaId,
-    character.name,
-    character.displayName,
-    character.id,
-  ];
-
-  for (const candidate of candidates) {
-    if (typeof candidate !== 'string') continue;
-    const trimmed = candidate.trim();
-    if (!trimmed) continue;
-    if (candidate === character.id) {
-      // character.id is already a stable hash—no need to slugify
-      return candidate;
-    }
-    const slug = slugifyIdentifier(trimmed);
-    if (slug.length > 0) {
-      return slug;
-    }
-  }
-
-  return character.id;
-};
+// Removed getCharacterRelationshipAnchor - no longer needed since we use userId only
 
 const App: React.FC = () => {
   const { session, status: authStatus } = useGoogleAuth();
@@ -271,8 +185,12 @@ const App: React.FC = () => {
 
   const loadCharacters = useCallback(async () => {
     setView('loading');
+    const startTime = performance.now(); // Performance tracking
     try {
       const savedCharacters = await dbService.getCharacters();
+      const loadTime = performance.now() - startTime;
+      console.log(`✅ Loaded ${savedCharacters.length} character(s) in ${loadTime.toFixed(0)}ms`);
+      
       if (savedCharacters.length === 0) {
         console.warn('No characters loaded. This could mean: 1) No characters in database, 2) All characters have missing video files, 3) Storage access issues.');
       }
@@ -432,15 +350,20 @@ const App: React.FC = () => {
       }
     };
 
-    // Poll immediately on connection
-    pollNow();
+    // Add small delay before first poll to ensure initialization completes
+    const initialDelayTimer = setTimeout(() => {
+      pollNow();
+    }, 2000); // 2 second initial delay
 
     // Then poll every 60 seconds (configurable via env var)
     const pollInterval = Number(import.meta.env.VITE_GMAIL_POLL_INTERVAL_MS) || 60000;
     const intervalId = setInterval(pollNow, pollInterval);
 
     // Cleanup: Stop polling when component unmounts or disconnects
-    return () => clearInterval(intervalId);
+    return () => {
+      clearTimeout(initialDelayTimer);
+      clearInterval(intervalId);
+    };
   }, [isGmailConnected, session]);
 
   // Calendar Integration: Polling Loop
@@ -466,15 +389,28 @@ const App: React.FC = () => {
           startTime < (now + reminderWindowMs) &&
           !notifiedEventIds.has(event.id)
         ) {
-          console.log(`⏰ Notifying character about upcoming event: ${event.summary}`);
+          console.log(`⏰ Character notifying about upcoming event: ${event.summary}`);
           
-          const systemMessage = 
-            `[⏰ System Notification] You have an event starting in less than 15 minutes:\n` +
+          const characterMessage = 
+            `⏰ Hey! Just a reminder - you have an event starting in less than 15 minutes:\n` +
             `Event: ${event.summary}\n` +
             `Time: ${new Date(startTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
           
-          // Send this notification to the AI
-          await handleSendMessage(systemMessage);
+          // Add character notification directly to chat (character-initiated message)
+          setChatHistory(prev => [...prev, { role: 'model' as const, text: characterMessage }]);
+          
+          // Save to conversation history
+          if (selectedCharacter) {
+            const userId = getUserId();
+            try {
+              await conversationHistoryService.appendConversationHistory(
+                userId,
+                [{ role: 'model', text: characterMessage }]
+              );
+            } catch (error) {
+              console.error('Failed to save calendar notification to history:', error);
+            }
+          }
           
           // Mark as notified
           setNotifiedEventIds(prev => new Set(prev).add(event.id));
@@ -490,13 +426,18 @@ const App: React.FC = () => {
       return;
     }
 
-    // Poll immediately
-    pollCalendar();
+    // Add small delay before first poll to ensure initialization completes
+    const initialDelayTimer = setTimeout(() => {
+      pollCalendar();
+    }, 3000); // 3 second initial delay for calendar
 
     const pollInterval = 5 * 60 * 1000; // Poll calendar every 5 minutes
     const intervalId = setInterval(pollCalendar, pollInterval);
 
-    return () => clearInterval(intervalId);
+    return () => {
+      clearTimeout(initialDelayTimer);
+      clearInterval(intervalId);
+    };
   }, [isGmailConnected, session, pollCalendar]);
 
   // Gmail Integration: Event Listeners
@@ -540,28 +481,41 @@ const App: React.FC = () => {
     }
 
     const processEmailNotification = async () => {
-      // Create a message for the character
-      let systemMessage = '';
+      // Create a notification message from the character
+      let characterMessage = '';
       
       if (debouncedEmailQueue.length === 1) {
         const email = debouncedEmailQueue[0];
-        systemMessage = 
-          `[📧 System Notification] You just received a new email.\n` +
+        characterMessage = 
+          `📧 Hey! You just got a new email.\n` +
           `From: ${email.from}\n` +
           `Subject: ${email.subject}\n` +
-          `Preview: ${email.snippet}`;
+          `${email.snippet ? `Preview: ${email.snippet}` : ''}`;
       } else {
-        systemMessage = 
-          `[📧 System Notification] You just received ${debouncedEmailQueue.length} new emails.\n` +
+        characterMessage = 
+          `📧 Hey! You just received ${debouncedEmailQueue.length} new emails.\n` +
           `Most recent:\n` +
           `From: ${debouncedEmailQueue[0].from}\n` +
           `Subject: ${debouncedEmailQueue[0].subject}`;
       }
 
-      console.log('💬 Notifying character about emails:', systemMessage);
+      console.log('💬 Character notifying about emails:', characterMessage);
 
-      // Automatically trigger character response to the email notification
-      await handleSendMessage(systemMessage);
+      // Add character notification directly to chat (character-initiated message)
+      const updatedHistory = [...chatHistory, { role: 'model' as const, text: characterMessage }];
+      setChatHistory(updatedHistory);
+
+      // Save to conversation history
+      const userId = getUserId();
+      try {
+        await conversationHistoryService.appendConversationHistory(
+          userId,
+          [{ role: 'model', text: characterMessage }]
+        );
+        setLastSavedMessageIndex(updatedHistory.length - 1);
+      } catch (error) {
+        console.error('Failed to save email notification to history:', error);
+      }
 
       // Clear the queue after processing
       setEmailQueue([]);
@@ -858,7 +812,6 @@ const App: React.FC = () => {
     setDeletingActionId(null);
     setIsLoadingCharacter(true);
     registerInteraction();
-    const personaId = getCharacterRelationshipAnchor(character);
 
     if (idleVideoUrl) {
       try {
@@ -901,19 +854,16 @@ const App: React.FC = () => {
     setCurrentActionId(null);
     
     try {
-      // Load conversation history and relationship for this character-user pair
+      // Load conversation history and relationship for this user
       const userId = getUserId();
-      const savedHistory = await conversationHistoryService.loadConversationHistory(personaId, userId);
-      const relationshipData = await relationshipService.getRelationship(personaId, userId);
+      const savedHistory = await conversationHistoryService.loadConversationHistory(userId);
+      const relationshipData = await relationshipService.getRelationship(userId);
       setRelationship(relationshipData);
       
       // Generate personalized greeting using Grok (with full history and relationship context)
-     // Generate personalized greeting using Grok (with full history and relationship context)
      try {
-      const session = grokChatService.getOrCreateSession(personaId, userId);
-
-      // --- FIX START ---
-      // 1. generateGrokGreeting now returns a GrokActionResponse object, not a string.
+      // Generate greeting with Grok
+      const session = grokChatService.getOrCreateSession(userId);
       const { greeting, session: updatedSession } = await grokChatService.generateGrokGreeting(
         character,
         session,
@@ -1007,9 +957,6 @@ const App: React.FC = () => {
 
   const handleBackToSelection = async () => {
     registerInteraction();
-    const personaId = selectedCharacter
-      ? getCharacterRelationshipAnchor(selectedCharacter)
-      : null;
     
     // Save any unsaved conversation history before leaving
     // Note: We don't save greetings (they're generated fresh each time)
@@ -1030,7 +977,6 @@ const App: React.FC = () => {
       if (unsavedMessages.length > 0) {
         try {
           await conversationHistoryService.appendConversationHistory(
-            personaId ?? selectedCharacter.id,
             userId,
             unsavedMessages
           );
@@ -1088,7 +1034,6 @@ const App: React.FC = () => {
 
     registerInteraction();
     setErrorMessage(null);
-    const personaId = getCharacterRelationshipAnchor(selectedCharacter);
     
     // Add user message to local state immediately
     const updatedHistory = [...chatHistory, { role: 'user' as const, text: message }];
@@ -1105,7 +1050,6 @@ const App: React.FC = () => {
       
       // Update relationship based on sentiment
       const updatedRelationship = await relationshipService.updateRelationship(
-        personaId,
         userId,
         relationshipEvent
       );
@@ -1115,7 +1059,7 @@ const App: React.FC = () => {
       }
 
       // Generate response from Grok chat service (with relationship context and calendar events)
-      const grokSessionToUse = grokSession || grokChatService.getOrCreateSession(personaId, userId);
+      const grokSessionToUse = grokSession || grokChatService.getOrCreateSession(userId);
       
       const { response, session: updatedSession } = await grokChatService.generateGrokResponse(
         message,
@@ -1149,7 +1093,6 @@ const App: React.FC = () => {
 
           // Asynchronously save this confirmation
           conversationHistoryService.appendConversationHistory(
-            personaId,
             userId,
             [
               { role: 'user', text: message },
@@ -1190,7 +1133,6 @@ const App: React.FC = () => {
       ];
       // Save asynchronously - don't block UI
       conversationHistoryService.appendConversationHistory(
-        personaId,
         userId,
         newMessages
       ).then(() => {

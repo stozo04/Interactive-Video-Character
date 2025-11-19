@@ -54,7 +54,6 @@ export interface RelationshipEvent {
 interface RelationshipRow {
   id: string;
   user_id: string;
-  character_id: string;
   relationship_score: number;
   relationship_tier: string;
   warmth_score: number;
@@ -75,10 +74,9 @@ interface RelationshipRow {
 }
 
 /**
- * Get or create relationship for a user-character pair
+ * Get or create relationship for a user
  */
 export const getRelationship = async (
-  characterId: string,
   userId: string
 ): Promise<RelationshipMetrics | null> => {
   try {
@@ -86,7 +84,6 @@ export const getRelationship = async (
     const { data, error } = await supabase
       .from(RELATIONSHIPS_TABLE)
       .select('*')
-      .eq('character_id', characterId)
       .eq('user_id', userId)
       .maybeSingle();
 
@@ -105,7 +102,6 @@ export const getRelationship = async (
       .from(RELATIONSHIPS_TABLE)
       .insert({
         user_id: userId,
-        character_id: characterId,
         relationship_score: 0.0,
         relationship_tier: 'acquaintance',
         warmth_score: 0.0,
@@ -140,13 +136,12 @@ export const getRelationship = async (
  * Update relationship based on an event
  */
 export const updateRelationship = async (
-  characterId: string,
   userId: string,
   event: RelationshipEvent
 ): Promise<RelationshipMetrics | null> => {
   try {
     // Get current relationship
-    const current = await getRelationship(characterId, userId);
+    const current = await getRelationship(userId);
     if (!current) {
       console.error('Could not get relationship for update');
       return null;
@@ -226,7 +221,6 @@ export const updateRelationship = async (
         rupture_count: newRuptureCount,
         familiarity_stage: newFamiliarity, // Explicitly set (trigger will also update as backup)
       })
-      .eq('character_id', characterId)
       .eq('user_id', userId)
       .select()
       .single();
