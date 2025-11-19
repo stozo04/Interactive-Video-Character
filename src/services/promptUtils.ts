@@ -44,20 +44,21 @@ ${getRelationshipGuidelines(relationship.relationshipTier, relationship.familiar
     }));
     
     prompt += `\n\n[Character Actions]:
-You can perform the video actions listed below. Your job is to analyze the user's *intent*.
-${JSON.stringify(actionsMenu, null, 2)}
-
-[Action Rules]:
-1. Your response **must** be a JSON object with 'text_response' and 'action_id'.
-2. 'text_response' is your natural, in-character verbal reply.
-3. 'action_id' is the action you will perform.
-4. **THIS IS THE MOST IMPORTANT RULE:** The 'action_id' field **MUST be \`null\`** for 90% of normal conversation.
-5. Only set 'action_id' if the user's message is a *direct command* or a *very strong emotional match*.
-6. If you are in doubt, **ALWAYS use \`null\`**.
-`;
-  } else {
-    prompt += `\n\n[Character Actions]: You currently have no video actions available. Always set 'action_id' to null.`;
-  }
+    You can perform the video actions listed below. Your job is to analyze the user's *intent*.
+    ${JSON.stringify(actionsMenu, null, 2)}
+    
+    [Action Rules]:
+    1. Your response **must** be a JSON object with 'text_response' and 'action_id'.
+    2. 'text_response' is your natural, in-character verbal reply.
+    3. 'action_id' is the action you will perform.
+    4. If the user input is AUDIO, you MUST include a 'user_transcription' field containing the text of what they said.
+    5. **THIS IS THE MOST IMPORTANT RULE:** The 'action_id' field **MUST be \`null\`** for 90% of normal conversation.
+    6. Only set 'action_id' if the user's message is a *direct command* or a *very strong emotional match*.
+    7. If you are in doubt, **ALWAYS use \`null\`**.
+    `;
+      } else {
+        prompt += `\n\n[Character Actions]: You currently have no video actions available. Always set 'action_id' to null.`;
+      }
 
   // Calendar context
   if (upcomingEvents.length > 0) {
