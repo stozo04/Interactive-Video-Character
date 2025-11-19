@@ -36,15 +36,29 @@ export interface NewEmailPayload {
       return historyId;
     }
   
-    /**
-     * Polls for any changes since the last time we checked.
-     */
-    async pollForNewMail(accessToken: string) {
-      const lastHistoryId = localStorage.getItem(HISTORY_ID_KEY);
-      if (!lastHistoryId) {
-        console.error("No historyId found. Call getInitialHistoryId first.");
+  /**
+   * Check if Gmail service is initialized
+   */
+  isInitialized(): boolean {
+    return localStorage.getItem(HISTORY_ID_KEY) !== null;
+  }
+
+  /**
+   * Polls for any changes since the last time we checked.
+   */
+  async pollForNewMail(accessToken: string) {
+    const lastHistoryId = localStorage.getItem(HISTORY_ID_KEY);
+    if (!lastHistoryId) {
+      // Silently initialize if not already done
+      try {
+        await this.getInitialHistoryId(accessToken);
+        console.log('Gmail service auto-initialized');
+        return; // Skip this poll cycle, will poll on next interval
+      } catch (error) {
+        console.error("Failed to initialize Gmail service:", error);
         return;
       }
+    }
   
       // 1. Ask Google for all changes since our last check
       const historyResponse = await fetch(

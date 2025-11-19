@@ -9,7 +9,6 @@ const ACTION_VIDEO_BUCKET = 'character-action-videos';
 
 interface CharacterRow {
   id: string;
-  created_at_ms?: number | null;
   image_base64: string;
   image_mime_type: string;
   image_file_name?: string | null;
@@ -277,10 +276,7 @@ const buildCharacterProfile = async (row: CharacterRow): Promise<CharacterProfil
 
   return {
     id: row.id,
-    createdAt:
-      typeof row.created_at_ms === 'number'
-        ? row.created_at_ms
-        : Date.now(),
+    createdAt: Date.now(),
     image: {
       file: imageFile,
       base64: row.image_base64,
@@ -314,8 +310,7 @@ export const hashImage = async (base64: string): Promise<string> => {
 export const getCharacters = async (): Promise<CharacterProfile[]> => {
   const { data, error } = await supabase
     .from(CHARACTERS_TABLE)
-    .select('*')
-    .order('created_at_ms', { ascending: false });
+    .select('*');
 
   if (error) {
     console.error('Failed to fetch characters from Supabase:', error);
@@ -354,7 +349,6 @@ export const saveCharacter = async (
     .upsert(
       {
         id: character.id,
-        created_at_ms: character.createdAt,
         image_base64: character.image.base64,
         image_mime_type: character.image.mimeType,
         image_file_name: character.image.file?.name ?? null,

@@ -14,6 +14,13 @@ VITE_SUPABASE_URL=your-supabase-url
 VITE_SUPABASE_ANON_KEY=your-supabase-anon-key
 
 # ============================================
+# User Configuration (Required)
+# ============================================
+# Unique identifier for the user
+# Can be any string (e.g., your name, email, or a custom ID)
+VITE_USER_ID=your-user-id
+
+# ============================================
 # Google OAuth Configuration (Optional)
 # ============================================
 # Required for Gmail integration features
@@ -42,6 +49,13 @@ VITE_GOOGLE_CLIENT_ID=your-google-client-id.apps.googleusercontent.com
 - **Where to find**: Supabase Dashboard → Settings → API
 - **Security**: Safe to use in client-side code (has Row Level Security)
 - **Example**: `eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...`
+
+#### `VITE_USER_ID`
+- **Description**: Unique identifier for the user (used for conversation history and relationship tracking)
+- **Format**: Any string identifier
+- **Where to find**: Choose your own (e.g., your name, email, username, or any unique identifier)
+- **Purpose**: Distinguishes between different users in the database
+- **Example**: `john_doe`, `user@example.com`, or `user_123`
 
 ### Optional Variables
 
@@ -177,6 +191,9 @@ npm run dev
 # Supabase
 VITE_SUPABASE_URL=https://xyz123.supabase.co
 VITE_SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inh5ejEyMyIsInJvbGUiOiJhbm9uIiwiaWF0IjoxNjAwMDAwMDAwLCJleHAiOjE5MTU2NjAwMDB9.example
+
+# User Configuration
+VITE_USER_ID=john_doe
 
 # Google OAuth (optional)
 VITE_GOOGLE_CLIENT_ID=123456789-abcdefg.apps.googleusercontent.com

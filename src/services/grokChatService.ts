@@ -11,7 +11,7 @@ import { GrokActionResponseSchema, type GrokActionResponse } from './grokSchema'
  * Implements multi-turn conversations with state preservation
  */
 
-const API_KEY = process.env.VITE_GROK_API_KEY;
+const API_KEY = import.meta.env.VITE_GROK_API_KEY;
 const CHARACTER_COLLECTION_ID = 'collection_6d974389-0d29-4bb6-9ebb-ff09a08eaca0';
 
 // Create a custom xai client with our API key
@@ -20,7 +20,6 @@ const xai = createXai({
 });
 
 export interface GrokChatSession {
-  characterId: string;
   userId: string;
   previousResponseId?: string;
   model: string;
@@ -103,7 +102,6 @@ export const generateGrokResponse = async (
 
     // Update session
     const updatedSession: GrokChatSession = {
-      characterId: session?.characterId || character?.id || 'unknown',
       userId: session?.userId || 'default',
       previousResponseId: responseId,
       model: session?.model || 'grok-4-fast-reasoning-latest',
@@ -425,7 +423,6 @@ export const generateGrokGreeting = async (
     const responseId = (result as any).response?.id || (result as any).id;
     
     const updatedSession: GrokChatSession = {
-      characterId: session?.characterId || character.id,
       userId: session?.userId || 'default',
       previousResponseId: responseId,
       model: session?.model || 'grok-4-fast-reasoning-latest',
@@ -442,13 +439,11 @@ export const generateGrokGreeting = async (
  * Create or retrieve a chat session for a character-user pair
  */
 export const getOrCreateSession = (
-  characterId: string,
   userId: string
 ): GrokChatSession => {
   // For now, create a new session each time
   // In the future, this could retrieve from localStorage or database
   return {
-    characterId,
     userId,
     model: 'grok-4-fast-reasoning-latest',
   };

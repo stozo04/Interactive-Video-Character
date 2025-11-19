@@ -5,7 +5,6 @@ const CONVERSATION_HISTORY_TABLE = 'conversation_history';
 
 interface ConversationHistoryRow {
   id: string;
-  character_id: string;
   user_id: string;
   message_role: 'user' | 'model';
   message_text: string;
@@ -14,11 +13,10 @@ interface ConversationHistoryRow {
 }
 
 /**
- * Save conversation history for a character-user pair
+ * Save conversation history for a user
  * This should be called when leaving/closing a character session
  */
 export const saveConversationHistory = async (
-  characterId: string,
   userId: string,
   messages: ChatMessage[]
 ): Promise<void> => {
@@ -29,7 +27,6 @@ export const saveConversationHistory = async (
   try {
     // Convert ChatMessage[] to database format
     const rows = messages.map((msg) => ({
-      character_id: characterId,
       user_id: userId,
       message_role: msg.role === 'user' ? 'user' : 'model' as 'user' | 'model',
       message_text: msg.text,
@@ -54,18 +51,16 @@ export const saveConversationHistory = async (
 };
 
 /**
- * Load conversation history for a character-user pair
+ * Load conversation history for a user
  * Returns messages in chronological order
  */
 export const loadConversationHistory = async (
-  characterId: string,
   userId: string
 ): Promise<ChatMessage[]> => {
   try {
     const { data, error } = await supabase
       .from(CONVERSATION_HISTORY_TABLE)
       .select('*')
-      .eq('character_id', characterId)
       .eq('user_id', userId)
       .order('created_at', { ascending: true });
 
@@ -97,7 +92,6 @@ export const loadConversationHistory = async (
  * More efficient than saving the entire history each time
  */
 export const appendConversationHistory = async (
-  characterId: string,
   userId: string,
   newMessages: ChatMessage[]
 ): Promise<void> => {
@@ -107,7 +101,6 @@ export const appendConversationHistory = async (
 
   try {
     const rows = newMessages.map((msg) => ({
-      character_id: characterId,
       user_id: userId,
       message_role: msg.role === 'user' ? 'user' : 'model' as 'user' | 'model',
       message_text: msg.text,
@@ -129,18 +122,16 @@ export const appendConversationHistory = async (
 };
 
 /**
- * Clear conversation history for a character-user pair
+ * Clear conversation history for a user
  * Useful for starting fresh
  */
 export const clearConversationHistory = async (
-  characterId: string,
   userId: string
 ): Promise<void> => {
   try {
     const { error } = await supabase
       .from(CONVERSATION_HISTORY_TABLE)
       .delete()
-      .eq('character_id', characterId)
       .eq('user_id', userId);
 
     if (error) {
