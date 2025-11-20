@@ -715,7 +715,7 @@ const App: React.FC = () => {
 
     try {
       const userId = getUserId();
-      const relationshipEvent = await relationshipService.analyzeMessageSentiment(message, chatHistory);
+      const relationshipEvent = await relationshipService.analyzeMessageSentiment(message, chatHistory, activeServiceId);
       const updatedRelationship = await relationshipService.updateRelationship(userId, relationshipEvent);
       if (updatedRelationship) setRelationship(updatedRelationship);
 

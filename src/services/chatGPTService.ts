@@ -14,8 +14,9 @@ const API_KEY = import.meta.env.VITE_CHATGPT_API_KEY;
 const ASSISTANT_NAME = import.meta.env.VITE_CHATGPT_ASSISTANT_NAME;
 const MODEL = import.meta.env.VITE_CHATGPT_MODEL;
 const USER_ID = import.meta.env.VITE_USER_ID;
+const VECTOR_STORE_ID = import.meta.env.VITE_CHATGPT_VECTOR_STORE_ID;
 
-if (!API_KEY || !ASSISTANT_NAME || !MODEL || !USER_ID) {
+if (!API_KEY || !ASSISTANT_NAME || !MODEL || !USER_ID || !VECTOR_STORE_ID) {
   console.warn("Missing environment variables for ChatGPT service.");
   throw new Error("Missing environment variables for ChatGPT service.");
 }
@@ -48,51 +49,6 @@ function normalizeAiResponse(rawJson: any, rawText: string): AIActionResponse {
     action_id: rawJson.action_id || null,
     user_transcription: rawJson.user_transcription || null,
   };
-}
-
-// Helper: Get or Create Assistant (ensuring File Search is enabled)
-async function getAssistant(): Promise<string | undefined> {
-  try {
-    // 1. List assistants to find existing one
-    const myAssistants = await client.beta.assistants.list({
-      limit: 20,
-    });
-
-    const existing = myAssistants.data.find((a) => a.name === ASSISTANT_NAME);
-    if (existing) {
-      // Update vector store if needed? For now just return ID.
-      return existing.id;
-    }
-    console.error("No existing assistant found. Returning undefined.");
-    return undefined;
-  } catch (error) {
-    console.error("Error getting assistant:", error);
-    throw error;
-  }
-}
-
-// Helper: Text to Speech (OpenAI)
-async function generateSpeech(text: string): Promise<string | undefined> {
-  if (!text) return undefined;
-  try {
-    const mp3 = await client.audio.speech.create({
-      model: "tts-1",
-      voice: "nova",
-      input: text,
-    });
-
-    const buffer = await mp3.arrayBuffer();
-    const base64 = btoa(
-      new Uint8Array(buffer).reduce(
-        (data, byte) => data + String.fromCharCode(byte),
-        ""
-      )
-    );
-    return base64;
-  } catch (error) {
-    console.error("ChatGPT TTS Error:", error);
-    return undefined;
-  }
 }
 
 function buildDetailedSystemPrompt(
@@ -130,17 +86,22 @@ export const chatGPTService: IAIChatService = {
           role: "user",
           text: input.type === "text" ? input.text : "🎤 [Audio Message]"
         });
-        const response = await client.chat.completions.create({
+        const response = await client.responses.create({
           model: MODEL,
-          messages: options.chatHistory?.map(message => ({
-            role: message.role === "model" ? "assistant" : "user",
-            content: message.text
-          }))
+          previous_response_id: session?.previousResponseId,
+          reasoning: { effort: "low" },
+          input: input.type === "text" ? input.text : "🎤 [Audio Message]",
+          tools: [
+            {
+                type: "file_search",
+                vector_store_ids: [VECTOR_STORE_ID],
+            },
+        ],
         });
   
-        console.log(response.choices[0].message.content);
-  
-        const cleanText = stripCitations(response.choices[0].message.content);
+        console.log(response.output_text);
+
+        const cleanText = stripCitations(response.output_text);
   
         let structuredResponse: AIActionResponse;
         try {
@@ -158,7 +119,7 @@ export const chatGPTService: IAIChatService = {
           session: {
             userId: USER_ID,
             model: "chatgpt",
-            previousResponseId: response.id, // Not used in ChatGPT instead we use Chat History
+            previousResponseId: response.id,
           },
           audioData,
         };

@@ -513,8 +513,6 @@ Guidelines:
       })),
       { role: 'user', content: userMessage }
     ],
-    max_tokens: 100,
-    temperature: 0.7
   });
   
   return response.choices[0].message.content || '';
