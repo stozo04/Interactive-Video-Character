@@ -2,8 +2,9 @@ import React, { createContext, useContext, useState, useEffect } from 'react';
 import { IAIChatService } from '../services/aiService';
 import { geminiChatService } from '../services/geminiChatService';
 import { grokService } from '../services/grokChatService';
+import { chatGPTService } from '../services/chatGPTService';
 
-type ServiceType = 'grok' | 'gemini';
+type ServiceType = 'grok' | 'gemini' | 'chatgpt';
 
 interface AIServiceContextType {
   activeServiceId: ServiceType;
@@ -21,7 +22,11 @@ export function AIServiceProvider({ children }: { children: React.ReactNode }) {
     setActiveServiceId(id);
   };
 
-  const activeService = activeServiceId === 'grok' ? grokService : geminiChatService;
+  // Determine which service to use
+  const activeService = 
+    activeServiceId === 'grok' ? grokService : 
+    activeServiceId === 'chatgpt' ? chatGPTService :
+    geminiChatService;
 
   useEffect(() => {
     console.log(`✅ [AIServiceContext] Active Service is now: ${activeServiceId}`);

@@ -15,7 +15,7 @@ export interface AIChatOptions {
 }
 
 export interface AIMessage {
-  role: 'system' | 'user' | 'assistant';
+  role: 'system' | 'user' | 'assistant' | 'model';
   content: string;
 }
 
