@@ -17,6 +17,7 @@ interface ImportMetaEnv {
   readonly VITE_CHATGPT_MODEL: string;
   readonly VITE_GMAIL_POLL_INTERVAL_MS: string;
   readonly VITE_CHATGPT_ASSISTANT_NAME: string;
+  readonly VITE_CHATGPT_VECTOR_STORE_ID: string;
 }
 
 interface ImportMeta {
