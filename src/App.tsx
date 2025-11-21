@@ -23,8 +23,7 @@ import AudioPlayer from './components/AudioPlayer';
 import ChatPanel from './components/ChatPanel';
 import CharacterSelector from './components/CharacterSelector';
 import LoadingSpinner from './components/LoadingSpinner';
-import ActionManagementView from './components/ActionManagementView';
-import IdleVideoManagementView from './components/IdleVideoManagementView';
+import CharacterManagementView from './components/CharacterManagementView';
 import { SettingsPanel } from './components/SettingsPanel';
 import { LoginPage } from './components/LoginPage';
 import { useGoogleAuth } from './contexts/GoogleAuthContext';
@@ -90,7 +89,7 @@ const getNonGreetingActions = (actions: CharacterProfile['actions']): CharacterA
   return actions.filter(action => !isGreetingAction(action));
 };
 
-type View = 'loading' | 'selectCharacter' | 'createCharacter' | 'chat' | 'manageActions' | 'manageIdleVideos';
+type View = 'loading' | 'selectCharacter' | 'createCharacter' | 'chat' | 'manageCharacter';
 
 interface DisplayCharacter {
   profile: CharacterProfile;
@@ -145,10 +144,10 @@ const App: React.FC = () => {
   const [isCreatingAction, setIsCreatingAction] = useState(false);
   const [updatingActionId, setUpdatingActionId] = useState<string | null>(null);
   const [deletingActionId, setDeletingActionId] = useState<string | null>(null);
-  const [characterForActionManagement, setCharacterForActionManagement] = useState<CharacterProfile | null>(null);
-  const [characterForIdleVideoManagement, setCharacterForIdleVideoManagement] = useState<CharacterProfile | null>(null);
+  const [characterForManagement, setCharacterForManagement] = useState<CharacterProfile | null>(null);
   const [isAddingIdleVideo, setIsAddingIdleVideo] = useState(false);
   const [deletingIdleVideoId, setDeletingIdleVideoId] = useState<string | null>(null);
+  const [isUpdatingImage, setIsUpdatingImage] = useState(false);
   const [lastInteractionAt, setLastInteractionAt] = useState(() => Date.now());
   const [isMuted, setIsMuted] = useState(false);
   const [aiSession, setAiSession] = useState<AIChatSession | null>(null);
@@ -342,7 +341,7 @@ const App: React.FC = () => {
   }, [characters]);
 
   const managedActions = useMemo(() => {
-    const character = characterForActionManagement || selectedCharacter;
+    const character = characterForManagement || selectedCharacter;
     if (!character) return [];
 
     return character.actions.map((action) => {
@@ -366,10 +365,10 @@ const App: React.FC = () => {
         previewAssetUrl,
       };
     });
-  }, [characterForActionManagement, selectedCharacter, actionVideoUrls]);
+  }, [characterForManagement, selectedCharacter, actionVideoUrls]);
 
   const managedIdleVideos = useMemo(() => {
-    const character = characterForIdleVideoManagement || selectedCharacter;
+    const character = characterForManagement || selectedCharacter;
     if (!character) return [];
 
     return character.idleVideoUrls.map((videoUrl, index) => {
@@ -379,7 +378,7 @@ const App: React.FC = () => {
         isLocal: true,
       };
     });
-  }, [characterForIdleVideoManagement, selectedCharacter]);
+  }, [characterForManagement, selectedCharacter]);
 
   // Insert action video into queue at position 1 (next to play)
   const playAction = (actionId: string) => {
@@ -629,7 +628,7 @@ const App: React.FC = () => {
   };
 
   const handleCreateAction = async (input: { name: string; phrases: string[]; videoFile: File }) => {
-    const character = characterForActionManagement || selectedCharacter;
+    const character = characterForManagement || selectedCharacter;
     if (!character) return;
     
     console.log(`🎬 Creating action "${input.name}" for ${character.displayName}`);
@@ -669,8 +668,8 @@ const App: React.FC = () => {
       console.log(`  Created URL for action video`);
       
       // Update the management character state if we're in management view
-      if (characterForActionManagement) {
-        setCharacterForActionManagement(prev => {
+      if (characterForManagement) {
+        setCharacterForManagement(prev => {
           if (!prev) return prev;
           const updated = {
             ...prev,
@@ -690,7 +689,7 @@ const App: React.FC = () => {
   };
 
   const handleUpdateAction = async (actionId: string, input: any) => {
-    const character = characterForActionManagement || selectedCharacter;
+    const character = characterForManagement || selectedCharacter;
     if (!character) return;
     
     console.log(`✏️ Updating action "${actionId}" for ${character.displayName}`);
@@ -714,8 +713,8 @@ const App: React.FC = () => {
         }
         
         // Update the management character state if we're in management view
-        if (characterForActionManagement) {
-          setCharacterForActionManagement(prev => {
+        if (characterForManagement) {
+          setCharacterForManagement(prev => {
             if (!prev) return prev;
             return {
               ...prev,
@@ -732,7 +731,7 @@ const App: React.FC = () => {
   };
 
   const handleDeleteAction = async (actionId: string) => {
-    const character = characterForActionManagement || selectedCharacter;
+    const character = characterForManagement || selectedCharacter;
     if (!character) return;
     
     console.log(`🗑️ Deleting action "${actionId}" for ${character.displayName}`);
@@ -755,8 +754,8 @@ const App: React.FC = () => {
         }
         
         // Update the management character state if we're in management view
-        if (characterForActionManagement) {
-          setCharacterForActionManagement(prev => {
+        if (characterForManagement) {
+          setCharacterForManagement(prev => {
             if (!prev) return prev;
             const updated = {
               ...prev,
@@ -781,8 +780,10 @@ const App: React.FC = () => {
     await handleCharacterCreated(uploadedImage, videoFile);
   };
 
-  const handleManageActions = (character: CharacterProfile) => {
+  const handleManageCharacter = (character: CharacterProfile) => {
     registerInteraction();
+    
+    // Create URLs for action videos if they don't exist
     const newActionUrls = character.actions.reduce((map, action) => {
       if (!actionVideoUrls[action.id]) {
         map[action.id] = URL.createObjectURL(action.video);
@@ -793,24 +794,18 @@ const App: React.FC = () => {
     }, {} as Record<string, string>);
     
     setActionVideoUrls((prev) => ({ ...prev, ...newActionUrls }));
-    setCharacterForActionManagement(character);
-    setView('manageActions');
-  };
-
-  const handleManageIdleVideos = (character: CharacterProfile) => {
-    registerInteraction();
-    setCharacterForIdleVideoManagement(character);
-    setView('manageIdleVideos');
+    setCharacterForManagement(character);
+    setView('manageCharacter');
   };
 
   const handleAddIdleVideo = async (videoFile: File) => {
-    if (!characterForIdleVideoManagement) return;
+    if (!characterForManagement) return;
     setIsAddingIdleVideo(true);
     try {
-      const videoId = await dbService.addIdleVideo(characterForIdleVideoManagement.id, videoFile);
+      const videoId = await dbService.addIdleVideo(characterForManagement.id, videoFile);
       
       // Get the public URL for the newly added video
-      const idleVideosList = await dbService.getIdleVideos(characterForIdleVideoManagement.id);
+      const idleVideosList = await dbService.getIdleVideos(characterForManagement.id);
       const newVideo = idleVideosList.find(v => v.id === videoId);
       
       if (newVideo) {
@@ -821,7 +816,7 @@ const App: React.FC = () => {
         const newUrl = urlData.publicUrl;
         
         // Update character with new video URL
-        applyCharacterUpdate(characterForIdleVideoManagement.id, char => {
+        applyCharacterUpdate(characterForManagement.id, char => {
           return {
             ...char,
             idleVideoUrls: [...char.idleVideoUrls, newUrl]
@@ -829,7 +824,7 @@ const App: React.FC = () => {
         });
         
         // Update the management character state
-        setCharacterForIdleVideoManagement(prev => {
+        setCharacterForManagement(prev => {
           if (!prev) return prev;
           return {
             ...prev,
@@ -846,7 +841,7 @@ const App: React.FC = () => {
   };
 
   const handleDeleteIdleVideo = async (videoId: string) => {
-    if (!characterForIdleVideoManagement) return;
+    if (!characterForManagement) return;
     
     // Extract index from ID (format: "idle-{index}")
     const index = parseInt(videoId.split('-')[1]);
@@ -855,13 +850,13 @@ const App: React.FC = () => {
     setDeletingIdleVideoId(videoId);
     try {
       // Get the actual database ID from the character's idle videos
-      const idleVideosList = await dbService.getIdleVideos(characterForIdleVideoManagement.id);
+      const idleVideosList = await dbService.getIdleVideos(characterForManagement.id);
       
       if (idleVideosList[index]) {
-        await dbService.deleteIdleVideo(characterForIdleVideoManagement.id, idleVideosList[index].id);
+        await dbService.deleteIdleVideo(characterForManagement.id, idleVideosList[index].id);
         
         // Update character by removing the video URL at this index
-        applyCharacterUpdate(characterForIdleVideoManagement.id, char => {
+        applyCharacterUpdate(characterForManagement.id, char => {
           return {
             ...char,
             idleVideoUrls: char.idleVideoUrls.filter((_, i) => i !== index)
@@ -869,7 +864,7 @@ const App: React.FC = () => {
         });
         
         // Update the management character state
-        setCharacterForIdleVideoManagement(prev => {
+        setCharacterForManagement(prev => {
           if (!prev) return prev;
           return {
             ...prev,
@@ -956,6 +951,76 @@ const App: React.FC = () => {
         await dbService.deleteCharacter(id);
         setCharacters(prev => prev.filter(c => c.id !== id));
     }
+  };
+
+  const handleUpdateImage = async (character: CharacterProfile) => {
+    // Create a hidden file input
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'image/*';
+    
+    input.onchange = async (e) => {
+      const file = (e.target as HTMLInputElement).files?.[0];
+      if (!file) return;
+
+      setIsUpdatingImage(true);
+      setErrorMessage(null);
+
+      try {
+        // Read the image file
+        const reader = new FileReader();
+        reader.readAsDataURL(file);
+        
+        reader.onload = async () => {
+          const base64data = reader.result as string;
+          const [, base64Content] = base64data.split(',');
+          
+          // Update in database
+          await dbService.updateCharacterImage(character.id, {
+            base64: base64Content,
+            mimeType: file.type,
+            fileName: file.name,
+          });
+
+          // Update in local state
+          applyCharacterUpdate(character.id, (char) => ({
+            ...char,
+            image: {
+              file,
+              base64: base64Content,
+              mimeType: file.type,
+            },
+          }));
+
+          // If this is the selected character, update that too
+          if (selectedCharacter?.id === character.id) {
+            setSelectedCharacter((prev) => {
+              if (!prev) return prev;
+              return {
+                ...prev,
+                image: {
+                  file,
+                  base64: base64Content,
+                  mimeType: file.type,
+                },
+              };
+            });
+          }
+
+          setIsUpdatingImage(false);
+        };
+
+        reader.onerror = () => {
+          setErrorMessage('Failed to read image file.');
+          setIsUpdatingImage(false);
+        };
+      } catch (error) {
+        reportError('Failed to update character image.', error);
+        setIsUpdatingImage(false);
+      }
+    };
+
+    input.click();
   };
 
   const handleBackToSelection = async () => {
@@ -1088,9 +1153,7 @@ const App: React.FC = () => {
                 characters={displayCharacters}
                 onSelectCharacter={handleSelectCharacter}
                 onCreateNew={() => setView('createCharacter')}
-                onDeleteCharacter={handleDeleteCharacter}
-                onManageActions={handleManageActions}
-                onManageIdleVideos={handleManageIdleVideos}
+                onManageCharacter={handleManageCharacter}
                 isLoading={isLoadingCharacter}
             />
         )}
@@ -1105,35 +1168,31 @@ const App: React.FC = () => {
               />
         )}
 
-        {view === 'manageActions' && characterForActionManagement && (
-            <ActionManagementView
-                character={characterForActionManagement}
+        {view === 'manageCharacter' && characterForManagement && (
+            <CharacterManagementView
+                character={characterForManagement}
                 actions={managedActions}
+                idleVideos={managedIdleVideos}
+                onBack={() => {
+                    setCharacterForManagement(null);
+                    setView('selectCharacter');
+                }}
+                onUpdateImage={() => handleUpdateImage(characterForManagement)}
+                onDeleteCharacter={() => {
+                    handleDeleteCharacter(characterForManagement.id);
+                    setCharacterForManagement(null);
+                    setView('selectCharacter');
+                }}
                 onCreateAction={handleCreateAction}
                 onUpdateAction={handleUpdateAction}
                 onDeleteAction={handleDeleteAction}
-                onBack={() => {
-                    setCharacterForActionManagement(null);
-                    setView('selectCharacter');
-                }}
-                isCreating={isCreatingAction}
-                updatingActionId={updatingActionId}
-                deletingActionId={deletingActionId}
-            />
-        )}
-
-        {view === 'manageIdleVideos' && characterForIdleVideoManagement && (
-            <IdleVideoManagementView
-                character={characterForIdleVideoManagement}
-                idleVideos={managedIdleVideos}
                 onAddIdleVideo={handleAddIdleVideo}
                 onDeleteIdleVideo={handleDeleteIdleVideo}
-                onBack={() => {
-                    setCharacterForIdleVideoManagement(null);
-                    setView('selectCharacter');
-                }}
-                isAdding={isAddingIdleVideo}
-                deletingVideoId={deletingIdleVideoId}
+                isCreatingAction={isCreatingAction}
+                updatingActionId={updatingActionId}
+                deletingActionId={deletingActionId}
+                isAddingIdleVideo={isAddingIdleVideo}
+                deletingIdleVideoId={deletingIdleVideoId}
             />
         )}
 

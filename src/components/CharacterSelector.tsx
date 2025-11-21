@@ -14,13 +14,11 @@ interface CharacterSelectorProps {
   characters: DisplayCharacter[];
   onSelectCharacter: (character: CharacterProfile) => void;
   onCreateNew: () => void;
-  onDeleteCharacter: (id: string) => void;
-  onManageActions: (character: CharacterProfile) => void;
-  onManageIdleVideos?: (character: CharacterProfile) => void;
+  onManageCharacter: (character: CharacterProfile) => void;
   isLoading?: boolean;
 }
 
-const CharacterSelector: React.FC<CharacterSelectorProps> = ({ characters, onSelectCharacter, onCreateNew, onDeleteCharacter, onManageActions, onManageIdleVideos, isLoading = false }) => {
+const CharacterSelector: React.FC<CharacterSelectorProps> = ({ characters, onSelectCharacter, onCreateNew, onManageCharacter, isLoading = false }) => {
   return (
     <div className="flex flex-col items-center justify-center h-full relative">
       <h2 className="text-3xl font-bold mb-8">Select a Character</h2>
@@ -34,18 +32,10 @@ const CharacterSelector: React.FC<CharacterSelectorProps> = ({ characters, onSel
               characterImageUrl={char.imageUrl}
               characterVideoUrl={char.videoUrl}
               onSelect={() => onSelectCharacter(char.profile)}
-              onDelete={(e) => {
+              onManage={(e) => {
                 e.stopPropagation();
-                onDeleteCharacter(char.profile.id);
+                onManageCharacter(char.profile);
               }}
-              onManageActions={(e) => {
-                e.stopPropagation();
-                onManageActions(char.profile);
-              }}
-              onManageIdleVideos={onManageIdleVideos ? (e) => {
-                e.stopPropagation();
-                onManageIdleVideos(char.profile);
-              } : undefined}
             />
           </div>
         ))}

@@ -914,3 +914,25 @@ export const getIdleVideos = async (characterId: string): Promise<Array<{ id: st
   
   return (data || []).map(row => ({ id: row.id, path: row.video_path }));
 };
+
+/**
+ * Update a character's profile image
+ */
+export const updateCharacterImage = async (
+  characterId: string,
+  newImage: { base64: string; mimeType: string; fileName: string }
+): Promise<void> => {
+  const { error } = await supabase
+    .from(CHARACTERS_TABLE)
+    .update({
+      image_base64: newImage.base64,
+      image_mime_type: newImage.mimeType,
+      image_file_name: newImage.fileName,
+    })
+    .eq('id', characterId);
+
+  if (error) {
+    console.error('Failed to update character image:', error);
+    throw error;
+  }
+};
