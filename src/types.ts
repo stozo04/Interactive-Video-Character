@@ -23,7 +23,7 @@ export interface CharacterProfile {
   id: string; // image hash
   createdAt: number;
   image: UploadedImage;
-  idleVideos: Blob[];
+  idleVideoUrls: string[]; // Public URLs - browser cache handles storage (not RAM!)
   actions: CharacterAction[];
   name: string; // Full name: "Kayley Adams"
   displayName: string; // Name to go by: "Kayley"
