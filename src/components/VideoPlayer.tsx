@@ -1,100 +1,104 @@
 import React, { useRef, useEffect, useState } from 'react';
 
 interface VideoPlayerProps {
-  src: string | null;
-  onEnded: () => void;
+  currentSrc: string | null;
+  nextSrc: string | null;
+  onVideoFinished: () => void;
   loop: boolean;
   muted?: boolean;
 }
 
-const VideoPlayer: React.FC<VideoPlayerProps> = ({ src, onEnded, loop, muted = false }) => {
+/**
+ * Double-Buffered Video Player for Seamless Transitions
+ * ======================================================
+ * 
+ * Architecture:
+ * - Two <video> elements (player0, player1) overlaid using visibility CSS
+ * - activePlayer (0 or 1) determines which player is visible
+ * - While one plays, the other preloads the next video
+ * 
+ * Flow:
+ * 1. Parent passes currentSrc (playing now) and nextSrc (preload this)
+ * 2. Active player displays currentSrc, inactive player loads nextSrc
+ * 3. On video end: swap visibility instantly, start playback, notify parent
+ * 4. Parent shifts queue, new nextSrc arrives, cycle repeats
+ * 
+ * Key Benefits:
+ * - Zero black frames between videos (instant visibility swap)
+ * - No network latency (next video already buffered)
+ * - No complex waiting logic (parent guarantees nextSrc is ready)
+ */
+const VideoPlayer: React.FC<VideoPlayerProps> = ({ 
+  currentSrc, 
+  nextSrc, 
+  onVideoFinished, 
+  loop, 
+  muted = false 
+}) => {
   const player0Ref = useRef<HTMLVideoElement>(null);
   const player1Ref = useRef<HTMLVideoElement>(null);
   
   const [activePlayer, setActivePlayer] = useState<0 | 1>(0);
   const [hasStarted, setHasStarted] = useState(false);
-  const loadingRef = useRef(false);
 
-  // Handle initial load and subsequent preloads
+  // Load and play videos based on currentSrc and nextSrc
   useEffect(() => {
-    if (!src) return;
+    if (!currentSrc) return;
+
+    const activeRef = activePlayer === 0 ? player0Ref : player1Ref;
+    const inactiveRef = activePlayer === 0 ? player1Ref : player0Ref;
+    const activeVideo = activeRef.current;
+    const inactiveVideo = inactiveRef.current;
+
+    // Handle initial load
+    if (!hasStarted && activeVideo) {
+      if (activeVideo.src !== currentSrc) {
+        activeVideo.src = currentSrc;
+        activeVideo.load();
+        
+        // Try to autoplay
+        activeVideo.play().then(() => {
+          setHasStarted(true);
+        }).catch((e) => {
+          // Autoplay blocked - user needs to interact first
+          console.warn("Autoplay blocked (expected):", e);
+          setHasStarted(true);
+        });
+      }
+    } else if (hasStarted && activeVideo) {
+      // Ensure active player has correct source
+      if (activeVideo.src !== currentSrc && currentSrc) {
+        const fullCurrentSrc = currentSrc.startsWith('blob:') ? currentSrc : new URL(currentSrc, window.location.origin).href;
+        if (activeVideo.src !== fullCurrentSrc) {
+          activeVideo.src = currentSrc;
+          activeVideo.load();
+          activeVideo.play().catch(e => console.warn("Play failed:", e));
+        }
+      }
+    }
+
+    // Preload next video into inactive player
+    if (nextSrc && inactiveVideo) {
+      const fullNextSrc = nextSrc.startsWith('blob:') ? nextSrc : new URL(nextSrc, window.location.origin).href;
+      if (inactiveVideo.src !== fullNextSrc) {
+        inactiveVideo.pause();
+        inactiveVideo.src = nextSrc;
+        inactiveVideo.load();
+      }
+    }
+  }, [currentSrc, nextSrc, activePlayer, hasStarted]);
+
+  // Handle video ending - seamless swap to preloaded next video
+  const handleVideoEnded = async () => {
+    // Notify parent to shift the queue
+    onVideoFinished();
     
-    // Prevent multiple simultaneous loads
-    if (loadingRef.current) {
-      console.log('⏳ Load already in progress, skipping...');
+    // Only swap if we have a next video preloaded
+    if (!nextSrc) {
+      // No next video - this shouldn't happen with proper queue management
       return;
     }
 
-    const performLoad = async () => {
-      loadingRef.current = true;
-      
-      try {
-        // If we haven't started yet, we want to start playing immediately.
-        if (!hasStarted) {
-          const targetPlayerIdx = activePlayer === 0 ? 1 : 0;
-          const targetRef = targetPlayerIdx === 0 ? player0Ref : player1Ref;
-          const targetVideo = targetRef.current;
-
-          if (targetVideo) {
-            console.log('🎬 Initial video load');
-            targetVideo.src = src;
-            
-            // Wait for the video to be ready
-            await new Promise<void>((resolve) => {
-              const handleCanPlay = () => {
-                targetVideo.removeEventListener('canplay', handleCanPlay);
-                resolve();
-              };
-              targetVideo.addEventListener('canplay', handleCanPlay);
-              targetVideo.load();
-            });
-            
-            try {
-              await targetVideo.play();
-              setActivePlayer(targetPlayerIdx);
-              setHasStarted(true);
-              console.log('✅ Initial video playing');
-            } catch (e) {
-              // Autoplay might be blocked - this is okay, user can click to start
-              console.warn("Autoplay blocked (expected):", e);
-              setActivePlayer(targetPlayerIdx);
-              setHasStarted(true);
-            }
-          }
-        } else {
-          // Normal operation: Preload into inactive player
-          const inactivePlayerIdx = activePlayer === 0 ? 1 : 0;
-          const inactiveRef = inactivePlayerIdx === 0 ? player0Ref : player1Ref;
-          const inactiveVideo = inactiveRef.current;
-
-          if (inactiveVideo) {
-            console.log(`📦 Preloading next video into player ${inactivePlayerIdx}`);
-            
-            // Pause any ongoing playback on inactive player
-            inactiveVideo.pause();
-            
-            // Set new source and preload
-            inactiveVideo.src = src;
-            inactiveVideo.load();
-          }
-        }
-      } finally {
-        loadingRef.current = false;
-      }
-    };
-
-    performLoad();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [src]); // Only react to src changes
-
-  // Handle video ending (The Swap)
-  const handleVideoEnded = async () => {
-    console.log('🔄 Video ended, swapping to next...');
-    
-    // Notify parent FIRST so they can update the queue
-    onEnded();
-    
-    // Identify current and next players
     const currentPlayerIdx = activePlayer;
     const nextPlayerIdx = activePlayer === 0 ? 1 : 0;
     const currentRef = currentPlayerIdx === 0 ? player0Ref : player1Ref;
@@ -102,83 +106,30 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ src, onEnded, loop, muted = f
     const currentVideo = currentRef.current;
     const nextVideo = nextRef.current;
 
-    // If next video has no src yet, wait a bit for parent to update it
     if (!nextVideo || !nextVideo.src) {
-      console.log('⏳ Next video not loaded yet, waiting for parent update...');
-      
-      // Keep current video looping temporarily
-      if (currentVideo && !loop) {
-        currentVideo.currentTime = 0;
-        try {
-          await currentVideo.play();
-          console.log('🔁 Replaying current video while waiting...');
-        } catch (e) {
-          console.warn('Could not replay current video:', e);
-        }
-      }
-      
-      return; // Parent will update src which will trigger the load
+      // Next video not ready - queue management issue
+      return;
     }
 
     try {
-      // Check if video is ready to play
-      if (nextVideo.readyState >= 2) { // HAVE_CURRENT_DATA or better
-        // Swap visibility FIRST (instant)
-        setActivePlayer(nextPlayerIdx);
-        
-        // Start playing immediately
-        nextVideo.currentTime = 0; // Ensure we start at beginning
-        await nextVideo.play();
-        
-        // Pause and reset the old video
-        if (currentVideo) {
-          currentVideo.pause();
-          currentVideo.currentTime = 0;
-        }
-        
-        console.log(`✅ Swapped to player ${nextPlayerIdx}`);
-      } else {
-        // If not ready, wait for it
-        console.log('⏳ Waiting for next video to be ready...');
-        await new Promise<void>((resolve) => {
-          const handleCanPlay = () => {
-            nextVideo.removeEventListener('canplay', handleCanPlay);
-            resolve();
-          };
-          nextVideo.addEventListener('canplay', handleCanPlay);
-          // Timeout after 5 seconds
-          setTimeout(() => {
-            nextVideo.removeEventListener('canplay', handleCanPlay);
-            resolve();
-          }, 5000);
-        });
-        
-        // Swap visibility FIRST (instant)
-        setActivePlayer(nextPlayerIdx);
-        
-        // Start playing immediately
-        nextVideo.currentTime = 0;
-        await nextVideo.play();
-        
-        // Pause and reset the old video
-        if (currentVideo) {
-          currentVideo.pause();
-          currentVideo.currentTime = 0;
-        }
-        
-        console.log(`✅ Swapped to player ${nextPlayerIdx} (after waiting)`);
+      // Swap visibility instantly
+      setActivePlayer(nextPlayerIdx);
+      
+      // Start playing the preloaded video
+      nextVideo.currentTime = 0;
+      await nextVideo.play();
+      
+      // Clean up the old player
+      if (currentVideo) {
+        currentVideo.pause();
+        currentVideo.currentTime = 0;
       }
     } catch (e) {
       console.error("Failed to swap video:", e);
-      // Keep current video playing as fallback
+      // Fallback: try to keep current video playing
       if (currentVideo) {
         currentVideo.currentTime = 0;
-        try {
-          await currentVideo.play();
-          console.log('🔁 Fallback: replaying current video');
-        } catch (err) {
-          console.error('Fallback also failed:', err);
-        }
+        currentVideo.play().catch(err => console.error('Fallback failed:', err));
       }
     }
   };
@@ -225,7 +176,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ src, onEnded, loop, muted = f
         preload="auto"
       />
       
-      {!src && !hasStarted && (
+      {!currentSrc && !hasStarted && (
         <div className="text-gray-500 z-20">No video available</div>
       )}
     </div>
