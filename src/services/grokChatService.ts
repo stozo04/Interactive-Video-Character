@@ -19,6 +19,10 @@ const xai = createXai({ apiKey: API_KEY });
 
 export const grokService: IAIChatService = {
   generateResponse: async (message, options, session) => {
+    // 1. Enforce Text-Only for Grok
+    if (message.type !== 'text') {
+      return { response: { text_response: "Grok currently only supports text input. Switch to Gemini for voice features.", action_id: null }, session: session };
+  }
     const { character, chatHistory = [], relationship, upcomingEvents } = options;
     const systemPrompt = buildSystemPrompt(character, relationship, upcomingEvents);
 
@@ -28,7 +32,7 @@ export const grokService: IAIChatService = {
         role: (msg.role === 'user' ? 'user' : 'assistant') as 'user' | 'assistant',
         content: msg.text,
       })),
-      { role: 'user', content: message },
+      { role: 'user', content: message.text },
     ];
 
     try {

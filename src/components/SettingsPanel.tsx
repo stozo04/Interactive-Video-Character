@@ -27,7 +27,7 @@ export function SettingsPanel({ className = '', onGmailConnectionChange }: Setti
 
   // 2. Add the handler with logging
   const handleServiceChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    const newService = e.target.value as 'grok' | 'gemini';
+    const newService = e.target.value as 'grok' | 'gemini' | 'chatgpt';
     console.log(`🔄 [Settings] User toggled AI Service to: ${newService.toUpperCase()}`);
     setService(newService);
   };
@@ -110,6 +110,7 @@ export function SettingsPanel({ className = '', onGmailConnectionChange }: Setti
                 >
                   <option value="grok">Grok (xAI) - Beta</option>
                   <option value="gemini">Gemini (Google)</option>
+                  <option value="chatgpt">ChatGPT (OpenAI)</option>
                 </select>
                 {/* Custom Arrow Icon */}
                 <div className="absolute inset-y-0 right-0 flex items-center px-2 pointer-events-none">

@@ -1,19 +1,32 @@
-
 import React, { useState, useRef, useEffect } from 'react';
 import { ChatMessage } from '../types';
+import LoadingSpinner from './LoadingSpinner';
 import TypingIndicator from './TypingIndicator';
 
 interface ChatPanelProps {
   history: ChatMessage[];
   onSendMessage: (message: string) => void;
+  onSendAudio?: (audioBlob: Blob) => void; 
+  useAudioInput?: boolean;                 
   isSending: boolean;
 }
 
-const ChatPanel: React.FC<ChatPanelProps> = ({ history, onSendMessage, isSending }) => {
+const ChatPanel: React.FC<ChatPanelProps> = ({ 
+  history, 
+  onSendMessage, 
+  onSendAudio, 
+  useAudioInput = false, 
+  isSending 
+}) => {
   const [input, setInput] = useState('');
   const [isListening, setIsListening] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  
+  // STT (Grok/Legacy)
   const recognitionRef = useRef<SpeechRecognition | null>(null);
+  // Audio Recorder (Gemini)
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -21,15 +34,14 @@ const ChatPanel: React.FC<ChatPanelProps> = ({ history, onSendMessage, isSending
 
   useEffect(scrollToBottom, [history]);
 
+  // Initialize STT (Only used if useAudioInput is FALSE)
   useEffect(() => {
-    // Check for browser support and initialize SpeechRecognition
     const SpeechRecognition = window.SpeechRecognition || (window as any).webkitSpeechRecognition;
     if (SpeechRecognition) {
       const recognition = new SpeechRecognition();
       recognition.continuous = false;
-      recognition.interimResults = true; // Show results as they are recognized
+      recognition.interimResults = true;
       recognition.lang = 'en-US';
-
       recognition.onresult = (event) => {
         let interimTranscript = '';
         let finalTranscript = '';
@@ -42,16 +54,7 @@ const ChatPanel: React.FC<ChatPanelProps> = ({ history, onSendMessage, isSending
         }
         setInput(finalTranscript || interimTranscript);
       };
-      
-      recognition.onend = () => {
-        setIsListening(false);
-      };
-
-      recognition.onerror = (event) => {
-        console.error('Speech recognition error', event.error);
-        setIsListening(false);
-      };
-
+      recognition.onend = () => setIsListening(false);
       recognitionRef.current = recognition;
     }
   }, []);
@@ -64,36 +67,80 @@ const ChatPanel: React.FC<ChatPanelProps> = ({ history, onSendMessage, isSending
     }
   };
 
-  const handleMicPress = () => {
-    if (isSending || !recognitionRef.current) return;
+  // --- Microphone Logic ---
 
-    try {
-      recognitionRef.current.start();
-      setIsListening(true);
-    } catch (e) {
-      console.error("Could not start recognition:", e);
-      // This can happen if permission is denied or already active.
+  const handleMicPress = async () => {
+    if (isSending) return;
+    setIsListening(true);
+
+    if (useAudioInput && onSendAudio) {
+      // --- GEMINI MODE: Record Audio Blob ---
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        const mediaRecorder = new MediaRecorder(stream);
+        mediaRecorderRef.current = mediaRecorder;
+        audioChunksRef.current = [];
+
+        mediaRecorder.ondataavailable = (event) => {
+          if (event.data.size > 0) {
+            audioChunksRef.current.push(event.data);
+          }
+        };
+
+        mediaRecorder.start();
+        console.log("🎤 Started Recording (Gemini Mode)...");
+      } catch (err) {
+        console.error("Error accessing microphone:", err);
+        setIsListening(false);
+      }
+    } else if (recognitionRef.current) {
+      // --- GROK MODE: Text to Speech ---
+      try {
+        recognitionRef.current.start();
+        console.log("🎤 Listening for text (STT Mode)...");
+      } catch (e) {
+        console.error("STT Error:", e);
+      }
     }
   };
 
   const handleMicRelease = () => {
-    if (!isListening || !recognitionRef.current) return;
+    if (!isListening) return;
     
-    recognitionRef.current.stop();
-    setIsListening(false);
-    
-    // Use a small timeout to allow the final transcript to be processed
-    setTimeout(() => {
-      // Access the state via the ref to get the latest value after recognition ends
-      const finalInput = input;
-      if (finalInput.trim() && !isSending) {
-        onSendMessage(finalInput.trim());
-        setInput('');
+    if (useAudioInput && mediaRecorderRef.current && onSendAudio) {
+      // --- GEMINI MODE: Stop & Auto-Send ---
+      const recorder = mediaRecorderRef.current;
+      if (recorder.state !== 'inactive') {
+        recorder.onstop = () => {
+            const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+            console.log("🎤 Recording stopped. Sending audio blob...");
+            onSendAudio(audioBlob); // Auto-Send!
+            
+            // Cleanup tracks
+            recorder.stream.getTracks().forEach(track => track.stop());
+        };
+        recorder.stop();
       }
-    }, 100);
+      setIsListening(false);
+
+    } else if (recognitionRef.current) {
+      // --- GROK MODE: Stop & Send Text ---
+      recognitionRef.current.stop();
+      setIsListening(false);
+      
+      // Auto-send for Grok mode too (if enabled)
+      setTimeout(() => {
+        const finalInput = input;
+        if (finalInput.trim() && !isSending) {
+            onSendMessage(finalInput.trim());
+            setInput('');
+        }
+      }, 200);
+    }
   };
 
-  const isMicSupported = !!recognitionRef.current;
+  const isMicSupported = useAudioInput ? !!navigator.mediaDevices : !!recognitionRef.current;
+  const micLabel = useAudioInput ? "Hold to Record" : "Text Mode";
 
   return (
     <div className="bg-gray-800/70 h-full flex flex-col rounded-lg p-4 border border-gray-700 shadow-lg">
@@ -114,11 +161,9 @@ const ChatPanel: React.FC<ChatPanelProps> = ({ history, onSendMessage, isSending
           value={input}
           onChange={(e) => setInput(e.target.value)}
           placeholder={
-            isSending
-              ? "Processing..."
-              : isListening
-              ? "Listening..."
-              : 'Type an action command (e.g., "Wave to the camera")'
+            isSending ? "Processing..." : 
+            isListening ? (useAudioInput ? "Recording Audio..." : "Listening...") : 
+            'Type a message...'
           }
           disabled={isSending || isListening}
           className="flex-grow bg-gray-700 rounded-full py-2 px-4 text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:opacity-50"
@@ -131,12 +176,13 @@ const ChatPanel: React.FC<ChatPanelProps> = ({ history, onSendMessage, isSending
              onTouchStart={handleMicPress}
              onTouchEnd={handleMicRelease}
              disabled={isSending}
+             title={micLabel}
              className={`p-3 rounded-full text-white transition-colors ${
                 isListening 
                 ? 'bg-red-600 animate-pulse' 
                 : 'bg-indigo-600 hover:bg-indigo-500'
              } disabled:bg-gray-600 disabled:cursor-not-allowed`}
-            aria-label={isListening ? "Stop recording" : "Start recording"}
+            aria-label="Record"
            >
               <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
                 <path fillRule="evenodd" d="M7 4a3 3 0 016 0v4a3 3 0 11-6 0V4zm-1 3a4 4 0 00-4 4v1a1 1 0 001 1h10a1 1 0 001-1v-1a4 4 0 00-4-4V7zM14 11v-1a2 2 0 10-4 0v1a2 2 0 104 0z" clipRule="evenodd" />
@@ -148,9 +194,13 @@ const ChatPanel: React.FC<ChatPanelProps> = ({ history, onSendMessage, isSending
           disabled={isSending || !input.trim() || isListening}
           className="bg-indigo-600 rounded-full p-3 text-white hover:bg-indigo-500 disabled:bg-gray-600 disabled:cursor-not-allowed transition-colors"
         >
-          <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-            <path d="M10.894 2.553a1 1 0 00-1.788 0l-7 14a1 1 0 001.169 1.409l5-1.429A1 1 0 009 15.571V11a1 1 0 112 0v4.571a1 1 0 00.725.962l5 1.428a1 1 0 001.17-1.408l-7-14z" />
-          </svg>
+          {isSending ? (
+            <LoadingSpinner size="h-5 w-5" />
+          ) : (
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+              <path d="M10.894 2.553a1 1 0 00-1.788 0l-7 14a1 1 0 001.169 1.409l5-1.429A1 1 0 009 15.571V11a1 1 0 112 0v4.571a1 1 0 00.725.962l5 1.428a1 1 0 001.17-1.408l-7-14z" />
+            </svg>
+          )}
         </button>
       </form>
     </div>
