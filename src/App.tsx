@@ -453,12 +453,14 @@ const App: React.FC = () => {
     triggerIdleAction,
   ]);
 
-  useEffect(() => {
-    scheduleIdleAction();
-    return () => {
-      clearIdleActionTimer();
-    };
-  }, [scheduleIdleAction, clearIdleActionTimer, lastInteractionAt]);
+  // DISABLED: Automatic idle actions
+  // Actions should only play when explicitly requested by AI via action_id
+  // useEffect(() => {
+  //   scheduleIdleAction();
+  //   return () => {
+  //     clearIdleActionTimer();
+  //   };
+  // }, [scheduleIdleAction, clearIdleActionTimer, lastInteractionAt]);
 
   // Gmail Integration Hooks
   useEffect(() => {
