@@ -24,6 +24,7 @@ import ChatPanel from './components/ChatPanel';
 import CharacterSelector from './components/CharacterSelector';
 import LoadingSpinner from './components/LoadingSpinner';
 import ActionManagementView from './components/ActionManagementView';
+import IdleVideoManagementView from './components/IdleVideoManagementView';
 import { SettingsPanel } from './components/SettingsPanel';
 import { LoginPage } from './components/LoginPage';
 import { useGoogleAuth } from './contexts/GoogleAuthContext';
@@ -62,6 +63,15 @@ const randomFromArray = <T,>(items: T[]): T => {
   return items[index];
 };
 
+const shuffleArray = <T,>(array: T[]): T[] => {
+    const newArr = [...array];
+    for (let i = newArr.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [newArr[i], newArr[j]] = [newArr[j], newArr[i]];
+    }
+    return newArr;
+};
+
 const isGreetingAction = (action: CharacterAction): boolean => {
   const normalizedName = sanitizeText(action.name);
   const normalizedPhrases = action.phrases.map(sanitizeText);
@@ -80,7 +90,7 @@ const getNonGreetingActions = (actions: CharacterProfile['actions']): CharacterA
   return actions.filter(action => !isGreetingAction(action));
 };
 
-type View = 'loading' | 'selectCharacter' | 'createCharacter' | 'chat' | 'manageActions';
+type View = 'loading' | 'selectCharacter' | 'createCharacter' | 'chat' | 'manageActions' | 'manageIdleVideos';
 
 interface DisplayCharacter {
   profile: CharacterProfile;
@@ -95,14 +105,18 @@ const App: React.FC = () => {
   const [characters, setCharacters] = useState<CharacterProfile[]>([]);
   const [selectedCharacter, setSelectedCharacter] =
     useState<CharacterProfile | null>(null);
-  const [idleVideoUrl, setIdleVideoUrl] = useState<string | null>(null);
+  
+  // New Video State Logic
+  const [idleVideoUrls, setIdleVideoUrls] = useState<string[]>([]);
+  const [videoQueue, setVideoQueue] = useState<string[]>([]);
+  const [currentVideoSrc, setCurrentVideoSrc] = useState<string | null>(null);
+
   const [actionVideoUrls, setActionVideoUrls] = useState<Record<string, string>>(
     {}
   );
   const [responseAudioSrc, setResponseAudioSrc] = useState<string | null>(null);
   const [uploadedImage, setUploadedImage] = useState<UploadedImage | null>(null);
   const [chatHistory, setChatHistory] = useState<ChatMessage[]>([]);
-  const [currentVideoUrl, setCurrentVideoUrl] = useState<string | null>(null);
   const [currentActionId, setCurrentActionId] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isProcessingAction, setIsProcessingAction] = useState(false);
@@ -111,6 +125,9 @@ const App: React.FC = () => {
   const [updatingActionId, setUpdatingActionId] = useState<string | null>(null);
   const [deletingActionId, setDeletingActionId] = useState<string | null>(null);
   const [characterForActionManagement, setCharacterForActionManagement] = useState<CharacterProfile | null>(null);
+  const [characterForIdleVideoManagement, setCharacterForIdleVideoManagement] = useState<CharacterProfile | null>(null);
+  const [isAddingIdleVideo, setIsAddingIdleVideo] = useState(false);
+  const [deletingIdleVideoId, setDeletingIdleVideoId] = useState<string | null>(null);
   const [lastInteractionAt, setLastInteractionAt] = useState(() => Date.now());
   const [isMuted, setIsMuted] = useState(false);
   const [aiSession, setAiSession] = useState<AIChatSession | null>(null);
@@ -136,10 +153,8 @@ const App: React.FC = () => {
       registerInteraction();
       setErrorMessage(null);
 
-      // BUG FIX #1: Use the consistent placeholder text you saw
       const placeholderText = "🎤 [Audio Message]";
       
-      // Add placeholder immediately
       setChatHistory(prev => [...prev, { role: 'user' as const, text: placeholderText }]);
       setIsProcessingAction(true);
 
@@ -160,7 +175,6 @@ const App: React.FC = () => {
                   mimeType: mimeType 
               };
 
-              // 2. Call AI Service
               const { response, session: updatedSession, audioData } = await activeService.generateResponse(
                   input,
                   {
@@ -174,12 +188,10 @@ const App: React.FC = () => {
 
               setAiSession(updatedSession);
               
-              // 3. Update Chat History: Replace Placeholder with Transcript + Add Response
               setChatHistory(currentHistory => {
                   const newHistory = [...currentHistory];
                   const lastIndex = newHistory.length - 1;
                   
-                  // Find the placeholder we added and replace it
                   if (newHistory[lastIndex].text === placeholderText) {
                       newHistory[lastIndex] = { 
                           role: 'user', 
@@ -189,23 +201,17 @@ const App: React.FC = () => {
                       };
                   }
                   
-                  // Append the AI's text response
                   newHistory.push({ role: 'model' as const, text: response.text_response });
                   return newHistory;
               });
 
-              // 4. Play Audio Response (if returned)
               if (!isMuted && audioData) {
                 setResponseAudioSrc(audioData);
               }
 
-              // 5. Play Action Video (if needed)
+              // Handle Action Video
               if (response.action_id) {
-                 const actionUrl = actionVideoUrls[response.action_id];
-                 if (actionUrl) {
-                     setCurrentVideoUrl(actionUrl);
-                     setCurrentActionId(response.action_id);
-                 }
+                 playAction(response.action_id);
               }
               
               setIsProcessingAction(false);
@@ -292,7 +298,7 @@ const App: React.FC = () => {
       return characters.map(profile => ({
         profile,
         imageUrl: `data:${profile.image.mimeType};base64,${profile.image.base64}`,
-        videoUrl: URL.createObjectURL(profile.idleVideo)
+        videoUrl: profile.idleVideos.length > 0 ? URL.createObjectURL(profile.idleVideos[0]) : ''
       }));
     } catch (e) {
       console.error("Error creating object URLs:", e);
@@ -303,7 +309,7 @@ const App: React.FC = () => {
   useEffect(() => {
     return () => {
       displayCharacters.forEach(c => {
-        URL.revokeObjectURL(c.videoUrl);
+        if (c.videoUrl) URL.revokeObjectURL(c.videoUrl);
       });
     };
   }, [displayCharacters]);
@@ -335,17 +341,54 @@ const App: React.FC = () => {
     });
   }, [characterForActionManagement, selectedCharacter, actionVideoUrls]);
 
+  const managedIdleVideos = useMemo(() => {
+    const character = characterForIdleVideoManagement || selectedCharacter;
+    if (!character) return [];
+
+    return character.idleVideos.map((videoBlob, index) => {
+      // Always create a URL for each video - either use existing or create new one
+      let videoUrl = idleVideoUrls[index];
+      if (!videoUrl) {
+        videoUrl = URL.createObjectURL(videoBlob);
+      }
+      return {
+        id: `idle-${index}`,
+        videoUrl,
+        isLocal: true,
+      };
+    });
+  }, [characterForIdleVideoManagement, selectedCharacter, idleVideoUrls]);
+
+  // New helper to insert action into queue
+  const playAction = (actionId: string) => {
+      const actionUrl = actionVideoUrls[actionId];
+      if (actionUrl) {
+          // We insert the action at index 1 (next video)
+          // Queue: [Playing, Next, ...]
+          // New Queue: [Playing, Action, Next, ...]
+          setVideoQueue(prev => {
+              const playing = prev[0];
+              const rest = prev.slice(1);
+              const newQueue = [playing, actionUrl, ...rest];
+              return newQueue;
+          });
+          
+          // Immediately force VideoPlayer to preload this new action
+          setCurrentVideoSrc(actionUrl);
+          setCurrentActionId(actionId);
+      }
+  };
+
   const triggerIdleAction = useCallback(() => {
     if (!selectedCharacter) return;
     if (selectedCharacter.actions.length === 0) return;
-    if (!idleVideoUrl) return;
-    if (currentVideoUrl && currentVideoUrl !== idleVideoUrl) return;
-
+    
     const nonGreetingActions = getNonGreetingActions(selectedCharacter.actions);
     if (nonGreetingActions.length === 0) return;
 
     const action: CharacterAction = randomFromArray(nonGreetingActions);
-
+    
+    // Ensure we have the URL
     let actionUrl = actionVideoUrls[action.id] ?? null;
     if (!actionUrl && action.videoPath) {
       const { data } = supabase.storage
@@ -353,18 +396,26 @@ const App: React.FC = () => {
         .getPublicUrl(action.videoPath);
       actionUrl = data?.publicUrl ?? null;
     }
-
-    if (!actionUrl) {
-      return;
+    
+    if (actionUrl) {
+        // If we fetched a public URL, we should cache/track it? 
+        // For now, assume actionVideoUrls has it or we rely on public URL.
+        // If it's not in actionVideoUrls map, we might need to update map, but strict logic uses map.
+        // Let's use actionUrl directly for the queue.
+        
+        // Insert into queue
+        setVideoQueue(prev => {
+             const playing = prev[0];
+             const rest = prev.slice(1);
+             return [playing, actionUrl!, ...rest];
+        });
+        setCurrentVideoSrc(actionUrl);
+        setCurrentActionId(action.id);
+        setLastInteractionAt(Date.now());
     }
 
-    setCurrentVideoUrl(actionUrl);
-    setCurrentActionId(action.id);
-    setLastInteractionAt(Date.now());
   }, [
     selectedCharacter,
-    idleVideoUrl,
-    currentVideoUrl,
     actionVideoUrls,
   ]);
 
@@ -380,10 +431,11 @@ const App: React.FC = () => {
 
     if (!selectedCharacter) return;
     if (selectedCharacter.actions.length === 0) return;
-    if (!idleVideoUrl) return;
-    if (!currentVideoUrl) return;
-    if (currentVideoUrl !== idleVideoUrl) return;
     if (isProcessingAction) return;
+    // Don't schedule if we are already playing an action?
+    // We can check if current video is an idle video.
+    // With queue, it's harder to know if queue[0] is idle or action unless we track it.
+    // For now, simple random schedule.
 
     const delay =
       Math.floor(
@@ -397,8 +449,6 @@ const App: React.FC = () => {
   }, [
     clearIdleActionTimer,
     selectedCharacter,
-    idleVideoUrl,
-    currentVideoUrl,
     isProcessingAction,
     triggerIdleAction,
   ]);
@@ -527,7 +577,7 @@ const App: React.FC = () => {
         id: imageHash,
         createdAt: Date.now(),
         image,
-        idleVideo: idleVideoBlob,
+        idleVideos: [idleVideoBlob], // Initialize with array
         actions: [],
         name: 'Kayley Adams',
         displayName: 'Kayley',
@@ -544,17 +594,22 @@ const App: React.FC = () => {
   };
 
   const handleCreateAction = async (input: { name: string; phrases: string[]; videoFile: File }) => {
-    if (!selectedCharacter) return;
+    const character = characterForActionManagement || selectedCharacter;
+    if (!character) return;
+    
+    console.log(`🎬 Creating action "${input.name}" for ${character.displayName}`);
+    
     registerInteraction();
     setIsCreatingAction(true);
     try {
-      const metadata = await dbService.createCharacterAction(selectedCharacter.id, {
+      const metadata = await dbService.createCharacterAction(character.id, {
         name: input.name,
         phrases: input.phrases,
         video: input.videoFile,
       });
       
-      // Optimistic update
+      console.log(`✅ Created action with ID: ${metadata.id}`);
+      
       const newAction = {
         id: metadata.id,
         name: metadata.name,
@@ -564,43 +619,122 @@ const App: React.FC = () => {
         sortOrder: metadata.sortOrder ?? null,
       };
       
-      applyCharacterUpdate(selectedCharacter.id, char => ({
-          ...char, actions: [...char.actions, newAction]
-      }));
-      setActionVideoUrls(prev => ({ ...prev, [metadata.id]: URL.createObjectURL(input.videoFile) }));
+      // Update global character list
+      applyCharacterUpdate(character.id, char => {
+        console.log(`  Updating character: adding action to ${char.actions.length} existing actions`);
+        return {
+          ...char, 
+          actions: [...char.actions, newAction]
+        };
+      });
+      
+      // Create URL for immediate preview
+      const newUrl = URL.createObjectURL(input.videoFile);
+      setActionVideoUrls(prev => ({ ...prev, [metadata.id]: newUrl }));
+      console.log(`  Created URL for action video`);
+      
+      // Update the management character state if we're in management view
+      if (characterForActionManagement) {
+        setCharacterForActionManagement(prev => {
+          if (!prev) return prev;
+          const updated = {
+            ...prev,
+            actions: [...prev.actions, newAction]
+          };
+          console.log(`  Updated management character: ${prev.actions.length} -> ${updated.actions.length} actions`);
+          return updated;
+        });
+      }
 
     } catch (error) {
       reportError('Failed to create action.', error);
+      console.error('Action creation error:', error);
     } finally {
       setIsCreatingAction(false);
     }
   };
 
   const handleUpdateAction = async (actionId: string, input: any) => {
-    if (!selectedCharacter) return;
+    const character = characterForActionManagement || selectedCharacter;
+    if (!character) return;
+    
+    console.log(`✏️ Updating action "${actionId}" for ${character.displayName}`);
+    
     setUpdatingActionId(actionId);
     try {
-        const metadata = await dbService.updateCharacterAction(selectedCharacter.id, actionId, input);
-        applyCharacterUpdate(selectedCharacter.id, char => ({
+        const metadata = await dbService.updateCharacterAction(character.id, actionId, input);
+        console.log(`✅ Updated action metadata`);
+        
+        // Update global character list
+        applyCharacterUpdate(character.id, char => ({
             ...char, 
             actions: char.actions.map(a => a.id === actionId ? { ...a, ...metadata, video: input.videoFile || a.video } : a)
         }));
+        
+        // Update URL if new video provided
         if(input.videoFile) {
-            setActionVideoUrls(prev => ({...prev, [actionId]: URL.createObjectURL(input.videoFile)}));
+            const newUrl = URL.createObjectURL(input.videoFile);
+            setActionVideoUrls(prev => ({...prev, [actionId]: newUrl}));
+            console.log(`  Created new URL for updated video`);
         }
-    } catch (e) { reportError('Failed to update', e); } 
+        
+        // Update the management character state if we're in management view
+        if (characterForActionManagement) {
+          setCharacterForActionManagement(prev => {
+            if (!prev) return prev;
+            return {
+              ...prev,
+              actions: prev.actions.map(a => a.id === actionId ? { ...a, ...metadata, video: input.videoFile || a.video } : a)
+            };
+          });
+          console.log(`  Updated management character`);
+        }
+    } catch (e) { 
+      reportError('Failed to update', e);
+      console.error('Action update error:', e);
+    } 
     finally { setUpdatingActionId(null); }
   };
 
   const handleDeleteAction = async (actionId: string) => {
-    if (!selectedCharacter) return;
+    const character = characterForActionManagement || selectedCharacter;
+    if (!character) return;
+    
+    console.log(`🗑️ Deleting action "${actionId}" for ${character.displayName}`);
+    
     setDeletingActionId(actionId);
     try {
-        await dbService.deleteCharacterAction(selectedCharacter.id, actionId);
-        applyCharacterUpdate(selectedCharacter.id, char => ({
+        await dbService.deleteCharacterAction(character.id, actionId);
+        console.log(`✅ Deleted action from database`);
+        
+        // Update global character list
+        applyCharacterUpdate(character.id, char => ({
             ...char, actions: char.actions.filter(a => a.id !== actionId)
         }));
-    } catch(e) { reportError('Failed to delete', e); }
+        
+        // Revoke URL
+        const urlToRevoke = actionVideoUrls[actionId];
+        if (urlToRevoke) {
+          URL.revokeObjectURL(urlToRevoke);
+          console.log(`  Revoked URL for action`);
+        }
+        
+        // Update the management character state if we're in management view
+        if (characterForActionManagement) {
+          setCharacterForActionManagement(prev => {
+            if (!prev) return prev;
+            const updated = {
+              ...prev,
+              actions: prev.actions.filter(a => a.id !== actionId)
+            };
+            console.log(`  Updated management character: ${prev.actions.length} -> ${updated.actions.length} actions`);
+            return updated;
+          });
+        }
+    } catch(e) { 
+      reportError('Failed to delete', e);
+      console.error('Action delete error:', e);
+    }
     finally { setDeletingActionId(null); }
   };
 
@@ -628,24 +762,181 @@ const App: React.FC = () => {
     setView('manageActions');
   };
 
+  const handleManageIdleVideos = (character: CharacterProfile) => {
+    registerInteraction();
+    
+    console.log(`🎬 Opening idle video manager for ${character.displayName}`);
+    console.log(`  Character has ${character.idleVideos.length} idle videos`);
+    console.log(`  Current idleVideoUrls length: ${idleVideoUrls.length}`);
+    
+    // Create URLs for idle videos if they don't exist
+    const newIdleUrls = character.idleVideos.map((blob, index) => {
+      const existingUrl = idleVideoUrls[index];
+      if (existingUrl) {
+        console.log(`  Using existing URL for video ${index}`);
+        return existingUrl;
+      } else {
+        const newUrl = URL.createObjectURL(blob);
+        console.log(`  Created new URL for video ${index}`);
+        return newUrl;
+      }
+    });
+    
+    console.log(`  Total URLs created: ${newIdleUrls.length}`);
+    setIdleVideoUrls(newIdleUrls);
+    setCharacterForIdleVideoManagement(character);
+    setView('manageIdleVideos');
+  };
+
+  const handleAddIdleVideo = async (videoFile: File) => {
+    if (!characterForIdleVideoManagement) return;
+    setIsAddingIdleVideo(true);
+    try {
+      const videoId = await dbService.addIdleVideo(characterForIdleVideoManagement.id, videoFile);
+      
+      console.log(`✅ Added idle video with ID: ${videoId}`);
+      
+      // Convert File to Blob (File extends Blob, so this is safe)
+      const videoBlob: Blob = videoFile;
+      
+      // Update character with new video
+      applyCharacterUpdate(characterForIdleVideoManagement.id, char => {
+        console.log(`  Updating character: adding video to ${char.idleVideos.length} existing videos`);
+        return {
+          ...char,
+          idleVideos: [...char.idleVideos, videoBlob]
+        };
+      });
+      
+      // Create URL for immediate preview
+      const newUrl = URL.createObjectURL(videoFile);
+      console.log(`  Created new URL for immediate display`);
+      
+      // Add to idle video URLs
+      setIdleVideoUrls(prev => {
+        const updated = [...prev, newUrl];
+        console.log(`  Updated idleVideoUrls from ${prev.length} to ${updated.length}`);
+        return updated;
+      });
+      
+      // Update the management character state to reflect the new video
+      setCharacterForIdleVideoManagement(prev => {
+        if (!prev) return prev;
+        const updated = {
+          ...prev,
+          idleVideos: [...prev.idleVideos, videoBlob]
+        };
+        console.log(`  Updated management character: ${prev.idleVideos.length} -> ${updated.idleVideos.length} videos`);
+        return updated;
+      });
+      
+    } catch (error) {
+      reportError('Failed to add idle video.', error);
+    } finally {
+      setIsAddingIdleVideo(false);
+    }
+  };
+
+  const handleDeleteIdleVideo = async (videoId: string) => {
+    if (!characterForIdleVideoManagement) return;
+    
+    // Extract index from ID (format: "idle-{index}")
+    const index = parseInt(videoId.split('-')[1]);
+    if (isNaN(index)) return;
+    
+    console.log(`🗑️ Deleting idle video at index ${index}`);
+    
+    setDeletingIdleVideoId(videoId);
+    try {
+      // Get the actual database ID from the character's idle videos
+      const idleVideosList = await dbService.getIdleVideos(characterForIdleVideoManagement.id);
+      console.log(`  Found ${idleVideosList.length} videos in database`);
+      
+      if (idleVideosList[index]) {
+        await dbService.deleteIdleVideo(characterForIdleVideoManagement.id, idleVideosList[index].id);
+        console.log(`  ✅ Deleted from database: ${idleVideosList[index].path}`);
+        
+        // Update character by removing the video at this index
+        applyCharacterUpdate(characterForIdleVideoManagement.id, char => {
+          console.log(`  Updating character: removing video ${index} from ${char.idleVideos.length} videos`);
+          return {
+            ...char,
+            idleVideos: char.idleVideos.filter((_, i) => i !== index)
+          };
+        });
+        
+        // Update URLs
+        const urlToRevoke = idleVideoUrls[index];
+        if (urlToRevoke) {
+          URL.revokeObjectURL(urlToRevoke);
+          console.log(`  Revoked URL for video ${index}`);
+        }
+        setIdleVideoUrls(prev => {
+          const updated = prev.filter((_, i) => i !== index);
+          console.log(`  Updated idleVideoUrls from ${prev.length} to ${updated.length}`);
+          return updated;
+        });
+        
+        // Update the management character state
+        setCharacterForIdleVideoManagement(prev => {
+          if (!prev) return prev;
+          const updated = {
+            ...prev,
+            idleVideos: prev.idleVideos.filter((_, i) => i !== index)
+          };
+          console.log(`  Updated management character: ${prev.idleVideos.length} -> ${updated.idleVideos.length} videos`);
+          return updated;
+        });
+      }
+    } catch (error) {
+      reportError('Failed to delete idle video.', error);
+    } finally {
+      setDeletingIdleVideoId(null);
+    }
+  };
+
   const handleSelectCharacter = async (character: CharacterProfile) => {
     setErrorMessage(null);
     setIsLoadingCharacter(true);
     registerInteraction();
 
-    if (idleVideoUrl) URL.revokeObjectURL(idleVideoUrl);
+    // Cleanup old URLs
+    idleVideoUrls.forEach(url => URL.revokeObjectURL(url));
     cleanupActionUrls(actionVideoUrls);
 
-    const newIdleVideoUrl = URL.createObjectURL(character.idleVideo);
+    // Create new URLs
+    const newIdleVideoUrls = character.idleVideos.map(blob => URL.createObjectURL(blob));
     const newActionUrls = character.actions.reduce((map, action) => {
       map[action.id] = URL.createObjectURL(action.video);
       return map;
     }, {} as Record<string, string>);
 
-    setSelectedCharacter(character);
-    setIdleVideoUrl(newIdleVideoUrl);
+    setIdleVideoUrls(newIdleVideoUrls);
     setActionVideoUrls(newActionUrls);
-    setCurrentVideoUrl(newIdleVideoUrl);
+    setSelectedCharacter(character);
+
+    // Initialize Queue
+    // Add idle videos (shuffled)
+    let initialQueue = shuffleArray([...newIdleVideoUrls]);
+    if (initialQueue.length === 0) initialQueue = []; // Should not happen if character valid
+    
+    // Ensure we have enough items in queue
+    while (initialQueue.length < 5 && newIdleVideoUrls.length > 0) {
+        initialQueue = [...initialQueue, ...shuffleArray(newIdleVideoUrls)];
+    }
+
+    console.log(`🎬 Initializing video queue with ${initialQueue.length} videos`);
+    
+    // Set queue first
+    setVideoQueue(initialQueue);
+    
+    // Set the FIRST video as current (it will start playing)
+    if (initialQueue.length > 0) {
+        setCurrentVideoSrc(initialQueue[0]);
+        console.log(`  Set initial video (index 0)`);
+    }
+    
+    // The useEffect will handle preloading index 1 when queue updates
     setCurrentActionId(null);
     
     try {
@@ -668,8 +959,7 @@ const App: React.FC = () => {
 
         if (greeting.action_id && newActionUrls[greeting.action_id]) {
             setTimeout(() => {
-                setCurrentVideoUrl(newActionUrls[greeting.action_id]);
-                setCurrentActionId(greeting.action_id);
+                playAction(greeting.action_id!);
             }, 100);
         }
         setLastSavedMessageIndex(savedHistory.length - 1);
@@ -695,9 +985,12 @@ const App: React.FC = () => {
   };
 
   const handleBackToSelection = async () => {
+    idleVideoUrls.forEach(url => URL.revokeObjectURL(url));
+    setIdleVideoUrls([]);
+    setVideoQueue([]);
+    setCurrentVideoSrc(null);
+    
     setSelectedCharacter(null);
-    setIdleVideoUrl(null);
-    setCurrentVideoUrl(null);
     setChatHistory([]);
     setAiSession(null);
     setResponseAudioSrc(null);
@@ -721,7 +1014,6 @@ const App: React.FC = () => {
 
       const sessionToUse: AIChatSession = aiSession || { userId, characterId: selectedCharacter.id };
       
-      // Send Text -> Get Text (and optionally Audio if configured in service)
       const { response, session: updatedSession, audioData } = await activeService.generateResponse(
         { type: 'text', text: message }, 
         {
@@ -742,14 +1034,12 @@ const App: React.FC = () => {
       );
       setLastSavedMessageIndex(updatedHistory.length);
 
-      // Play Audio (if generated for text inputs)
       if (!isMuted && audioData) {
           setResponseAudioSrc(audioData);
       }
 
-      if (response.action_id && actionVideoUrls[response.action_id]) {
-           setCurrentVideoUrl(actionVideoUrls[response.action_id]);
-           setCurrentActionId(response.action_id);
+      if (response.action_id) {
+           playAction(response.action_id);
       }
 
     } catch (error) {
@@ -761,18 +1051,52 @@ const App: React.FC = () => {
   };
   
   const handleVideoEnd = () => {
-    if (currentVideoUrl !== idleVideoUrl && idleVideoUrl) {
-      setCurrentVideoUrl(idleVideoUrl);
-      setCurrentActionId(null);
-    }
+    console.log('📹 Video ended in App');
+    console.log(`  Current queue length: ${videoQueue.length}`);
+    console.log(`  Current queue: [${videoQueue.map((_, i) => i).join(', ')}]`);
+    
+    // Shift the queue - remove the video that just finished
+    setVideoQueue(prev => {
+        const newQueue = prev.slice(1);
+        console.log(`  New queue length after shift: ${newQueue.length}`);
+        
+        // Replenish if low
+        if (newQueue.length < 3 && idleVideoUrls.length > 0) {
+            const replenished = [...newQueue, ...shuffleArray(idleVideoUrls)];
+            console.log(`  Replenished queue to length: ${replenished.length}`);
+            return replenished;
+        }
+        return newQueue;
+    });
+    
+    // The useEffect will handle updating currentVideoSrc to videoQueue[1]
+    // when the queue state updates
+    
+    setCurrentActionId(null);
   };
+
+  // Queue Manager Effect - Updates video source when queue changes
+  useEffect(() => {
+      if (videoQueue.length > 1) {
+          // Always preload the NEXT video (index 1)
+          // Index 0 is currently playing.
+          const nextSrc = videoQueue[1];
+          console.log(`🎯 Queue changed, preloading next video (index 1 of ${videoQueue.length})`);
+          setCurrentVideoSrc(nextSrc);
+      } else if (videoQueue.length === 1) {
+          // Only one video left, set it as current
+          console.log(`🎯 Only 1 video in queue, setting as current`);
+          setCurrentVideoSrc(videoQueue[0]);
+      } else {
+          console.log(`⚠️ Queue is empty!`);
+      }
+  }, [videoQueue]);
 
   // Show login if not authenticated
   if (!session || authStatus !== 'connected') {
     return <LoginPage />;
   }
 
-  // BUG FIX #3: Updated classes for full screen with no growth (h-screen + overflow-hidden)
   return (
     <div className="bg-gray-900 text-gray-100 h-screen overflow-hidden flex flex-col p-4 md:p-8">
       {/* Audio Player (Hidden) */}
@@ -792,7 +1116,6 @@ const App: React.FC = () => {
         </div>
       </header>
       
-      {/* BUG FIX #3: Added min-h-0 to allow flex child (ChatPanel) to scroll internally */}
       <main className="flex-grow min-h-0 bg-gray-800/50 rounded-2xl p-4 md:p-6 shadow-2xl shadow-black/30 backdrop-blur-sm border border-gray-700">
         {errorMessage && <div className="bg-red-500/20 border border-red-500 text-red-300 p-3 rounded-lg mb-4 text-center">{errorMessage}</div>}
         
@@ -805,6 +1128,7 @@ const App: React.FC = () => {
                 onCreateNew={() => setView('createCharacter')}
                 onDeleteCharacter={handleDeleteCharacter}
                 onManageActions={handleManageActions}
+                onManageIdleVideos={handleManageIdleVideos}
                 isLoading={isLoadingCharacter}
             />
         )}
@@ -833,6 +1157,21 @@ const App: React.FC = () => {
                 isCreating={isCreatingAction}
                 updatingActionId={updatingActionId}
                 deletingActionId={deletingActionId}
+            />
+        )}
+
+        {view === 'manageIdleVideos' && characterForIdleVideoManagement && (
+            <IdleVideoManagementView
+                character={characterForIdleVideoManagement}
+                idleVideos={managedIdleVideos}
+                onAddIdleVideo={handleAddIdleVideo}
+                onDeleteIdleVideo={handleDeleteIdleVideo}
+                onBack={() => {
+                    setCharacterForIdleVideoManagement(null);
+                    setView('selectCharacter');
+                }}
+                isAdding={isAddingIdleVideo}
+                deletingVideoId={deletingIdleVideoId}
             />
         )}
 
@@ -873,9 +1212,9 @@ const App: React.FC = () => {
                         {isMuted ? "🔇" : "🔊"}
                      </button>
                      <VideoPlayer 
-                       src={currentVideoUrl}
+                       src={currentVideoSrc}
                        onEnded={handleVideoEnd}
-                       loop={currentVideoUrl === idleVideoUrl}
+                       loop={false} // Queue system handles looping/playback
                        muted={isMuted}
                      />
                   </div>

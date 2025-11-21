@@ -2,6 +2,7 @@ import { CharacterAction, CharacterProfile } from '../types';
 import { supabase } from './supabaseClient';
 
 const CHARACTERS_TABLE = 'characters';
+const IDLE_VIDEOS_TABLE = 'character_idle_videos';
 const IDLE_VIDEO_BUCKET = 'character-videos';
 const VIDEO_CACHE_BUCKET = 'video-cache';
 const ACTIONS_TABLE = 'character_actions';
@@ -12,7 +13,12 @@ interface CharacterRow {
   image_base64: string;
   image_mime_type: string;
   image_file_name?: string | null;
-  idle_video_path: string;
+}
+
+interface CharacterIdleVideoRow {
+  id: string;
+  character_id: string;
+  video_path: string;
 }
 
 interface CharacterActionRow {
@@ -139,6 +145,47 @@ const downloadIdleVideo = async (path: string): Promise<Blob | null> => {
   }
 };
 
+const downloadIdleVideos = async (characterId: string): Promise<Blob[]> => {
+  // Query the character_idle_videos table for all videos associated with this character
+  const { data, error } = await supabase
+    .from(IDLE_VIDEOS_TABLE)
+    .select('id, video_path')
+    .eq('character_id', characterId)
+    .order('video_path', { ascending: true }); // Sort by path to maintain consistent order
+  
+  if (error) {
+      console.error(`Failed to fetch idle videos for character ${characterId}:`, error);
+      return [];
+  }
+  
+  if (!data || data.length === 0) {
+      console.warn(`No idle videos found for character ${characterId}`);
+      return [];
+  }
+  
+  const rows = data as CharacterIdleVideoRow[];
+  
+  console.log(`📹 Loading ${rows.length} idle videos for character ${characterId}`);
+  
+  // Download all videos
+  const downloads = await Promise.all(
+    rows.map(async (row, index) => {
+      const blob = await downloadIdleVideo(row.video_path);
+      if (blob) {
+        console.log(`  ✅ Loaded idle video ${index + 1}/${rows.length}: ${row.video_path}`);
+      } else {
+        console.warn(`  ❌ Failed to load idle video: ${row.video_path}`);
+      }
+      return blob;
+    })
+  );
+  
+  const validBlobs = downloads.filter((b): b is Blob => b !== null);
+  console.log(`✅ Successfully loaded ${validBlobs.length}/${rows.length} idle videos`);
+  
+  return validBlobs;
+};
+
 const downloadActionVideo = async (path: string): Promise<Blob | null> => {
   const { data, error } = await supabase.storage
     .from(ACTION_VIDEO_BUCKET)
@@ -243,17 +290,12 @@ export const getCharacterActions = async (
 };
 
 const buildCharacterProfile = async (row: CharacterRow): Promise<CharacterProfile | null> => {
-  if (!row.idle_video_path) {
-    console.warn(`Character "${row.id}" is missing idle video path.`);
-    return null;
-  }
-
-  const idleVideoBlob = await downloadIdleVideo(row.idle_video_path);
-  if (!idleVideoBlob) {
+  const idleVideos = await downloadIdleVideos(row.id);
+  
+  if (idleVideos.length === 0) {
     console.warn(
-      `Character "${row.id}" idle video could not be retrieved from path "${row.idle_video_path}". ` +
-      `This might be due to: 1) File doesn't exist at that path, 2) Incorrect path format, 3) Storage permissions issue. ` +
-      `Character will be skipped. Check Supabase storage bucket "${IDLE_VIDEO_BUCKET}" for the correct path.`
+      `Character "${row.id}" has no idle videos. ` +
+      `Character will be skipped.`
     );
     return null;
   }
@@ -282,20 +324,47 @@ const buildCharacterProfile = async (row: CharacterRow): Promise<CharacterProfil
       base64: row.image_base64,
       mimeType: row.image_mime_type,
     },
-    idleVideo: idleVideoBlob,
+    idleVideos,
     actions,
     name: 'Kayley Adams',
     displayName: 'Kayley',
   };
 };
 
-const removeIdleVideo = async (path: string): Promise<void> => {
-  if (!path) return;
-  const { error } = await supabase.storage
-    .from(IDLE_VIDEO_BUCKET)
-    .remove([path]);
+const removeIdleVideos = async (characterId: string): Promise<void> => {
+  // Get all idle video paths from the database
+  const { data, error } = await supabase
+    .from(IDLE_VIDEOS_TABLE)
+    .select('video_path')
+    .eq('character_id', characterId);
+    
   if (error) {
-    console.error(`Failed to remove idle video at path "${path}":`, error);
+      console.error(`Failed to fetch idle videos for removal for ${characterId}:`, error);
+      return;
+  }
+  
+  if (data && data.length > 0) {
+      const rows = data as CharacterIdleVideoRow[];
+      const paths = rows.map(row => row.video_path);
+      
+      // Remove from storage
+      const { error: removeError } = await supabase.storage
+        .from(IDLE_VIDEO_BUCKET)
+        .remove(paths);
+        
+      if (removeError) {
+          console.error(`Failed to remove idle videos:`, removeError);
+      }
+      
+      // Remove from database
+      const { error: deleteError } = await supabase
+        .from(IDLE_VIDEOS_TABLE)
+        .delete()
+        .eq('character_id', characterId);
+        
+      if (deleteError) {
+          console.error(`Failed to delete idle video records:`, deleteError);
+      }
   }
 };
 
@@ -329,22 +398,12 @@ export const getCharacters = async (): Promise<CharacterProfile[]> => {
 export const saveCharacter = async (
   character: CharacterProfile
 ): Promise<void> => {
-  const videoExtension = extensionFromMimeType(character.idleVideo.type, 'webm');
-  const idleVideoPath = `${character.id}/idle-video.${videoExtension}`;
-
-  const { error: uploadError } = await supabase.storage
-    .from(IDLE_VIDEO_BUCKET)
-    .upload(idleVideoPath, character.idleVideo, {
-      upsert: true,
-      contentType: character.idleVideo.type || 'video/webm',
-    });
-
-  if (uploadError) {
-    console.error('Failed to upload idle video to Supabase:', uploadError);
-    throw uploadError;
+  if (!character.idleVideos || character.idleVideos.length === 0) {
+      throw new Error("No idle videos provided for character.");
   }
 
-  const { error } = await supabase
+  // First, save the character metadata (without idle_video_path)
+  const { error: characterError } = await supabase
     .from(CHARACTERS_TABLE)
     .upsert(
       {
@@ -352,32 +411,50 @@ export const saveCharacter = async (
         image_base64: character.image.base64,
         image_mime_type: character.image.mimeType,
         image_file_name: character.image.file?.name ?? null,
-        idle_video_path: idleVideoPath,
       }
     );
 
-  if (error) {
-    console.error('Failed to save character metadata to Supabase:', error);
-    throw error;
+  if (characterError) {
+    console.error('Failed to save character metadata to Supabase:', characterError);
+    throw characterError;
   }
+
+  // Upload all idle videos and create database entries
+  await Promise.all(character.idleVideos.map(async (video, idx) => {
+    const ext = extensionFromMimeType(video.type, 'webm');
+    const path = `${character.id}/idle-video-${idx}.${ext}`;
+    
+    // Upload to storage
+    const { error: uploadError } = await supabase.storage
+      .from(IDLE_VIDEO_BUCKET)
+      .upload(path, video, {
+        upsert: true,
+        contentType: video.type || 'video/webm',
+      });
+
+    if (uploadError) {
+      console.error(`Failed to upload idle video ${idx}:`, uploadError);
+      throw uploadError;
+    }
+    
+    // Create database entry
+    const { error: dbError } = await supabase
+      .from(IDLE_VIDEOS_TABLE)
+      .upsert({
+        character_id: character.id,
+        video_path: path,
+      });
+      
+    if (dbError) {
+      console.error(`Failed to save idle video ${idx} to database:`, dbError);
+      throw dbError;
+    }
+  }));
 };
 
 export const deleteCharacter = async (id: string): Promise<void> => {
-  const { data, error: selectError } = await supabase
-    .from(CHARACTERS_TABLE)
-    .select('idle_video_path')
-    .eq('id', id)
-    .single();
-
-  if (selectError && selectError.code !== 'PGRST116') {
-    console.error('Failed to look up character before deletion:', selectError);
-  }
-
-  const row = data as { idle_video_path: string | null } | null;
-
-  if (row?.idle_video_path) {
-    await removeIdleVideo(row.idle_video_path);
-  }
+  // Remove all idle videos for this character (handles both storage and DB)
+  await removeIdleVideos(id);
 
   const { data: actionRows, error: actionSelectError } = await supabase
     .from(ACTIONS_TABLE)
@@ -714,4 +791,117 @@ export const setVideoCache = async (
       }
     })
   );
+};
+
+// Idle Video Management Functions
+export const addIdleVideo = async (
+  characterId: string,
+  videoBlob: Blob
+): Promise<string> => {
+  // Get existing idle videos count to generate unique filename
+  const { data, error: countError } = await supabase
+    .from(IDLE_VIDEOS_TABLE)
+    .select('id')
+    .eq('character_id', characterId);
+    
+  if (countError) {
+    console.error('Failed to count existing idle videos:', countError);
+    throw countError;
+  }
+  
+  const count = data?.length ?? 0;
+  const extension = extensionFromMimeType(videoBlob.type, 'webm');
+  const path = `${characterId}/idle-video-${count}.${extension}`;
+  
+  // Upload to storage
+  const { error: uploadError } = await supabase.storage
+    .from(IDLE_VIDEO_BUCKET)
+    .upload(path, videoBlob, {
+      upsert: true,
+      contentType: videoBlob.type || 'video/webm',
+    });
+
+  if (uploadError) {
+    console.error('Failed to upload idle video:', uploadError);
+    throw uploadError;
+  }
+  
+  // Create database entry
+  const { data: insertData, error: dbError } = await supabase
+    .from(IDLE_VIDEOS_TABLE)
+    .insert({
+      character_id: characterId,
+      video_path: path,
+    })
+    .select('id')
+    .single();
+    
+  if (dbError) {
+    console.error('Failed to save idle video to database:', dbError);
+    // Try to clean up uploaded file
+    await supabase.storage.from(IDLE_VIDEO_BUCKET).remove([path]);
+    throw dbError;
+  }
+  
+  return insertData.id;
+};
+
+export const deleteIdleVideo = async (
+  characterId: string,
+  videoId: string
+): Promise<void> => {
+  // Get the video path
+  const { data, error: selectError } = await supabase
+    .from(IDLE_VIDEOS_TABLE)
+    .select('video_path')
+    .eq('id', videoId)
+    .eq('character_id', characterId)
+    .single();
+    
+  if (selectError) {
+    console.error('Failed to find idle video:', selectError);
+    throw selectError;
+  }
+  
+  const row = data as CharacterIdleVideoRow | null;
+  
+  if (!row) {
+    throw new Error(`Idle video ${videoId} not found for character ${characterId}`);
+  }
+  
+  // Delete from storage
+  const { error: storageError } = await supabase.storage
+    .from(IDLE_VIDEO_BUCKET)
+    .remove([row.video_path]);
+    
+  if (storageError) {
+    console.error('Failed to delete idle video from storage:', storageError);
+    throw storageError;
+  }
+  
+  // Delete from database
+  const { error: dbError } = await supabase
+    .from(IDLE_VIDEOS_TABLE)
+    .delete()
+    .eq('id', videoId);
+    
+  if (dbError) {
+    console.error('Failed to delete idle video from database:', dbError);
+    throw dbError;
+  }
+};
+
+export const getIdleVideos = async (characterId: string): Promise<Array<{ id: string; path: string }>> => {
+  const { data, error } = await supabase
+    .from(IDLE_VIDEOS_TABLE)
+    .select('id, video_path')
+    .eq('character_id', characterId)
+    .order('video_path', { ascending: true }); // Maintain consistent order
+    
+  if (error) {
+    console.error('Failed to fetch idle videos:', error);
+    throw error;
+  }
+  
+  return (data || []).map(row => ({ id: row.id, path: row.video_path }));
 };
