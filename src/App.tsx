@@ -106,14 +106,30 @@ const App: React.FC = () => {
   const [selectedCharacter, setSelectedCharacter] =
     useState<CharacterProfile | null>(null);
   
-  // New Video State Logic
+  // Video Playback Architecture
+  // ===========================
+  // We use a queue-based system: [currentlyPlaying, next, future...]
+  // - idleVideoUrls: Blob URLs created from downloaded videos (memory trade-off)
+  // - videoQueue: Ordered list of video sources (URLs) to play
+  // - currentVideoSrc: Derived from videoQueue[0] (currently playing)
+  // - nextVideoSrc: Derived from videoQueue[1] (preloading in background)
+  // 
+  // This architecture enables:
+  // 1. Seamless transitions with double-buffered video players
+  // 2. Action video injection at queue[1] without interrupting current playback
+  // 3. Zero-latency source updates (no useEffect delays)
   const [idleVideoUrls, setIdleVideoUrls] = useState<string[]>([]);
   const [videoQueue, setVideoQueue] = useState<string[]>([]);
-  const [currentVideoSrc, setCurrentVideoSrc] = useState<string | null>(null);
+  // Derived state - no separate currentVideoSrc needed!
+  const currentVideoSrc = videoQueue[0] || null;
+  const nextVideoSrc = videoQueue[1] || null;
 
   const [actionVideoUrls, setActionVideoUrls] = useState<Record<string, string>>(
     {}
   );
+  // Audio queue to prevent overlapping responses
+  const [audioQueue, setAudioQueue] = useState<string[]>([]);
+  const [currentAudioSrc, setCurrentAudioSrc] = useState<string | null>(null);
   const [responseAudioSrc, setResponseAudioSrc] = useState<string | null>(null);
   const [uploadedImage, setUploadedImage] = useState<UploadedImage | null>(null);
   const [chatHistory, setChatHistory] = useState<ChatMessage[]>([]);
@@ -206,7 +222,7 @@ const App: React.FC = () => {
               });
 
               if (!isMuted && audioData) {
-                setResponseAudioSrc(audioData);
+                enqueueAudio(audioData);
               }
 
               // Handle Action Video
@@ -359,22 +375,17 @@ const App: React.FC = () => {
     });
   }, [characterForIdleVideoManagement, selectedCharacter, idleVideoUrls]);
 
-  // New helper to insert action into queue
+  // Insert action video into queue at position 1 (next to play)
   const playAction = (actionId: string) => {
       const actionUrl = actionVideoUrls[actionId];
       if (actionUrl) {
-          // We insert the action at index 1 (next video)
-          // Queue: [Playing, Next, ...]
-          // New Queue: [Playing, Action, Next, ...]
+          // Insert action at index 1 (will play after current video ends)
+          // Queue: [Playing, Next, ...] -> [Playing, Action, Next, ...]
           setVideoQueue(prev => {
               const playing = prev[0];
               const rest = prev.slice(1);
-              const newQueue = [playing, actionUrl, ...rest];
-              return newQueue;
+              return [playing, actionUrl, ...rest];
           });
-          
-          // Immediately force VideoPlayer to preload this new action
-          setCurrentVideoSrc(actionUrl);
           setCurrentActionId(actionId);
       }
   };
@@ -398,18 +409,12 @@ const App: React.FC = () => {
     }
     
     if (actionUrl) {
-        // If we fetched a public URL, we should cache/track it? 
-        // For now, assume actionVideoUrls has it or we rely on public URL.
-        // If it's not in actionVideoUrls map, we might need to update map, but strict logic uses map.
-        // Let's use actionUrl directly for the queue.
-        
-        // Insert into queue
+        // Insert action at index 1 (next to play)
         setVideoQueue(prev => {
              const playing = prev[0];
              const rest = prev.slice(1);
              return [playing, actionUrl!, ...rest];
         });
-        setCurrentVideoSrc(actionUrl);
         setCurrentActionId(action.id);
         setLastInteractionAt(Date.now());
     }
@@ -452,6 +457,30 @@ const App: React.FC = () => {
     isProcessingAction,
     triggerIdleAction,
   ]);
+
+  // Audio Queue Management - prevents overlapping audio responses
+  useEffect(() => {
+    // If audio queue has items and nothing is playing, start playing
+    if (audioQueue.length > 0 && !currentAudioSrc) {
+      const nextAudio = audioQueue[0];
+      setCurrentAudioSrc(nextAudio);
+      setResponseAudioSrc(nextAudio);
+    }
+  }, [audioQueue, currentAudioSrc]);
+
+  // Handle audio completion - move to next in queue
+  const handleAudioEnd = useCallback(() => {
+    setCurrentAudioSrc(null);
+    setResponseAudioSrc(null);
+    
+    // Remove completed audio from queue
+    setAudioQueue(prev => prev.slice(1));
+  }, []);
+
+  // Helper to enqueue audio
+  const enqueueAudio = useCallback((audioData: string) => {
+    setAudioQueue(prev => [...prev, audioData]);
+  }, []);
 
   // Gmail Integration Hooks
   useEffect(() => {
@@ -908,28 +937,16 @@ const App: React.FC = () => {
     setActionVideoUrls(newActionUrls);
     setSelectedCharacter(character);
 
-    // Initialize Queue
-    // Add idle videos (shuffled)
+    // Initialize Queue with shuffled idle videos
     let initialQueue = shuffleArray([...newIdleVideoUrls]);
-    if (initialQueue.length === 0) initialQueue = []; // Should not happen if character valid
     
-    // Ensure we have enough items in queue
+    // Ensure we have enough items in queue for smooth playback
     while (initialQueue.length < 5 && newIdleVideoUrls.length > 0) {
         initialQueue = [...initialQueue, ...shuffleArray(newIdleVideoUrls)];
     }
-
-    console.log(`🎬 Initializing video queue with ${initialQueue.length} videos`);
     
-    // Set queue first
+    // Set queue - currentVideoSrc and nextVideoSrc are derived automatically
     setVideoQueue(initialQueue);
-    
-    // Set the FIRST video as current (it will start playing)
-    if (initialQueue.length > 0) {
-        setCurrentVideoSrc(initialQueue[0]);
-        console.log(`  Set initial video (index 0)`);
-    }
-    
-    // The useEffect will handle preloading index 1 when queue updates
     setCurrentActionId(null);
     
     try {
@@ -980,13 +997,16 @@ const App: React.FC = () => {
   const handleBackToSelection = async () => {
     idleVideoUrls.forEach(url => URL.revokeObjectURL(url));
     setIdleVideoUrls([]);
-    setVideoQueue([]);
-    setCurrentVideoSrc(null);
+    setVideoQueue([]); // This also clears currentVideoSrc and nextVideoSrc (derived)
+    
+    // Clear audio
+    setAudioQueue([]);
+    setCurrentAudioSrc(null);
+    setResponseAudioSrc(null);
     
     setSelectedCharacter(null);
     setChatHistory([]);
     setAiSession(null);
-    setResponseAudioSrc(null);
     setView('selectCharacter');
   };
 
@@ -1028,7 +1048,7 @@ const App: React.FC = () => {
       setLastSavedMessageIndex(updatedHistory.length);
 
       if (!isMuted && audioData) {
-          setResponseAudioSrc(audioData);
+          enqueueAudio(audioData);
       }
 
       if (response.action_id) {
@@ -1044,46 +1064,19 @@ const App: React.FC = () => {
   };
   
   const handleVideoEnd = () => {
-    console.log('📹 Video ended in App');
-    console.log(`  Current queue length: ${videoQueue.length}`);
-    console.log(`  Current queue: [${videoQueue.map((_, i) => i).join(', ')}]`);
-    
     // Shift the queue - remove the video that just finished
     setVideoQueue(prev => {
         const newQueue = prev.slice(1);
-        console.log(`  New queue length after shift: ${newQueue.length}`);
         
-        // Replenish if low
+        // Replenish if queue is getting low
         if (newQueue.length < 3 && idleVideoUrls.length > 0) {
-            const replenished = [...newQueue, ...shuffleArray(idleVideoUrls)];
-            console.log(`  Replenished queue to length: ${replenished.length}`);
-            return replenished;
+            return [...newQueue, ...shuffleArray(idleVideoUrls)];
         }
         return newQueue;
     });
     
-    // The useEffect will handle updating currentVideoSrc to videoQueue[1]
-    // when the queue state updates
-    
     setCurrentActionId(null);
   };
-
-  // Queue Manager Effect - Updates video source when queue changes
-  useEffect(() => {
-      if (videoQueue.length > 1) {
-          // Always preload the NEXT video (index 1)
-          // Index 0 is currently playing.
-          const nextSrc = videoQueue[1];
-          console.log(`🎯 Queue changed, preloading next video (index 1 of ${videoQueue.length})`);
-          setCurrentVideoSrc(nextSrc);
-      } else if (videoQueue.length === 1) {
-          // Only one video left, set it as current
-          console.log(`🎯 Only 1 video in queue, setting as current`);
-          setCurrentVideoSrc(videoQueue[0]);
-      } else {
-          console.log(`⚠️ Queue is empty!`);
-      }
-  }, [videoQueue]);
 
   // Show login if not authenticated
   if (!session || authStatus !== 'connected') {
@@ -1092,11 +1085,11 @@ const App: React.FC = () => {
 
   return (
     <div className="bg-gray-900 text-gray-100 h-screen overflow-hidden flex flex-col p-4 md:p-8">
-      {/* Audio Player (Hidden) */}
+      {/* Audio Player (Hidden) - plays audio responses sequentially */}
       {responseAudioSrc && (
         <AudioPlayer 
             src={responseAudioSrc} 
-            onEnded={() => setResponseAudioSrc(null)} 
+            onEnded={handleAudioEnd} 
         />
       )}
 
@@ -1205,9 +1198,10 @@ const App: React.FC = () => {
                         {isMuted ? "🔇" : "🔊"}
                      </button>
                      <VideoPlayer 
-                       src={currentVideoSrc}
-                       onEnded={handleVideoEnd}
-                       loop={false} // Queue system handles looping/playback
+                       currentSrc={currentVideoSrc}
+                       nextSrc={nextVideoSrc}
+                       onVideoFinished={handleVideoEnd}
+                       loop={false}
                        muted={isMuted}
                      />
                   </div>

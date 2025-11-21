@@ -145,6 +145,23 @@ const downloadIdleVideo = async (path: string): Promise<Blob | null> => {
   }
 };
 
+/**
+ * Downloads all idle videos for a character as Blobs
+ * 
+ * ARCHITECTURE DECISION: Blob vs Public URL Trade-offs
+ * =====================================================
+ * 
+ * Current Implementation: Download videos as Blobs and store in browser RAM
+ * - Pros: Guaranteed offline support, no network latency during playback
+ * - Cons: Memory intensive (~5-10MB per video × N videos), can cause crashes on mobile
+ * 
+ * Alternative: Use Supabase Public URLs directly
+ * - Pros: Zero memory footprint, browser disk cache handles storage, scales infinitely
+ * - Cons: Requires network connection, URLs may expire (though rarely with public buckets)
+ * 
+ * Recommendation: For production with many videos (10+), consider switching to public URLs
+ * and relying on browser cache. Only use Blobs if offline support is critical.
+ */
 const downloadIdleVideos = async (characterId: string): Promise<Blob[]> => {
   // Query the character_idle_videos table for all videos associated with this character
   const { data, error } = await supabase
@@ -165,23 +182,22 @@ const downloadIdleVideos = async (characterId: string): Promise<Blob[]> => {
   
   const rows = data as CharacterIdleVideoRow[];
   
-  console.log(`📹 Loading ${rows.length} idle videos for character ${characterId}`);
-  
   // Download all videos
   const downloads = await Promise.all(
-    rows.map(async (row, index) => {
+    rows.map(async (row) => {
       const blob = await downloadIdleVideo(row.video_path);
-      if (blob) {
-        console.log(`  ✅ Loaded idle video ${index + 1}/${rows.length}: ${row.video_path}`);
-      } else {
-        console.warn(`  ❌ Failed to load idle video: ${row.video_path}`);
+      if (!blob) {
+        console.warn(`Failed to load idle video: ${row.video_path}`);
       }
       return blob;
     })
   );
   
   const validBlobs = downloads.filter((b): b is Blob => b !== null);
-  console.log(`✅ Successfully loaded ${validBlobs.length}/${rows.length} idle videos`);
+  
+  if (validBlobs.length < rows.length) {
+    console.warn(`Loaded ${validBlobs.length}/${rows.length} idle videos for character ${characterId}`);
+  }
   
   return validBlobs;
 };
