@@ -5,12 +5,10 @@ interface CharacterCardProps {
     characterImageUrl: string;
     characterVideoUrl: string;
     onSelect: () => void;
-    onDelete: (e: React.MouseEvent) => void;
-    onManageActions: (e: React.MouseEvent) => void;
-    onManageIdleVideos?: (e: React.MouseEvent) => void;
+    onManage: (e: React.MouseEvent) => void;
 }
 
-const CharacterCard: React.FC<CharacterCardProps> = ({ characterImageUrl, characterVideoUrl, onSelect, onDelete, onManageActions, onManageIdleVideos }) => {
+const CharacterCard: React.FC<CharacterCardProps> = ({ characterImageUrl, characterVideoUrl, onSelect, onManage }) => {
     const videoRef = useRef<HTMLVideoElement>(null);
     const [isHovered, setIsHovered] = useState(false);
 
@@ -46,37 +44,16 @@ const CharacterCard: React.FC<CharacterCardProps> = ({ characterImageUrl, charac
             />
             <div className="absolute inset-0 bg-black/30 opacity-0 group-hover:opacity-100 transition-opacity"></div>
             <button 
-                onClick={onDelete}
-                className="absolute top-2 right-2 bg-red-600/70 text-white rounded-full p-1.5 hover:bg-red-500/90 opacity-0 group-hover:opacity-100 transition-opacity"
-                aria-label="Delete character"
+                onClick={onManage}
+                className="absolute bottom-4 left-1/2 transform -translate-x-1/2 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white rounded-full px-6 py-2.5 opacity-0 group-hover:opacity-100 transition-all font-bold text-sm shadow-lg flex items-center gap-2"
+                aria-label="Manage character"
             >
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" /></svg>
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                </svg>
+                MANAGE
             </button>
-            <div className="absolute bottom-2 left-1/2 transform -translate-x-1/2 flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                <button 
-                    onClick={onManageActions}
-                    className="bg-purple-600/80 text-white rounded-full px-3 py-1.5 hover:bg-purple-500/90 transition-colors text-xs font-semibold flex items-center gap-1"
-                    aria-label="Manage actions"
-                >
-                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                    </svg>
-                    Actions
-                </button>
-                {onManageIdleVideos && (
-                    <button 
-                        onClick={onManageIdleVideos}
-                        className="bg-indigo-600/80 text-white rounded-full px-3 py-1.5 hover:bg-indigo-500/90 transition-colors text-xs font-semibold flex items-center gap-1"
-                        aria-label="Manage idle videos"
-                    >
-                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 4v16M17 4v16M3 8h4m10 0h4M3 12h18M3 16h4m10 0h4M4 20h16a1 1 0 001-1V5a1 1 0 00-1-1H4a1 1 0 00-1 1v14a1 1 0 001 1z" />
-                        </svg>
-                        Idle
-                    </button>
-                )}
-            </div>
         </div>
     );
 };
