@@ -91,6 +91,9 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ src, onEnded, loop, muted = f
   const handleVideoEnded = async () => {
     console.log('🔄 Video ended, swapping to next...');
     
+    // Notify parent FIRST so they can update the queue
+    onEnded();
+    
     // Identify current and next players
     const currentPlayerIdx = activePlayer;
     const nextPlayerIdx = activePlayer === 0 ? 1 : 0;
@@ -99,61 +102,84 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ src, onEnded, loop, muted = f
     const currentVideo = currentRef.current;
     const nextVideo = nextRef.current;
 
-    if (nextVideo && nextVideo.src) {
-      try {
-        // Check if video is ready to play
-        if (nextVideo.readyState >= 2) { // HAVE_CURRENT_DATA or better
-          // Swap visibility FIRST (instant)
-          setActivePlayer(nextPlayerIdx);
-          
-          // Start playing immediately
-          nextVideo.currentTime = 0; // Ensure we start at beginning
-          await nextVideo.play();
-          
-          // Pause and reset the old video
-          if (currentVideo) {
-            currentVideo.pause();
-            currentVideo.currentTime = 0;
-          }
-          
-          console.log(`✅ Swapped to player ${nextPlayerIdx}`);
-        } else {
-          // If not ready, wait for it
-          console.log('⏳ Waiting for next video to be ready...');
-          await new Promise<void>((resolve) => {
-            const handleCanPlay = () => {
-              nextVideo.removeEventListener('canplay', handleCanPlay);
-              resolve();
-            };
-            nextVideo.addEventListener('canplay', handleCanPlay);
-          });
-          
-          // Swap visibility FIRST (instant)
-          setActivePlayer(nextPlayerIdx);
-          
-          // Start playing immediately
-          nextVideo.currentTime = 0;
-          await nextVideo.play();
-          
-          // Pause and reset the old video
-          if (currentVideo) {
-            currentVideo.pause();
-            currentVideo.currentTime = 0;
-          }
-          
-          console.log(`✅ Swapped to player ${nextPlayerIdx} (after waiting)`);
+    // If next video has no src yet, wait a bit for parent to update it
+    if (!nextVideo || !nextVideo.src) {
+      console.log('⏳ Next video not loaded yet, waiting for parent update...');
+      
+      // Keep current video looping temporarily
+      if (currentVideo && !loop) {
+        currentVideo.currentTime = 0;
+        try {
+          await currentVideo.play();
+          console.log('🔁 Replaying current video while waiting...');
+        } catch (e) {
+          console.warn('Could not replay current video:', e);
+        }
+      }
+      
+      return; // Parent will update src which will trigger the load
+    }
+
+    try {
+      // Check if video is ready to play
+      if (nextVideo.readyState >= 2) { // HAVE_CURRENT_DATA or better
+        // Swap visibility FIRST (instant)
+        setActivePlayer(nextPlayerIdx);
+        
+        // Start playing immediately
+        nextVideo.currentTime = 0; // Ensure we start at beginning
+        await nextVideo.play();
+        
+        // Pause and reset the old video
+        if (currentVideo) {
+          currentVideo.pause();
+          currentVideo.currentTime = 0;
         }
         
-        // Notify parent that we finished and started the next video
-        onEnded();
-      } catch (e) {
-        console.error("Failed to swap video:", e);
-        // Try to recover by notifying parent anyway
-        onEnded();
+        console.log(`✅ Swapped to player ${nextPlayerIdx}`);
+      } else {
+        // If not ready, wait for it
+        console.log('⏳ Waiting for next video to be ready...');
+        await new Promise<void>((resolve) => {
+          const handleCanPlay = () => {
+            nextVideo.removeEventListener('canplay', handleCanPlay);
+            resolve();
+          };
+          nextVideo.addEventListener('canplay', handleCanPlay);
+          // Timeout after 5 seconds
+          setTimeout(() => {
+            nextVideo.removeEventListener('canplay', handleCanPlay);
+            resolve();
+          }, 5000);
+        });
+        
+        // Swap visibility FIRST (instant)
+        setActivePlayer(nextPlayerIdx);
+        
+        // Start playing immediately
+        nextVideo.currentTime = 0;
+        await nextVideo.play();
+        
+        // Pause and reset the old video
+        if (currentVideo) {
+          currentVideo.pause();
+          currentVideo.currentTime = 0;
+        }
+        
+        console.log(`✅ Swapped to player ${nextPlayerIdx} (after waiting)`);
       }
-    } else {
-      console.warn('⚠️ Next video not ready, notifying parent...');
-      onEnded();
+    } catch (e) {
+      console.error("Failed to swap video:", e);
+      // Keep current video playing as fallback
+      if (currentVideo) {
+        currentVideo.currentTime = 0;
+        try {
+          await currentVideo.play();
+          console.log('🔁 Fallback: replaying current video');
+        } catch (err) {
+          console.error('Fallback also failed:', err);
+        }
+      }
     }
   };
 
