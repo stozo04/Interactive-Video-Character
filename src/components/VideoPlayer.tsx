@@ -4,12 +4,11 @@ import LoadingSpinner from './LoadingSpinner';
 interface VideoPlayerProps {
   src: string | null;
   onEnded: () => void;
-  isLoading: boolean;
   loop: boolean;
   muted?: boolean; // Default: false (all videos have audio)
 }
 
-const VideoPlayer: React.FC<VideoPlayerProps> = ({ src, onEnded, isLoading, loop, muted = false }) => {
+const VideoPlayer: React.FC<VideoPlayerProps> = ({ src, onEnded, loop, muted = false }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
 
   // This effect handles setting the video source and the ended event listener.
@@ -54,12 +53,6 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ src, onEnded, isLoading, loop
 
   return (
     <div className="relative w-full aspect-square max-w-full max-h-full bg-black rounded-lg overflow-hidden flex items-center justify-center">
-      {isLoading && (
-        <div className="absolute inset-0 bg-black/70 flex flex-col items-center justify-center z-20">
-          <LoadingSpinner />
-          <p className="mt-2 text-gray-300">Loading action...</p>
-        </div>
-      )}
       
       {src ? (
           <video
@@ -69,8 +62,8 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ src, onEnded, isLoading, loop
             loop={loop}
             className="w-full h-full object-contain"
           />
-      ) : !isLoading && (
-        <div className="text-gray-500">Video will appear here</div>
+        ) : (
+          <div className="text-gray-500">No video available</div>
       )}
     </div>
   );
