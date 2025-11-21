@@ -91,17 +91,31 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ src, onEnded, loop, muted = f
   const handleVideoEnded = async () => {
     console.log('🔄 Video ended, swapping to next...');
     
-    // Identify inactive player (which should have the next video preloaded)
+    // Identify current and next players
+    const currentPlayerIdx = activePlayer;
     const nextPlayerIdx = activePlayer === 0 ? 1 : 0;
+    const currentRef = currentPlayerIdx === 0 ? player0Ref : player1Ref;
     const nextRef = nextPlayerIdx === 0 ? player0Ref : player1Ref;
+    const currentVideo = currentRef.current;
     const nextVideo = nextRef.current;
 
     if (nextVideo && nextVideo.src) {
       try {
         // Check if video is ready to play
         if (nextVideo.readyState >= 2) { // HAVE_CURRENT_DATA or better
-          await nextVideo.play();
+          // Swap visibility FIRST (instant)
           setActivePlayer(nextPlayerIdx);
+          
+          // Start playing immediately
+          nextVideo.currentTime = 0; // Ensure we start at beginning
+          await nextVideo.play();
+          
+          // Pause and reset the old video
+          if (currentVideo) {
+            currentVideo.pause();
+            currentVideo.currentTime = 0;
+          }
+          
           console.log(`✅ Swapped to player ${nextPlayerIdx}`);
         } else {
           // If not ready, wait for it
@@ -114,8 +128,19 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ src, onEnded, loop, muted = f
             nextVideo.addEventListener('canplay', handleCanPlay);
           });
           
-          await nextVideo.play();
+          // Swap visibility FIRST (instant)
           setActivePlayer(nextPlayerIdx);
+          
+          // Start playing immediately
+          nextVideo.currentTime = 0;
+          await nextVideo.play();
+          
+          // Pause and reset the old video
+          if (currentVideo) {
+            currentVideo.pause();
+            currentVideo.currentTime = 0;
+          }
+          
           console.log(`✅ Swapped to player ${nextPlayerIdx} (after waiting)`);
         }
         
@@ -147,8 +172,9 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ src, onEnded, loop, muted = f
   // Helper to get class names
   const getPlayerClass = (playerIdx: 0 | 1) => {
     const isActive = activePlayer === playerIdx;
-    return `absolute top-0 left-0 w-full h-full object-contain transition-opacity duration-300 ${
-      isActive ? 'opacity-100 z-10' : 'opacity-0 z-0'
+    // Use visibility instead of opacity for instant swapping with no transition
+    return `absolute top-0 left-0 w-full h-full object-contain ${
+      isActive ? 'visible z-10' : 'invisible z-0'
     }`;
   };
 
