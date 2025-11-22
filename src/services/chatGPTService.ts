@@ -69,6 +69,8 @@ function buildDetailedSystemPrompt(
   return basePrompt + timeContext;
 }
 
+import { generateSpeech } from "./elevenLabsService";
+
 export const chatGPTService: IAIChatService = {
   generateResponse: async (
     input: UserContent,
@@ -112,7 +114,7 @@ export const chatGPTService: IAIChatService = {
           structuredResponse = { text_response: cleanText, action_id: null };
         }
   
-        const audioData = null; //await generateSpeech(structuredResponse.text_response);
+        const audioData = await generateSpeech(structuredResponse.text_response);
   
         return {
           response: structuredResponse,
@@ -171,7 +173,7 @@ export const chatGPTService: IAIChatService = {
         structuredResponse = { text_response: cleanText, action_id: null };
       }
 
-      const audioData = null; //await generateSpeech(structuredResponse.text_response);
+      const audioData = await generateSpeech(structuredResponse.text_response);
 
       return {
         greeting: structuredResponse,

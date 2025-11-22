@@ -2,10 +2,11 @@ import { ChatMessage, CharacterProfile } from '../types';
 import { RelationshipMetrics } from './relationshipService';
 import { AIActionResponse } from './aiSchema';
 
-// Define what a user can send (Text OR Audio)
+// Define what a user can send (Text OR Audio OR Image with Text)
 export type UserContent = 
   | { type: 'text'; text: string }
-  | { type: 'audio'; data: string; mimeType: string }; // data is base64
+  | { type: 'audio'; data: string; mimeType: string } // data is base64
+  | { type: 'image_text'; text: string; imageData: string; mimeType: string };
 
 export interface AIChatOptions {
   character?: CharacterProfile;
@@ -35,7 +36,7 @@ export interface IAIChatService {
   ): Promise<{ 
       response: AIActionResponse; 
       session: AIChatSession;
-      audioData?: string; // Base64 audio data
+      audioData?: string; // URL to blob or base64 audio data
   }>;
 
   generateGreeting(
@@ -46,6 +47,6 @@ export interface IAIChatService {
   ): Promise<{ 
       greeting: AIActionResponse; 
       session: AIChatSession;
-      audioData?: string; // Base64 audio data
+      audioData?: string; // URL to blob or base64 audio data
   }>;
 }

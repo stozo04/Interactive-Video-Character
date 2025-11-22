@@ -16,6 +16,7 @@ import {
   calendarService, 
   type CalendarEvent, 
 } from './services/calendarService';
+import { generateSpeech } from './services/elevenLabsService'; // Import generateSpeech
 
 import ImageUploader from './components/ImageUploader';
 import VideoPlayer from './components/VideoPlayer';
@@ -105,6 +106,17 @@ const App: React.FC = () => {
   const [selectedCharacter, setSelectedCharacter] =
     useState<CharacterProfile | null>(null);
   
+  // Voice Mode State
+  const [isSpeaking, setIsSpeaking] = useState(false);
+  const [talkingVideoUrl, setTalkingVideoUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    // Placeholder for talking video URL. 
+    // In a real app, this would come from the character profile or DB.
+    // const url = "https://your-supabase-url.../talking_loop.mp4"; 
+    // setTalkingVideoUrl(url);
+  }, []);
+
   // Video Playback Architecture
   // ===========================
   // We use a queue-based system: [currentlyPlaying, next, future...]
@@ -124,8 +136,15 @@ const App: React.FC = () => {
   // 3. Zero-latency source updates (no useEffect delays)
   // 4. Scalable to 100+ videos without memory issues
   const [videoQueue, setVideoQueue] = useState<string[]>([]);
-  // Derived state - no separate currentVideoSrc needed!
-  const currentVideoSrc = videoQueue[0] || null;
+  
+  const [currentActionId, setCurrentActionId] = useState<string | null>(null);
+
+  // Derived state - override idle video if speaking
+  const currentVideoSrc = 
+    (isSpeaking && talkingVideoUrl && !currentActionId) 
+      ? talkingVideoUrl 
+      : (videoQueue[0] || null);
+
   const nextVideoSrc = videoQueue[1] || null;
 
   const [actionVideoUrls, setActionVideoUrls] = useState<Record<string, string>>(
@@ -137,7 +156,6 @@ const App: React.FC = () => {
   const [responseAudioSrc, setResponseAudioSrc] = useState<string | null>(null);
   const [uploadedImage, setUploadedImage] = useState<UploadedImage | null>(null);
   const [chatHistory, setChatHistory] = useState<ChatMessage[]>([]);
-  const [currentActionId, setCurrentActionId] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isProcessingAction, setIsProcessingAction] = useState(false);
   const [isSavingCharacter, setIsSavingCharacter] = useState(false);
@@ -166,6 +184,66 @@ const App: React.FC = () => {
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [notifiedEventIds, setNotifiedEventIds] = useState<Set<string>>(new Set());
   const idleActionTimerRef = useRef<number | null>(null);
+
+  // --- Handle Image Input ---
+  const handleSendImage = async (base64: string, mimeType: string) => {
+    if (!selectedCharacter || !session) return;
+    registerInteraction();
+    setErrorMessage(null);
+
+    // 1. Add the image to the chat history visually so the user sees it
+    setChatHistory(prev => [...prev, { 
+      role: 'user', 
+      text: '📷 [Sent an Image]', 
+      image: base64 
+    }]);
+    setIsProcessingAction(true);
+
+    try {
+      const userId = getUserId();
+      const sessionToUse: AIChatSession = aiSession || { userId, characterId: selectedCharacter.id };
+
+      // 2. Send to AI Service
+      const { response, session: updatedSession, audioData } = await activeService.generateResponse(
+        { 
+          type: 'image_text', 
+          text: "What do you think of this?", // Default prompt
+          imageData: base64,
+          mimeType: mimeType
+        },
+        {
+          character: selectedCharacter,
+          chatHistory: chatHistory, 
+          relationship: relationship,
+          upcomingEvents: upcomingEvents,
+        },
+        sessionToUse
+      );
+      
+      // 3. Handle response as usual
+      setAiSession(updatedSession);
+      setChatHistory(prev => [...prev, { role: 'model' as const, text: response.text_response }]);
+      
+      await conversationHistoryService.appendConversationHistory(
+        userId,
+        [{ role: 'user', text: '📷 [Sent an Image]' }, { role: 'model', text: response.text_response }]
+      );
+
+      if (!isMuted && audioData) {
+          enqueueAudio(audioData);
+      }
+
+      if (response.action_id) {
+           playAction(response.action_id);
+      }
+
+    } catch (error) {
+      console.error('Error sending image:', error);
+      setErrorMessage('Failed to process image.');
+    } finally {
+      setIsProcessingAction(false);
+    }
+  };
 
   // --- UPDATED: Handle Audio Input ---
   const handleSendAudio = async (audioBlob: Blob) => {
@@ -571,13 +649,22 @@ const App: React.FC = () => {
           [{ role: 'model', text: characterMessage }]
         );
         setLastSavedMessageIndex(updatedHistory.length - 1);
+
+        // Generate speech for the email notification
+        if (!isMuted) {
+          const audioData = await generateSpeech(characterMessage);
+          if (audioData) {
+            enqueueAudio(audioData);
+          }
+        }
+
       } catch (error) { console.error(error); }
 
       setEmailQueue([]);
     };
 
     processEmailNotification();
-  }, [debouncedEmailQueue, selectedCharacter]);
+  }, [debouncedEmailQueue, selectedCharacter, isMuted]); // Added isMuted to dependencies
 
   const handleImageUpload = (image: UploadedImage) => {
     setUploadedImage(image);
@@ -833,7 +920,7 @@ const App: React.FC = () => {
         });
       }
       
-    } catch (error) {
+      } catch (error) {
       reportError('Failed to add idle video.', error);
     } finally {
       setIsAddingIdleVideo(false);
@@ -1130,7 +1217,11 @@ const App: React.FC = () => {
       {responseAudioSrc && (
         <AudioPlayer 
             src={responseAudioSrc} 
-            onEnded={handleAudioEnd} 
+            onStart={() => setIsSpeaking(true)}
+            onEnded={() => {
+                setIsSpeaking(false);
+                handleAudioEnd();
+            }}
         />
       )}
 
@@ -1246,6 +1337,7 @@ const App: React.FC = () => {
                     history={chatHistory}
                     onSendMessage={handleSendMessage}
                     onSendAudio={handleSendAudio}
+                    onSendImage={handleSendImage}
                     useAudioInput={activeServiceId === 'gemini'} 
                     isSending={isProcessingAction}
                   />
