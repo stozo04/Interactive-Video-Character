@@ -7,6 +7,7 @@ interface ChatPanelProps {
   history: ChatMessage[];
   onSendMessage: (message: string) => void;
   onSendAudio?: (audioBlob: Blob) => void; 
+  onSendImage?: (base64: string, mimeType: string) => void;
   useAudioInput?: boolean;                 
   isSending: boolean;
 }
@@ -14,13 +15,15 @@ interface ChatPanelProps {
 const ChatPanel: React.FC<ChatPanelProps> = ({ 
   history, 
   onSendMessage, 
-  onSendAudio, 
+  onSendAudio,
+  onSendImage,
   useAudioInput = false, 
   isSending 
 }) => {
   const [input, setInput] = useState('');
   const [isListening, setIsListening] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   
   // STT (Grok/Legacy)
   const recognitionRef = useRef<SpeechRecognition | null>(null);
@@ -65,6 +68,21 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
       onSendMessage(input.trim());
       setInput('');
     }
+  };
+
+  const handleImageSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !onSendImage) return;
+  
+    const reader = new FileReader();
+    reader.readAsDataURL(file);
+    reader.onload = () => {
+      const result = reader.result as string;
+      const base64 = result.split(',')[1];
+      onSendImage(base64, file.type);
+    };
+    // Reset input value
+    e.target.value = '';
   };
 
   // --- Microphone Logic ---
@@ -148,6 +166,13 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
         {history.map((msg, index) => (
           <div key={index} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
             <div className={`max-w-xs md:max-w-md lg:max-w-sm xl:max-w-md px-4 py-2 rounded-2xl ${msg.role === 'user' ? 'bg-indigo-600 text-white rounded-br-none' : 'bg-gray-700 text-gray-200 rounded-bl-none'}`}>
+              {msg.image && (
+                 <img 
+                   src={`data:image/jpeg;base64,${msg.image}`} 
+                   alt="Uploaded content" 
+                   className="max-w-full rounded-lg mb-2 border border-white/20"
+                 />
+              )}
               <p>{msg.text}</p>
             </div>
           </div>
@@ -156,6 +181,30 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
         <div ref={messagesEndRef} />
       </div>
       <form onSubmit={handleSubmit} className="flex-shrink-0 flex items-center gap-2 border-t border-gray-700 pt-4">
+        {/* Image Upload Button */}
+        {onSendImage && (
+            <>
+                <input 
+                    type="file" 
+                    accept="image/*" 
+                    className="hidden" 
+                    ref={fileInputRef}
+                    onChange={handleImageSelect}
+                />
+                <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={isSending}
+                    className="p-3 rounded-full text-gray-400 hover:text-white hover:bg-gray-700 transition-colors disabled:opacity-50"
+                    title="Send Image"
+                >
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                    </svg>
+                </button>
+            </>
+        )}
+
         <input
           type="text"
           value={input}

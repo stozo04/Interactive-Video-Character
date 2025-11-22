@@ -1,19 +1,19 @@
 import { GoogleGenAI } from "@google/genai";
 import { ChatMessage, UploadedImage } from '../types';
-import { IAIChatService, AIChatOptions, AIChatSession } from './aiService';
+import { IAIChatService, AIChatOptions, AIChatSession, UserContent } from './aiService';
 import { buildSystemPrompt } from './promptUtils';
 import { AIActionResponse } from './aiSchema';
+import { generateSpeech } from './elevenLabsService';
 
 // 1. LOAD BOTH MODELS FROM ENV
 const GEMINI_MODEL = import.meta.env.VITE_GEMINI_MODEL; // The Brain (e.g. gemini-2.0-flash-exp)
-const TTS_MODEL = import.meta.env.VITE_GEMINI_TTS_MODEL; // The Voice (e.g. gemini-2.5-flash-preview-tts)
 
 const USER_ID = import.meta.env.VITE_USER_ID;
 const GEMINI_VIDEO_MODEL = import.meta.env.VITE_GEMINI_VIDEO_MODEL;
 const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
 
-if (!GEMINI_MODEL || !USER_ID || !GEMINI_VIDEO_MODEL || !GEMINI_API_KEY || !TTS_MODEL) {
-    console.error("Missing env vars. Ensure VITE_GEMINI_MODEL and VITE_GEMINI_TTS_MODEL are set.");
+if (!GEMINI_MODEL || !USER_ID || !GEMINI_VIDEO_MODEL || !GEMINI_API_KEY) {
+    console.error("Missing env vars. Ensure VITE_GEMINI_MODEL is set.");
     throw new Error("Missing environment variables for Gemini chat service.");
 }
 
@@ -21,39 +21,12 @@ const getAiClient = () => {
     return new GoogleGenAI({ apiKey: GEMINI_API_KEY });
 };
 
-// --- THE VOICE FUNCTION (Uses TTS_MODEL) ---
-async function generateSpeech(text: string): Promise<string | undefined> {
-  if (!text) return undefined;
-  try {
-      const ai = getAiClient();
-      const response = await ai.models.generateContent({
-          model: TTS_MODEL, // <--- MUST USE TTS MODEL
-          contents: [{ parts: [{ text }] }],
-          config: {
-              responseModalities: ['AUDIO'],
-              speechConfig: {
-                  voiceConfig: {
-                      prebuiltVoiceConfig: { 
-                          voiceName: 'Aoede' 
-                      }
-                  }
-              }
-          }
-      });
-      
-      return response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data || undefined;
-  } catch (e) {
-      console.error("TTS Generation failed:", e);
-      return undefined;
-  }
-}
-
 // Helper to format history
 function convertToGeminiHistory(history: ChatMessage[]) {
   return history
     .filter(msg => {
         const text = msg.text?.trim();
-        return text && text.length > 0 && text !== "🎤 [Audio Message]";
+        return text && text.length > 0 && text !== "🎤 [Audio Message]" && text !== "📷 [Sent an Image]";
     }) 
     .map(msg => ({
       role: msg.role === 'user' ? 'user' : 'model',
@@ -70,7 +43,7 @@ function normalizeAiResponse(rawJson: any, rawText: string): AIActionResponse {
 }
 
 export const geminiChatService: IAIChatService = {
-  generateResponse: async (message, options, session) => {
+  generateResponse: async (message: UserContent, options, session) => {
     const ai = getAiClient();
     const { character, chatHistory = [], relationship, upcomingEvents } = options;
     const systemPrompt = buildSystemPrompt(character, relationship, upcomingEvents);
@@ -100,6 +73,16 @@ export const geminiChatService: IAIChatService = {
                data: message.data 
            }
        }];
+     } else if (message.type === 'image_text') {
+       messageParts = [
+         { text: message.text },
+         {
+            inlineData: {
+              mimeType: message.mimeType,
+              data: message.imageData
+            }
+         }
+       ];
      }
 
       const result = await chat.sendMessage({
@@ -121,11 +104,8 @@ export const geminiChatService: IAIChatService = {
         };
       }
 
-      // 3. USE THE VOICE ONLY IF AUDIO WAS INPUT
-      let audioData: string | undefined;
-      if (message.type === 'audio') {
-         audioData = await generateSpeech(structuredResponse.text_response);
-      }
+      // 3. ALWAYS GENERATE VOICE
+      const audioData = await generateSpeech(structuredResponse.text_response);
 
       return {
         response: structuredResponse,

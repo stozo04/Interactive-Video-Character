@@ -1,6 +1,7 @@
 export interface ChatMessage {
   role: 'user' | 'assistant' | 'system' | 'model';
   text: string;
+  image?: string; // base64 string
 }
 
 export interface UploadedImage {

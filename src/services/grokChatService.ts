@@ -4,6 +4,7 @@ import { generateObject } from 'ai';
 import { AIActionResponseSchema } from './aiSchema';
 import { buildSystemPrompt } from './promptUtils';
 import { IAIChatService, AIChatSession, AIMessage } from './aiService';
+import { generateSpeech } from './elevenLabsService';
 
   const API_KEY = import.meta.env.VITE_GROK_API_KEY;
   const GROK_MODEL = import.meta.env.VITE_GROK_MODEL;
@@ -59,7 +60,9 @@ export const grokService: IAIChatService = {
         model: GROK_MODEL,
       };
 
-      return { response: result.object, session: updatedSession };
+      const audioData = await generateSpeech(result.object.text_response);
+
+      return { response: result.object, session: updatedSession, audioData };
     } catch (error) {
       console.error('Grok API Error:', error);
       throw error;
@@ -95,13 +98,16 @@ export const grokService: IAIChatService = {
 
     const responseId = (result as any).response?.id || (result as any).id;
     
+    const audioData = await generateSpeech(result.object.text_response);
+
     return { 
         greeting: result.object, 
         session: {
             userId: session?.userId || USER_ID,
             previousResponseId: responseId,
             model: GROK_MODEL,
-        }
+        },
+        audioData
     };
   }
 };
