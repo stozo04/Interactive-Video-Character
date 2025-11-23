@@ -145,6 +145,15 @@ const downloadIdleVideo = async (path: string): Promise<Blob | null> => {
   }
 };
 
+const shuffleArray = <T>(array: T[]): T[] => {
+  const newArr = [...array];
+  for (let i = newArr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [newArr[i], newArr[j]] = [newArr[j], newArr[i]];
+  }
+  return newArr;
+};
+
 /**
  * Get public URLs for all idle videos (NO DOWNLOAD - Zero Memory!)
  * 
@@ -169,8 +178,7 @@ const getIdleVideoUrls = async (characterId: string): Promise<string[]> => {
   const { data, error } = await supabase
     .from(IDLE_VIDEOS_TABLE)
     .select('id, video_path')
-    .eq('character_id', characterId)
-    .order('video_path', { ascending: true }); // Sort by path to maintain consistent order
+    .eq('character_id', characterId);
   
   if (error) {
       console.error(`Failed to fetch idle videos for character ${characterId}:`, error);
@@ -182,7 +190,8 @@ const getIdleVideoUrls = async (characterId: string): Promise<string[]> => {
       return [];
   }
   
-  const rows = data as CharacterIdleVideoRow[];
+  // Shuffle the videos to ensure random order
+  const rows = shuffleArray(data as CharacterIdleVideoRow[]);
   
   // Get public URLs (instant, no download!)
   const urls = rows.map(row => {
@@ -904,15 +913,17 @@ export const getIdleVideos = async (characterId: string): Promise<Array<{ id: st
   const { data, error } = await supabase
     .from(IDLE_VIDEOS_TABLE)
     .select('id, video_path')
-    .eq('character_id', characterId)
-    .order('video_path', { ascending: true }); // Maintain consistent order
+    .eq('character_id', characterId);
     
   if (error) {
     console.error('Failed to fetch idle videos:', error);
     throw error;
   }
   
-  return (data || []).map(row => ({ id: row.id, path: row.video_path }));
+  // Shuffle the videos
+  const shuffledData = shuffleArray(data || []);
+  
+  return shuffledData.map(row => ({ id: row.id, path: row.video_path }));
 };
 
 /**
