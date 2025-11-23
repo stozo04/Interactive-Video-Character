@@ -29,6 +29,7 @@ export interface AIChatSession {
 
 // Update return types to include optional audioData
 export interface IAIChatService {
+  model: string; // Added model property
   generateResponse(
     input: UserContent,
     options: AIChatOptions,

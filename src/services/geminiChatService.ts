@@ -4,6 +4,7 @@ import { IAIChatService, AIChatOptions, AIChatSession, UserContent } from './aiS
 import { buildSystemPrompt } from './promptUtils';
 import { AIActionResponse } from './aiSchema';
 import { generateSpeech } from './elevenLabsService';
+import { BaseAIService } from './BaseAIService';
 
 // 1. LOAD BOTH MODELS FROM ENV
 const GEMINI_MODEL = import.meta.env.VITE_GEMINI_MODEL; // The Brain (e.g. gemini-2.0-flash-exp)
@@ -14,7 +15,7 @@ const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
 
 if (!GEMINI_MODEL || !USER_ID || !GEMINI_VIDEO_MODEL || !GEMINI_API_KEY) {
     console.error("Missing env vars. Ensure VITE_GEMINI_MODEL is set.");
-    throw new Error("Missing environment variables for Gemini chat service.");
+    // throw new Error("Missing environment variables for Gemini chat service.");
 }
 
 const getAiClient = () => {
@@ -42,87 +43,82 @@ function normalizeAiResponse(rawJson: any, rawText: string): AIActionResponse {
   };
 }
 
-export const geminiChatService: IAIChatService = {
-  generateResponse: async (message: UserContent, options, session) => {
+export class GeminiService extends BaseAIService {
+  model = GEMINI_MODEL;
+
+  protected async callProvider(
+    systemPrompt: string, 
+    userMessage: UserContent, 
+    history: any[],
+    session?: AIChatSession
+  ) {
     const ai = getAiClient();
-    const { character, chatHistory = [], relationship, upcomingEvents } = options;
-    const systemPrompt = buildSystemPrompt(character, relationship, upcomingEvents);
-
-    try {
-      // 2. INITIALIZE CHAT WITH THE BRAIN (GEMINI_MODEL)
-      const chat = ai.chats.create({
-        model: GEMINI_MODEL, // <--- MUST USE CHAT BRAIN MODEL (2.0 Flash Exp)
-        config: {
-          responseMimeType: "application/json",
-          systemInstruction: {
-            parts: [{ text: systemPrompt }],
-            role: "user" 
-          },
+    
+    // 2. INITIALIZE CHAT WITH THE BRAIN (GEMINI_MODEL)
+    const chat = ai.chats.create({
+      model: this.model, // <--- MUST USE CHAT BRAIN MODEL (2.0 Flash Exp)
+      config: {
+        responseMimeType: "application/json",
+        systemInstruction: {
+          parts: [{ text: systemPrompt }],
+          role: "user" 
         },
-        history: convertToGeminiHistory(chatHistory),
-      });
+      },
+      history: convertToGeminiHistory(history),
+    });
 
-     let messageParts: any[] = [];
-     if (message.type === 'text') {
-       messageParts = [{ text: message.text }];
-     } else if (message.type === 'audio') {
-       // The Brain (2.0 Flash) can listen to audio!
-       messageParts = [{
-           inlineData: {
-               mimeType: message.mimeType,
-               data: message.data 
-           }
-       }];
-     } else if (message.type === 'image_text') {
-       messageParts = [
-         { text: message.text },
-         {
-            inlineData: {
-              mimeType: message.mimeType,
-              data: message.imageData
-            }
+   let messageParts: any[] = [];
+   if (userMessage.type === 'text') {
+     messageParts = [{ text: userMessage.text }];
+   } else if (userMessage.type === 'audio') {
+     // The Brain (2.0 Flash) can listen to audio!
+     messageParts = [{
+         inlineData: {
+             mimeType: userMessage.mimeType,
+             data: userMessage.data 
          }
-       ];
-     }
+     }];
+   } else if (userMessage.type === 'image_text') {
+     messageParts = [
+       { text: userMessage.text },
+       {
+          inlineData: {
+            mimeType: userMessage.mimeType,
+            data: userMessage.imageData
+          }
+       }
+     ];
+   }
 
-      const result = await chat.sendMessage({
-        message: messageParts,
-      });
+    const result = await chat.sendMessage({
+      message: messageParts,
+    });
 
-      const responseText = result.text || "{}";
-      let structuredResponse: AIActionResponse;
-      
-      try {
-        const cleanedText = responseText.replace(/```json\n?|\n?```/g, '').trim();
-        const parsed = JSON.parse(cleanedText);
-        structuredResponse = normalizeAiResponse(parsed, cleanedText);
-      } catch (e) {
-        console.warn("Failed to parse Gemini JSON, attempting cleanup or fallback:", responseText);
-        structuredResponse = { 
-            text_response: responseText, 
-            action_id: null 
-        };
-      }
+    const responseText = result.text || "{}";
+    let structuredResponse: AIActionResponse;
+    
+    try {
+      const cleanedText = responseText.replace(/```json\n?|\n?```/g, '').trim();
+      const parsed = JSON.parse(cleanedText);
+      structuredResponse = normalizeAiResponse(parsed, cleanedText);
+    } catch (e) {
+      console.warn("Failed to parse Gemini JSON, attempting cleanup or fallback:", responseText);
+      structuredResponse = { 
+          text_response: responseText, 
+          action_id: null 
+      };
+    }
 
-      // 3. ALWAYS GENERATE VOICE
-      const audioData = await generateSpeech(structuredResponse.text_response);
-
-      return {
+    return {
         response: structuredResponse,
         session: {
             userId: session?.userId || USER_ID,
-            model: GEMINI_MODEL,
-        },
-        audioData 
-      };
+            model: this.model,
+        }
+    };
+  }
 
-    } catch (error) {
-      console.error('Gemini API Error:', error);
-      throw error;
-    }
-  },
-
-  generateGreeting: async (character, session, chatHistory, relationship) => {
+  async generateGreeting(character: any, session: any, chatHistory: any, relationship: any) {
     const ai = getAiClient();
     const systemPrompt = buildSystemPrompt(character, relationship);
     const greetingPrompt = "Generate a friendly, brief greeting. Keep it under 15 words.";
@@ -130,7 +126,7 @@ export const geminiChatService: IAIChatService = {
     try {
         // 4. INITIALIZE GREETING CHAT WITH THE BRAIN
         const chat = ai.chats.create({
-            model: GEMINI_MODEL, // <--- MUST USE CHAT BRAIN MODEL
+            model: this.model, // <--- MUST USE CHAT BRAIN MODEL
             config: {
               responseMimeType: "application/json",
               systemInstruction: {
@@ -164,7 +160,7 @@ export const geminiChatService: IAIChatService = {
             greeting: structuredResponse, 
             session: { 
                 userId: session?.userId || USER_ID, 
-                model: GEMINI_MODEL, 
+                model: this.model, 
             },
             audioData
         }; 
@@ -173,7 +169,9 @@ export const geminiChatService: IAIChatService = {
         throw error;
     }
   }
-};
+}
+
+export const geminiChatService = new GeminiService();
 
 // ... (Video generation helpers remain unchanged)
 const pollVideoOperation = async (operation: any): Promise<Blob> => {

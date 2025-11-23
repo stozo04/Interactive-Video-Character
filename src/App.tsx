@@ -14,7 +14,8 @@ import type { RelationshipMetrics } from './services/relationshipService';
 import { gmailService, type NewEmailPayload } from './services/gmailService';
 import { 
   calendarService, 
-  type CalendarEvent, 
+  type CalendarEvent,
+  type NewEventPayload 
 } from './services/calendarService';
 import { generateSpeech } from './services/elevenLabsService'; // Import generateSpeech
 
@@ -29,6 +30,7 @@ import { SettingsPanel } from './components/SettingsPanel';
 import { LoginPage } from './components/LoginPage';
 import { useGoogleAuth } from './contexts/GoogleAuthContext';
 import { useDebounce } from './hooks/useDebounce';
+import { useMediaQueues } from './hooks/useMediaQueues';
 import { useAIService } from './contexts/AIServiceContext';
 import { AIChatSession, UserContent } from './services/aiService';
 
@@ -117,25 +119,8 @@ const App: React.FC = () => {
     // setTalkingVideoUrl(url);
   }, []);
 
-  // Video Playback Architecture
-  // ===========================
-  // We use a queue-based system: [currentlyPlaying, next, future...]
-  // - character.idleVideoUrls: Public URLs from Supabase (zero memory!)
-  // - videoQueue: Ordered list of video sources (URLs) to play
-  // - currentVideoSrc: Derived from videoQueue[0] (currently playing)
-  // - nextVideoSrc: Derived from videoQueue[1] (preloading in background)
-  // 
-  // OPTIMIZATION: Public URLs instead of Blobs
-  // - Previous: Downloaded videos as Blobs (~150MB RAM)
-  // - Current: Use public URLs (~5KB RAM, browser cache handles storage)
-  // - Result: 99.97% memory reduction, instant character loads!
-  // 
-  // This architecture enables:
-  // 1. Seamless transitions with double-buffered video players
-  // 2. Action video injection at queue[1] without interrupting current playback
-  // 3. Zero-latency source updates (no useEffect delays)
-  // 4. Scalable to 100+ videos without memory issues
-  const [videoQueue, setVideoQueue] = useState<string[]>([]);
+  // Media Queues Hook
+  const media = useMediaQueues();
   
   const [currentActionId, setCurrentActionId] = useState<string | null>(null);
 
@@ -143,17 +128,14 @@ const App: React.FC = () => {
   const currentVideoSrc = 
     (isSpeaking && talkingVideoUrl && !currentActionId) 
       ? talkingVideoUrl 
-      : (videoQueue[0] || null);
+      : media.currentVideoSrc;
 
-  const nextVideoSrc = videoQueue[1] || null;
+  const nextVideoSrc = media.nextVideoSrc;
 
   const [actionVideoUrls, setActionVideoUrls] = useState<Record<string, string>>(
     {}
   );
-  // Audio queue to prevent overlapping responses
-  const [audioQueue, setAudioQueue] = useState<string[]>([]);
-  const [currentAudioSrc, setCurrentAudioSrc] = useState<string | null>(null);
-  const [responseAudioSrc, setResponseAudioSrc] = useState<string | null>(null);
+  // Audio queue logic moved to useMediaQueues hook
   const [uploadedImage, setUploadedImage] = useState<UploadedImage | null>(null);
   const [chatHistory, setChatHistory] = useState<ChatMessage[]>([]);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -215,27 +197,106 @@ const App: React.FC = () => {
         {
           character: selectedCharacter,
           chatHistory: chatHistory, 
-          relationship: relationship,
+          relationship: relationship, 
           upcomingEvents: upcomingEvents,
         },
         sessionToUse
       );
       
-      // 3. Handle response as usual
       setAiSession(updatedSession);
-      setChatHistory(prev => [...prev, { role: 'model' as const, text: response.text_response }]);
-      
-      await conversationHistoryService.appendConversationHistory(
-        userId,
-        [{ role: 'user', text: '📷 [Sent an Image]' }, { role: 'model', text: response.text_response }]
-      );
 
-      if (!isMuted && audioData) {
-          enqueueAudio(audioData);
-      }
+      // Check for Calendar Action
+      // We search for the tag anywhere in the response, not just at the start.
+      const calendarTagIndex = response.text_response.indexOf('[CALENDAR_CREATE]');
 
-      if (response.action_id) {
-           playAction(response.action_id);
+      if (calendarTagIndex !== -1) {
+         try {
+           // Extract the JSON part.
+           const tagLength = '[CALENDAR_CREATE]'.length;
+           let jsonString = response.text_response.substring(calendarTagIndex + tagLength).trim();
+           
+           // Simple cleanup if it includes markdown code blocks
+           jsonString = jsonString.replace(/```json/g, '').replace(/```/g, '').trim();
+
+           // Find the first '{' and the last '}' to isolate the object
+           const firstBrace = jsonString.indexOf('{');
+           const lastBrace = jsonString.lastIndexOf('}');
+           
+           if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+              jsonString = jsonString.substring(firstBrace, lastBrace + 1);
+           }
+
+           console.log("📅 Attempting to parse Calendar JSON:", jsonString);
+           const eventData: NewEventPayload = JSON.parse(jsonString);
+
+           // Validation: Ensure required fields exist
+           if (!eventData.summary || !eventData.start?.dateTime || !eventData.end?.dateTime) {
+               throw new Error("Missing required fields (summary, start.dateTime, end.dateTime)");
+           }
+
+           const confirmationText = `Okay, I'll add "${eventData.summary}" to your calendar.`;
+           
+           // Strip the tag and JSON from the displayed message, showing the rest of the text + confirmation
+           const textBeforeTag = response.text_response.substring(0, calendarTagIndex).trim();
+           const displayText = textBeforeTag ? `${textBeforeTag}\n\n${confirmationText}` : confirmationText;
+           
+           setChatHistory(prev => [...prev, { role: 'model' as const, text: displayText }]);
+           
+           await conversationHistoryService.appendConversationHistory(
+              userId,
+              [{ role: 'user', text: '📷 [Sent an Image]' }, { role: 'model', text: displayText }]
+           );
+
+           // Create Event
+           console.log("📅 Creating event:", eventData);
+           await calendarService.createEvent(session.accessToken, eventData);
+           
+           // Refresh Events
+           const events = await calendarService.getUpcomingEvents(session.accessToken);
+           setUpcomingEvents(events);
+
+           // Generate Speech for confirmation
+           if (!isMuted) {
+               const confirmationAudio = await generateSpeech(displayText);
+               if (confirmationAudio) media.enqueueAudio(confirmationAudio);
+           }
+           
+           if (response.action_id) playAction(response.action_id);
+           if (response.open_app) {
+               console.log("🚀 Launching app:", response.open_app);
+               window.location.href = response.open_app;
+           }
+
+         } catch (e) {
+           console.error("Failed to create calendar event", e);
+           setErrorMessage("Failed to create calendar event.");
+           
+           const textBeforeTag = response.text_response.substring(0, calendarTagIndex).trim();
+           const errorText = "I tried to create that event, but I got confused by the details. Could you try again?";
+           const displayText = textBeforeTag ? `${textBeforeTag}\n\n(System: ${errorText})` : errorText;
+
+           setChatHistory(prev => [...prev, { role: 'model' as const, text: displayText }]);
+         }
+      } else {
+          // 3. Handle response as usual
+          setChatHistory(prev => [...prev, { role: 'model' as const, text: response.text_response }]);
+          
+          await conversationHistoryService.appendConversationHistory(
+            userId,
+            [{ role: 'user', text: '📷 [Sent an Image]' }, { role: 'model', text: response.text_response }]
+          );
+
+          if (!isMuted && audioData) {
+              enqueueAudio(audioData);
+          }
+
+          if (response.action_id) {
+               playAction(response.action_id);
+          }
+          if (response.open_app) {
+              console.log("🚀 Launching app:", response.open_app);
+              window.location.href = response.open_app;
+          }
       }
 
     } catch (error) {
@@ -246,100 +307,8 @@ const App: React.FC = () => {
     }
   };
 
-  // --- UPDATED: Handle Audio Input ---
-  const handleSendAudio = async (audioBlob: Blob) => {
-      if (!selectedCharacter || !session) return;
-      registerInteraction();
-      setErrorMessage(null);
-
-      const placeholderText = "🎤 [Audio Message]";
-      
-      setChatHistory(prev => [...prev, { role: 'user' as const, text: placeholderText }]);
-      setIsProcessingAction(true);
-
-      try {
-          const reader = new FileReader();
-          reader.readAsDataURL(audioBlob);
-          reader.onloadend = async () => {
-              const base64data = reader.result as string;
-              const base64Content = base64data.split(',')[1];
-              const mimeType = audioBlob.type || 'audio/webm';
-
-              const userId = getUserId();
-              const sessionToUse: AIChatSession = aiSession || { userId, characterId: selectedCharacter.id };
-
-              const input: UserContent = { 
-                  type: 'audio', 
-                  data: base64Content, 
-                  mimeType: mimeType 
-              };
-
-              // OPTIMIZATION: Generate response immediately with current relationship state
-              // Sentiment analysis happens in background after we have transcription
-              const { response, session: updatedSession, audioData } = await activeService.generateResponse(
-                  input,
-                  {
-                      character: selectedCharacter,
-                      chatHistory: chatHistory, 
-                      relationship: relationship, // Use current state for speed
-                      upcomingEvents: upcomingEvents,
-                  },
-                  sessionToUse
-              );
-
-              setAiSession(updatedSession);
-              
-              setChatHistory(currentHistory => {
-                  const newHistory = [...currentHistory];
-                  const lastIndex = newHistory.length - 1;
-                  
-                  if (newHistory[lastIndex].text === placeholderText) {
-                      newHistory[lastIndex] = { 
-                          role: 'user', 
-                          text: response.user_transcription 
-                              ? `🎤 ${response.user_transcription}` 
-                              : "🎤 [Audio Message]" 
-                      };
-                  }
-                  
-                  newHistory.push({ role: 'model' as const, text: response.text_response });
-                  return newHistory;
-              });
-
-              if (!isMuted && audioData) {
-                enqueueAudio(audioData);
-              }
-
-              // Handle Action Video
-              if (response.action_id) {
-                 playAction(response.action_id);
-              }
-
-              // OPTIMIZATION: Run sentiment analysis in background after response is displayed
-              // For audio, we analyze the transcription
-              if (response.user_transcription) {
-                relationshipService.analyzeMessageSentiment(
-                  response.user_transcription, 
-                  chatHistory, 
-                  activeServiceId
-                )
-                  .then(event => relationshipService.updateRelationship(userId, event))
-                  .then(updatedRelationship => {
-                    if (updatedRelationship) setRelationship(updatedRelationship);
-                  })
-                  .catch(error => {
-                    console.error('Background sentiment analysis failed:', error);
-                  });
-              }
-              
-              setIsProcessingAction(false);
-          };
-      } catch (error) {
-          console.error("Audio Error:", error);
-          setErrorMessage("Failed to process audio.");
-          setIsProcessingAction(false);
-      }
-  };
+  // REMOVED: handleSendAudio is no longer used since we use text-only input for all services now
+  // The microphone now just populates the text input via browser STT.
 
   const reportError = useCallback((message: string, error?: unknown) => {
     console.error(message, error);
@@ -464,13 +433,7 @@ const App: React.FC = () => {
   const playAction = (actionId: string) => {
       const actionUrl = actionVideoUrls[actionId];
       if (actionUrl) {
-          // Insert action at index 1 (will play after current video ends)
-          // Queue: [Playing, Next, ...] -> [Playing, Action, Next, ...]
-          setVideoQueue(prev => {
-              const playing = prev[0];
-              const rest = prev.slice(1);
-              return [playing, actionUrl, ...rest];
-          });
+          media.playAction(actionUrl);
           setCurrentActionId(actionId);
       }
   };
@@ -495,11 +458,7 @@ const App: React.FC = () => {
     
     if (actionUrl) {
         // Insert action at index 1 (next to play)
-        setVideoQueue(prev => {
-             const playing = prev[0];
-             const rest = prev.slice(1);
-             return [playing, actionUrl!, ...rest];
-        });
+        media.playAction(actionUrl);
         setCurrentActionId(action.id);
         setLastInteractionAt(Date.now());
     }
@@ -507,6 +466,7 @@ const App: React.FC = () => {
   }, [
     selectedCharacter,
     actionVideoUrls,
+    media
   ]);
 
   const clearIdleActionTimer = useCallback(() => {
@@ -543,29 +503,8 @@ const App: React.FC = () => {
     triggerIdleAction,
   ]);
 
-  // Audio Queue Management - prevents overlapping audio responses
-  useEffect(() => {
-    // If audio queue has items and nothing is playing, start playing
-    if (audioQueue.length > 0 && !currentAudioSrc) {
-      const nextAudio = audioQueue[0];
-      setCurrentAudioSrc(nextAudio);
-      setResponseAudioSrc(nextAudio);
-    }
-  }, [audioQueue, currentAudioSrc]);
-
-  // Handle audio completion - move to next in queue
-  const handleAudioEnd = useCallback(() => {
-    setCurrentAudioSrc(null);
-    setResponseAudioSrc(null);
-    
-    // Remove completed audio from queue
-    setAudioQueue(prev => prev.slice(1));
-  }, []);
-
-  // Helper to enqueue audio
-  const enqueueAudio = useCallback((audioData: string) => {
-    setAudioQueue(prev => [...prev, audioData]);
-  }, []);
+  // Audio Queue Management handled by useMediaQueues hook
+  const { enqueueAudio, handleAudioEnd } = media;
 
   // Gmail Integration Hooks
   useEffect(() => {
@@ -993,7 +932,7 @@ const App: React.FC = () => {
     }
     
     // Set queue - currentVideoSrc and nextVideoSrc are derived automatically
-    setVideoQueue(initialQueue);
+    media.setVideoQueue(initialQueue);
     setCurrentActionId(null);
     
     try {
@@ -1113,12 +1052,10 @@ const App: React.FC = () => {
 
   const handleBackToSelection = async () => {
     // No need to revoke idle video URLs - they're public URLs!
-    setVideoQueue([]); // This also clears currentVideoSrc and nextVideoSrc (derived)
+    media.setVideoQueue([]); // This also clears currentVideoSrc and nextVideoSrc (derived)
     
     // Clear audio
-    setAudioQueue([]);
-    setCurrentAudioSrc(null);
-    setResponseAudioSrc(null);
+    media.setAudioQueue([]);
     
     setSelectedCharacter(null);
     setChatHistory([]);
@@ -1128,21 +1065,17 @@ const App: React.FC = () => {
 
   const handleUserInterrupt = () => {
     // Only interrupt if she is currently speaking or has audio queued
-    if (isSpeaking || audioQueue.length > 0) {
+    if (isSpeaking || media.audioQueue.length > 0) {
       console.log("🛑 User interrupted! Stopping audio.");
 
-      // 1. Stop the current audio immediately
-      // Setting this to null unmounts AudioPlayer, triggering its cleanup (stop)
-      setResponseAudioSrc(null);
-      setCurrentAudioSrc(null);
+      // 1. Stop the current audio immediately and clear queue
+      // This will make media.currentAudioSrc null, unmounting the player
+      media.setAudioQueue([]);
 
-      // 2. Clear any pending audio clips
-      setAudioQueue([]);
-
-      // 3. Reset speaking state
+      // 2. Reset speaking state
       setIsSpeaking(false);
 
-      // 4. (Optional) Add a visual reaction to chat history
+      // 3. (Optional) Add a visual reaction to chat history
       // This helps the user know she stopped on purpose
       setChatHistory(prev => [
         ...prev, 
@@ -1188,6 +1121,10 @@ const App: React.FC = () => {
       // 4. Play Audio/Action
       if (!isMuted && audioData) enqueueAudio(audioData);
       if (response.action_id) playAction(response.action_id);
+      if (response.open_app) {
+         console.log("🚀 Launching app:", response.open_app);
+         window.location.href = response.open_app;
+      }
 
     } catch (error) {
       console.error('Briefing error:', error);
@@ -1207,52 +1144,151 @@ const App: React.FC = () => {
 
     try {
       const userId = getUserId();
-      
-      // OPTIMIZATION: Run sentiment analysis in parallel (non-blocking)
-      // The AI doesn't need the freshly updated score - previous state is good enough
-      // This saves ~2 seconds of latency!
+      const sessionToUse: AIChatSession = aiSession || { userId, characterId: selectedCharacter.id };
+      const context = {
+          character: selectedCharacter,
+          chatHistory: chatHistory, 
+          relationship: relationship, 
+          upcomingEvents: upcomingEvents,
+      };
+
+      // 1. Start sentiment analysis in background (don't await)
       const sentimentPromise = relationshipService.analyzeMessageSentiment(message, chatHistory, activeServiceId)
         .then(event => relationshipService.updateRelationship(userId, event))
         .catch(error => {
           console.error('Background sentiment analysis failed:', error);
           return null;
         });
+        
+      // 2. Start AI response immediately (main critical path)
+      try {
+        const { response, session: updatedSession, audioData } = await activeService.generateResponse(
+          { type: 'text', text: message }, 
+          context,
+          sessionToUse
+        );
 
-      const sessionToUse: AIChatSession = aiSession || { userId, characterId: selectedCharacter.id };
-      
-      // Start generating response IMMEDIATELY with current relationship state
-      const { response, session: updatedSession, audioData } = await activeService.generateResponse(
-        { type: 'text', text: message }, 
-        {
-          character: selectedCharacter,
-          chatHistory: chatHistory, 
-          relationship: relationship, // Use current state (slightly stale is OK!)
-          upcomingEvents: upcomingEvents,
-        },
-        sessionToUse
-      );
-      
-      setAiSession(updatedSession);
-      setChatHistory(prev => [...prev, { role: 'model' as const, text: response.text_response }]);
-      
-      await conversationHistoryService.appendConversationHistory(
-        userId,
-        [{ role: 'user', text: message }, { role: 'model', text: response.text_response }]
-      );
-      setLastSavedMessageIndex(updatedHistory.length);
+        setAiSession(updatedSession);
 
-      if (!isMuted && audioData) {
-          enqueueAudio(audioData);
+        // Check for Calendar Action
+        // We search for the tag anywhere in the response, not just at the start.
+        const calendarTagIndex = response.text_response.indexOf('[CALENDAR_CREATE]');
+        
+        if (calendarTagIndex !== -1) {
+           try {
+             // Extract the JSON part.
+             // We assume the JSON starts immediately after the tag and ends at the end of the line or the matching brace.
+             // For robustness, we'll take the substring from the end of the tag.
+             const tagLength = '[CALENDAR_CREATE]'.length;
+             let jsonString = response.text_response.substring(calendarTagIndex + tagLength).trim();
+             
+             // If there's extra text after the JSON, we might need to be smarter. 
+             // But usually the AI puts it at the end or as a block. 
+             // Let's try to find the last matching brace if standard parse fails, 
+             // or just trust the AI to follow "JSON format" which implies it ends correctly.
+             
+             // Simple cleanup if it includes markdown code blocks
+             jsonString = jsonString.replace(/```json/g, '').replace(/```/g, '').trim();
+
+             // Find the first '{' and the last '}' to isolate the object
+             const firstBrace = jsonString.indexOf('{');
+             const lastBrace = jsonString.lastIndexOf('}');
+             
+             if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+                jsonString = jsonString.substring(firstBrace, lastBrace + 1);
+             }
+
+             console.log("📅 Attempting to parse Calendar JSON:", jsonString);
+             
+             const eventData: NewEventPayload = JSON.parse(jsonString);
+
+             // Validation: Ensure required fields exist
+             if (!eventData.summary || !eventData.start?.dateTime || !eventData.end?.dateTime) {
+                 throw new Error("Missing required fields (summary, start.dateTime, end.dateTime)");
+             }
+
+             const confirmationText = `Okay, I'll add "${eventData.summary}" to your calendar.`;
+             
+             // Strip the tag and JSON from the displayed message, showing the rest of the text + confirmation
+             // If the AI wrote a nice message before the tag, keep it.
+             const textBeforeTag = response.text_response.substring(0, calendarTagIndex).trim();
+             const displayText = textBeforeTag ? `${textBeforeTag}\n\n${confirmationText}` : confirmationText;
+
+             setChatHistory(prev => [...prev, { role: 'model' as const, text: displayText }]);
+             
+             await conversationHistoryService.appendConversationHistory(
+                userId,
+                [{ role: 'user', text: message }, { role: 'model', text: displayText }]
+             );
+             setLastSavedMessageIndex(updatedHistory.length);
+
+             // Create Event
+             console.log("📅 Creating event:", eventData);
+             await calendarService.createEvent(session.accessToken, eventData);
+             
+             // Refresh Events
+             const events = await calendarService.getUpcomingEvents(session.accessToken);
+             setUpcomingEvents(events);
+
+             // Generate Speech for confirmation
+             if (!isMuted) {
+                 const confirmationAudio = await generateSpeech(displayText);
+                 if (confirmationAudio) media.enqueueAudio(confirmationAudio);
+             }
+             
+             if (response.action_id) playAction(response.action_id);
+             if (response.open_app) {
+                console.log("🚀 Launching app:", response.open_app);
+                window.location.href = response.open_app;
+             }
+
+           } catch (e) {
+             console.error("Failed to create calendar event", e);
+             setErrorMessage("Failed to create calendar event.");
+             
+             // Fallback: Show the original text but mention the error
+             const textBeforeTag = response.text_response.substring(0, calendarTagIndex).trim();
+             const errorText = "I tried to create that event, but I got confused by the details. Could you try again?";
+             const displayText = textBeforeTag ? `${textBeforeTag}\n\n(System: ${errorText})` : errorText;
+
+             setChatHistory(prev => [...prev, { role: 'model' as const, text: displayText }]);
+             await conversationHistoryService.appendConversationHistory(
+                userId,
+                [{ role: 'user', text: message }, { role: 'model', text: displayText }]
+             );
+           }
+        } else {
+            // 3. Handle Response (Critical)
+            setChatHistory(prev => [...prev, { role: 'model' as const, text: response.text_response }]);
+            
+            await conversationHistoryService.appendConversationHistory(
+                userId,
+                [{ role: 'user', text: message }, { role: 'model', text: response.text_response }]
+            );
+            setLastSavedMessageIndex(updatedHistory.length);
+
+            if (!isMuted && audioData) {
+                media.enqueueAudio(audioData);
+            }
+
+            if (response.action_id) {
+                playAction(response.action_id);
+            }
+            if (response.open_app) {
+                console.log("🚀 Launching app:", response.open_app);
+                window.location.href = response.open_app;
+            }
+        }
+      } catch (error) {
+        console.error('AI Response failed:', error);
+        setErrorMessage("AI Failed to respond");
       }
 
-      if (response.action_id) {
-           playAction(response.action_id);
-      }
-
-      // Update relationship state when sentiment analysis completes (non-blocking)
+      // 4. Handle Sentiment (Non-critical) - Update state when done
       sentimentPromise.then(updatedRelationship => {
-        if (updatedRelationship) setRelationship(updatedRelationship);
+         if (updatedRelationship) setRelationship(updatedRelationship);
       });
+
 
     } catch (error) {
       console.error('Error:', error);
@@ -1327,7 +1363,7 @@ const App: React.FC = () => {
   
   const handleVideoEnd = () => {
     // Shift the queue - remove the video that just finished
-    setVideoQueue(prev => {
+    media.setVideoQueue(prev => {
         const newQueue = prev.slice(1);
         
         // Replenish if queue is getting low
@@ -1348,9 +1384,9 @@ const App: React.FC = () => {
   return (
     <div className="bg-gray-900 text-gray-100 h-screen overflow-hidden flex flex-col p-4 md:p-8">
       {/* Audio Player (Hidden) - plays audio responses sequentially */}
-      {responseAudioSrc && (
+      {media.currentAudioSrc && (
         <AudioPlayer 
-            src={responseAudioSrc} 
+            src={media.currentAudioSrc} 
             onStart={() => setIsSpeaking(true)}
             onEnded={() => {
                 setIsSpeaking(false);
@@ -1470,9 +1506,7 @@ const App: React.FC = () => {
                   <ChatPanel
                     history={chatHistory}
                     onSendMessage={handleSendMessage}
-                    onSendAudio={handleSendAudio}
                     onSendImage={handleSendImage}
-                    useAudioInput={activeServiceId === 'gemini'} 
                     isSending={isProcessingAction}
                     onUserActivity={markInteraction}
                   />

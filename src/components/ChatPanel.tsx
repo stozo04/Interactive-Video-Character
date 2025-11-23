@@ -6,20 +6,16 @@ import TypingIndicator from './TypingIndicator';
 interface ChatPanelProps {
   history: ChatMessage[];
   onSendMessage: (message: string) => void;
-  onSendAudio?: (audioBlob: Blob) => void; 
   onSendImage?: (base64: string, mimeType: string) => void;
   onUserActivity?: () => void;
-  useAudioInput?: boolean;                 
   isSending: boolean;
 }
 
 const ChatPanel: React.FC<ChatPanelProps> = ({ 
   history, 
   onSendMessage, 
-  onSendAudio,
   onSendImage,
   onUserActivity,
-  useAudioInput = false, 
   isSending 
 }) => {
   const [input, setInput] = useState('');
@@ -27,11 +23,10 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   
-  // STT (Grok/Legacy)
+  // STT (Browser Speech Recognition)
   const recognitionRef = useRef<SpeechRecognition | null>(null);
-  // Audio Recorder (Gemini)
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-  const audioChunksRef = useRef<Blob[]>([]);
+  // Force re-render when STT support is detected
+  const [hasRecognition, setHasRecognition] = useState(false);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -39,28 +34,42 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
 
   useEffect(scrollToBottom, [history]);
 
-  // Initialize STT (Only used if useAudioInput is FALSE)
+  const textBeforeRef = useRef('');
+
+  // Initialize STT
   useEffect(() => {
     const SpeechRecognition = window.SpeechRecognition || (window as any).webkitSpeechRecognition;
     if (SpeechRecognition) {
       const recognition = new SpeechRecognition();
-      recognition.continuous = false;
+      recognition.continuous = true; // Allow pauses without stopping
       recognition.interimResults = true;
       recognition.lang = 'en-US';
+      
       recognition.onresult = (event) => {
-        let interimTranscript = '';
         let finalTranscript = '';
-        for (let i = event.resultIndex; i < event.results.length; ++i) {
+        let interimTranscript = '';
+
+        // Reconstruct the full transcript from the current session
+        for (let i = 0; i < event.results.length; ++i) {
           if (event.results[i].isFinal) {
             finalTranscript += event.results[i][0].transcript;
           } else {
             interimTranscript += event.results[i][0].transcript;
           }
         }
-        setInput(finalTranscript || interimTranscript);
+        
+        // Append to text that existed before recording started
+        const currentSessionText = finalTranscript + interimTranscript;
+        setInput(textBeforeRef.current + (textBeforeRef.current ? ' ' : '') + currentSessionText);
       };
-      recognition.onend = () => setIsListening(false);
+
+      recognition.onend = () => {
+          // Only reset UI state, don't clear input
+          setIsListening(false);
+      };
+      
       recognitionRef.current = recognition;
+      setHasRecognition(true);
     }
   }, []);
 
@@ -90,79 +99,37 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
 
   // --- Microphone Logic ---
 
-  const handleMicPress = async () => {
+  const toggleListening = async () => {
     onUserActivity?.();
     if (isSending) return;
-    setIsListening(true);
 
-    if (useAudioInput && onSendAudio) {
-      // --- GEMINI MODE: Record Audio Blob ---
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        const mediaRecorder = new MediaRecorder(stream);
-        mediaRecorderRef.current = mediaRecorder;
-        audioChunksRef.current = [];
-
-        mediaRecorder.ondataavailable = (event) => {
-          if (event.data.size > 0) {
-            audioChunksRef.current.push(event.data);
-          }
-        };
-
-        mediaRecorder.start();
-        console.log("🎤 Started Recording (Gemini Mode)...");
-      } catch (err) {
-        console.error("Error accessing microphone:", err);
+    if (isListening) {
+      // Stop
+      if (recognitionRef.current) {
+        recognitionRef.current.stop();
         setIsListening(false);
+        
+        // REMOVED AUTO-SEND
+        // The text remains in the input box.
+        // The user must click the "Send" arrow manually.
       }
-    } else if (recognitionRef.current) {
-      // --- GROK MODE: Text to Speech ---
-      try {
-        recognitionRef.current.start();
-        console.log("🎤 Listening for text (STT Mode)...");
-      } catch (e) {
-        console.error("STT Error:", e);
-      }
-    }
-  };
-
-  const handleMicRelease = () => {
-    if (!isListening) return;
-    
-    if (useAudioInput && mediaRecorderRef.current && onSendAudio) {
-      // --- GEMINI MODE: Stop & Auto-Send ---
-      const recorder = mediaRecorderRef.current;
-      if (recorder.state !== 'inactive') {
-        recorder.onstop = () => {
-            const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
-            console.log("🎤 Recording stopped. Sending audio blob...");
-            onSendAudio(audioBlob); // Auto-Send!
-            
-            // Cleanup tracks
-            recorder.stream.getTracks().forEach(track => track.stop());
-        };
-        recorder.stop();
-      }
-      setIsListening(false);
-
-    } else if (recognitionRef.current) {
-      // --- GROK MODE: Stop & Send Text ---
-      recognitionRef.current.stop();
-      setIsListening(false);
-      
-      // Auto-send for Grok mode too (if enabled)
-      setTimeout(() => {
-        const finalInput = input;
-        if (finalInput.trim() && !isSending) {
-            onSendMessage(finalInput.trim());
-            setInput('');
+    } else {
+      // Start
+      if (recognitionRef.current) {
+        try {
+          textBeforeRef.current = input; // Save existing text
+          recognitionRef.current.start();
+          setIsListening(true);
+          console.log("🎤 Listening...");
+        } catch (e) {
+          console.error("STT Error:", e);
         }
-      }, 200);
+      }
     }
   };
 
-  const isMicSupported = useAudioInput ? !!navigator.mediaDevices : !!recognitionRef.current;
-  const micLabel = useAudioInput ? "Hold to Record" : "Text Mode";
+  const isMicSupported = !!recognitionRef.current || hasRecognition;
+  const micLabel = isListening ? "Click to Send" : "Click to Speak";
 
   return (
     <div className="bg-gray-800/70 h-full flex flex-col rounded-lg p-4 border border-gray-700 shadow-lg">
@@ -218,7 +185,7 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
           }}
           placeholder={
             isSending ? "Processing..." : 
-            isListening ? (useAudioInput ? "Recording Audio..." : "Listening...") : 
+            isListening ? "Listening..." : 
             'Type a message...'
           }
           disabled={isSending || isListening}
@@ -227,10 +194,7 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
         {isMicSupported && (
            <button
              type="button"
-             onMouseDown={handleMicPress}
-             onMouseUp={handleMicRelease}
-             onTouchStart={handleMicPress}
-             onTouchEnd={handleMicRelease}
+             onClick={toggleListening}
              disabled={isSending}
              title={micLabel}
              className={`p-3 rounded-full text-white transition-colors ${
@@ -238,11 +202,19 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
                 ? 'bg-red-600 animate-pulse' 
                 : 'bg-indigo-600 hover:bg-indigo-500'
              } disabled:bg-gray-600 disabled:cursor-not-allowed`}
-            aria-label="Record"
+            aria-label={micLabel}
            >
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                <path fillRule="evenodd" d="M7 4a3 3 0 016 0v4a3 3 0 11-6 0V4zm-1 3a4 4 0 00-4 4v1a1 1 0 001 1h10a1 1 0 001-1v-1a4 4 0 00-4-4V7zM14 11v-1a2 2 0 10-4 0v1a2 2 0 104 0z" clipRule="evenodd" />
-              </svg>
+              {isListening ? (
+                // Stop Icon
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                  <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8 7a1 1 0 00-1 1v4a1 1 0 001 1h4a1 1 0 001-1V8a1 1 0 00-1-1H8z" clipRule="evenodd" />
+                </svg>
+              ) : (
+                // Mic Icon
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                  <path fillRule="evenodd" d="M7 4a3 3 0 016 0v4a3 3 0 11-6 0V4zm-1 3a4 4 0 00-4 4v1a1 1 0 001 1h10a1 1 0 001-1v-1a4 4 0 00-4-4V7zM14 11v-1a2 2 0 10-4 0v1a2 2 0 104 0z" clipRule="evenodd" />
+                </svg>
+              )}
            </button>
         )}
         <button

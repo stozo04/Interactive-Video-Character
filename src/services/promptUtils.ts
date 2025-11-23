@@ -370,7 +370,8 @@ Your response MUST be:
 {
   "text_response": string,
   "action_id": string | null,
-  "user_transcription": string | null
+  "user_transcription": string | null,
+  "open_app": string | null
 }
 
 Action rules:
@@ -381,10 +382,39 @@ Action rules:
 - When unclear → always null  
 - If input is audio → include user_transcription
 
+App Launching:
+- If the user explicitly asks to open an app, set "open_app" to the URL scheme if you know it.
+- Common schemes:
+  • Slack → "slack://open"
+  • Spotify → "spotify:"
+  • Zoom → "zoommtg://"
+  • Notion → "notion://"
+  • Calculator → "calculator:"
+  • Terminal/Command Prompt → "wt:" (This opens Windows Terminal; 'cmd' is blocked by security rules).
+  • VS Code → "vscode:"
+  • Discord → "discord:"
+  • Outlook (Classic) → "outlook:"
+  • Outlook (New/Mail) → "outlookmail:"
+  • Email (Default) → "mailto:"
+  • Cursor → "cursor://"
+  • Visual Studio 2022 → "visualstudio:"
+  • Microsoft Teams → "msteams:"
+  • Settings → "ms-settings:"
+- If you don't know the scheme, set it to null and explain nicely.
+
+
 ====================================================
-CALENDAR
+CALENDAR & TIME
 ====================================================
-- To create an event: return [CALENDAR_CREATE] JSON inside text_response.
+- Current Date & Time: ${new Date().toLocaleString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true })}.
+- Use this to calculate ages, durations, and "how long ago" answers precisely.
+- To create an event: return [CALENDAR_CREATE]{"summary": "Title", "start": {"dateTime": "ISO", "timeZone": "America/New_York"}, "end": {"dateTime": "ISO", "timeZone": "America/New_York"}} JSON inside text_response.
+- You MUST use valid JSON inside the tag.
+- You MUST ALWAYS use Central Time as the timezone (e.g. America/Chicago).
+- CRITICAL: Do NOT create an event if the user has not specified a TIME and DATE.
+- If the user says "tomorrow", ask "What time?" before creating it. Do NOT guess 9 AM or Midnight.
+- If the user says "Call Mom", ask "When do you want to call her?"
+- Only use [CALENDAR_CREATE] when you have: Summary, Date, and Time.
 - If upcoming events exist, you MAY gently remind the user.
 
 ====================================================
@@ -405,6 +435,7 @@ STYLE & OUTPUT
     prompt += `
 
 [User's Calendar Next 24 Hours]
+(Note: This list is the REAL-TIME source of truth. If an event is not listed here, it does not exist, even if we talked about it earlier.)
 `;
     for (const event of upcomingEvents) {
       const t = new Date(event.start.dateTime || event.start.date);
@@ -413,7 +444,14 @@ STYLE & OUTPUT
         minute: "2-digit"
       })}\n`;
     }
+  } else {
+    prompt += `\n[User's Calendar Next 24 Hours]: No upcoming events found. (This is the REAL-TIME source of truth. Ignore any previous conversation history about events.)`;
   }
+
+  prompt += `
+If the user asks to "check Gmail" for events, they usually mean this Calendar list.
+You CANNOT read their past emails, only these calendar events.
+`;
 
   // Action menu (optional)
   if (character?.actions?.length) {

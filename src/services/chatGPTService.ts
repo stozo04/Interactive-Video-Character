@@ -51,27 +51,11 @@ function normalizeAiResponse(rawJson: any, rawText: string): AIActionResponse {
   };
 }
 
-function buildDetailedSystemPrompt(
-  character?: CharacterProfile,
-  relationship?: RelationshipMetrics | null,
-  upcomingEvents?: any[]
-): string {
-  const basePrompt = buildSystemPrompt(character, relationship, upcomingEvents);
-
-  const now = new Date();
-  const fmt = new Intl.DateTimeFormat("en-US", {
-    dateStyle: "full",
-    timeStyle: "long",
-  }).format(now);
-
-  const timeContext = `\n\n[Current Time Context]:\nCurrent date/time: ${fmt}. Use this to calculate ages, durations, and "how long ago" answers precisely.`;
-
-  return basePrompt + timeContext;
-}
 
 import { generateSpeech } from "./elevenLabsService";
 
 export const chatGPTService: IAIChatService = {
+  model: MODEL,
   generateResponse: async (
     input: UserContent,
     options: AIChatOptions,
@@ -150,7 +134,7 @@ export const chatGPTService: IAIChatService = {
         input: [
           {
             role: "system",
-            content: buildDetailedSystemPrompt(character, relationship),
+            content: buildSystemPrompt(character, relationship),
           },
           {
             role: "user",

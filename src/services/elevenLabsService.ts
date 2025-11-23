@@ -12,7 +12,7 @@ export const generateSpeech = async (text: string): Promise<string> => {
     // optimize_streaming_latency=4: This is the max speed setting. 
     // It might slightly degrade quality, but for a real-time chat, speed > quality. You can dial this down to 3 if it sounds too robotic.
     const response = await fetch(
-      `https://api.elevenlabs.io/v1/text-to-speech/${VOICE_ID}/stream?optimize_streaming_latency=3`,
+      `https://api.elevenlabs.io/v1/text-to-speech/${VOICE_ID}/stream?`,
       {
         method: "POST",
         headers: {
