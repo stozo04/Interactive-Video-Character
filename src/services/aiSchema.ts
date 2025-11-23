@@ -28,6 +28,15 @@ export const AIActionResponseSchema = z.object({
    */
   user_transcription: z.string().nullable().optional().describe(
     "The transcription of the user's audio input, if applicable."
+  ),
+
+  /**
+   * If the user explicitly asks to open a supported external application,
+   * this field should contain the URL scheme to launch it.
+   * Examples: "slack://", "spotify:", "zoommtg://"
+   */
+  open_app: z.string().nullable().optional().describe(
+    "The URL scheme to launch an external application (e.g. 'slack://'), or null."
   )
 });
 
