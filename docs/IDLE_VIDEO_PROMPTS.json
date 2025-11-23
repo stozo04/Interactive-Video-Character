@@ -1,0 +1,50 @@
+[
+    { 
+      "fileName": "idle_breathing_warm", 
+      "prompt": "The woman sits at her desk maintaining eye contact with a warm, pleasant smile. Subtle breathing motion and natural blinking. High stability. No speaking, no sound." 
+    },
+    { 
+      "fileName": "idle_listening_nod", 
+      "prompt": "The woman is listening intently. She gives a slow, encouraging head nod with slightly raised eyebrows. Engaged expression. No speaking, no sound." 
+    },
+    { 
+      "fileName": "idle_head_tilt_cute", 
+      "prompt": "The woman tilts her head slightly to the right in a charming, inquisitive way. She smiles with her eyes (smizing). Stable background. No speaking, no sound." 
+    },
+    { 
+      "fileName": "idle_bite_lip_thinking", 
+      "prompt": "The woman bites her lower lip slightly in a pensive, thinking expression while looking at the screen, then relaxes back into a smile. No speaking, no sound." 
+    },
+    { 
+      "fileName": "idle_quick_blink", 
+      "prompt": "The woman performs a rapid double-blink as if processing a thought, then widens her eyes slightly. A very subtle, natural reaction. No speaking, no sound." 
+    },
+    { 
+      "fileName": "idle_glance_away", 
+      "prompt": "The woman breaks eye contact to look deeply into the upper right corner for a moment, as if recalling a memory, then snaps her gaze back to the camera with a smile. No speaking, no sound." 
+    },
+    { 
+      "fileName": "idle_subtle_shrug", 
+      "prompt": "A very subtle, micro-shrug of one shoulder, accompanied by a playful, knowing smirk. Alexis Rose energy. No speaking, no sound." 
+    },
+    { 
+      "fileName": "idle_check_screen_down", 
+      "prompt": "The woman looks down at her laptop screen as if reading a chat message, her eyes scanning left to right, then looks back up to the camera. No speaking, no sound." 
+    },
+    { 
+      "fileName": "idle_adjust_hair_subtle", 
+      "prompt": "The woman performs a micro-movement of tilting her head and adjusting her posture as if checking her hair in the viewfinder, without raising her hands. Vanity check. No speaking, no sound." 
+    },
+    { 
+      "fileName": "idle_posture_shift", 
+      "prompt": "The woman shifts her weight in the chair, sitting up a little straighter. A reset of energy. She remains focused on the camera. No speaking, no sound." 
+    },
+    { 
+      "fileName": "idle_skeptical_brow", 
+      "prompt": "The woman raises one eyebrow slightly with a playful, skeptical look, then returns to a neutral smile. Friendly banter vibe. No speaking, no sound." 
+    },
+    { 
+      "fileName": "idle_holding_laugh", 
+      "prompt": "The woman presses her lips together and puffs a tiny breath as if holding back a laugh. Her eyes crinkle with amusement. No speaking, no sound." 
+    }
+]
