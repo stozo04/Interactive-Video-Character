@@ -184,6 +184,7 @@ const App: React.FC = () => {
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [notifiedEventIds, setNotifiedEventIds] = useState<Set<string>>(new Set());
   const idleActionTimerRef = useRef<number | null>(null);
+  const hasInteractedRef = useRef(false);
 
   // --- Handle Image Input ---
   const handleSendImage = async (base64: string, mimeType: string) => {
@@ -347,6 +348,7 @@ const App: React.FC = () => {
 
   const registerInteraction = useCallback(() => {
     setLastInteractionAt(Date.now());
+    hasInteractedRef.current = true;
   }, []);
 
   const cleanupActionUrls = useCallback((urls: Record<string, string>) => {
@@ -969,8 +971,7 @@ const App: React.FC = () => {
   const handleSelectCharacter = async (character: CharacterProfile) => {
     setErrorMessage(null);
     setIsLoadingCharacter(true);
-    registerInteraction();
-
+    
     // Cleanup old action URLs (idle videos are now public URLs - no cleanup needed!)
     cleanupActionUrls(actionVideoUrls);
 
@@ -1125,6 +1126,76 @@ const App: React.FC = () => {
     setView('selectCharacter');
   };
 
+  const handleUserInterrupt = () => {
+    // Only interrupt if she is currently speaking or has audio queued
+    if (isSpeaking || audioQueue.length > 0) {
+      console.log("🛑 User interrupted! Stopping audio.");
+
+      // 1. Stop the current audio immediately
+      // Setting this to null unmounts AudioPlayer, triggering its cleanup (stop)
+      setResponseAudioSrc(null);
+      setCurrentAudioSrc(null);
+
+      // 2. Clear any pending audio clips
+      setAudioQueue([]);
+
+      // 3. Reset speaking state
+      setIsSpeaking(false);
+
+      // 4. (Optional) Add a visual reaction to chat history
+      // This helps the user know she stopped on purpose
+      setChatHistory(prev => [
+        ...prev, 
+        { role: 'model', text: "*(Stops speaking)* Oh, sorry, go ahead." }
+      ]);
+    }
+  };
+
+  const markInteraction = () => {
+    hasInteractedRef.current = true;
+    handleUserInterrupt();
+  };
+
+  const triggerSystemMessage = async (systemPrompt: string) => {
+    if (!selectedCharacter || !session) return;
+
+    // 1. Show typing indicator immediately
+    setIsProcessingAction(true);
+
+    try {
+      const userId = getUserId();
+      // 2. Send to AI (Grok/Gemini)
+      // Notice we pass the systemPrompt as 'text' but with a special type or just handle it as text
+      const { response, session: updatedSession, audioData } = await activeService.generateResponse(
+        { type: 'text', text: systemPrompt }, 
+        {
+          character: selectedCharacter,
+          chatHistory, // Pass existing history so it knows context
+          relationship, 
+          upcomingEvents,
+        },
+        aiSession || { userId, characterId: selectedCharacter.id }
+      );
+
+      setAiSession(updatedSession);
+
+      // 3. Add ONLY the AI response to chat history (No user bubble)
+      setChatHistory(prev => [
+        ...prev, 
+        { role: 'model', text: response.text_response }
+      ]);
+      
+      // 4. Play Audio/Action
+      if (!isMuted && audioData) enqueueAudio(audioData);
+      if (response.action_id) playAction(response.action_id);
+
+    } catch (error) {
+      console.error('Briefing error:', error);
+    } finally {
+      setIsProcessingAction(false);
+    }
+  };
+
   const handleSendMessage = async (message: string) => {
     if (!selectedCharacter || !session) return;
     registerInteraction();
@@ -1190,6 +1261,69 @@ const App: React.FC = () => {
       setIsProcessingAction(false);
     }
   };
+
+  // Morning Briefing Effect
+  useEffect(() => {
+    // 1. Safety Checks
+    if (!selectedCharacter || !session) return;
+
+    // 2. Check if we already did this today
+    const today = new Date().toDateString(); // e.g., "Mon Nov 18 2025"
+    const lastBriefingDate = localStorage.getItem(`last_briefing_${selectedCharacter.id}`);
+
+    if (lastBriefingDate === today) {
+      console.log("☕ Already briefed today.");
+      return;
+    }
+
+    // Reset interaction flag on new session/character load
+    // This ensures a fresh start for the briefing timer
+    hasInteractedRef.current = false;
+
+    // 3. Start the Timer
+    const timer = setTimeout(() => {
+      // 🛑 STOP if user has already typed/clicked
+      if (hasInteractedRef.current) {
+        console.log("User busy, skipping briefing.");
+        return;
+      }
+
+      console.log("🌅 Triggering Morning Briefing...");
+
+      // 4. Construct the Prompt
+      let eventSummary = "Calendar not connected.";
+      let emailSummary = "Gmail not connected.";
+
+      if (isGmailConnected) {
+        eventSummary = upcomingEvents.length > 0 
+          ? `User has ${upcomingEvents.length} events today. First one: ${upcomingEvents[0].summary} at ${upcomingEvents[0].start.dateTime}`
+          : "No events scheduled.";
+        
+        emailSummary = emailQueue.length > 0
+          ? `User has ${emailQueue.length} unread emails.`
+          : "No new emails.";
+      }
+
+      const prompt = `
+        [SYSTEM EVENT: MORNING BRIEFING]
+        It is the first login of the day. 
+        Context: ${eventSummary}. ${emailSummary}.
+        Task: Greet the user warmly. Briefly summarize their schedule/emails if any exist. If nothing is happening, just say good morning and ask what the plan is.
+        Keep it short (1-2 sentences).
+      `;
+
+      // 5. Fire it off
+      triggerSystemMessage(prompt);
+
+      // 6. Save state so we don't annoy them again today
+      localStorage.setItem(`last_briefing_${selectedCharacter.id}`, today);
+
+    }, 5000); // 5 second delay
+
+    // Cleanup on unmount
+    return () => clearTimeout(timer);
+
+  }, [selectedCharacter, session, isGmailConnected, upcomingEvents, emailQueue]);
   
   const handleVideoEnd = () => {
     // Shift the queue - remove the video that just finished
@@ -1340,6 +1474,7 @@ const App: React.FC = () => {
                     onSendImage={handleSendImage}
                     useAudioInput={activeServiceId === 'gemini'} 
                     isSending={isProcessingAction}
+                    onUserActivity={markInteraction}
                   />
                 </div>
              </div>

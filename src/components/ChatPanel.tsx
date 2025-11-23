@@ -8,6 +8,7 @@ interface ChatPanelProps {
   onSendMessage: (message: string) => void;
   onSendAudio?: (audioBlob: Blob) => void; 
   onSendImage?: (base64: string, mimeType: string) => void;
+  onUserActivity?: () => void;
   useAudioInput?: boolean;                 
   isSending: boolean;
 }
@@ -17,6 +18,7 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
   onSendMessage, 
   onSendAudio,
   onSendImage,
+  onUserActivity,
   useAudioInput = false, 
   isSending 
 }) => {
@@ -71,6 +73,7 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
   };
 
   const handleImageSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    onUserActivity?.();
     const file = e.target.files?.[0];
     if (!file || !onSendImage) return;
   
@@ -88,6 +91,7 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
   // --- Microphone Logic ---
 
   const handleMicPress = async () => {
+    onUserActivity?.();
     if (isSending) return;
     setIsListening(true);
 
@@ -208,7 +212,10 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
         <input
           type="text"
           value={input}
-          onChange={(e) => setInput(e.target.value)}
+          onChange={(e) => {
+            setInput(e.target.value);
+            onUserActivity?.();
+          }}
           placeholder={
             isSending ? "Processing..." : 
             isListening ? (useAudioInput ? "Recording Audio..." : "Listening...") : 
