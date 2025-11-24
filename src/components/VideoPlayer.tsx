@@ -106,10 +106,11 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
     const currentVideo = currentRef.current;
     const nextVideo = nextRef.current;
 
+    // Guard against missing/invalid sources
     if (!nextVideo || !nextVideo.src) {
-      // Next video not ready - queue management issue
       return;
     }
+    const hasBufferedSource = nextVideo.readyState > 0;
 
     try {
       // Swap visibility instantly
@@ -117,7 +118,14 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({
       
       // Start playing the preloaded video
       nextVideo.currentTime = 0;
-      await nextVideo.play();
+      if (hasBufferedSource) {
+        await nextVideo.play();
+      } else {
+        // If it wasn't buffered, set the src again and try once
+        nextVideo.src = nextSrc;
+        nextVideo.load();
+        await nextVideo.play();
+      }
       
       // Clean up the old player
       if (currentVideo) {

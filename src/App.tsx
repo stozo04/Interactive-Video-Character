@@ -75,6 +75,34 @@ const shuffleArray = <T,>(array: T[]): T[] => {
     return newArr;
 };
 
+const QUESTION_STARTERS = [
+  'who','what','when','where','why','how',
+  'do','does','did','can','could','would','will','is','are','am','was','were',
+  'should','shall','have','has','had'
+];
+
+const isQuestionMessage = (message: string): boolean => {
+  const trimmed = message.trim();
+  if (!trimmed) return false;
+  if (trimmed.endsWith('?')) return true;
+  const normalized = sanitizeText(trimmed);
+  if (!normalized) return false;
+  const firstWord = normalized.split(' ')[0];
+  return QUESTION_STARTERS.includes(firstWord);
+};
+
+const TALKING_KEYWORDS = ['talk', 'talking', 'speak', 'chat', 'answer', 'respond'];
+const isTalkingAction = (action: CharacterAction): boolean => {
+  const normalizedName = sanitizeText(action.name);
+  if (TALKING_KEYWORDS.some(keyword => normalizedName.includes(keyword))) {
+    return true;
+  }
+  const normalizedPhrases = action.phrases.map(sanitizeText);
+  return normalizedPhrases.some(phrase =>
+    TALKING_KEYWORDS.some(keyword => phrase.includes(keyword))
+  );
+};
+
 const isGreetingAction = (action: CharacterAction): boolean => {
   const normalizedName = sanitizeText(action.name);
   const normalizedPhrases = action.phrases.map(sanitizeText);
@@ -91,6 +119,10 @@ const getGreetingActions = (actions: CharacterProfile['actions']): CharacterActi
 
 const getNonGreetingActions = (actions: CharacterProfile['actions']): CharacterAction[] => {
   return actions.filter(action => !isGreetingAction(action));
+};
+
+const getTalkingActions = (actions: CharacterProfile['actions']): CharacterAction[] => {
+  return actions.filter(isTalkingAction);
 };
 
 type View = 'loading' | 'selectCharacter' | 'createCharacter' | 'chat' | 'manageCharacter';
@@ -431,7 +463,7 @@ const App: React.FC = () => {
   }, [characterForManagement, selectedCharacter]);
 
   // Insert action video; optionally interrupt the current video for instant playback
-  const playAction = (actionId: string, forceImmediate = false) => {
+  const playAction = (actionId: string, forceImmediate = false): boolean => {
     let actionUrl = actionVideoUrls[actionId] ?? null;
 
     // Fallback to public URL if we only have a stored path
@@ -439,17 +471,47 @@ const App: React.FC = () => {
       const action = selectedCharacter?.actions.find(a => a.id === actionId);
       if (action?.videoPath) {
         const { data } = supabase.storage
-          .from(ACTION_VIDEO_BUCKET)
-          .getPublicUrl(action.videoPath);
+        .from(ACTION_VIDEO_BUCKET)
+        .getPublicUrl(action.videoPath);
         actionUrl = data?.publicUrl ?? null;
       }
     }
 
-    if (!actionUrl) return;
+    if (!actionUrl) return false;
 
     media.playAction(actionUrl, forceImmediate);
     setCurrentActionId(actionId);
+    return true;
   };
+
+  const isTalkingActionId = useCallback(
+    (actionId: string): boolean => {
+      const action = selectedCharacter?.actions.find(a => a.id === actionId);
+      return action ? isTalkingAction(action) : false;
+    },
+    [selectedCharacter]
+  );
+
+  const playRandomTalkingAction = (forceImmediate = true): string | null => {
+    if (!selectedCharacter) return null;
+
+    const talkingActions = shuffleArray(getTalkingActions(selectedCharacter.actions));
+    for (const action of talkingActions) {
+      const played = playAction(action.id, forceImmediate);
+      if (played) {
+        return action.id;
+      }
+    }
+
+    return null;
+  };
+
+  const handleSpeechStart = useCallback(() => {
+    setIsSpeaking(true);
+    if (!isTalkingActionId(currentActionId || '')) {
+      playRandomTalkingAction(true);
+    }
+  }, [currentActionId, isTalkingActionId]);
 
   const triggerIdleAction = useCallback(() => {
     if (!selectedCharacter) return;
@@ -792,6 +854,17 @@ const App: React.FC = () => {
         if (urlToRevoke) {
           URL.revokeObjectURL(urlToRevoke);
           console.log(`  Revoked URL for action`);
+          
+          // Remove any queued instances of this action clip to avoid invalid blob URLs
+          const idleFallback = (characterForManagement || selectedCharacter)?.idleVideoUrls ?? [];
+          media.setVideoQueue(prev => {
+            const filtered = prev.filter(url => url !== urlToRevoke);
+            if (filtered.length > 0) return filtered;
+            // If nothing left, fall back to idle videos
+            return idleFallback.length > 0
+              ? shuffleArray([...idleFallback])
+              : [];
+          });
         }
         
         // Update the management character state if we're in management view
@@ -894,6 +967,9 @@ const App: React.FC = () => {
       const idleVideosList = await dbService.getIdleVideos(characterForManagement.id);
       
       if (idleVideosList[index]) {
+        const removedUrl = characterForManagement.idleVideoUrls[index];
+        const remainingUrls = characterForManagement.idleVideoUrls.filter((_, i) => i !== index);
+
         await dbService.deleteIdleVideo(characterForManagement.id, idleVideosList[index].id);
         
         // Update character by removing the video URL at this index
@@ -911,6 +987,14 @@ const App: React.FC = () => {
             ...prev,
             idleVideoUrls: prev.idleVideoUrls.filter((_, i) => i !== index)
           };
+        });
+
+        // Remove the deleted idle clip from the playback queue to avoid invalid sources
+        media.setVideoQueue(prev => {
+          const filtered = prev.filter(url => url !== removedUrl);
+          if (filtered.length > 0) return filtered;
+          // If queue is empty, repopulate with remaining idle videos (if any)
+          return remainingUrls.length > 0 ? shuffleArray([...remainingUrls]) : [];
         });
       }
     } catch (error) {
@@ -1157,6 +1241,8 @@ const App: React.FC = () => {
 
     // Variable to track if we played an action optimistically
     let predictedActionId: string | null = null;
+    let talkingActionId: string | null = null;
+    const messageIsQuestion = isQuestionMessage(message);
     
     // 1. Ask our helper function to guess the action
     if (selectedCharacter.actions) {
@@ -1168,6 +1254,12 @@ const App: React.FC = () => {
       console.log(`⚡ Optimistically playing action: ${predictedActionId}`);
       // Force immediate playback so user commands interrupt the current idle clip
       playAction(predictedActionId, true);
+    }
+    else if (messageIsQuestion) {
+      talkingActionId = playRandomTalkingAction(true);
+      if (talkingActionId) {
+        console.log(`Starting talking animation: ${talkingActionId}`);
+      }
     }
 
     try {
@@ -1197,6 +1289,14 @@ const App: React.FC = () => {
         );
 
         setAiSession(updatedSession);
+        const maybePlayResponseAction = (actionId?: string | null) => {
+          if (!actionId) return;
+          if (actionId !== predictedActionId && actionId !== talkingActionId) {
+            playAction(actionId, true);
+          } else {
+            console.log("Skipping duplicate action playback");
+          }
+        };
 
         // Check for Calendar Action
         // We search for the tag anywhere in the response, not just at the start.
@@ -1264,14 +1364,9 @@ const App: React.FC = () => {
                  if (confirmationAudio) media.enqueueAudio(confirmationAudio);
              }
              
-             if (response.action_id) {
-                if (response.action_id !== predictedActionId) {
-                   // User-initiated message -> force immediate action playback
-                   playAction(response.action_id, true);
-                } else {
-                   console.log("⚡ Skipped duplicate action (already played optimistically)");
-                }
-             }
+              if (response.action_id) {
+                 maybePlayResponseAction(response.action_id);
+              }
              if (response.open_app) {
                 console.log("🚀 Launching app:", response.open_app);
                 window.location.href = response.open_app;
@@ -1307,12 +1402,7 @@ const App: React.FC = () => {
             }
 
             if (response.action_id) {
-                if (response.action_id !== predictedActionId) {
-                   // User-initiated message -> force immediate action playback
-                   playAction(response.action_id, true);
-                } else {
-                   console.log("⚡ Skipped duplicate action (already played optimistically)");
-                }
+                maybePlayResponseAction(response.action_id);
             }
             if (response.open_app) {
                 console.log("🚀 Launching app:", response.open_app);
@@ -1427,7 +1517,7 @@ const App: React.FC = () => {
       {media.currentAudioSrc && (
         <AudioPlayer 
             src={media.currentAudioSrc} 
-            onStart={() => setIsSpeaking(true)}
+            onStart={handleSpeechStart}
             onEnded={() => {
                 setIsSpeaking(false);
                 handleAudioEnd();
