@@ -10,15 +10,22 @@ export const useMediaQueues = () => {
   
   const currentAudioSrc = audioQueue[0] || null;
 
-  const playAction = useCallback((url: string) => {
+  const playAction = useCallback((url: string, forceImmediate = false) => {
     setVideoQueue(prev => {
-       const playing = prev[0];
-       const rest = prev.slice(1);
-       // Inject action immediately after current video
-       // Logic: Keep playing the current one (prev[0]), insert new one at prev[1], then the rest.
-       // If queue was [A, B, C], it becomes [A, Action, B, C].
-       if (!playing) return [url, ...rest];
-       return [playing, url, ...rest];
+      let next: string[];
+
+      if (forceImmediate) {
+        // Replace the current video with the action and keep the rest
+        const rest = prev.length > 0 ? prev.slice(1) : [];
+        next = [url, ...rest];
+      } else {
+        const playing = prev[0];
+        const rest = prev.slice(1);
+        // Inject action immediately after current video (polite queue)
+        next = playing ? [playing, url, ...rest] : [url, ...rest];
+      }
+
+      return next;
     });
   }, []);
 
