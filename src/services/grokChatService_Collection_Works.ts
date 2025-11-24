@@ -19,8 +19,8 @@ const xai = createXai({ apiKey: API_KEY });
 
 export const grokService: IAIChatService = {
   generateResponse: async (message, options, session) => {
-    const { character, chatHistory = [], relationship, upcomingEvents } = options;
-    const systemPrompt = buildSystemPrompt(character, relationship, upcomingEvents);
+    const { character, chatHistory = [], relationship, upcomingEvents, characterContext } = options;
+    const systemPrompt = buildSystemPrompt(character, relationship, upcomingEvents, characterContext);
 
     const messages: AIMessage[] = [
       { role: 'system', content: systemPrompt },
@@ -62,8 +62,8 @@ export const grokService: IAIChatService = {
     }
   },
 
-  generateGreeting: async (character, session, previousHistory, relationship) => {
-    const systemPrompt = buildSystemPrompt(character, relationship);
+  generateGreeting: async (character, session, previousHistory, relationship, characterContext) => {
+    const systemPrompt = buildSystemPrompt(character, relationship, [], characterContext);
     const greetingPrompt = "Generate a friendly, brief greeting. Keep it under 15 words.";
     
     // Reuse the logic basically

@@ -118,9 +118,9 @@ export class GeminiService extends BaseAIService {
     };
   }
 
-  async generateGreeting(character: any, session: any, chatHistory: any, relationship: any) {
+  async generateGreeting(character: any, session: any, chatHistory: any, relationship: any, characterContext?: string) {
     const ai = getAiClient();
-    const systemPrompt = buildSystemPrompt(character, relationship);
+    const systemPrompt = buildSystemPrompt(character, relationship, [], characterContext);
     const greetingPrompt = "Generate a friendly, brief greeting. Keep it under 15 words.";
 
     try {

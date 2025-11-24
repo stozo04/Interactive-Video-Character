@@ -13,6 +13,7 @@ export interface AIChatOptions {
   chatHistory?: ChatMessage[];
   relationship?: RelationshipMetrics | null;
   upcomingEvents?: any[];
+  characterContext?: string; // What the character is "doing" right now
 }
 
 export interface AIMessage {
@@ -44,7 +45,8 @@ export interface IAIChatService {
     character: CharacterProfile,
     session?: AIChatSession,
     chatHistory?: ChatMessage[],
-    relationship?: RelationshipMetrics | null
+    relationship?: RelationshipMetrics | null,
+    characterContext?: string
   ): Promise<{ 
       greeting: AIActionResponse; 
       session: AIChatSession;
