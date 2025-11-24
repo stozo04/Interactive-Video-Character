@@ -19,6 +19,7 @@ import {
 } from './services/calendarService';
 import { generateSpeech } from './services/elevenLabsService'; // Import generateSpeech
 
+import { predictActionFromMessage } from './utils/intentUtils';
 import ImageUploader from './components/ImageUploader';
 import VideoPlayer from './components/VideoPlayer';
 import AudioPlayer from './components/AudioPlayer';
@@ -1142,6 +1143,21 @@ const App: React.FC = () => {
     setChatHistory(updatedHistory);
     setIsProcessingAction(true);
 
+    // Variable to track if we played an action optimistically
+    let predictedActionId: string | null = null;
+    
+    // 1. Ask our helper function to guess the action
+    if (selectedCharacter.actions) {
+      predictedActionId = predictActionFromMessage(message, selectedCharacter.actions);
+    }
+    
+    // 2. If we guessed an action, PLAY IT NOW!
+    if (predictedActionId) {
+      console.log(`⚡ Optimistically playing action: ${predictedActionId}`);
+      // 'playAction' is your existing helper that adds video to the queue
+      playAction(predictedActionId);
+    }
+
     try {
       const userId = getUserId();
       const sessionToUse: AIChatSession = aiSession || { userId, characterId: selectedCharacter.id };
@@ -1236,7 +1252,13 @@ const App: React.FC = () => {
                  if (confirmationAudio) media.enqueueAudio(confirmationAudio);
              }
              
-             if (response.action_id) playAction(response.action_id);
+             if (response.action_id) {
+                if (response.action_id !== predictedActionId) {
+                   playAction(response.action_id);
+                } else {
+                   console.log("⚡ Skipped duplicate action (already played optimistically)");
+                }
+             }
              if (response.open_app) {
                 console.log("🚀 Launching app:", response.open_app);
                 window.location.href = response.open_app;
@@ -1272,7 +1294,11 @@ const App: React.FC = () => {
             }
 
             if (response.action_id) {
-                playAction(response.action_id);
+                if (response.action_id !== predictedActionId) {
+                   playAction(response.action_id);
+                } else {
+                   console.log("⚡ Skipped duplicate action (already played optimistically)");
+                }
             }
             if (response.open_app) {
                 console.log("🚀 Launching app:", response.open_app);
