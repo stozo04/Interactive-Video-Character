@@ -455,6 +455,12 @@ You CANNOT read their past emails, only these calendar events.
 
   // Action menu (optional)
   if (character?.actions?.length) {
+    console.log(
+      `[AI] Including ${character.actions.length} actions in system prompt`,
+      character.actions.map(a => ({ id: a.id, name: a.name, phrases: a.phrases }))
+    );
+  }
+  if (character?.actions?.length) {
     const actionsMenu = character.actions.map(a => ({
       action_id: a.id,
       description: `${a.name}. Phrases: ${a.phrases.join(", ")}`
