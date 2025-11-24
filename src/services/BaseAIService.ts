@@ -18,7 +18,12 @@ export abstract class BaseAIService implements IAIChatService {
   async generateResponse(input: UserContent, options: AIChatOptions, session?: AIChatSession) {
     try {
       // Shared: Build Prompts
-      const systemPrompt = buildSystemPrompt(options.character, options.relationship, options.upcomingEvents);
+      const systemPrompt = buildSystemPrompt(
+        options.character, 
+        options.relationship, 
+        options.upcomingEvents,
+        options.characterContext
+      );
       
       // Call the specific provider
       const { response: aiResponse, session: updatedSession } = await this.callProvider(
@@ -44,6 +49,12 @@ export abstract class BaseAIService implements IAIChatService {
     }
   }
   
-  abstract generateGreeting(character: any, session: any, previousHistory: any, relationship: any): Promise<any>;
+  abstract generateGreeting(
+    character: any, 
+    session: any, 
+    previousHistory: any, 
+    relationship: any,
+    characterContext?: string
+  ): Promise<any>;
 }
 

@@ -120,7 +120,8 @@ export const chatGPTService: IAIChatService = {
     character: CharacterProfile,
     session?: AIChatSession,
     chatHistory?: ChatMessage[],
-    relationship?: RelationshipMetrics | null
+    relationship?: RelationshipMetrics | null,
+    characterContext?: string
   ) => {
     try {
       console.log("Generating greeting for ChatGPT");
@@ -134,7 +135,7 @@ export const chatGPTService: IAIChatService = {
         input: [
           {
             role: "system",
-            content: buildSystemPrompt(character, relationship),
+            content: buildSystemPrompt(character, relationship, [], characterContext),
           },
           {
             role: "user",

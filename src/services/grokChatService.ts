@@ -77,8 +77,8 @@ export class GrokService extends BaseAIService {
     };
   }
 
-  async generateGreeting(character: any, session: any, previousHistory: any, relationship: any) {
-    const systemPrompt = buildSystemPrompt(character, relationship);
+  async generateGreeting(character: any, session: any, previousHistory: any, relationship: any, characterContext?: string) {
+    const systemPrompt = buildSystemPrompt(character, relationship, [], characterContext);
     const greetingPrompt = "Generate a friendly, brief greeting. Keep it under 15 words.";
     
     const messages: AIMessage[] = [
