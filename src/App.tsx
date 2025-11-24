@@ -200,6 +200,7 @@ const App: React.FC = () => {
   const [notifiedEventIds, setNotifiedEventIds] = useState<Set<string>>(new Set());
   const idleActionTimerRef = useRef<number | null>(null);
   const hasInteractedRef = useRef(false);
+  const lastIdleBreakerAtRef = useRef<number | null>(null);
 
   // --- Handle Image Input ---
   const handleSendImage = async (base64: string, mimeType: string) => {
@@ -580,6 +581,111 @@ const App: React.FC = () => {
 
   // Audio Queue Management handled by useMediaQueues hook
   const { enqueueAudio, handleAudioEnd } = media;
+
+  const triggerSystemMessage = useCallback(async (systemPrompt: string) => {
+    if (!selectedCharacter || !session) return;
+
+    // 1. Show typing indicator immediately
+    setIsProcessingAction(true);
+
+    try {
+      const userId = getUserId();
+      // 2. Send to AI (Grok/Gemini)
+      // Notice we pass the systemPrompt as 'text' but with a special type or just handle it as text
+      const { response, session: updatedSession, audioData } = await activeService.generateResponse(
+        { type: 'text', text: systemPrompt }, 
+        {
+          character: selectedCharacter,
+          chatHistory, // Pass existing history so it knows context
+          relationship, 
+          upcomingEvents,
+        },
+        aiSession || { userId, characterId: selectedCharacter.id }
+      );
+
+      setAiSession(updatedSession);
+
+      // 3. Add ONLY the AI response to chat history (No user bubble)
+      setChatHistory(prev => [
+        ...prev, 
+        { role: 'model', text: response.text_response }
+      ]);
+      
+      // 4. Play Audio/Action
+      if (!isMuted && audioData) enqueueAudio(audioData);
+      if (response.action_id) playAction(response.action_id);
+      if (response.open_app) {
+         console.log("dYs? Launching app:", response.open_app);
+         window.location.href = response.open_app;
+      }
+
+    } catch (error) {
+      console.error('Briefing error:', error);
+    } finally {
+      setIsProcessingAction(false);
+    }
+  }, [
+    activeService,
+    aiSession,
+    chatHistory,
+    enqueueAudio,
+    isMuted,
+    relationship,
+    selectedCharacter,
+    session,
+    upcomingEvents,
+    playAction
+  ]);
+
+  const triggerIdleBreaker = useCallback(() => {
+    const now = Date.now();
+    setLastInteractionAt(now); // reset timer to avoid back-to-back firings
+    lastIdleBreakerAtRef.current = now;
+
+    console.log("User is idle. Triggering idle breaker...");
+
+    const relationshipContext = relationship?.relationshipTier
+      ? `Relationship tier with user: ${relationship.relationshipTier}.`
+      : "Relationship tier with user is unknown.";
+
+    const prompt = `
+    [SYSTEM EVENT: USER_IDLE]
+    The user has been silent for over 5 minutes. 
+    ${relationshipContext}
+    Your goal: Gently check in. 
+    - If relationship is 'close_friend', maybe send a random thought or joke.
+    - If 'acquaintance', politely ask if they are still there.
+    - Keep it very short (1 sentence).
+    - Do NOT repeat yourself if you did this recently.
+  `;
+
+    triggerSystemMessage(prompt);
+  }, [relationship?.relationshipTier, triggerSystemMessage]);
+
+  useEffect(() => {
+    const IDLE_TIMEOUT = 5 * 60 * 1000; // 5 minutes
+    const IDLE_CHECK_INTERVAL = 10000; // 10 seconds
+
+    const checkIdle = () => {
+      const now = Date.now();
+      const timeSinceInteraction = now - lastInteractionAt;
+      const lastBreakerAt = lastIdleBreakerAtRef.current ?? 0;
+      const recentlyTriggered =
+        lastBreakerAt !== 0 && now - lastBreakerAt < IDLE_TIMEOUT;
+
+      if (
+        timeSinceInteraction > IDLE_TIMEOUT &&
+        !isProcessingAction &&
+        !isSpeaking &&
+        !recentlyTriggered
+      ) {
+        triggerIdleBreaker();
+      }
+    };
+
+    const interval = window.setInterval(checkIdle, IDLE_CHECK_INTERVAL);
+    return () => window.clearInterval(interval);
+  }, [lastInteractionAt, isProcessingAction, isSpeaking, triggerIdleBreaker]);
 
   // Gmail Integration Hooks
   useEffect(() => {
@@ -1182,52 +1288,8 @@ const App: React.FC = () => {
   };
 
   const markInteraction = () => {
-    hasInteractedRef.current = true;
+    registerInteraction();
     handleUserInterrupt();
-  };
-
-  const triggerSystemMessage = async (systemPrompt: string) => {
-    if (!selectedCharacter || !session) return;
-
-    // 1. Show typing indicator immediately
-    setIsProcessingAction(true);
-
-    try {
-      const userId = getUserId();
-      // 2. Send to AI (Grok/Gemini)
-      // Notice we pass the systemPrompt as 'text' but with a special type or just handle it as text
-      const { response, session: updatedSession, audioData } = await activeService.generateResponse(
-        { type: 'text', text: systemPrompt }, 
-        {
-          character: selectedCharacter,
-          chatHistory, // Pass existing history so it knows context
-          relationship, 
-          upcomingEvents,
-        },
-        aiSession || { userId, characterId: selectedCharacter.id }
-      );
-
-      setAiSession(updatedSession);
-
-      // 3. Add ONLY the AI response to chat history (No user bubble)
-      setChatHistory(prev => [
-        ...prev, 
-        { role: 'model', text: response.text_response }
-      ]);
-      
-      // 4. Play Audio/Action
-      if (!isMuted && audioData) enqueueAudio(audioData);
-      if (response.action_id) playAction(response.action_id);
-      if (response.open_app) {
-         console.log("🚀 Launching app:", response.open_app);
-         window.location.href = response.open_app;
-      }
-
-    } catch (error) {
-      console.error('Briefing error:', error);
-    } finally {
-      setIsProcessingAction(false);
-    }
   };
 
   const handleSendMessage = async (message: string) => {
