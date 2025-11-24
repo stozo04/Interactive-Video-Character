@@ -430,13 +430,25 @@ const App: React.FC = () => {
     });
   }, [characterForManagement, selectedCharacter]);
 
-  // Insert action video into queue at position 1 (next to play)
-  const playAction = (actionId: string) => {
-      const actionUrl = actionVideoUrls[actionId];
-      if (actionUrl) {
-          media.playAction(actionUrl);
-          setCurrentActionId(actionId);
+  // Insert action video; optionally interrupt the current video for instant playback
+  const playAction = (actionId: string, forceImmediate = false) => {
+    let actionUrl = actionVideoUrls[actionId] ?? null;
+
+    // Fallback to public URL if we only have a stored path
+    if (!actionUrl) {
+      const action = selectedCharacter?.actions.find(a => a.id === actionId);
+      if (action?.videoPath) {
+        const { data } = supabase.storage
+          .from(ACTION_VIDEO_BUCKET)
+          .getPublicUrl(action.videoPath);
+        actionUrl = data?.publicUrl ?? null;
       }
+    }
+
+    if (!actionUrl) return;
+
+    media.playAction(actionUrl, forceImmediate);
+    setCurrentActionId(actionId);
   };
 
   const triggerIdleAction = useCallback(() => {
@@ -1154,8 +1166,8 @@ const App: React.FC = () => {
     // 2. If we guessed an action, PLAY IT NOW!
     if (predictedActionId) {
       console.log(`⚡ Optimistically playing action: ${predictedActionId}`);
-      // 'playAction' is your existing helper that adds video to the queue
-      playAction(predictedActionId);
+      // Force immediate playback so user commands interrupt the current idle clip
+      playAction(predictedActionId, true);
     }
 
     try {
@@ -1254,7 +1266,8 @@ const App: React.FC = () => {
              
              if (response.action_id) {
                 if (response.action_id !== predictedActionId) {
-                   playAction(response.action_id);
+                   // User-initiated message -> force immediate action playback
+                   playAction(response.action_id, true);
                 } else {
                    console.log("⚡ Skipped duplicate action (already played optimistically)");
                 }
@@ -1295,7 +1308,8 @@ const App: React.FC = () => {
 
             if (response.action_id) {
                 if (response.action_id !== predictedActionId) {
-                   playAction(response.action_id);
+                   // User-initiated message -> force immediate action playback
+                   playAction(response.action_id, true);
                 } else {
                    console.log("⚡ Skipped duplicate action (already played optimistically)");
                 }
