@@ -20,6 +20,7 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
 }) => {
   const [input, setInput] = useState('');
   const [isListening, setIsListening] = useState(false);
+  const [isEmojiOpen, setIsEmojiOpen] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   
@@ -130,6 +131,13 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
 
   const isMicSupported = !!recognitionRef.current || hasRecognition;
   const micLabel = isListening ? "Click to Send" : "Click to Speak";
+  const emojiOptions = ['😀','😁','😊','😍','🤔','😅','😭','☹️','😴','🤗','😬','🔥','✨','🎉','💪','👍','👎','🙏','❤️'];
+
+  const handleEmojiSelect = (emoji: string) => {
+    setInput(prev => `${prev}${emoji}`);
+    setIsEmojiOpen(false);
+    onUserActivity?.();
+  };
 
   return (
     <div className="bg-gray-800/70 h-full flex flex-col rounded-lg p-4 border border-gray-700 shadow-lg">
@@ -151,7 +159,7 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
         {isSending && <TypingIndicator />}
         <div ref={messagesEndRef} />
       </div>
-      <form onSubmit={handleSubmit} className="flex-shrink-0 flex items-center gap-2 border-t border-gray-700 pt-4">
+      <form onSubmit={handleSubmit} className="flex-shrink-0 flex items-center gap-2 border-t border-gray-700 pt-4 relative">
         {/* Image Upload Button */}
         {onSendImage && (
             <>
@@ -191,6 +199,39 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
           disabled={isSending || isListening}
           className="flex-grow bg-gray-700 rounded-full py-2 px-4 text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:opacity-50"
         />
+        <div className="relative">
+          <button
+            type="button"
+            onClick={() => {
+              onUserActivity?.();
+              setIsEmojiOpen(prev => !prev);
+            }}
+            disabled={isSending}
+            className="p-3 rounded-full text-gray-300 hover:text-white hover:bg-gray-700 transition-colors disabled:opacity-50"
+            title="Insert emoji"
+            aria-haspopup="true"
+            aria-expanded={isEmojiOpen}
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+              <path d="M10 18a8 8 0 100-16 8 8 0 000 16zm-2.5-8a1 1 0 112 0 1 1 0 01-2 0zm5 0a1 1 0 112 0 1 1 0 01-2 0zm-5.598 3.8a.75.75 0 011.196-.9A3.49 3.49 0 0010 14.5c1.05 0 1.99-.46 2.902-1.6a.75.75 0 111.196.9A4.99 4.99 0 0110 16c-1.674 0-3.103-.83-4.098-2.2z" />
+            </svg>
+          </button>
+          {isEmojiOpen && (
+            <div className="absolute right-0 bottom-14 bg-gray-800 border border-gray-700 rounded-xl shadow-xl p-3 grid grid-cols-5 gap-2 z-20 min-w-[220px] max-w-[260px]">
+              {emojiOptions.map((emoji) => (
+                <button
+                  key={emoji}
+                  type="button"
+                  onClick={() => handleEmojiSelect(emoji)}
+                  className="h-10 w-10 text-2xl hover:bg-gray-700 rounded-lg flex items-center justify-center leading-none"
+                  aria-label={`Insert ${emoji}`}
+                >
+                  {emoji}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
         {isMicSupported && (
            <button
              type="button"
