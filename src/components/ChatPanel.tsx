@@ -42,7 +42,7 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
     const SpeechRecognition = window.SpeechRecognition || (window as any).webkitSpeechRecognition;
     if (SpeechRecognition) {
       const recognition = new SpeechRecognition();
-      recognition.continuous = true; // Allow pauses without stopping
+      recognition.continuous = true;
       recognition.interimResults = true;
       recognition.lang = 'en-US';
       

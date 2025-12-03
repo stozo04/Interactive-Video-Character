@@ -82,7 +82,10 @@ export interface NewEmailPayload {
       if (historyData.history) {
         const newMessages = historyData.history
           .flatMap((record: any) => record.messagesAdded || [])
-          .filter((item: any) => item.message.labelIds.includes("INBOX"));
+          .filter(
+            (item: any) =>
+              item.message.labelIds && item.message.labelIds.includes("INBOX")
+          );
           
         if (newMessages.length > 0) {
           // 3. Get the headers for just these new messages
