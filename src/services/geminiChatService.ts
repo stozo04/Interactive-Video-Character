@@ -39,7 +39,9 @@ function normalizeAiResponse(rawJson: any, rawText: string): AIActionResponse {
   return {
       text_response: rawJson.text_response || rawJson.response || rawText,
       action_id: rawJson.action_id || null,
-      user_transcription: rawJson.user_transcription || null 
+      user_transcription: rawJson.user_transcription || null,
+      task_action: rawJson.task_action || null,
+      open_app: rawJson.open_app || null
   };
 }
 
