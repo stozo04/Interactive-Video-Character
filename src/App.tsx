@@ -195,6 +195,11 @@ const App: React.FC = () => {
   // Task Management State
   const [tasks, setTasks] = useState<Task[]>([]);
   const [isTaskPanelOpen, setIsTaskPanelOpen] = useState(false);
+  
+  // Snooze State for Idle Check-ins
+  const [isSnoozed, setIsSnoozed] = useState(false);
+  const [snoozeUntil, setSnoozeUntil] = useState<number | null>(null);
+  const [showSnoozeMenu, setShowSnoozeMenu] = useState(false);
 
   // Gmail Integration State
   const [isGmailConnected, setIsGmailConnected] = useState(false);
@@ -707,6 +712,30 @@ useEffect(() => {
   ]);
 
   const triggerIdleBreaker = useCallback(() => {
+    // Check if snoozed
+    if (isSnoozed) {
+      // Handle indefinite snooze (snoozeUntil is null)
+      if (snoozeUntil === null) {
+        console.log("⏸️ Check-ins are snoozed indefinitely");
+        return; // Skip idle breaker while snoozed indefinitely
+      }
+      
+      // Handle timed snooze
+      const now = Date.now();
+      if (now < snoozeUntil) {
+        console.log("⏸️ Check-ins are snoozed until", new Date(snoozeUntil).toLocaleTimeString());
+        return; // Skip idle breaker while snoozed
+      } else {
+        // Snooze period ended - clear state and return
+        // Let the next naturally-scheduled check trigger instead of firing immediately
+        setIsSnoozed(false);
+        setSnoozeUntil(null);
+        localStorage.removeItem('kayley_snooze_until');
+        console.log("⏰ Snooze period ended (waiting for next scheduled check)");
+        return; // Exit without triggering check-in immediately
+      }
+    }
+    
     const now = Date.now();
     setLastInteractionAt(now); // reset timer to avoid back-to-back firings
     lastIdleBreakerAtRef.current = now;
@@ -737,7 +766,7 @@ useEffect(() => {
   `;
 
     triggerSystemMessage(prompt);
-  }, [relationship?.relationshipTier, tasks, triggerSystemMessage]);
+  }, [relationship?.relationshipTier, tasks, triggerSystemMessage, isSnoozed, snoozeUntil]);
 
   useEffect(() => {
     const IDLE_TIMEOUT = 5 * 60 * 1000; // 5 minutes
@@ -1223,6 +1252,29 @@ useEffect(() => {
     const loadedTasks = taskService.loadTasks();
     setTasks(loadedTasks);
     console.log(`📋 Loaded ${loadedTasks.length} task(s)`);
+    
+    // Load snooze state
+    const snoozeIndefinite = localStorage.getItem('kayley_snooze_indefinite');
+    const snoozeUntilStr = localStorage.getItem('kayley_snooze_until');
+    
+    if (snoozeIndefinite === 'true') {
+      setIsSnoozed(true);
+      setSnoozeUntil(null);
+      console.log('⏸️ Check-ins are snoozed indefinitely');
+    } else if (snoozeUntilStr) {
+      const snoozeEnd = parseInt(snoozeUntilStr);
+      if (Date.now() < snoozeEnd) {
+        setIsSnoozed(true);
+        setSnoozeUntil(snoozeEnd);
+        console.log('⏸️ Check-ins are snoozed until', new Date(snoozeEnd).toLocaleTimeString());
+      } else {
+        // Snooze expired - clear both localStorage and React state
+        localStorage.removeItem('kayley_snooze_until');
+        setIsSnoozed(false);
+        setSnoozeUntil(null);
+        console.log('⏰ Snooze period expired (cleared on load)');
+      }
+    }
 
     // Initialize Queue with shuffled idle video URLs (already public URLs!)
     let initialQueue = shuffleArray([...character.idleVideoUrls]);
@@ -1392,8 +1444,8 @@ useEffect(() => {
 
   // Task Management Handlers
   const handleTaskCreate = useCallback((text: string, priority?: 'low' | 'medium' | 'high') => {
-    const newTask = taskService.createTask(text, priority);
-    setTasks(prev => [...prev, newTask]);
+    taskService.createTask(text, priority);
+    setTasks(taskService.loadTasks()); // Reload from service for consistency
     
     // Kayley celebrates the task creation
     if (selectedCharacter && !isMuted) {
@@ -1453,6 +1505,33 @@ useEffect(() => {
     setTasks(taskService.loadTasks());
   }, []);
 
+  // Snooze Handlers
+  const handleSnooze = useCallback((minutes: number | 'indefinite') => {
+    if (minutes === 'indefinite') {
+      setIsSnoozed(true);
+      setSnoozeUntil(null);
+      localStorage.setItem('kayley_snooze_indefinite', 'true');
+      console.log('⏸️ Check-ins snoozed indefinitely');
+    } else {
+      const snoozeEnd = Date.now() + (minutes * 60 * 1000);
+      setIsSnoozed(true);
+      setSnoozeUntil(snoozeEnd);
+      localStorage.setItem('kayley_snooze_until', snoozeEnd.toString());
+      localStorage.removeItem('kayley_snooze_indefinite');
+      console.log(`⏸️ Check-ins snoozed for ${minutes} minutes`);
+    }
+    setShowSnoozeMenu(false);
+  }, []);
+
+  const handleUnsnooze = useCallback(() => {
+    setIsSnoozed(false);
+    setSnoozeUntil(null);
+    localStorage.removeItem('kayley_snooze_until');
+    localStorage.removeItem('kayley_snooze_indefinite');
+    console.log('▶️ Check-ins resumed');
+    setShowSnoozeMenu(false);
+  }, []);
+
   const handleSendMessage = async (message: string) => {
     if (!selectedCharacter || !session) return;
     registerInteraction();
@@ -1494,6 +1573,7 @@ useEffect(() => {
           relationship: relationship, 
           upcomingEvents: upcomingEvents,
           characterContext: kayleyContext,
+          tasks: tasks,
       };
 
       // 1. Start sentiment analysis in background (don't await)
@@ -1513,6 +1593,10 @@ useEffect(() => {
         );
 
         setAiSession(updatedSession);
+        
+        // Debug: Log full response to check structure
+        console.log('🔍 Full AI response:', JSON.stringify(response, null, 2));
+        
         const maybePlayResponseAction = (actionId?: string | null) => {
           if (!actionId) return;
           if (actionId !== predictedActionId && actionId !== talkingActionId) {
@@ -1522,9 +1606,43 @@ useEffect(() => {
           }
         };
 
+        // Parse task_action from text_response if it's embedded as JSON
+        let taskAction = response.task_action;
+        let shouldRegenerateAudio = false;
+        
+        if (!taskAction && response.text_response) {
+          try {
+            // Check if text_response contains JSON with task_action
+            const textResponseTrimmed = response.text_response.trim();
+            if (textResponseTrimmed.startsWith('{') && textResponseTrimmed.includes('task_action')) {
+              const parsed = JSON.parse(textResponseTrimmed);
+              if (parsed.task_action) {
+                console.log('📋 Extracted task_action from text_response');
+                taskAction = parsed.task_action;
+                // Clean up the text_response to remove the JSON
+                response.text_response = "Got it! I'll help you with that.";
+                // Flag to regenerate audio with the cleaned text
+                shouldRegenerateAudio = true;
+              }
+            }
+          } catch (e) {
+            console.warn('Failed to parse task_action from text_response:', e);
+          }
+        }
+        
+        // Regenerate audio if we cleaned up JSON from text_response
+        if (shouldRegenerateAudio && !isMuted) {
+          console.log('🔊 Regenerating audio for cleaned response');
+          generateSpeech(response.text_response).then(cleanAudio => {
+            if (cleanAudio) {
+              // Replace the audio data with clean version
+              media.enqueueAudio(cleanAudio);
+            }
+          });
+        }
+
         // Check for Task Action
-        if (response.task_action && response.task_action.action) {
-          const taskAction = response.task_action;
+        if (taskAction && taskAction.action) {
           console.log('📋 Task action detected:', taskAction);
           
           try {
@@ -1678,7 +1796,8 @@ useEffect(() => {
             );
             setLastSavedMessageIndex(updatedHistory.length);
 
-            if (!isMuted && audioData) {
+            // Only use original audio if we're not regenerating (i.e., text wasn't JSON)
+            if (!isMuted && audioData && !shouldRegenerateAudio) {
                 media.enqueueAudio(audioData);
             }
 
@@ -1751,8 +1870,9 @@ useEffect(() => {
           : "No new emails.";
       }
 
-      // Task summary
-      const incompleteTasks = tasks.filter(t => !t.completed);
+      // Task summary - load current tasks at briefing time
+      const currentTasks = taskService.loadTasks();
+      const incompleteTasks = currentTasks.filter(t => !t.completed);
       const taskSummary = incompleteTasks.length > 0
         ? `User has ${incompleteTasks.length} task(s) from yesterday that need attention: ${incompleteTasks.slice(0, 3).map(t => t.text).join(', ')}`
         : "User's checklist is clear.";
@@ -1778,7 +1898,7 @@ useEffect(() => {
     // Cleanup on unmount
     return () => clearTimeout(timer);
 
-  }, [selectedCharacter, session, isGmailConnected, upcomingEvents, emailQueue]);
+  }, [selectedCharacter, session, isGmailConnected, upcomingEvents, emailQueue, triggerSystemMessage]);
   
   const handleVideoEnd = () => {
     // Shift the queue - remove the video that just finished
@@ -1846,6 +1966,106 @@ useEffect(() => {
               </svg>
             </button>
           )}
+          
+          {/* Snooze Button - Only visible in chat view */}
+          {view === 'chat' && selectedCharacter && (
+            <div className="relative">
+              <button
+                onClick={() => setShowSnoozeMenu(!showSnoozeMenu)}
+                className={`rounded-full p-3 shadow-lg transition-all hover:scale-110 relative ${
+                  isSnoozed 
+                    ? 'bg-gradient-to-br from-orange-500 to-red-600 text-white' 
+                    : 'bg-gradient-to-br from-purple-500 to-indigo-600 text-white'
+                }`}
+                title={isSnoozed ? 'Check-ins snoozed' : 'Snooze check-ins'}
+              >
+                {isSnoozed ? (
+                  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                ) : (
+                  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
+                  </svg>
+                )}
+                {isSnoozed && (
+                  <span className="absolute -top-1 -right-1 bg-orange-500 text-white text-xs font-bold rounded-full w-5 h-5 flex items-center justify-center">
+                    ⏸
+                  </span>
+                )}
+              </button>
+              
+              {/* Snooze Menu Dropdown */}
+              {showSnoozeMenu && (
+                <>
+                  <div 
+                    className="fixed inset-0 z-40" 
+                    onClick={() => setShowSnoozeMenu(false)}
+                  />
+                  <div className="absolute top-full right-0 mt-2 w-56 bg-gray-800 border border-gray-700 rounded-lg shadow-xl z-50 overflow-hidden">
+                    {isSnoozed ? (
+                      <>
+                        <div className="px-4 py-3 border-b border-gray-700">
+                          <p className="text-sm font-semibold text-orange-400">Check-ins Paused</p>
+                          {snoozeUntil ? (
+                            <p className="text-xs text-gray-400 mt-1">
+                              Until {new Date(snoozeUntil).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                            </p>
+                          ) : (
+                            <p className="text-xs text-gray-400 mt-1">Indefinitely</p>
+                          )}
+                        </div>
+                        <button
+                          onClick={handleUnsnooze}
+                          className="w-full px-4 py-3 text-left text-sm hover:bg-gray-700 transition-colors text-green-400 font-medium"
+                        >
+                          ▶️ Resume Check-ins
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        <div className="px-4 py-3 border-b border-gray-700">
+                          <p className="text-sm font-semibold text-gray-200">Snooze Check-ins</p>
+                          <p className="text-xs text-gray-400 mt-1">Pause idle notifications</p>
+                        </div>
+                        <button
+                          onClick={() => handleSnooze(15)}
+                          className="w-full px-4 py-2 text-left text-sm hover:bg-gray-700 transition-colors"
+                        >
+                          15 minutes
+                        </button>
+                        <button
+                          onClick={() => handleSnooze(30)}
+                          className="w-full px-4 py-2 text-left text-sm hover:bg-gray-700 transition-colors"
+                        >
+                          30 minutes
+                        </button>
+                        <button
+                          onClick={() => handleSnooze(60)}
+                          className="w-full px-4 py-2 text-left text-sm hover:bg-gray-700 transition-colors"
+                        >
+                          1 hour
+                        </button>
+                        <button
+                          onClick={() => handleSnooze(120)}
+                          className="w-full px-4 py-2 text-left text-sm hover:bg-gray-700 transition-colors"
+                        >
+                          2 hours
+                        </button>
+                        <button
+                          onClick={() => handleSnooze('indefinite')}
+                          className="w-full px-4 py-2 text-left text-sm hover:bg-gray-700 transition-colors border-t border-gray-700 text-gray-400"
+                        >
+                          Until I resume...
+                        </button>
+                      </>
+                    )}
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+          
           <SettingsPanel onGmailConnectionChange={setIsGmailConnected} />
         </div>
       </header>
