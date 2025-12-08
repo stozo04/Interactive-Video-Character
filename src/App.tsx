@@ -4,6 +4,7 @@ import {
   UploadedImage,
   CharacterProfile,
   CharacterAction,
+  Task,
 } from './types';
 import * as dbService from './services/cacheService';
 import { supabase } from './services/supabaseClient';
@@ -29,11 +30,13 @@ import LoadingSpinner from './components/LoadingSpinner';
 import CharacterManagementView from './components/CharacterManagementView';
 import { SettingsPanel } from './components/SettingsPanel';
 import { LoginPage } from './components/LoginPage';
+import { TaskPanel } from './components/TaskPanel';
 import { useGoogleAuth } from './contexts/GoogleAuthContext';
 import { useDebounce } from './hooks/useDebounce';
 import { useMediaQueues } from './hooks/useMediaQueues';
 import { useAIService } from './contexts/AIServiceContext';
 import { AIChatSession, UserContent } from './services/aiService';
+import * as taskService from './services/taskService';
 
 // Helper to sanitize text for comparison
 const sanitizeText = (value: string): string =>
@@ -188,6 +191,10 @@ const App: React.FC = () => {
   const [relationship, setRelationship] = useState<RelationshipMetrics | null>(null);
   const [isVideoVisible, setIsVideoVisible] = useState(true);
   const [isLoadingCharacter, setIsLoadingCharacter] = useState(false);
+  
+  // Task Management State
+  const [tasks, setTasks] = useState<Task[]>([]);
+  const [isTaskPanelOpen, setIsTaskPanelOpen] = useState(false);
 
   // Gmail Integration State
   const [isGmailConnected, setIsGmailConnected] = useState(false);
@@ -293,6 +300,7 @@ useEffect(() => {
           relationship: relationship, 
           upcomingEvents: upcomingEvents,
           characterContext: kayleyContext,
+          tasks: tasks,
         },
         sessionToUse
       );
@@ -709,19 +717,27 @@ useEffect(() => {
       ? `Relationship tier with user: ${relationship.relationshipTier}.`
       : "Relationship tier with user is unknown.";
 
+    // Check for high-priority tasks
+    const highPriorityTasks = tasks.filter(t => !t.completed && t.priority === 'high');
+    const taskContext = highPriorityTasks.length > 0
+      ? `User has ${highPriorityTasks.length} high-priority task(s): ${highPriorityTasks[0].text}. Consider gently mentioning it if appropriate.`
+      : "No urgent tasks pending.";
+
     const prompt = `
     [SYSTEM EVENT: USER_IDLE]
     The user has been silent for over 5 minutes. 
     ${relationshipContext}
+    ${taskContext}
     Your goal: Gently check in. 
     - If relationship is 'close_friend', maybe send a random thought or joke.
     - If 'acquaintance', politely ask if they are still there.
+    - If there are high-priority tasks and relationship allows, you MAY gently mention them (but don't be pushy).
     - Keep it very short (1 sentence).
     - Do NOT repeat yourself if you did this recently.
   `;
 
     triggerSystemMessage(prompt);
-  }, [relationship?.relationshipTier, triggerSystemMessage]);
+  }, [relationship?.relationshipTier, tasks, triggerSystemMessage]);
 
   useEffect(() => {
     const IDLE_TIMEOUT = 5 * 60 * 1000; // 5 minutes
@@ -747,6 +763,22 @@ useEffect(() => {
     const interval = window.setInterval(checkIdle, IDLE_CHECK_INTERVAL);
     return () => window.clearInterval(interval);
   }, [lastInteractionAt, isProcessingAction, isSpeaking, triggerIdleBreaker]);
+
+  // Keyboard Shortcuts
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Ctrl/Cmd + T to toggle task panel
+      if ((e.ctrlKey || e.metaKey) && e.key === 't') {
+        e.preventDefault();
+        if (view === 'chat' && selectedCharacter) {
+          setIsTaskPanelOpen(prev => !prev);
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [view, selectedCharacter]);
 
   // Gmail Integration Hooks
   useEffect(() => {
@@ -1186,6 +1218,11 @@ useEffect(() => {
 
     setActionVideoUrls(newActionUrls);
     setSelectedCharacter(character);
+    
+    // Load tasks and perform daily rollover check
+    const loadedTasks = taskService.loadTasks();
+    setTasks(loadedTasks);
+    console.log(`📋 Loaded ${loadedTasks.length} task(s)`);
 
     // Initialize Queue with shuffled idle video URLs (already public URLs!)
     let initialQueue = shuffleArray([...character.idleVideoUrls]);
@@ -1353,6 +1390,69 @@ useEffect(() => {
     handleUserInterrupt();
   };
 
+  // Task Management Handlers
+  const handleTaskCreate = useCallback((text: string, priority?: 'low' | 'medium' | 'high') => {
+    const newTask = taskService.createTask(text, priority);
+    setTasks(prev => [...prev, newTask]);
+    
+    // Kayley celebrates the task creation
+    if (selectedCharacter && !isMuted) {
+      const celebrations = [
+        "Got it! Added to your list ✨",
+        "Done! I'll help you remember that.",
+        "Added! One step at a time 🤍",
+        "On the list! You've got this."
+      ];
+      const message = celebrations[Math.floor(Math.random() * celebrations.length)];
+      
+      generateSpeech(message).then(audio => {
+        if (audio) media.enqueueAudio(audio);
+      });
+      
+      setChatHistory(prev => [...prev, { role: 'model', text: message }]);
+    }
+  }, [selectedCharacter, isMuted, media]);
+
+  const handleTaskToggle = useCallback((taskId: string) => {
+    const updatedTask = taskService.toggleTask(taskId);
+    if (updatedTask) {
+      setTasks(taskService.loadTasks());
+      
+      // Celebrate completion!
+      if (updatedTask.completed && selectedCharacter && !isMuted) {
+        const celebrations = [
+          "Nice! That's one thing off your plate ✨",
+          "You crushed it! One down!",
+          "Look at you go! ✅",
+          "Done and done! Great work 🤍",
+          "Boom! Another one bites the dust!"
+        ];
+        const message = celebrations[Math.floor(Math.random() * celebrations.length)];
+        
+        generateSpeech(message).then(audio => {
+          if (audio) media.enqueueAudio(audio);
+        });
+        
+        setChatHistory(prev => [...prev, { role: 'model', text: message }]);
+        
+        // Try to play a positive action if available
+        const positiveActions = selectedCharacter.actions.filter(a => 
+          a.name.toLowerCase().includes('happy') || 
+          a.name.toLowerCase().includes('celebrate') ||
+          a.name.toLowerCase().includes('excited')
+        );
+        if (positiveActions.length > 0) {
+          playAction(positiveActions[0].id);
+        }
+      }
+    }
+  }, [selectedCharacter, isMuted, media]);
+
+  const handleTaskDelete = useCallback((taskId: string) => {
+    taskService.deleteTask(taskId);
+    setTasks(taskService.loadTasks());
+  }, []);
+
   const handleSendMessage = async (message: string) => {
     if (!selectedCharacter || !session) return;
     registerInteraction();
@@ -1421,6 +1521,63 @@ useEffect(() => {
             console.log("Skipping duplicate action playback");
           }
         };
+
+        // Check for Task Action
+        if (response.task_action && response.task_action.action) {
+          const taskAction = response.task_action;
+          console.log('📋 Task action detected:', taskAction);
+          
+          try {
+            switch (taskAction.action) {
+              case 'create':
+                if (taskAction.task_text) {
+                  const newTask = taskService.createTask(
+                    taskAction.task_text, 
+                    taskAction.priority as 'low' | 'medium' | 'high' | undefined
+                  );
+                  setTasks(taskService.loadTasks());
+                  console.log('✅ Task created:', newTask.text);
+                }
+                break;
+                
+              case 'complete':
+                if (taskAction.task_text) {
+                  const foundTask = taskService.findTaskByText(taskAction.task_text);
+                  if (foundTask) {
+                    taskService.toggleTask(foundTask.id);
+                    setTasks(taskService.loadTasks());
+                    console.log('✅ Task completed:', foundTask.text);
+                  }
+                } else if (taskAction.task_id) {
+                  taskService.toggleTask(taskAction.task_id);
+                  setTasks(taskService.loadTasks());
+                }
+                break;
+                
+              case 'delete':
+                if (taskAction.task_text) {
+                  const foundTask = taskService.findTaskByText(taskAction.task_text);
+                  if (foundTask) {
+                    taskService.deleteTask(foundTask.id);
+                    setTasks(taskService.loadTasks());
+                    console.log('🗑️ Task deleted:', foundTask.text);
+                  }
+                } else if (taskAction.task_id) {
+                  taskService.deleteTask(taskAction.task_id);
+                  setTasks(taskService.loadTasks());
+                }
+                break;
+                
+              case 'list':
+                // Task list is already in the AI's context, no action needed
+                // Optionally open the task panel
+                setIsTaskPanelOpen(true);
+                break;
+            }
+          } catch (error) {
+            console.error('Failed to execute task action:', error);
+          }
+        }
 
         // Check for Calendar Action
         // We search for the tag anywhere in the response, not just at the start.
@@ -1594,12 +1751,20 @@ useEffect(() => {
           : "No new emails.";
       }
 
+      // Task summary
+      const incompleteTasks = tasks.filter(t => !t.completed);
+      const taskSummary = incompleteTasks.length > 0
+        ? `User has ${incompleteTasks.length} task(s) from yesterday that need attention: ${incompleteTasks.slice(0, 3).map(t => t.text).join(', ')}`
+        : "User's checklist is clear.";
+
       const prompt = `
         [SYSTEM EVENT: MORNING BRIEFING]
         It is the first login of the day. 
-        Context: ${eventSummary}. ${emailSummary}.
-        Task: Greet the user warmly. Briefly summarize their schedule/emails if any exist. If nothing is happening, just say good morning and ask what the plan is.
-        Keep it short (1-2 sentences).
+        Context: ${eventSummary}. ${emailSummary}. ${taskSummary}.
+        Task: Greet the user warmly. Briefly summarize their schedule/emails/tasks if any exist. 
+        If they have tasks from yesterday, gently mention them. 
+        Optionally suggest they add tasks related to their calendar events.
+        Keep it short (2-3 sentences).
       `;
 
       // 5. Fire it off
@@ -1653,7 +1818,34 @@ useEffect(() => {
         <h1 className="text-4xl md:text-5xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-purple-400 to-indigo-600">
           Interactive Video Character
         </h1>
-        <div className="absolute top-0 right-0">
+        <div className="absolute top-0 right-0 flex items-center gap-2">
+          {/* Task Panel Toggle - Only visible in chat view */}
+          {view === 'chat' && selectedCharacter && (
+            <button
+              onClick={() => setIsTaskPanelOpen(!isTaskPanelOpen)}
+              className="bg-gradient-to-br from-purple-500 to-indigo-600 text-white rounded-full p-3 shadow-lg transition-all hover:scale-110 relative"
+              title={isTaskPanelOpen ? 'Close checklist' : 'Open checklist'}
+            >
+              {tasks.filter(t => !t.completed).length > 0 && !isTaskPanelOpen && (
+                <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs font-bold rounded-full w-5 h-5 flex items-center justify-center">
+                  {tasks.filter(t => !t.completed).length}
+                </span>
+              )}
+              <svg
+                className="w-5 h-5"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"
+                />
+              </svg>
+            </button>
+          )}
           <SettingsPanel onGmailConnectionChange={setIsGmailConnected} />
         </div>
       </header>
@@ -1768,6 +1960,18 @@ useEffect(() => {
              </div>
         )}
       </main>
+      
+      {/* Task Panel - Available in chat view */}
+      {view === 'chat' && selectedCharacter && (
+        <TaskPanel
+          tasks={tasks}
+          isOpen={isTaskPanelOpen}
+          onToggle={() => setIsTaskPanelOpen(!isTaskPanelOpen)}
+          onTaskToggle={handleTaskToggle}
+          onTaskDelete={handleTaskDelete}
+          onTaskCreate={handleTaskCreate}
+        />
+      )}
     </div>
   );
 };

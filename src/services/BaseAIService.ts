@@ -22,7 +22,8 @@ export abstract class BaseAIService implements IAIChatService {
         options.character, 
         options.relationship, 
         options.upcomingEvents,
-        options.characterContext
+        options.characterContext,
+        options.tasks
       );
       
       // Call the specific provider

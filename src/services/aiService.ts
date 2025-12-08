@@ -1,4 +1,4 @@
-import { ChatMessage, CharacterProfile } from '../types';
+import { ChatMessage, CharacterProfile, Task } from '../types';
 import { RelationshipMetrics } from './relationshipService';
 import { AIActionResponse } from './aiSchema';
 
@@ -14,6 +14,7 @@ export interface AIChatOptions {
   relationship?: RelationshipMetrics | null;
   upcomingEvents?: any[];
   characterContext?: string; // What the character is "doing" right now
+  tasks?: Task[]; // User's daily checklist tasks
 }
 
 export interface AIMessage {
