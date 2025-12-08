@@ -31,6 +31,21 @@ export interface CharacterProfile {
   personaId?: string; // Optional canonical persona/relationship anchor
 }
 
+export interface Task {
+  id: string;
+  text: string;
+  completed: boolean;
+  createdAt: number; // timestamp
+  completedAt: number | null;
+  priority?: 'low' | 'medium' | 'high';
+  category?: string;
+}
+
+export interface TaskState {
+  tasks: Task[];
+  lastResetDate: string; // ISO date string (YYYY-MM-DD)
+}
+
 // FIX: Moved browser-specific interface declarations into `declare global` to resolve type errors.
 // Add global type declarations for browser-specific objects
 declare global {

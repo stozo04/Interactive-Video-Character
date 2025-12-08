@@ -1,5 +1,5 @@
 // src/services/promptUtils.ts
-import { CharacterProfile } from "../types";
+import { CharacterProfile, Task } from "../types";
 import type { RelationshipMetrics } from "./relationshipService";
 
 // const CHARACTER_COLLECTION_ID = import.meta.env.VITE_GROK_CHARACTER_COLLECTION_ID;
@@ -267,7 +267,8 @@ export const buildSystemPrompt = (
   character?: CharacterProfile,
   relationship?: RelationshipMetrics | null,
   upcomingEvents: any[] = [],
-  characterContext?: string
+  characterContext?: string,
+  tasks?: Task[]
 ): string => {
   const name = character?.name || "Kayley Adams";
   const display = character?.displayName || "Kayley";
@@ -486,6 +487,71 @@ If you receive [SYSTEM EVENT: USER_IDLE]:
 If the user asks to "check Gmail" for events, they usually mean this Calendar list.
 You CANNOT read their past emails, only these calendar events.
 `;
+
+  // Task context
+  if (tasks && tasks.length > 0) {
+    const incompleteTasks = tasks.filter(t => !t.completed);
+    const completedTasks = tasks.filter(t => t.completed);
+    const highPriorityTasks = incompleteTasks.filter(t => t.priority === 'high');
+
+    prompt += `
+
+====================================================
+DAILY CHECKLIST CONTEXT
+====================================================
+User's task status:
+- Total tasks: ${tasks.length}
+- Incomplete: ${incompleteTasks.length}
+- Completed today: ${completedTasks.length}
+- High priority pending: ${highPriorityTasks.length}
+
+Current tasks:
+${tasks.map(t => `${t.completed ? '[✓]' : '[ ]'} ${t.text}${t.priority ? ` (${t.priority} priority)` : ''}`).join('\n')}
+
+Task Interaction Rules:
+1. Celebrate Completions:
+   - When user completes a task, respond enthusiastically
+   - Examples: "Nice! That's one thing off your plate ✨", "You crushed it!"
+   
+2. Gentle Reminders:
+   - If user mentions an activity related to a pending task, gently remind them
+   - Example: User says "I'm going to the store" → "Perfect! Don't forget you had 'buy groceries' on your list 🛒"
+   
+3. Proactive Suggestions:
+   - If user mentions doing something, ask if they want to add it to checklist
+   - Example: User says "I need to call Mom later" → "Want me to add 'Call Mom' to your checklist?"
+   
+4. High Priority Awareness:
+   - If high priority tasks exist and context allows, gently mention them
+   - Don't be annoying - only bring up at natural moments
+   
+5. Task Commands:
+   - To create task: set task_action.action = "create", task_action.task_text = "task text"
+   - To complete task: set task_action.action = "complete", task_action.task_text = "partial match of task"
+   - To delete task: set task_action.action = "delete", task_action.task_text = "partial match"
+   - To list tasks: set task_action.action = "list"
+
+IMPORTANT: Use task_action in your JSON response when user explicitly asks for task operations.
+Examples:
+- "Add buy milk to my list" → task_action: {action: "create", task_text: "buy milk"}
+- "Mark groceries as done" → task_action: {action: "complete", task_text: "groceries"}
+- "What's on my checklist?" → task_action: {action: "list"}
+`;
+  } else {
+    prompt += `
+
+====================================================
+DAILY CHECKLIST CONTEXT
+====================================================
+User has no tasks yet. 
+
+If the user mentions needing to do something or remember something:
+- Naturally suggest adding it to their checklist
+- Example: "Want me to add that to your daily checklist so you don't forget?"
+
+To create a task, use: task_action: {action: "create", task_text: "task description", priority: "medium"}
+`;
+  }
 
   // Action menu (optional)
   if (character?.actions?.length) {

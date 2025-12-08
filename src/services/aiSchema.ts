@@ -37,6 +37,26 @@ export const AIActionResponseSchema = z.object({
    */
   open_app: z.string().nullable().optional().describe(
     "The URL scheme to launch an external application (e.g. 'slack://'), or null."
+  ),
+
+  /**
+   * Task management actions - used when user wants to interact with their daily checklist
+   */
+  task_action: z.object({
+    action: z.enum(['create', 'complete', 'delete', 'list']).nullable().describe(
+      "The task action to perform: 'create' to add a new task, 'complete' to mark done, 'delete' to remove, 'list' to show all tasks, or null for no task action"
+    ),
+    task_text: z.string().optional().describe(
+      "The text of the task to create, or partial text to match for complete/delete actions"
+    ),
+    task_id: z.string().optional().describe(
+      "The specific task ID if known"
+    ),
+    priority: z.enum(['low', 'medium', 'high']).optional().describe(
+      "Priority level for new tasks"
+    )
+  }).nullable().optional().describe(
+    "Task management action if the user wants to interact with their checklist"
   )
 });
 
