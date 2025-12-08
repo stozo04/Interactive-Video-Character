@@ -1630,6 +1630,39 @@ useEffect(() => {
           }
         }
         
+        // Fallback: Detect task completion intent from user message if AI didn't provide task_action
+        if (!taskAction && message) {
+          const messageLower = message.toLowerCase();
+          const completionKeywords = ['done', 'finished', 'complete', 'completed', 'is done', 'finished', 'got it done'];
+          const taskKeywords = ['task', 'todo', 'checklist'];
+          
+          // Check if message indicates task completion
+          const hasCompletionIntent = completionKeywords.some(kw => messageLower.includes(kw));
+          const mentionsTask = taskKeywords.some(kw => messageLower.includes(kw)) || tasks.some(t => messageLower.includes(t.text.toLowerCase()));
+          
+          if (hasCompletionIntent && (mentionsTask || tasks.length > 0)) {
+            console.log('📋 Detected task completion intent from user message (AI missed it)');
+            
+            // Try to find which task they're referring to
+            let matchedTask = null;
+            for (const task of tasks) {
+              if (!task.completed && messageLower.includes(task.text.toLowerCase())) {
+                matchedTask = task.text;
+                break;
+              }
+            }
+            
+            // If we found a task match, create the task_action
+            if (matchedTask) {
+              console.log(`📋 Fallback: Marking "${matchedTask}" as complete`);
+              taskAction = {
+                action: 'complete',
+                task_text: matchedTask
+              };
+            }
+          }
+        }
+        
         // Regenerate audio if we cleaned up JSON from text_response
         if (shouldRegenerateAudio && !isMuted) {
           console.log('🔊 Regenerating audio for cleaned response');

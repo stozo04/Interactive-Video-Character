@@ -15,7 +15,7 @@ interface AIServiceContextType {
 const AIServiceContext = createContext<AIServiceContextType | undefined>(undefined);
 
 export function AIServiceProvider({ children }: { children: React.ReactNode }) {
-  const [activeServiceId, setActiveServiceId] = useState<ServiceType>('grok');
+  const [activeServiceId, setActiveServiceId] = useState<ServiceType>('gemini');
 
   const setService = (id: ServiceType) => {
     console.log(`🧠 [AIServiceContext] Switching active brain to: ${id.toUpperCase()}`);

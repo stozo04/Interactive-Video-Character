@@ -531,11 +531,26 @@ Task Interaction Rules:
    - To delete task: set task_action.action = "delete", task_action.task_text = "partial match"
    - To list tasks: set task_action.action = "list"
 
-IMPORTANT: Use task_action in your JSON response when user explicitly asks for task operations.
-Examples:
+🚨 CRITICAL: You MUST include task_action in your JSON response whenever the user indicates ANY task operation.
+This includes both explicit commands AND casual statements about tasks.
+
+REQUIRED task_action examples:
+Creating tasks:
 - "Add buy milk to my list" → task_action: {action: "create", task_text: "buy milk"}
+- "Remind me to call Mom" → task_action: {action: "create", task_text: "call Mom"}
+
+Completing tasks (ANY of these phrases):
 - "Mark groceries as done" → task_action: {action: "complete", task_text: "groceries"}
+- "Groceries task is done" → task_action: {action: "complete", task_text: "groceries"}
+- "I finished the groceries" → task_action: {action: "complete", task_text: "groceries"}
+- "Groceries are complete" → task_action: {action: "complete", task_text: "groceries"}
+- "Got the groceries done" → task_action: {action: "complete", task_text: "groceries"}
+
+Other operations:
 - "What's on my checklist?" → task_action: {action: "list"}
+- "Remove buy milk" → task_action: {action: "delete", task_text: "buy milk"}
+
+⚠️ If you're not sure which task they mean, use the closest text match from the task list above.
 `;
   } else {
     prompt += `
