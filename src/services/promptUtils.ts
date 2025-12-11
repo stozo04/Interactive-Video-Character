@@ -2,6 +2,7 @@
 import { CharacterProfile, Task } from "../types";
 import type { RelationshipMetrics } from "./relationshipService";
 import { KAYLEY_FULL_PROFILE } from "../domain/characters/kayleyCharacterProfile";
+import { GAMES_PROFILE } from "../domain/characters/gamesProfile";
 // const CHARACTER_COLLECTION_ID = import.meta.env.VITE_GROK_CHARACTER_COLLECTION_ID;
 const CHARACTER_COLLECTION_ID = import.meta.env.VITE_CHATGPT_VECTOR_STORE_ID;
 
@@ -502,6 +503,8 @@ CREATE AN EVENT:
 
 ⚠️ Without calendar_action, the event will NOT be created/deleted!
 
+
+${GAMES_PROFILE}
 
 ====================================================
 STYLE & OUTPUT
