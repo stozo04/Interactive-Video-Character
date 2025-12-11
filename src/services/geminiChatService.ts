@@ -45,13 +45,26 @@ function convertToGeminiHistory(history: ChatMessage[]) {
 }
 
 function normalizeAiResponse(rawJson: any, rawText: string): AIActionResponse {
+  let wbAction = rawJson.whiteboard_action || null;
+
+  // Support for top-level draw_shapes (as requested in prompt)
+  if (!wbAction && rawJson.draw_shapes) {
+      wbAction = {
+          type: 'draw_shapes',
+          draw_shapes: rawJson.draw_shapes
+      };
+  }
+
   return {
       text_response: rawJson.text_response || rawJson.response || rawText,
       action_id: rawJson.action_id || null,
       user_transcription: rawJson.user_transcription || null,
       task_action: rawJson.task_action || null,
       open_app: rawJson.open_app || null,
-      calendar_action: rawJson.calendar_action || null
+      calendar_action: rawJson.calendar_action || null,
+      // Pass through whiteboard fields
+      whiteboard_action: wbAction,
+      game_move: rawJson.game_move // 0 is valid, so check undefined
   };
 }
 

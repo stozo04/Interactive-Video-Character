@@ -89,6 +89,57 @@ export const AIActionResponseSchema = z.object({
     )
   }).nullable().optional().describe(
     "Calendar action if the user wants to create or delete calendar event(s)"
+  ),
+
+  /**
+   * For Tic-Tac-Toe: The cell position (0-8) where AI wants to place its mark.
+   * Cell positions: [0,1,2] (top row), [3,4,5] (middle row), [6,7,8] (bottom row)
+   */
+  game_move: z.number().min(0).max(8).nullable().optional().describe(
+    "For Tic-Tac-Toe: cell position (0-8, top-left to bottom-right) for AI's O placement"
+  ),
+
+  /**
+   * For Tic-Tac-Toe: The cell position (0-8) where the AI sees the USER's X mark from the image.
+   * This is critical for syncing game state.
+   */
+  user_move_detected: z.number().min(0).max(8).nullable().optional().describe(
+    "For Tic-Tac-Toe: the cell position (0-8) where the AI sees the USER's X mark from the image."
+  ),
+
+  /**
+   * Whiteboard action for more complex interactions (guessing, describing, etc.)
+   */
+  whiteboard_action: z.object({
+    type: z.enum(['none', 'mark_cell', 'guess', 'describe', 'draw']).describe(
+      "Type of whiteboard action"
+    ),
+    position: z.number().optional().describe(
+      "Cell position for grid-based games (0-8)"
+    ),
+    guess: z.string().optional().describe(
+      "For Pictionary: the AI's guess of what the drawing is"
+    ),
+    description: z.string().optional().describe(
+      "For freeform: AI's description of the drawing"
+    ),
+    draw_shapes: z.array(z.object({
+      shape: z.enum(['line', 'circle', 'rect', 'point', 'path', 'text']),
+      x: z.number().describe("Start X coordinate (0-100)"),
+      y: z.number().describe("Start Y coordinate (0-100)"),
+      x2: z.number().optional().describe("End X (0-100) for lines/rects"),
+      y2: z.number().optional().describe("End Y (0-100) for lines/rects"),
+      points: z.array(z.object({
+        x: z.number(),
+        y: z.number()
+      })).optional().describe("Array of points for 'path' shape (0-100)"),
+      text: z.string().optional().describe("Text content for 'text' shape - USE THIS FOR WRITING NAMES/WORDS!"),
+      size: z.number().optional().describe("Size/Radius (0-100) or font size for text"),
+      color: z.string().optional().describe("Hex color code or name"),
+      filled: z.boolean().optional().describe("If true, fill the shape")
+    })).optional().describe("Shapes for AI to draw on the board")
+  }).nullable().optional().describe(
+    "Whiteboard interaction action"
   )
 });
 

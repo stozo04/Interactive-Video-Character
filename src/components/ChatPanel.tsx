@@ -7,6 +7,7 @@ interface ChatPanelProps {
   history: ChatMessage[];
   onSendMessage: (message: string) => void;
   onSendImage?: (base64: string, mimeType: string) => void;
+  onOpenWhiteboard?: () => void;
   onUserActivity?: () => void;
   isSending: boolean;
 }
@@ -15,6 +16,7 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
   history, 
   onSendMessage, 
   onSendImage,
+  onOpenWhiteboard,
   onUserActivity,
   isSending 
 }) => {
@@ -182,6 +184,24 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
                     </svg>
                 </button>
             </>
+        )}
+
+        {/* Whiteboard Button */}
+        {onOpenWhiteboard && (
+          <button
+            type="button"
+            onClick={() => {
+              onUserActivity?.();
+              onOpenWhiteboard();
+            }}
+            disabled={isSending}
+            className="p-3 rounded-full text-gray-400 hover:text-white hover:bg-gray-700 transition-colors disabled:opacity-50"
+            title="Open Whiteboard"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+            </svg>
+          </button>
         )}
 
         <input

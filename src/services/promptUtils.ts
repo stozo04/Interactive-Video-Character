@@ -757,6 +757,7 @@ Your final output must be a VALID JSON object.
 - No trailing commas.
 - No comments in the JSON.
 - "task_action" must be a sibling of "text_response".
+- CAUTION: If your "text_response" contains internal quotes, you MUST escape them (e.g. \"word\") or use single quotes (e.g. 'word'). Invalid JSON will fail.
 `;
 
   return prompt;
