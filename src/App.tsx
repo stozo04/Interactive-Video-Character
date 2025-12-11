@@ -31,11 +31,19 @@ import CharacterManagementView from './components/CharacterManagementView';
 import { SettingsPanel } from './components/SettingsPanel';
 import { LoginPage } from './components/LoginPage';
 import { TaskPanel } from './components/TaskPanel';
+import { WhiteboardView } from './components/WhiteboardView';
+import { 
+  buildWhiteboardPrompt, 
+  WHITEBOARD_MODES, 
+  parseWhiteboardAction,
+  WhiteboardAction 
+} from './services/whiteboardModes';
 import { useGoogleAuth } from './contexts/GoogleAuthContext';
 import { useDebounce } from './hooks/useDebounce';
 import { useMediaQueues } from './hooks/useMediaQueues';
 import { useAIService } from './contexts/AIServiceContext';
 import { AIChatSession, UserContent } from './services/aiService';
+import { GAMES_PROFILE } from './domain/characters/gamesProfile';
 import * as taskService from './services/taskService';
 
 // Helper to sanitize text for comparison
@@ -168,7 +176,7 @@ const getTalkingActions = (actions: CharacterProfile['actions']): CharacterActio
   return actions.filter(isTalkingAction);
 };
 
-type View = 'loading' | 'selectCharacter' | 'createCharacter' | 'chat' | 'manageCharacter';
+type View = 'loading' | 'selectCharacter' | 'createCharacter' | 'chat' | 'manageCharacter' | 'whiteboard';
 
 interface DisplayCharacter {
   profile: CharacterProfile;
@@ -2259,6 +2267,89 @@ useEffect(() => {
     setCurrentActionId(null);
   };
 
+  // Whiteboard AI Interaction Handler
+  const handleWhiteboardCapture = async (
+    base64: string,
+    userMessage: string,
+    modeContext: string
+  ): Promise<{ textResponse: string; whiteboardAction?: WhiteboardAction | null }> => {
+    if (!selectedCharacter || !session) {
+      return { textResponse: "Please select a character first." };
+    }
+
+    const userId = getUserId();
+    const sessionToUse: AIChatSession = aiSession || { userId, characterId: selectedCharacter.id };
+
+    try {
+      // ============================================
+      // PRE-FETCH USER INFO (Because AI doesn't always call tools reliably)
+      // ============================================
+      let userInfoContext = '';
+      try {
+        const { getUserFacts } = await import('./services/memoryService');
+        const userFacts = await getUserFacts(userId, 'all');
+        if (userFacts.length > 0) {
+          const factsFormatted = userFacts.map(f => `- ${f.fact_key}: ${f.fact_value}`).join('\n');
+          userInfoContext = `\n\n[KNOWN USER INFO - USE THIS!]\nYou already know these facts about the user:\n${factsFormatted}\n\nIf they ask you to draw "my name" and you have their name above, USE IT! Don't ask again!\n`;
+          console.log('🧠 [Whiteboard] Pre-loaded user facts:', userFacts.map(f => `${f.fact_key}=${f.fact_value}`));
+        }
+      } catch (err) {
+        console.warn('Could not pre-fetch user info:', err);
+      }
+
+      const enrichedContext = modeContext + userInfoContext;
+
+      const { response, session: updatedSession, audioData } = await activeService.generateResponse(
+        {
+          type: 'image_text',
+          text: enrichedContext, // Contains the full whiteboard context + user info
+          imageData: base64,
+          mimeType: 'image/png'
+        },
+        {
+          character: selectedCharacter,
+          chatHistory: [], // Fresh context for games
+          relationship,
+          characterContext: `Playing a game on the whiteboard.\n\n${GAMES_PROFILE}`,
+        },
+        sessionToUse
+      );
+
+      setAiSession(updatedSession);
+
+      // Play audio if available
+      if (!isMuted && audioData) {
+        media.enqueueAudio(audioData);
+      }
+
+      // Play action if specified
+      if (response.action_id) {
+        playAction(response.action_id);
+      }
+
+      const whiteboardAction = parseWhiteboardAction(response);
+
+      // ============================================
+      // AUTO-DETECT USER INFO (Backup for AI tools)
+      // Since AI doesn't always call tools reliably,
+      // we detect and store important info ourselves
+      // ============================================
+      import('./services/memoryService').then(({ detectAndStoreUserInfo }) => {
+        detectAndStoreUserInfo(userId, userMessage).catch(err =>
+          console.warn('Auto-detect failed:', err)
+        );
+      });
+
+      return {
+        textResponse: response.text_response,
+        whiteboardAction,
+      };
+    } catch (error) {
+      console.error('Whiteboard AI error:', error);
+      return { textResponse: "Hmm, I had trouble seeing your drawing. Try again?" };
+    }
+  };
+
   // Show login if not authenticated
   if (!session || authStatus !== 'connected') {
     return <LoginPage />;
@@ -2517,11 +2608,21 @@ useEffect(() => {
                     history={chatHistory}
                     onSendMessage={handleSendMessage}
                     onSendImage={handleSendImage}
+                onOpenWhiteboard={() => setView('whiteboard')}
                     isSending={isProcessingAction}
                     onUserActivity={markInteraction}
                   />
                 </div>
              </div>
+        )}
+
+
+        {view === 'whiteboard' && (
+          <WhiteboardView
+            onSendToAI={handleWhiteboardCapture}
+            onClose={() => setView('chat')}
+            disabled={isProcessingAction}
+          />
         )}
       </main>
       

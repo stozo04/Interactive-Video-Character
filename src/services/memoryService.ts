@@ -497,7 +497,30 @@ export const detectAndStoreUserInfo = async (
   const namePatterns = [
     /(?:i'm|i am|my name is|call me|this is)\s+([A-Z][a-z]+)(?:\s|!|,|\.|\?|$)/i,
     /^([A-Z][a-z]+)\s+here(?:\s|!|$)/i,  // "Steven here!"
-    /(?:name'?s|names)\s+([A-Z][a-z]+)/i  // "Name's Steven"
+    /(?:name'?s|names)\s+([A-Z][a-z]+)/i,  // "Name's Steven"
+    /^([A-Z][a-z]{1,15})[\s!.,?]*$/i  // Single capitalized word as a direct answer (e.g., "Steven")
+  ];
+
+  // Expanded false positives to avoid catching common single-word responses
+  const falsePositives = [
+    // Common articles and determiners
+    'the', 'a', 'an', 'this', 'that', 'these', 'those', 'my', 'your', 'our',
+    // Greetings and responses
+    'hi', 'hey', 'hello', 'sure', 'yes', 'no', 'okay', 'ok', 'well', 'just', 
+    'really', 'actually', 'thanks', 'thank', 'cool', 'nice', 'great', 'good',
+    'awesome', 'perfect', 'fine', 'yeah', 'yep', 'nope', 'maybe', 'please',
+    'sorry', 'sup', 'yo', 'bye', 'goodbye', 'welcome',
+    // Question words
+    'what', 'how', 'why', 'when', 'where', 'who', 'which', 'whose',
+    // Common words
+    'done', 'here', 'there', 'now', 'later', 'never', 'always', 'something', 
+    'nothing', 'everything', 'anything', 'someone', 'anyone', 'everyone',
+    // Action words that might appear in whiteboard context
+    'test', 'testing', 'draw', 'write', 'help', 'can', 'could', 'would', 
+    'should', 'will', 'name', 'please', 'try', 'again', 'more', 'less',
+    // Common verbs
+    'is', 'are', 'was', 'were', 'be', 'been', 'being', 'have', 'has', 'had',
+    'do', 'does', 'did', 'get', 'got', 'go', 'goes', 'went', 'come', 'came'
   ];
 
   for (const pattern of namePatterns) {
@@ -505,10 +528,10 @@ export const detectAndStoreUserInfo = async (
     if (match && match[1]) {
       const name = match[1].trim();
       // Avoid common false positives
-      const falsePositives = ['hi', 'hey', 'hello', 'sure', 'yes', 'no', 'okay', 'well', 'just', 'really', 'actually'];
-      if (!falsePositives.includes(name.toLowerCase()) && name.length > 1 && name.length < 20) {
+      if (!falsePositives.includes(name.toLowerCase()) && name.length > 2 && name.length < 20) {
         detected.push({ category: 'identity', key: 'name', value: name });
         console.log(`🔍 [Auto-Detect] Found name: ${name}`);
+        break; // Only detect one name per message
       }
     }
   }
