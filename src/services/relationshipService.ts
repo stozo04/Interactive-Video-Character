@@ -506,7 +506,16 @@ function fallbackSentimentAnalysis(
 }
 
 /**
- * Calculate score changes based on sentiment, intensity, and message content
+ * Calculate score changes based on sentiment, intensity, and message content.
+ * 
+ * TUNING NOTES (v2 - slower progression):
+ * - Relationships should take TIME to build. Not 15 messages.
+ * - Positive messages: +0.3 to +1.0 relationship score
+ * - Negative messages: -0.5 to -3.0 relationship score (destruction is faster than building)
+ * - Warmth/Trust/etc: +0.1 to +0.5 per interaction
+ * 
+ * With these values, reaching "deeply_loving" (75+ score) would take ~100+ positive interactions
+ * This feels more like real relationship building.
  */
 export function calculateScoreChanges(
   sentiment: 'positive' | 'neutral' | 'negative',
@@ -532,41 +541,42 @@ export function calculateScoreChanges(
   const isDismissive = /(whatever|just|only|don'?t\s+care|doesn'?t\s+matter)/i.test(message);
 
   if (sentiment === 'positive') {
-    let scoreChange = Math.round((2 + 3 * baseMultiplier) * 10) / 10; // 2-5 points
-    let warmthChange = Math.round((1 + 2 * baseMultiplier) * 10) / 10; // 1-3 points
-    let trustChange = Math.round(0.5 * baseMultiplier * 10) / 10; // 0-0.5 points
+    // BASE: +0.3 to +1.0 points (was +2 to +5)
+    let scoreChange = Math.round((0.3 + 0.7 * baseMultiplier) * 10) / 10;
+    let warmthChange = Math.round((0.1 + 0.3 * baseMultiplier) * 10) / 10; // +0.1 to +0.4
+    let trustChange = Math.round(0.1 * baseMultiplier * 10) / 10; // +0 to +0.1
     let playfulnessChange = 0;
-    let stabilityChange = Math.round(0.5 * baseMultiplier * 10) / 10; // 0-0.5 points
+    let stabilityChange = Math.round(0.1 * baseMultiplier * 10) / 10; // +0 to +0.1
 
-    // Compliments boost warmth significantly
+    // Compliments boost warmth (but still modest)
     if (isCompliment) {
-      warmthChange += Math.round(1 * baseMultiplier * 10) / 10; 
-      trustChange += Math.round(0.3 * baseMultiplier * 10) / 10; 
+      warmthChange += Math.round(0.2 * baseMultiplier * 10) / 10; 
+      trustChange += Math.round(0.05 * baseMultiplier * 10) / 10; 
     }
 
-    // Apologies build trust and stability
+    // Apologies build trust and stability (meaningful gesture)
     if (isApology) {
-      trustChange += Math.round(1.5 * baseMultiplier * 10) / 10; 
-      stabilityChange += Math.round(1 * baseMultiplier * 10) / 10; 
-      warmthChange += Math.round(0.3 * baseMultiplier * 10) / 10;
+      trustChange += Math.round(0.3 * baseMultiplier * 10) / 10; 
+      stabilityChange += Math.round(0.2 * baseMultiplier * 10) / 10; 
+      warmthChange += Math.round(0.1 * baseMultiplier * 10) / 10;
     }
 
     // Jokes/banter boost playfulness
     if (isJokeOrBanter) {
-      playfulnessChange = Math.round((0.5 + 1 * baseMultiplier) * 10) / 10; 
-      warmthChange += Math.round(0.3 * baseMultiplier * 10) / 10; 
+      playfulnessChange = Math.round((0.1 + 0.2 * baseMultiplier) * 10) / 10; 
+      warmthChange += Math.round(0.1 * baseMultiplier * 10) / 10; 
     }
 
-    // Personal sharing builds trust
+    // Personal sharing builds trust (vulnerability = trust)
     if (isPersonalShare) {
-      trustChange += Math.round(1 * baseMultiplier * 10) / 10; 
-      warmthChange += Math.round(0.5 * baseMultiplier * 10) / 10; 
+      trustChange += Math.round(0.2 * baseMultiplier * 10) / 10; 
+      warmthChange += Math.round(0.1 * baseMultiplier * 10) / 10; 
     }
 
     // Engagement builds stability
     if (isEngagement) {
-      stabilityChange += Math.round(0.3 * baseMultiplier * 10) / 10;
-      trustChange += Math.round(0.2 * baseMultiplier * 10) / 10;
+      stabilityChange += Math.round(0.1 * baseMultiplier * 10) / 10;
+      trustChange += Math.round(0.05 * baseMultiplier * 10) / 10;
     }
 
     return {
@@ -577,21 +587,23 @@ export function calculateScoreChanges(
       stabilityChange: Math.round(stabilityChange * 10) / 10,
     };
   } else if (sentiment === 'negative') {
-    let scoreChange = Math.round(-(5 + 10 * baseMultiplier) * 10) / 10; 
-    let warmthChange = Math.round(-(2 + 3 * baseMultiplier) * 10) / 10; 
-    let trustChange = Math.round(-(1 + 2 * baseMultiplier) * 10) / 10; 
-    let playfulnessChange = -1;
-    let stabilityChange = Math.round(-(1 + 1 * baseMultiplier) * 10) / 10; 
+    // Negative is 2-3x stronger than positive (easier to destroy than build)
+    // BASE: -0.5 to -3.0 points (was -5 to -15)
+    let scoreChange = Math.round(-(0.5 + 2.5 * baseMultiplier) * 10) / 10; 
+    let warmthChange = Math.round(-(0.2 + 0.5 * baseMultiplier) * 10) / 10; 
+    let trustChange = Math.round(-(0.1 + 0.4 * baseMultiplier) * 10) / 10; 
+    let playfulnessChange = Math.round(-0.2 * 10) / 10;
+    let stabilityChange = Math.round(-(0.1 + 0.2 * baseMultiplier) * 10) / 10; 
 
     if (isDismissive) {
-      trustChange += Math.round(-1 * baseMultiplier * 10) / 10; 
-      stabilityChange += Math.round(-0.5 * baseMultiplier * 10) / 10; 
-      warmthChange += Math.round(-0.5 * baseMultiplier * 10) / 10; 
+      trustChange += Math.round(-0.2 * baseMultiplier * 10) / 10; 
+      stabilityChange += Math.round(-0.1 * baseMultiplier * 10) / 10; 
+      warmthChange += Math.round(-0.1 * baseMultiplier * 10) / 10; 
     }
 
     if (/(stupid|dumb|hate|useless|worthless|annoying)/i.test(message)) {
-      warmthChange += Math.round(-1 * baseMultiplier * 10) / 10; 
-      trustChange += Math.round(-0.5 * baseMultiplier * 10) / 10; 
+      warmthChange += Math.round(-0.3 * baseMultiplier * 10) / 10; 
+      trustChange += Math.round(-0.2 * baseMultiplier * 10) / 10; 
     }
 
     return {
@@ -603,14 +615,14 @@ export function calculateScoreChanges(
     };
   }
 
-  // Neutral
+  // Neutral - very small positive influence for engagement
   if (isEngagement || isQuestion) {
     return {
-      scoreChange: Math.round(0.3 * 10) / 10, 
-      warmthChange: Math.round(0.2 * 10) / 10,
+      scoreChange: 0.1, // Tiny bump for showing up
+      warmthChange: 0.05,
       trustChange: 0,
       playfulnessChange: 0,
-      stabilityChange: Math.round(0.1 * 10) / 10,
+      stabilityChange: 0.05,
     };
   }
 

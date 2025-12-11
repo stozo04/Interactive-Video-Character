@@ -1337,20 +1337,27 @@ useEffect(() => {
     
     try {
       const userId = getUserId();
-      const savedHistory = await conversationHistoryService.loadConversationHistory(userId);
+
+      // ============================================
+      // FRESH SESSION: Don't load history anymore!
+      // AI uses memory tools to recall past context
+      // ============================================
+      console.log('🧠 [App] Starting FRESH session - AI will use memory tools for context');
+
+      // Still load relationship data for tone/personality
       const relationshipData = await relationshipService.getRelationship(userId);
       setRelationship(relationshipData);
       
       try {
+        // Start with fresh session - no saved history passed to greeting
         const session: AIChatSession = { userId, model: activeService.model }; 
         const { greeting, session: updatedSession } = await activeService.generateGreeting(
-            character, session, savedHistory, relationshipData, kayleyContext
+          character, session, [], relationshipData, kayleyContext  // Pass EMPTY array!
         );
         setAiSession(updatedSession);
 
-        const initialHistory = savedHistory.length > 0
-            ? [...savedHistory, { role: 'model' as const, text: greeting.text_response }]
-            : [{ role: 'model' as const, text: greeting.text_response }];
+        // Start with just the greeting - fresh session!
+        const initialHistory = [{ role: 'model' as const, text: greeting.text_response }];
         setChatHistory(initialHistory);
 
         if (greeting.action_id && newActionUrls[greeting.action_id]) {
@@ -1358,11 +1365,14 @@ useEffect(() => {
                 playAction(greeting.action_id!);
             }, 100);
         }
-        setLastSavedMessageIndex(savedHistory.length - 1);
+
+        // Reset the last saved index since we're starting fresh
+        setLastSavedMessageIndex(-1);
 
       } catch (error) {
         console.error('Error generating greeting:', error);
-        setChatHistory(savedHistory);
+        // On error, just start with empty chat
+        setChatHistory([]);
       }
       setView('chat');
     } catch (error) {
@@ -1613,6 +1623,18 @@ useEffect(() => {
 
     try {
       const userId = getUserId();
+
+      // ============================================
+      // CLIENT-SIDE BACKUP: Auto-detect user info
+      // Since AI doesn't always call tools reliably,
+      // we detect and store important info ourselves
+      // ============================================
+      import('./services/memoryService').then(({ detectAndStoreUserInfo }) => {
+        detectAndStoreUserInfo(userId, message).catch(err =>
+          console.warn('Auto-detect failed:', err)
+        );
+      });
+
       const sessionToUse: AIChatSession = aiSession || { userId, characterId: selectedCharacter.id };
       const context = {
           character: selectedCharacter,
