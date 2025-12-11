@@ -46,6 +46,46 @@ const sanitizeText = (value: string): string =>
     .replace(/\s+/g, ' ')
     .trim();
 
+// Helper to extract a single JSON object from a string (finds matching braces)
+const extractJsonObject = (str: string): string | null => {
+  const firstBrace = str.indexOf('{');
+  if (firstBrace === -1) return null;
+
+  let depth = 0;
+  let inString = false;
+  let escape = false;
+
+  for (let i = firstBrace; i < str.length; i++) {
+    const char = str[i];
+
+    if (escape) {
+      escape = false;
+      continue;
+    }
+
+    if (char === '\\') {
+      escape = true;
+      continue;
+    }
+
+    if (char === '"' && !escape) {
+      inString = !inString;
+      continue;
+    }
+
+    if (!inString) {
+      if (char === '{') depth++;
+      if (char === '}') depth--;
+
+      if (depth === 0) {
+        return str.substring(firstBrace, i + 1);
+      }
+    }
+  }
+
+  return null;
+};
+
 // Get user ID from environment variable
 const getUserId = (): string => {
   const userId = import.meta.env.VITE_USER_ID;
@@ -137,7 +177,7 @@ interface DisplayCharacter {
 }
 
 const App: React.FC = () => {
-  const { session, status: authStatus } = useGoogleAuth();
+  const { session, status: authStatus, signOut } = useGoogleAuth();
   const { activeService, activeServiceId } = useAIService();
   const [view, setView] = useState<View>('loading');
   const [characters, setCharacters] = useState<CharacterProfile[]>([]);
@@ -831,23 +871,26 @@ useEffect(() => {
   }, [isGmailConnected, session]);
 
   useEffect(() => {
-    if (!isGmailConnected || !session) return;
+    // Calendar should work as long as we are logged in, regardless of "Gmail Connected" toggle
+    if (!session) return;
 
     const pollCalendar = async () => {
         try {
+          console.log("📅 Polling calendar events...");
             const events = await calendarService.getUpcomingEvents(session.accessToken);
             setUpcomingEvents(events); 
-        } catch(e) { console.error(e); }
+        } catch (e) { console.error("Calendar poll failed", e); }
     };
 
-    const initialDelayTimer = setTimeout(pollCalendar, 3000);
+    // Poll immediately on mount/session-start, then every 5 min
+    pollCalendar();
+
     const intervalId = setInterval(pollCalendar, 300000);
 
     return () => {
-        clearTimeout(initialDelayTimer);
         clearInterval(intervalId);
     };
-  }, [isGmailConnected, session]);
+  }, [session]);
 
 
   useEffect(() => {
@@ -857,19 +900,23 @@ useEffect(() => {
     };
 
     const handleAuthError = () => {
+      console.log("🔒 Auth error detected. Signing out...");
       setIsGmailConnected(false);
       localStorage.removeItem('gmail_history_id');
       setErrorMessage('Google session expired. Please reconnect.');
+      signOut(); // Force sign out to clear invalid session
     };
 
     gmailService.addEventListener('new-mail', handleNewMail);
     gmailService.addEventListener('auth-error', handleAuthError);
+    calendarService.addEventListener('auth-error', handleAuthError);
 
     return () => {
       gmailService.removeEventListener('new-mail', handleNewMail);
       gmailService.removeEventListener('auth-error', handleAuthError);
+      calendarService.removeEventListener('auth-error', handleAuthError);
     };
-  }, []); 
+  }, [signOut]); 
 
   useEffect(() => {
     if (debouncedEmailQueue.length === 0 || !selectedCharacter) return;
@@ -1586,9 +1633,59 @@ useEffect(() => {
         
       // 2. Start AI response immediately (main critical path)
       try {
+        let textToSend = message;
+        // Inject system context if asking about schedule to override hallucinations
+        const lowerMsg = message.toLowerCase();
+
+        // Use a local variable that defaults to current state, but might be updated with fresh data
+        let currentEventsContext = upcomingEvents;
+
+        if (lowerMsg.match(/(event|calendar|schedule|meeting|appointment|plan|today|tomorrow|delete|remove|cancel)/)) {
+          try {
+            // ⚡ LIVE REFRESH: Fetch latest events immediately before answering
+            console.log("⚡ Fetching live calendar data for user query...");
+            const freshEvents = await calendarService.getUpcomingEvents(session.accessToken);
+            console.log(`📅 Calendar API returned ${freshEvents.length} events:`,
+              freshEvents.map(e => ({ summary: e.summary, start: e.start.dateTime, id: e.id }))
+            );
+            setUpcomingEvents(freshEvents); // Update state for UI
+            currentEventsContext = freshEvents; // Update local context for AI
+
+            // 🚨 CRITICAL: Inject event data directly into the user message
+            // Include IDs so AI can use them for deletion
+            if (freshEvents.length > 0) {
+              const eventList = freshEvents.map((e, i) => {
+                const t = new Date(e.start.dateTime || e.start.date);
+                return `${i + 1}. "${e.summary}" (ID: ${e.id}) at ${t.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}`;
+              }).join('; ');
+
+              // Check if this is a delete request
+              const isDeleteRequest = lowerMsg.match(/(delete|remove|cancel)/);
+
+              if (isDeleteRequest) {
+                // Add explicit delete reminder with the exact format needed
+                textToSend = `${message}\n\n[LIVE CALENDAR DATA - ${freshEvents.length} EVENTS: ${eventList}]\n\n⚠️ DELETE REMINDER: To delete an event, you MUST include [CALENDAR_DELETE]{"id": "EVENT_ID"} in your response. Copy the ID from the list above.`;
+                console.log(`🗑️ Delete request detected - added deletion reminder`);
+              } else {
+                textToSend = `${message}\n\n[LIVE CALENDAR DATA - ${freshEvents.length} EVENTS: ${eventList}]`;
+              }
+              console.log(`📅 Injected calendar context into message: ${freshEvents.length} events`);
+            }
+          } catch (err) {
+            console.error("Failed to live-refresh calendar:", err);
+            // Fallback to existing 'upcomingEvents' state
+          }
+        }
+
+        // Update context with the potentially fresher events
+        const freshContext = {
+          ...context,
+          upcomingEvents: currentEventsContext
+        };
+
         const { response, session: updatedSession, audioData } = await activeService.generateResponse(
-          { type: 'text', text: message }, 
-          context,
+          { type: 'text', text: textToSend },
+          freshContext,
           sessionToUse
         );
 
@@ -1730,35 +1827,130 @@ useEffect(() => {
           }
         }
 
-        // Check for Calendar Action
-        // We search for the tag anywhere in the response, not just at the start.
-        const calendarTagIndex = response.text_response.indexOf('[CALENDAR_CREATE]');
+        // Check for Calendar Actions - FIRST check the structured calendar_action field
+        const calendarAction = response.calendar_action;
         
-        if (calendarTagIndex !== -1) {
-           try {
-             // Extract the JSON part.
-             // We assume the JSON starts immediately after the tag and ends at the end of the line or the matching brace.
-             // For robustness, we'll take the substring from the end of the tag.
-             const tagLength = '[CALENDAR_CREATE]'.length;
-             let jsonString = response.text_response.substring(calendarTagIndex + tagLength).trim();
-             
-             // If there's extra text after the JSON, we might need to be smarter. 
-             // But usually the AI puts it at the end or as a block. 
-             // Let's try to find the last matching brace if standard parse fails, 
-             // or just trust the AI to follow "JSON format" which implies it ends correctly.
-             
-             // Simple cleanup if it includes markdown code blocks
-             jsonString = jsonString.replace(/```json/g, '').replace(/```/g, '').trim();
+        if (calendarAction && calendarAction.action) {
+          console.log('📅 Calendar action detected:', calendarAction);
 
-             // Find the first '{' and the last '}' to isolate the object
-             const firstBrace = jsonString.indexOf('{');
-             const lastBrace = jsonString.lastIndexOf('}');
+          try {
+            if (calendarAction.action === 'delete') {
+              // Determine which events to delete
+              let eventIdsToDelete: string[] = [];
+              
+              if (calendarAction.delete_all) {
+                // Delete ALL events
+                console.log('🗑️ Delete ALL events requested');
+                eventIdsToDelete = currentEventsContext.map(e => e.id);
+              } else if (calendarAction.event_ids && calendarAction.event_ids.length > 0) {
+                // Delete multiple specific events
+                console.log(`🗑️ Deleting ${calendarAction.event_ids.length} events`);
+                eventIdsToDelete = calendarAction.event_ids;
+              } else if (calendarAction.event_id) {
+                // Delete single event
+                console.log(`🗑️ Deleting single event: ${calendarAction.event_id}`);
+                eventIdsToDelete = [calendarAction.event_id];
+              }
+              
+              if (eventIdsToDelete.length > 0) {
+                // Delete all specified events
+                let deletedCount = 0;
+                for (const eventId of eventIdsToDelete) {
+                  try {
+                    await calendarService.deleteEvent(session.accessToken, eventId);
+                    deletedCount++;
+                    console.log(`✅ Deleted event: ${eventId}`);
+                  } catch (deleteErr) {
+                    console.error(`❌ Failed to delete event ${eventId}:`, deleteErr);
+                  }
+                }
+                console.log(`✅ Successfully deleted ${deletedCount}/${eventIdsToDelete.length} events`);
+                
+                // Refresh events
+                const events = await calendarService.getUpcomingEvents(session.accessToken);
+                setUpcomingEvents(events);
+                
+                // Show confirmation
+                setChatHistory(prev => [...prev, { role: 'model' as const, text: response.text_response }]);
+                await conversationHistoryService.appendConversationHistory(
+                  userId,
+                  [{ role: 'user', text: message }, { role: 'model', text: response.text_response }]
+                );
+                setLastSavedMessageIndex(updatedHistory.length);
+                
+                if (!isMuted && audioData) {
+                  media.enqueueAudio(audioData);
+                }
+                
+                if (response.action_id) maybePlayResponseAction(response.action_id);
+                
+                // Skip the rest of calendar handling
+                return;
+              }
+            } else if (calendarAction.action === 'create' && calendarAction.summary && calendarAction.start && calendarAction.end) {
+              // Create event using structured data
+              console.log(`📅 Creating event via calendar_action: ${calendarAction.summary}`);
+
+              const eventData = {
+                summary: calendarAction.summary,
+                start: {
+                  dateTime: calendarAction.start,
+                  timeZone: calendarAction.timeZone || 'America/Chicago'
+                },
+                end: {
+                  dateTime: calendarAction.end,
+                  timeZone: calendarAction.timeZone || 'America/Chicago'
+                }
+              };
+
+              await calendarService.createEvent(session.accessToken, eventData);
+              console.log('✅ Event created successfully');
+
+              // Refresh events
+              const events = await calendarService.getUpcomingEvents(session.accessToken);
+              setUpcomingEvents(events);
+
+              // Show confirmation
+              setChatHistory(prev => [...prev, { role: 'model' as const, text: response.text_response }]);
+              await conversationHistoryService.appendConversationHistory(
+                userId,
+                [{ role: 'user', text: message }, { role: 'model', text: response.text_response }]
+              );
+              setLastSavedMessageIndex(updatedHistory.length);
+
+              if (!isMuted && audioData) {
+                media.enqueueAudio(audioData);
+              }
+
+              if (response.action_id) maybePlayResponseAction(response.action_id);
+
+              // Skip the rest of calendar handling
+              return;
+            }
+          } catch (error) {
+            console.error('Failed to execute calendar_action:', error);
+            setErrorMessage('Failed to execute calendar action');
+          }
+        }
+
+        // FALLBACK: Check for Calendar Action tags in text_response
+        // We search for tags anywhere in the response, not just at the start.
+        const calendarCreateIndex = response.text_response.indexOf('[CALENDAR_CREATE]');
+        const calendarDeleteIndex = response.text_response.indexOf('[CALENDAR_DELETE]');
+
+        if (calendarCreateIndex !== -1) {
+          try {
+            // Extract the JSON part using helper that finds matching braces
+            const tagLength = '[CALENDAR_CREATE]'.length;
+            const afterTag = response.text_response.substring(calendarCreateIndex + tagLength).trim();
+
+             const jsonString = extractJsonObject(afterTag);
              
-             if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
-                jsonString = jsonString.substring(firstBrace, lastBrace + 1);
+             if (!jsonString) {
+               throw new Error("Could not find valid JSON after [CALENDAR_CREATE] tag");
              }
 
-             console.log("📅 Attempting to parse Calendar JSON:", jsonString);
+             console.log("📅 Attempting to parse Calendar CREATE JSON:", jsonString);
              
              const eventData: NewEventPayload = JSON.parse(jsonString);
 
@@ -1769,9 +1961,8 @@ useEffect(() => {
 
              const confirmationText = `Okay, I'll add "${eventData.summary}" to your calendar.`;
              
-             // Strip the tag and JSON from the displayed message, showing the rest of the text + confirmation
-             // If the AI wrote a nice message before the tag, keep it.
-             const textBeforeTag = response.text_response.substring(0, calendarTagIndex).trim();
+             // Strip the tag and JSON from the displayed message
+             const textBeforeTag = response.text_response.substring(0, calendarCreateIndex).trim();
              const displayText = textBeforeTag ? `${textBeforeTag}\n\n${confirmationText}` : confirmationText;
 
              setChatHistory(prev => [...prev, { role: 'model' as const, text: displayText }]);
@@ -1809,9 +2000,107 @@ useEffect(() => {
              setErrorMessage("Failed to create calendar event.");
              
              // Fallback: Show the original text but mention the error
-             const textBeforeTag = response.text_response.substring(0, calendarTagIndex).trim();
+             const textBeforeTag = response.text_response.substring(0, calendarCreateIndex).trim();
              const errorText = "I tried to create that event, but I got confused by the details. Could you try again?";
              const displayText = textBeforeTag ? `${textBeforeTag}\n\n(System: ${errorText})` : errorText;
+
+            setChatHistory(prev => [...prev, { role: 'model' as const, text: displayText }]);
+            await conversationHistoryService.appendConversationHistory(
+              userId,
+              [{ role: 'user', text: message }, { role: 'model', text: displayText }]
+            );
+          }
+        } else if (calendarDeleteIndex !== -1) {
+          // Handle CALENDAR_DELETE
+          try {
+            const tagLength = '[CALENDAR_DELETE]'.length;
+            const afterTag = response.text_response.substring(calendarDeleteIndex + tagLength).trim();
+
+            // Use helper to extract just the first JSON object (finds matching braces)
+            const jsonString = extractJsonObject(afterTag);
+
+            if (!jsonString) {
+              throw new Error("Could not find valid JSON after [CALENDAR_DELETE] tag");
+            }
+
+            console.log("🗑️ Attempting to parse Calendar DELETE JSON:", jsonString);
+
+            const deleteData: { id?: string; summary?: string } = JSON.parse(jsonString);
+
+            // Find the event to delete
+            let eventToDelete: CalendarEvent | undefined;
+
+            if (deleteData.id) {
+              // Preferred: Delete by ID
+              eventToDelete = upcomingEvents.find(e => e.id === deleteData.id);
+              if (!eventToDelete) {
+                console.warn(`Event with ID "${deleteData.id}" not found in current events, attempting API call anyway`);
+              }
+            } else if (deleteData.summary) {
+              // Fallback: Delete by summary (case-insensitive match)
+              const searchSummary = deleteData.summary.toLowerCase();
+              eventToDelete = upcomingEvents.find(e =>
+                e.summary.toLowerCase() === searchSummary ||
+                e.summary.toLowerCase().includes(searchSummary) ||
+                searchSummary.includes(e.summary.toLowerCase())
+              );
+            }
+
+            if (!eventToDelete && !deleteData.id) {
+              throw new Error(`Could not find event matching: ${deleteData.summary || deleteData.id}`);
+            }
+
+            const eventIdToDelete = deleteData.id || eventToDelete?.id;
+            const eventName = deleteData.summary || eventToDelete?.summary || 'the event';
+
+            if (!eventIdToDelete) {
+              throw new Error("No event ID available for deletion");
+            }
+
+            const confirmationText = `Done! I've removed "${eventName}" from your calendar.`;
+
+            // Strip the tag and JSON from the displayed message
+            const textBeforeTag = response.text_response.substring(0, calendarDeleteIndex).trim();
+            const displayText = textBeforeTag ? `${textBeforeTag}\n\n${confirmationText}` : confirmationText;
+
+            // Delete the event
+            console.log("�️ Deleting event:", eventIdToDelete);
+            await calendarService.deleteEvent(session.accessToken, eventIdToDelete);
+
+            setChatHistory(prev => [...prev, { role: 'model' as const, text: displayText }]);
+
+            await conversationHistoryService.appendConversationHistory(
+              userId,
+              [{ role: 'user', text: message }, { role: 'model', text: displayText }]
+            );
+            setLastSavedMessageIndex(updatedHistory.length);
+
+            // Refresh Events
+            const events = await calendarService.getUpcomingEvents(session.accessToken);
+            setUpcomingEvents(events);
+
+            // Generate Speech for confirmation
+            if (!isMuted) {
+              const confirmationAudio = await generateSpeech(displayText);
+              if (confirmationAudio) media.enqueueAudio(confirmationAudio);
+            }
+
+            if (response.action_id) {
+              maybePlayResponseAction(response.action_id);
+            }
+            if (response.open_app) {
+              console.log("🚀 Launching app:", response.open_app);
+              window.location.href = response.open_app;
+            }
+
+          } catch (e) {
+            console.error("Failed to delete calendar event", e);
+            setErrorMessage("Failed to delete calendar event.");
+
+            // Fallback: Show the original text but mention the error
+            const textBeforeTag = response.text_response.substring(0, calendarDeleteIndex).trim();
+            const errorText = "I tried to delete that event, but couldn't find it. Can you check the event name?";
+            const displayText = textBeforeTag ? `${textBeforeTag}\n\n(System: ${errorText})` : errorText;
 
              setChatHistory(prev => [...prev, { role: 'model' as const, text: displayText }]);
              await conversationHistoryService.appendConversationHistory(
@@ -1820,7 +2109,7 @@ useEffect(() => {
              );
            }
         } else {
-            // 3. Handle Response (Critical)
+          // 3. Handle Response (no calendar actions)
             setChatHistory(prev => [...prev, { role: 'model' as const, text: response.text_response }]);
             
             await conversationHistoryService.appendConversationHistory(

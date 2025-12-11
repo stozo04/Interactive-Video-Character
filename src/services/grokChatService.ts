@@ -39,9 +39,24 @@ export class GrokService extends BaseAIService {
        };
     }
 
+    // Check if this is a calendar query (marked by injected calendar data)
+    const isCalendarQuery = userMessage.text.includes('[LIVE CALENDAR DATA');
+    
+    // Limit history to last 10 messages to prevent stale context from polluting responses
+    const recentHistory = history.slice(-10);
+    
+    // For calendar queries, use NO history to prevent stale context pollution
+    const historyToUse = isCalendarQuery ? [] : recentHistory;
+    
+    if (isCalendarQuery) {
+      console.log('📅 [Grok] Calendar query detected - using FRESH context only (no history)');
+    } else {
+      console.log(`📜 [Grok] Passing ${historyToUse.length} messages to chat history (from ${history.length} total)`);
+    }
+
     const messages: AIMessage[] = [
       { role: 'system', content: systemPrompt },
-      ...history.map(msg => ({
+      ...historyToUse.map(msg => ({
         role: (msg.role === 'user' ? 'user' : 'assistant') as 'user' | 'assistant',
         content: msg.text,
       })),

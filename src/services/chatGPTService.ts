@@ -9,6 +9,7 @@ import { AIActionResponse } from "./aiSchema";
 import { buildSystemPrompt } from "./promptUtils";
 import { ChatMessage, CharacterProfile } from "../types";
 import { RelationshipMetrics } from "./relationshipService";
+import { generateSpeech } from "./elevenLabsService";
 
 const API_KEY = import.meta.env.VITE_CHATGPT_API_KEY;
 const ASSISTANT_NAME = import.meta.env.VITE_CHATGPT_ASSISTANT_NAME;
@@ -48,11 +49,11 @@ function normalizeAiResponse(rawJson: any, rawText: string): AIActionResponse {
     text_response: rawJson.text_response || rawJson.response || rawText,
     action_id: rawJson.action_id || null,
     user_transcription: rawJson.user_transcription || null,
+    task_action: rawJson.task_action || null,
+    open_app: rawJson.open_app || null,
+    calendar_action: rawJson.calendar_action || null,
   };
 }
-
-
-import { generateSpeech } from "./elevenLabsService";
 
 export const chatGPTService: IAIChatService = {
   model: MODEL,
