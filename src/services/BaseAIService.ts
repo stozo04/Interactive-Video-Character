@@ -26,6 +26,11 @@ export abstract class BaseAIService implements IAIChatService {
         options.tasks
       );
       
+      // Debug: Log calendar events being sent to AI
+      console.log(`📅 [BaseAIService] Building prompt with ${options.upcomingEvents?.length || 0} events:`,
+        options.upcomingEvents?.map(e => e.summary) || []
+      );
+      
       // Call the specific provider
       const { response: aiResponse, session: updatedSession } = await this.callProvider(
         systemPrompt, 

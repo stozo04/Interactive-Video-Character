@@ -57,6 +57,38 @@ export const AIActionResponseSchema = z.object({
     )
   }).nullable().optional().describe(
     "Task management action if the user wants to interact with their checklist"
+  ),
+
+  /**
+   * Calendar management actions - used when user wants to create/delete calendar events
+   */
+  calendar_action: z.object({
+    action: z.enum(['create', 'delete']).describe(
+      "The calendar action to perform: 'create' to add a new event, 'delete' to remove event(s)"
+    ),
+    event_id: z.string().optional().describe(
+      "Single event ID from the calendar list (for deleting one event)"
+    ),
+    event_ids: z.array(z.string()).optional().describe(
+      "Array of event IDs to delete (for deleting multiple events)"
+    ),
+    delete_all: z.boolean().optional().describe(
+      "If true, delete ALL events in the calendar list"
+    ),
+    summary: z.string().optional().describe(
+      "The event title/summary"
+    ),
+    start: z.string().optional().describe(
+      "For create: ISO datetime string for event start"
+    ),
+    end: z.string().optional().describe(
+      "For create: ISO datetime string for event end"
+    ),
+    timeZone: z.string().optional().describe(
+      "Timezone for the event, default: America/Chicago"
+    )
+  }).nullable().optional().describe(
+    "Calendar action if the user wants to create or delete calendar event(s)"
   )
 });
 

@@ -24,7 +24,10 @@ const getAiClient = () => {
 
 // Helper to format history
 function convertToGeminiHistory(history: ChatMessage[]) {
-  return history
+  // Limit history to last 10 messages to prevent stale context from polluting responses
+  const recentHistory = history.slice(-10);
+  
+  const filtered = recentHistory
     .filter(msg => {
         const text = msg.text?.trim();
         return text && text.length > 0 && text !== "🎤 [Audio Message]" && text !== "📷 [Sent an Image]";
@@ -33,6 +36,9 @@ function convertToGeminiHistory(history: ChatMessage[]) {
       role: msg.role === 'user' ? 'user' : 'model',
       parts: [{ text: msg.text }]
     }));
+  
+  console.log(`📜 [Gemini] Passing ${filtered.length} messages to chat history (from ${history.length} total)`);
+  return filtered;
 }
 
 function normalizeAiResponse(rawJson: any, rawText: string): AIActionResponse {
@@ -41,7 +47,8 @@ function normalizeAiResponse(rawJson: any, rawText: string): AIActionResponse {
       action_id: rawJson.action_id || null,
       user_transcription: rawJson.user_transcription || null,
       task_action: rawJson.task_action || null,
-      open_app: rawJson.open_app || null
+      open_app: rawJson.open_app || null,
+      calendar_action: rawJson.calendar_action || null
   };
 }
 
@@ -56,6 +63,17 @@ export class GeminiService extends BaseAIService {
   ) {
     const ai = getAiClient();
     
+    // Check if this is a calendar query (marked by injected calendar data)
+    const isCalendarQuery = userMessage.type === 'text' && 
+      userMessage.text.includes('[LIVE CALENDAR DATA');
+    
+    // For calendar queries, use NO history to prevent stale context pollution
+    const historyToUse = isCalendarQuery ? [] : convertToGeminiHistory(history);
+    
+    if (isCalendarQuery) {
+      console.log('📅 [Gemini] Calendar query detected - using FRESH context only (no history)');
+    }
+    
     // 2. INITIALIZE CHAT WITH THE BRAIN (GEMINI_MODEL)
     const chat = ai.chats.create({
       model: this.model, // <--- MUST USE CHAT BRAIN MODEL (2.0 Flash Exp)
@@ -66,7 +84,7 @@ export class GeminiService extends BaseAIService {
           role: "user" 
         },
       },
-      history: convertToGeminiHistory(history),
+      history: historyToUse,
     });
 
    let messageParts: any[] = [];
