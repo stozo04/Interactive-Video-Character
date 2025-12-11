@@ -26,6 +26,8 @@ interface TextElement {
   y: number;  // percentage (0-100)
   color: string;
   size: number; // percentage (0-100)
+  revealedChars: number; // For typing animation - how many chars are visible
+  isAnimating: boolean;  // Whether still animating
 }
 
 
@@ -265,23 +267,61 @@ export const Whiteboard = forwardRef<WhiteboardHandle, WhiteboardProps>(({
     ctx.globalCompositeOperation = 'source-over';
     ctx.globalAlpha = 1;
 
-    // Render text elements
+    // Render text elements with typing animation
     textElements.forEach(textEl => {
       const x = (textEl.x / 100) * canvas.width;
       const y = (textEl.y / 100) * canvas.height;
       const fontSize = Math.max(24, (textEl.size / 100) * canvas.height * 1.5);
       
-      ctx.font = `bold ${fontSize}px "Comic Sans MS", "Marker Felt", cursive`;
-      ctx.fillStyle = textEl.color;
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText(textEl.text, x, y);
+      // Only show revealed characters (typing effect)
+      const displayText = textEl.text.substring(0, textEl.revealedChars);
+      
+      if (displayText.length > 0) {
+        ctx.font = `bold ${fontSize}px "Comic Sans MS", "Marker Felt", cursive`;
+        ctx.fillStyle = textEl.color;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(displayText, x, y);
+        
+        // Add a blinking cursor while animating
+        if (textEl.isAnimating && textEl.revealedChars < textEl.text.length) {
+          const textWidth = ctx.measureText(displayText).width;
+          ctx.fillRect(x + textWidth / 2 + 2, y - fontSize / 3, 3, fontSize * 0.6);
+        }
+      }
     });
   }, [strokes, currentStroke, currentTool, currentColor, mode, textElements]);
 
   useEffect(() => {
     renderCanvas();
   }, [renderCanvas]);
+
+  // ============================================================================
+  // TYPING ANIMATION FOR TEXT ELEMENTS
+  // ============================================================================
+  
+  useEffect(() => {
+    // Check if any text elements are still animating
+    const animatingElements = textElements.filter(el => el.isAnimating && el.revealedChars < el.text.length);
+    
+    if (animatingElements.length === 0) return;
+    
+    // Typing speed: reveal one character every 80ms (adjust for faster/slower)
+    const typingInterval = setInterval(() => {
+      setTextElements(prev => prev.map(el => {
+        if (el.isAnimating && el.revealedChars < el.text.length) {
+          return {
+            ...el,
+            revealedChars: el.revealedChars + 1,
+            isAnimating: el.revealedChars + 1 < el.text.length
+          };
+        }
+        return el;
+      }));
+    }, 80);
+    
+    return () => clearInterval(typingInterval);
+  }, [textElements]);
 
   // ============================================================================
   // AI DRAWING (for Tic-Tac-Toe)
@@ -391,16 +431,18 @@ export const Whiteboard = forwardRef<WhiteboardHandle, WhiteboardProps>(({
            points.push({ x: x + 1, y: y + 1 });
         }
         else if (shapeCmd.shape === 'text' && shapeCmd.text) {
-           // Store text element to be rendered in renderCanvas
+           // Store text element to be rendered in renderCanvas with typing animation
            const textEl: TextElement = {
              text: shapeCmd.text,
              x: shapeCmd.x,  // Keep as percentage
              y: shapeCmd.y,  // Keep as percentage
              color: color,
-             size: shapeCmd.size || 8
+             size: shapeCmd.size || 8,
+             revealedChars: 0,  // Start with no characters revealed
+             isAnimating: true  // Start animating
            };
            setTextElements(prev => [...prev, textEl]);
-           console.log(`📝 [Whiteboard] Added text "${shapeCmd.text}" at (${shapeCmd.x}%, ${shapeCmd.y}%) in ${color}`);
+           console.log(`📝 [Whiteboard] Added text "${shapeCmd.text}" at (${shapeCmd.x}%, ${shapeCmd.y}%) in ${color} - starting typing animation`);
            didDrawSomething = true;
            return;
         }
@@ -498,7 +540,7 @@ export const Whiteboard = forwardRef<WhiteboardHandle, WhiteboardProps>(({
       tempCtx.stroke();
     });
 
-    // Copy text elements
+    // Copy text elements (show full text, not animated)
     tempCtx.globalAlpha = 1;
     textElements.forEach(textEl => {
       const x = (textEl.x / 100) * tempCanvas.width;
@@ -509,6 +551,7 @@ export const Whiteboard = forwardRef<WhiteboardHandle, WhiteboardProps>(({
       tempCtx.fillStyle = textEl.color;
       tempCtx.textAlign = 'center';
       tempCtx.textBaseline = 'middle';
+      // Always show full text in captures (not the animated partial text)
       tempCtx.fillText(textEl.text, x, y);
     });
 
