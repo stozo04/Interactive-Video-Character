@@ -234,6 +234,11 @@ const App: React.FC = () => {
   const [isUpdatingImage, setIsUpdatingImage] = useState(false);
   const [lastInteractionAt, setLastInteractionAt] = useState(() => Date.now());
   const [isMuted, setIsMuted] = useState(false);
+  // Avoid stale-closure issues in async callbacks (e.g. async TTS completion).
+  const isMutedRef = useRef(isMuted);
+  useEffect(() => {
+    isMutedRef.current = isMuted;
+  }, [isMuted]);
   const [aiSession, setAiSession] = useState<AIChatSession | null>(null);
   const [lastSavedMessageIndex, setLastSavedMessageIndex] = useState<number>(-1);
   const [relationship, setRelationship] = useState<RelationshipMetrics | null>(null);
@@ -1362,7 +1367,7 @@ useEffect(() => {
         // Start with fresh session - no saved history passed to greeting
         const session: AIChatSession = { userId, model: activeService.model }; 
         const { greeting, session: updatedSession } = await activeService.generateGreeting(
-          character, session, [], relationshipData, kayleyContext  // Pass EMPTY array!
+          character, session, relationshipData, kayleyContext
         );
         setAiSession(updatedSession);
 
@@ -1609,6 +1614,25 @@ useEffect(() => {
     setChatHistory(updatedHistory);
     setIsProcessingAction(true);
 
+    // Background (non-critical) sentiment analysis should NOT compete with the critical path.
+    // We'll start it only after we've queued the AI's audio response (or displayed the text if muted).
+    let sentimentPromise: Promise<any> | null = null;
+    const startBackgroundSentiment = (userId: string) => {
+      if (sentimentPromise) return;
+
+      sentimentPromise = relationshipService
+        .analyzeMessageSentiment(message, updatedHistory, activeServiceId)
+        .then(event => relationshipService.updateRelationship(userId, event))
+        .catch(error => {
+          console.error('Background sentiment analysis failed:', error);
+          return null;
+        });
+
+      sentimentPromise.then(updatedRelationship => {
+        if (updatedRelationship) setRelationship(updatedRelationship);
+      });
+    };
+
     // Variable to track if we played an action optimistically
     let predictedActionId: string | null = null;
     let talkingActionId: string | null = null;
@@ -1656,15 +1680,7 @@ useEffect(() => {
           tasks: tasks,
       };
 
-      // 1. Start sentiment analysis in background (don't await)
-      const sentimentPromise = relationshipService.analyzeMessageSentiment(message, chatHistory, activeServiceId)
-        .then(event => relationshipService.updateRelationship(userId, event))
-        .catch(error => {
-          console.error('Background sentiment analysis failed:', error);
-          return null;
-        });
-        
-      // 2. Start AI response immediately (main critical path)
+      // 1. Start AI response immediately (main critical path)
       try {
         let textToSend = message;
         // Inject system context if asking about schedule to override hallucinations
@@ -1914,6 +1930,9 @@ useEffect(() => {
                 if (!isMuted && audioData) {
                   media.enqueueAudio(audioData);
                 }
+
+                // Non-critical: kick off sentiment *after* we queued audio
+                startBackgroundSentiment(userId);
                 
                 if (response.action_id) maybePlayResponseAction(response.action_id);
                 
@@ -1954,6 +1973,9 @@ useEffect(() => {
               if (!isMuted && audioData) {
                 media.enqueueAudio(audioData);
               }
+
+              // Non-critical: kick off sentiment *after* we queued audio
+              startBackgroundSentiment(userId);
 
               if (response.action_id) maybePlayResponseAction(response.action_id);
 
@@ -2019,6 +2041,9 @@ useEffect(() => {
                  const confirmationAudio = await generateSpeech(displayText);
                  if (confirmationAudio) media.enqueueAudio(confirmationAudio);
              }
+
+             // Non-critical: kick off sentiment *after* we queued audio (or after text if muted)
+             startBackgroundSentiment(userId);
              
               if (response.action_id) {
                  maybePlayResponseAction(response.action_id);
@@ -2118,6 +2143,9 @@ useEffect(() => {
               if (confirmationAudio) media.enqueueAudio(confirmationAudio);
             }
 
+            // Non-critical: kick off sentiment *after* we queued audio (or after text if muted)
+            startBackgroundSentiment(userId);
+
             if (response.action_id) {
               maybePlayResponseAction(response.action_id);
             }
@@ -2156,6 +2184,9 @@ useEffect(() => {
                 media.enqueueAudio(audioData);
             }
 
+            // Non-critical: kick off sentiment *after* we queued audio (or after text if muted)
+            startBackgroundSentiment(userId);
+
             if (response.action_id) {
                 maybePlayResponseAction(response.action_id);
             }
@@ -2168,12 +2199,6 @@ useEffect(() => {
         console.error('AI Response failed:', error);
         setErrorMessage("AI Failed to respond");
       }
-
-      // 4. Handle Sentiment (Non-critical) - Update state when done
-      sentimentPromise.then(updatedRelationship => {
-         if (updatedRelationship) setRelationship(updatedRelationship);
-      });
-
 
     } catch (error) {
       console.error('Error:', error);
@@ -2342,7 +2367,7 @@ useEffect(() => {
               wbLog('⏱️ [App/Whiteboard] async audio ready', { dtMs: Math.round(wbNow() - wbT0), hasAudio: !!audioData });
             } catch {}
             if (!audioData) return;
-            if (!isMuted) {
+            if (!isMutedRef.current) {
               media.enqueueAudio(audioData);
             } else {
               wbLog('⏱️ [App/Whiteboard] async audio dropped (muted)');

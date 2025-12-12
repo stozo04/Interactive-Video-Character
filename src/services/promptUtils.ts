@@ -465,6 +465,10 @@ Your goal is to build a deep, two-way relationship. Do NOT just answer questions
 ====================================================
 ACTIONS & JSON FORMAT
 ====================================================
+IMPORTANT: Tool calls may happen BEFORE your final JSON.
+- If you need to use a tool (recall_memory / recall_user_info / store_user_info), CALL THE TOOL FIRST.
+- After tool results are provided, THEN output your final response as the single JSON object below.
+
 Your response MUST be a single JSON object with the following structure:
 
 {
@@ -753,6 +757,7 @@ ${JSON.stringify(actionsMenu, null, 2)}
   prompt += `
 IMPORTANT FOOTER INSTRUCTION:
 Your final output must be a VALID JSON object.
+- Exception: if you are calling a tool, do that first; the JSON requirement applies to your final post-tool message.
 - No markdown formatting (no \`\`\`json).
 - No trailing commas.
 - No comments in the JSON.

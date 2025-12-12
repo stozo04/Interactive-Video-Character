@@ -265,17 +265,28 @@ export const Whiteboard = forwardRef<WhiteboardHandle, WhiteboardProps>(({
 
     const rect = canvas.getBoundingClientRect();
 
+    // Canvas backing store is DPR-scaled (canvas.width/height), but we render in CSS pixels
+    // via ctx.setTransform(dpr, 0, 0, dpr, 0, 0). Therefore pointer coordinates must be
+    // converted from screen/CSS space to *canvas CSS pixel space*.
+    //
+    // Using rect->css scaling makes this robust even if the canvas is visually scaled
+    // (e.g. zoom, transforms, fractional layout sizing).
+    const { width: cssW, height: cssH } = canvasSizeRef.current;
+    const scaleX = rect.width > 0 ? cssW / rect.width : 1;
+    const scaleY = rect.height > 0 ? cssH / rect.height : 1;
+
     if ('touches' in e) {
-      const touch = e.touches[0];
+      const touch = e.touches[0] ?? e.changedTouches?.[0];
+      if (!touch) return null;
       return {
-        x: (touch.clientX - rect.left),
-        y: (touch.clientY - rect.top),
+        x: (touch.clientX - rect.left) * scaleX,
+        y: (touch.clientY - rect.top) * scaleY,
       };
     }
 
     return {
-      x: (e.clientX - rect.left),
-      y: (e.clientY - rect.top),
+      x: (e.clientX - rect.left) * scaleX,
+      y: (e.clientY - rect.top) * scaleY,
     };
   }, []);
 
