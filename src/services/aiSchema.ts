@@ -134,6 +134,7 @@ export const AIActionResponseSchema = z.object({
         y: z.number()
       })).optional().describe("Array of points for 'path' shape (0-100)"),
       text: z.string().optional().describe("Text content for 'text' shape - USE THIS FOR WRITING NAMES/WORDS!"),
+      style: z.enum(['handwriting', 'bold', 'fancy', 'playful', 'chalk']).optional().describe("Font style for text: handwriting (default), bold, fancy, playful, chalk"),
       size: z.number().optional().describe("Size/Radius (0-100) or font size for text"),
       color: z.string().optional().describe("Hex color code or name"),
       filled: z.boolean().optional().describe("If true, fill the shape")
