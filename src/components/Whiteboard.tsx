@@ -20,15 +20,29 @@ interface Stroke {
   filled?: boolean;
 }
 
+type TextStyle = 'handwriting' | 'bold' | 'fancy' | 'playful' | 'chalk';
+
 interface TextElement {
   text: string;
   x: number;  // percentage (0-100)
   y: number;  // percentage (0-100)
   color: string;
   size: number; // percentage (0-100)
-  revealedChars: number; // For typing animation - how many chars are visible
-  isAnimating: boolean;  // Whether still animating
+  style: TextStyle;
+  // Animation state: which character we're on and how much of it is drawn
+  currentCharIndex: number;   // Which character is currently being "drawn"
+  charDrawProgress: number;   // 0-100, how much of current char is drawn (top to bottom)
+  isAnimating: boolean;
 }
+
+// Font configurations for different text styles
+const TEXT_STYLE_FONTS: Record<TextStyle, string> = {
+  handwriting: '"Comic Sans MS", "Marker Felt", cursive',
+  bold: '"Impact", "Arial Black", sans-serif',
+  fancy: '"Brush Script MT", "Lucida Handwriting", cursive',
+  playful: '"Fredoka One", "Bubblegum Sans", "Comic Sans MS", cursive',
+  chalk: '"Chalkduster", "Comic Sans MS", cursive'
+};
 
 
 interface ToolConfig {
@@ -89,7 +103,8 @@ export const Whiteboard = forwardRef<WhiteboardHandle, WhiteboardProps>(({
   const [currentColor, setCurrentColor] = useState('#000000');
   const [strokes, setStrokes] = useState<Stroke[]>([]);
   const [currentStroke, setCurrentStroke] = useState<Point[]>([]);
-  const [undoStack, setUndoStack] = useState<Stroke[][]>([]);
+  // Undo stack now stores complete canvas state (strokes + text)
+  const [undoStack, setUndoStack] = useState<{ strokes: Stroke[]; textElements: TextElement[] }[]>([]);
   const [textElements, setTextElements] = useState<TextElement[]>([]);
   
   // Canvas dimensions
@@ -173,8 +188,8 @@ export const Whiteboard = forwardRef<WhiteboardHandle, WhiteboardProps>(({
         color: currentColor,
       };
       
-      // Save current state for undo
-      setUndoStack(prev => [...prev, strokes]);
+      // Save current state for undo (both strokes and text)
+      setUndoStack(prev => [...prev, { strokes, textElements }]);
       setStrokes(prev => [...prev, newStroke]);
     }
 
@@ -267,27 +282,72 @@ export const Whiteboard = forwardRef<WhiteboardHandle, WhiteboardProps>(({
     ctx.globalCompositeOperation = 'source-over';
     ctx.globalAlpha = 1;
 
-    // Render text elements with typing animation
+    // Render text elements with character-by-character "drawing" animation
     textElements.forEach(textEl => {
       const x = (textEl.x / 100) * canvas.width;
       const y = (textEl.y / 100) * canvas.height;
       const fontSize = Math.max(24, (textEl.size / 100) * canvas.height * 1.5);
       
-      // Only show revealed characters (typing effect)
-      const displayText = textEl.text.substring(0, textEl.revealedChars);
+      const fontFamily = TEXT_STYLE_FONTS[textEl.style] || TEXT_STYLE_FONTS.handwriting;
+      ctx.font = `bold ${fontSize}px ${fontFamily}`;
       
-      if (displayText.length > 0) {
-        ctx.font = `bold ${fontSize}px "Comic Sans MS", "Marker Felt", cursive`;
-        ctx.fillStyle = textEl.color;
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.fillText(displayText, x, y);
+      // Calculate the full text width for centering
+      const fullTextWidth = ctx.measureText(textEl.text).width;
+      const textLeftEdge = x - fullTextWidth / 2;
+      
+      // Draw each character
+      let currentX = textLeftEdge;
+      
+      for (let i = 0; i < textEl.text.length; i++) {
+        const char = textEl.text[i];
+        const charWidth = ctx.measureText(char).width;
         
-        // Add a blinking cursor while animating
-        if (textEl.isAnimating && textEl.revealedChars < textEl.text.length) {
-          const textWidth = ctx.measureText(displayText).width;
-          ctx.fillRect(x + textWidth / 2 + 2, y - fontSize / 3, 3, fontSize * 0.6);
+        if (i < textEl.currentCharIndex) {
+          // Fully drawn characters - just draw them
+          ctx.fillStyle = textEl.color;
+          ctx.textAlign = 'left';
+          ctx.textBaseline = 'middle';
+          ctx.fillText(char, currentX, y);
+        } else if (i === textEl.currentCharIndex && textEl.isAnimating) {
+          // Currently drawing this character - reveal top to bottom
+          ctx.save();
+          
+          // Clip region that reveals from top to bottom
+          const revealHeight = (textEl.charDrawProgress / 100) * fontSize * 2;
+          ctx.beginPath();
+          ctx.rect(currentX - 2, y - fontSize, charWidth + 4, revealHeight);
+          ctx.clip();
+          
+          ctx.fillStyle = textEl.color;
+          ctx.textAlign = 'left';
+          ctx.textBaseline = 'middle';
+          ctx.fillText(char, currentX, y);
+          
+          ctx.restore();
+          
+          // Draw pen tip that oscillates up/down like real handwriting strokes
+          // Use sine wave to create natural pen movement within the character
+          const strokePhase = (textEl.charDrawProgress / 100) * Math.PI * 3; // Multiple strokes per char
+          const baseY = y - fontSize + revealHeight;
+          const oscillation = Math.sin(strokePhase) * (fontSize * 0.15); // Subtle up/down movement
+          const penY = baseY + oscillation;
+          const penX = currentX + (textEl.charDrawProgress / 100) * charWidth; // Move across char too
+          
+          ctx.fillStyle = textEl.color;
+          ctx.beginPath();
+          ctx.arc(penX, penY, 4, 0, Math.PI * 2);
+          ctx.fill();
+          
+          // Add a small trail effect
+          ctx.globalAlpha = 0.3;
+          ctx.beginPath();
+          ctx.arc(penX - 3, penY - oscillation * 0.5, 2, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.globalAlpha = 1;
         }
+        // Characters after currentCharIndex are not drawn yet
+        
+        currentX += charWidth;
       }
     });
   }, [strokes, currentStroke, currentTool, currentColor, mode, textElements]);
@@ -297,30 +357,55 @@ export const Whiteboard = forwardRef<WhiteboardHandle, WhiteboardProps>(({
   }, [renderCanvas]);
 
   // ============================================================================
-  // TYPING ANIMATION FOR TEXT ELEMENTS
+  // WRITING ANIMATION FOR TEXT ELEMENTS (Character by Character)
   // ============================================================================
   
   useEffect(() => {
     // Check if any text elements are still animating
-    const animatingElements = textElements.filter(el => el.isAnimating && el.revealedChars < el.text.length);
+    const animatingElements = textElements.filter(el => el.isAnimating);
     
     if (animatingElements.length === 0) return;
     
-    // Typing speed: reveal one character every 80ms (adjust for faster/slower)
-    const typingInterval = setInterval(() => {
+    // Animate each character being "drawn" from top to bottom
+    // Speed: each character takes about 400ms to draw (slow, realistic handwriting)
+    const animationFrame = setInterval(() => {
       setTextElements(prev => prev.map(el => {
-        if (el.isAnimating && el.revealedChars < el.text.length) {
+        if (!el.isAnimating) return el;
+        
+        // Increment the draw progress for current character
+        const newCharProgress = el.charDrawProgress + 2.5; // ~40 frames per character (~650ms each)
+        
+        if (newCharProgress >= 100) {
+          // Current character is done, move to next
+          const nextCharIndex = el.currentCharIndex + 1;
+          
+          if (nextCharIndex >= el.text.length) {
+            // All characters done!
+            return {
+              ...el,
+              currentCharIndex: el.text.length,
+              charDrawProgress: 100,
+              isAnimating: false
+            };
+          } else {
+            // Start drawing next character
+            return {
+              ...el,
+              currentCharIndex: nextCharIndex,
+              charDrawProgress: 0
+            };
+          }
+        } else {
+          // Still drawing current character
           return {
             ...el,
-            revealedChars: el.revealedChars + 1,
-            isAnimating: el.revealedChars + 1 < el.text.length
+            charDrawProgress: newCharProgress
           };
         }
-        return el;
       }));
-    }, 80);
+    }, 16); // ~60fps
     
-    return () => clearInterval(typingInterval);
+    return () => clearInterval(animationFrame);
   }, [textElements]);
 
   // ============================================================================
@@ -431,18 +516,21 @@ export const Whiteboard = forwardRef<WhiteboardHandle, WhiteboardProps>(({
            points.push({ x: x + 1, y: y + 1 });
         }
         else if (shapeCmd.shape === 'text' && shapeCmd.text) {
-           // Store text element to be rendered in renderCanvas with typing animation
+           // Store text element to be rendered in renderCanvas with writing animation
+           const style = (shapeCmd.style as TextStyle) || 'handwriting';
            const textEl: TextElement = {
              text: shapeCmd.text,
              x: shapeCmd.x,  // Keep as percentage
              y: shapeCmd.y,  // Keep as percentage
              color: color,
              size: shapeCmd.size || 8,
-             revealedChars: 0,  // Start with no characters revealed
-             isAnimating: true  // Start animating
+             style: style,
+             currentCharIndex: 0,    // Start at first character
+             charDrawProgress: 0,    // Start drawing from top
+             isAnimating: true       // Start animating
            };
            setTextElements(prev => [...prev, textEl]);
-           console.log(`📝 [Whiteboard] Added text "${shapeCmd.text}" at (${shapeCmd.x}%, ${shapeCmd.y}%) in ${color} - starting typing animation`);
+           console.log(`📝 [Whiteboard] Added text "${shapeCmd.text}" at (${shapeCmd.x}%, ${shapeCmd.y}%) in ${color} with style "${style}" - starting character-by-character animation`);
            didDrawSomething = true;
            return;
         }
@@ -459,8 +547,9 @@ export const Whiteboard = forwardRef<WhiteboardHandle, WhiteboardProps>(({
     }
 
     if (newStrokes.length > 0 || didDrawSomething) {
+        // Save current state for undo (both strokes and text)
+        setUndoStack(prev => [...prev, { strokes, textElements }]);
         if (newStrokes.length > 0) {
-            setUndoStack(prev => [...prev, strokes]);
             setStrokes(prev => [...prev, ...newStrokes]);
         }
         onAiDrawingComplete?.();
@@ -476,12 +565,15 @@ export const Whiteboard = forwardRef<WhiteboardHandle, WhiteboardProps>(({
     if (undoStack.length === 0) return;
     
     const previousState = undoStack[undoStack.length - 1];
-    setStrokes(previousState);
+    // Restore both strokes and text elements
+    setStrokes(previousState.strokes);
+    setTextElements(previousState.textElements);
     setUndoStack(prev => prev.slice(0, -1));
   };
 
   const handleClear = () => {
-    setUndoStack(prev => [...prev, strokes]);
+    // Save current state for undo (both strokes and text)
+    setUndoStack(prev => [...prev, { strokes, textElements }]);
     setStrokes([]);
     setTextElements([]);
   };
@@ -538,6 +630,12 @@ export const Whiteboard = forwardRef<WhiteboardHandle, WhiteboardProps>(({
         tempCtx.lineTo(stroke.points[i].x, stroke.points[i].y);
       }
       tempCtx.stroke();
+      
+      // Handle filled shapes (match main canvas rendering)
+      if (stroke.filled) {
+        tempCtx.fillStyle = stroke.color;
+        tempCtx.fill();
+      }
     });
 
     // Copy text elements (show full text, not animated)
@@ -547,7 +645,8 @@ export const Whiteboard = forwardRef<WhiteboardHandle, WhiteboardProps>(({
       const y = (textEl.y / 100) * tempCanvas.height;
       const fontSize = Math.max(24, (textEl.size / 100) * tempCanvas.height * 1.5);
       
-      tempCtx.font = `bold ${fontSize}px "Comic Sans MS", "Marker Felt", cursive`;
+      const fontFamily = TEXT_STYLE_FONTS[textEl.style] || TEXT_STYLE_FONTS.handwriting;
+      tempCtx.font = `bold ${fontSize}px ${fontFamily}`;
       tempCtx.fillStyle = textEl.color;
       tempCtx.textAlign = 'center';
       tempCtx.textBaseline = 'middle';

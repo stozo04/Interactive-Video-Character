@@ -50,7 +50,7 @@ function normalizeAiResponse(rawJson: any, rawText: string): AIActionResponse {
   // Support for top-level draw_shapes (as requested in prompt)
   if (!wbAction && rawJson.draw_shapes) {
       wbAction = {
-          type: 'draw_shapes',
+          type: 'draw',  // Must be valid WhiteboardAction type: 'none'|'mark_cell'|'guess'|'describe'|'draw'
           draw_shapes: rawJson.draw_shapes
       };
   }
