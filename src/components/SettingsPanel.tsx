@@ -3,18 +3,31 @@ import React, { useState } from 'react';
 import { GmailConnectButton } from './GmailConnectButton';
 import { useGoogleAuth } from '../contexts/GoogleAuthContext';
 import { useAIService } from '../contexts/AIServiceContext'; // Import the hook
+import type { ProactiveSettings } from '../types';
 
 interface SettingsPanelProps {
   className?: string;
   onGmailConnectionChange?: (isConnected: boolean) => void;
+  proactiveSettings?: ProactiveSettings;
+  onProactiveSettingsChange?: (updates: Partial<ProactiveSettings>) => void;
 }
 
-export function SettingsPanel({ className = '', onGmailConnectionChange }: SettingsPanelProps) {
+export function SettingsPanel({ 
+  className = '', 
+  onGmailConnectionChange,
+  proactiveSettings,
+  onProactiveSettingsChange 
+}: SettingsPanelProps) {
   const [isOpen, setIsOpen] = useState(false);
   const { session, signOut, status } = useGoogleAuth();
   
   // 1. Get the active service and setter from context
   const { activeServiceId, setService } = useAIService();
+  
+  // Check if all proactive features are off
+  const allProactiveOff = proactiveSettings 
+    ? !proactiveSettings.calendar && !proactiveSettings.news && !proactiveSettings.checkins
+    : false;
 
   const handleSignOut = async () => {
     try {
@@ -123,6 +136,101 @@ export function SettingsPanel({ className = '', onGmailConnectionChange }: Setti
                 Controls which AI model powers the character.
               </p>
             </div>
+
+            {/* Proactive Features Section */}
+            {proactiveSettings && onProactiveSettingsChange && (
+              <div className="border-b border-gray-700 pb-4 mb-4">
+                <h3 className="text-sm font-medium text-gray-300 mb-2">
+                  Proactive Features
+                </h3>
+                <p className="text-xs text-gray-500 mb-3">
+                  Control what Kayley proactively brings up
+                </p>
+                
+                {/* Master toggle - All Off */}
+                <div className="flex items-center justify-between py-2 border-b border-gray-700/50 mb-2">
+                  <span className="text-sm text-gray-300">All Off</span>
+                  <button
+                    onClick={() => {
+                      if (allProactiveOff) {
+                        onProactiveSettingsChange({ calendar: true, news: true, checkins: true });
+                      } else {
+                        onProactiveSettingsChange({ calendar: false, news: false, checkins: false });
+                      }
+                    }}
+                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                      allProactiveOff ? 'bg-purple-600' : 'bg-gray-600'
+                    }`}
+                  >
+                    <span
+                      className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                        allProactiveOff ? 'translate-x-6' : 'translate-x-1'
+                      }`}
+                    />
+                  </button>
+                </div>
+                
+                {/* Calendar Events toggle */}
+                <div className="flex items-center justify-between py-2">
+                  <div>
+                    <span className="text-sm text-gray-300">Calendar Events</span>
+                    <p className="text-xs text-gray-500">Reminders for upcoming events</p>
+                  </div>
+                  <button
+                    onClick={() => onProactiveSettingsChange({ calendar: !proactiveSettings.calendar })}
+                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                      proactiveSettings.calendar ? 'bg-purple-600' : 'bg-gray-600'
+                    }`}
+                  >
+                    <span
+                      className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                        proactiveSettings.calendar ? 'translate-x-6' : 'translate-x-1'
+                      }`}
+                    />
+                  </button>
+                </div>
+                
+                {/* Tech News toggle */}
+                <div className="flex items-center justify-between py-2">
+                  <div>
+                    <span className="text-sm text-gray-300">Tech News</span>
+                    <p className="text-xs text-gray-500">AI/tech news from Hacker News</p>
+                  </div>
+                  <button
+                    onClick={() => onProactiveSettingsChange({ news: !proactiveSettings.news })}
+                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                      proactiveSettings.news ? 'bg-purple-600' : 'bg-gray-600'
+                    }`}
+                  >
+                    <span
+                      className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                        proactiveSettings.news ? 'translate-x-6' : 'translate-x-1'
+                      }`}
+                    />
+                  </button>
+                </div>
+                
+                {/* Random Check-ins toggle */}
+                <div className="flex items-center justify-between py-2">
+                  <div>
+                    <span className="text-sm text-gray-300">Random Check-ins</span>
+                    <p className="text-xs text-gray-500">Conversation starters when idle</p>
+                  </div>
+                  <button
+                    onClick={() => onProactiveSettingsChange({ checkins: !proactiveSettings.checkins })}
+                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                      proactiveSettings.checkins ? 'bg-purple-600' : 'bg-gray-600'
+                    }`}
+                  >
+                    <span
+                      className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                        proactiveSettings.checkins ? 'translate-x-6' : 'translate-x-1'
+                      }`}
+                    />
+                  </button>
+                </div>
+              </div>
+            )}
 
             {/* Gmail Integration Section */}
             <div className="space-y-3">

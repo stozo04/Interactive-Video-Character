@@ -5,6 +5,8 @@ import {
   CharacterProfile,
   CharacterAction,
   Task,
+  ProactiveSettings,
+  DEFAULT_PROACTIVE_SETTINGS,
 } from './types';
 import * as dbService from './services/cacheService';
 import { supabase } from './services/supabaseClient';
@@ -45,6 +47,20 @@ import { useAIService } from './contexts/AIServiceContext';
 import { AIChatSession, UserContent } from './services/aiService';
 import { GAMES_PROFILE } from './domain/characters/gamesProfile';
 import * as taskService from './services/taskService';
+import { 
+  fetchTechNews, 
+  getUnmentionedStory, 
+  markStoryMentioned,
+  storeLastSharedStories,
+  getRecentNewsContext 
+} from './services/newsService';
+import {
+  getApplicableCheckin,
+  markCheckinDone,
+  buildEventCheckinPrompt,
+  cleanupOldCheckins,
+  type CheckinType,
+} from './services/calendarCheckinService';
 
 // Helper to sanitize text for comparison
 const sanitizeText = (value: string): string =>
@@ -250,10 +266,9 @@ const App: React.FC = () => {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [isTaskPanelOpen, setIsTaskPanelOpen] = useState(false);
   
-  // Snooze State for Idle Check-ins
+  // Snooze State for Idle Check-ins (controlled via Settings > Proactive Features)
   const [isSnoozed, setIsSnoozed] = useState(false);
   const [snoozeUntil, setSnoozeUntil] = useState<number | null>(null);
-  const [showSnoozeMenu, setShowSnoozeMenu] = useState(false);
 
   // Gmail Integration State
   const [isGmailConnected, setIsGmailConnected] = useState(false);
@@ -262,7 +277,24 @@ const App: React.FC = () => {
 
   // Calendar Integration State
   const [upcomingEvents, setUpcomingEvents] = useState<CalendarEvent[]>([]);
+  const [weekEvents, setWeekEvents] = useState<CalendarEvent[]>([]);
   const [kayleyContext, setKayleyContext] = useState<string>("");
+  
+  // Proactive Settings State
+  const PROACTIVE_SETTINGS_KEY = 'kayley_proactive_settings';
+  const [proactiveSettings, setProactiveSettings] = useState<ProactiveSettings>(() => {
+    const stored = localStorage.getItem(PROACTIVE_SETTINGS_KEY);
+    return stored ? JSON.parse(stored) : DEFAULT_PROACTIVE_SETTINGS;
+  });
+  
+  const updateProactiveSettings = useCallback((updates: Partial<ProactiveSettings>) => {
+    setProactiveSettings(prev => {
+      const next = { ...prev, ...updates };
+      localStorage.setItem(PROACTIVE_SETTINGS_KEY, JSON.stringify(next));
+      console.log('🔧 Proactive settings updated:', next);
+      return next;
+    });
+  }, []);
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [notifiedEventIds, setNotifiedEventIds] = useState<Set<string>>(new Set());
   const idleActionTimerRef = useRef<number | null>(null);
@@ -765,7 +797,7 @@ useEffect(() => {
     playAction
   ]);
 
-  const triggerIdleBreaker = useCallback(() => {
+  const triggerIdleBreaker = useCallback(async () => {
     // Check if snoozed
     if (isSnoozed) {
       // Handle indefinite snooze (snoozeUntil is null)
@@ -790,6 +822,12 @@ useEffect(() => {
       }
     }
     
+    // If both check-ins and news are disabled, don't trigger anything
+    if (!proactiveSettings.checkins && !proactiveSettings.news) {
+      console.log("💤 Both check-ins and news are disabled, skipping idle breaker");
+      return;
+    }
+    
     const now = Date.now();
     setLastInteractionAt(now); // reset timer to avoid back-to-back firings
     lastIdleBreakerAtRef.current = now;
@@ -806,21 +844,114 @@ useEffect(() => {
       ? `User has ${highPriorityTasks.length} high-priority task(s): ${highPriorityTasks[0].text}. Consider gently mentioning it if appropriate.`
       : "No urgent tasks pending.";
 
-    const prompt = `
+    // Fetch tech news if enabled
+    let newsContext = "";
+    if (proactiveSettings.news) {
+      try {
+        const stories = await fetchTechNews();
+        const story = getUnmentionedStory(stories);
+        if (story) {
+          markStoryMentioned(story.id);
+          const hostname = story.url ? new URL(story.url).hostname : '';
+          newsContext = `
+    [OPTIONAL NEWS TO DISCUSS]
+    There's an interesting tech story trending on Hacker News: "${story.title}"
+    ${hostname ? `(from: ${hostname})` : ''}
+    
+    You can mention this if the conversation allows, or use it as a conversation starter.
+    Translate it in your style - make it accessible and interesting!
+    Don't force it - only bring it up if it feels natural.
+          `.trim();
+        }
+      } catch (e) {
+        console.warn('Failed to fetch news for idle breaker', e);
+      }
+    }
+    
+    // If check-ins are off but news is on, only proceed if we have news
+    if (!proactiveSettings.checkins && !newsContext) {
+      console.log("💤 Check-ins disabled and no news to share, skipping");
+      return;
+    }
+
+    // Build prompt based on what's enabled
+    let prompt: string;
+    if (proactiveSettings.checkins) {
+      prompt = `
     [SYSTEM EVENT: USER_IDLE]
     The user has been silent for over 5 minutes. 
     ${relationshipContext}
     ${taskContext}
-    Your goal: Gently check in. 
+    ${newsContext}
+    Your goal: Gently check in or start a conversation.
     - If relationship is 'close_friend', maybe send a random thought or joke.
     - If 'acquaintance', politely ask if they are still there.
     - If there are high-priority tasks and relationship allows, you MAY gently mention them (but don't be pushy).
+    - You can mention tech news if it feels natural and interesting.
+    - Remember: you translate tech into human terms!
     - Keep it very short (1 sentence).
     - Do NOT repeat yourself if you did this recently.
-  `;
+      `.trim();
+    } else {
+      // News only mode - just share the news
+      prompt = `
+    [SYSTEM EVENT: NEWS_UPDATE]
+    Share this interesting tech news with the user naturally.
+    ${newsContext}
+    
+    Your goal: Share this news in your style - make it accessible and interesting!
+    - Keep it conversational and short (1-2 sentences).
+    - Translate tech jargon into human terms.
+      `.trim();
+    }
 
     triggerSystemMessage(prompt);
-  }, [relationship?.relationshipTier, tasks, triggerSystemMessage, isSnoozed, snoozeUntil]);
+  }, [relationship?.relationshipTier, tasks, triggerSystemMessage, isSnoozed, snoozeUntil, proactiveSettings.checkins, proactiveSettings.news]);
+
+  // Calendar check-in trigger function
+  const triggerCalendarCheckin = useCallback((event: CalendarEvent, type: CheckinType) => {
+    // Respect snooze and proactive settings
+    if (isSnoozed || !proactiveSettings.calendar) {
+      console.log(`📅 Skipping calendar check-in (snoozed: ${isSnoozed}, calendar enabled: ${proactiveSettings.calendar})`);
+      return;
+    }
+    
+    // Mark this check-in as done to avoid duplicates
+    markCheckinDone(event.id, type);
+    
+    // Build and send the prompt
+    const prompt = buildEventCheckinPrompt(event, type);
+    console.log(`📅 Triggering ${type} check-in for event: ${event.summary}`);
+    triggerSystemMessage(prompt);
+  }, [isSnoozed, proactiveSettings.calendar, triggerSystemMessage]);
+
+  // Check for applicable calendar check-ins
+  useEffect(() => {
+    if (!selectedCharacter || weekEvents.length === 0 || !proactiveSettings.calendar) return;
+    
+    const checkCalendarEvents = () => {
+      // Don't trigger if already processing or speaking
+      if (isProcessingAction || isSpeaking) return;
+      
+      for (const event of weekEvents) {
+        const applicableType = getApplicableCheckin(event);
+        if (applicableType) {
+          triggerCalendarCheckin(event, applicableType);
+          break; // One check-in at a time
+        }
+      }
+    };
+    
+    // Check every 2 minutes
+    const interval = setInterval(checkCalendarEvents, 2 * 60 * 1000);
+    // Also check immediately after a delay (to avoid firing on initial load)
+    const initialCheck = setTimeout(checkCalendarEvents, 30000);
+    
+    return () => {
+      clearInterval(interval);
+      clearTimeout(initialCheck);
+    };
+  }, [weekEvents, selectedCharacter, isProcessingAction, isSpeaking, proactiveSettings.calendar, triggerCalendarCheckin]);
 
   useEffect(() => {
     const IDLE_TIMEOUT = 5 * 60 * 1000; // 5 minutes
@@ -904,6 +1035,28 @@ useEffect(() => {
     return () => {
         clearInterval(intervalId);
     };
+  }, [session]);
+  
+  // Fetch week events for proactive calendar check-ins
+  useEffect(() => {
+    if (!session) return;
+    
+    const fetchWeekEvents = async () => {
+      try {
+        console.log("📅 Fetching week calendar events for proactive check-ins...");
+        const events = await calendarService.getWeekEvents(session.accessToken);
+        setWeekEvents(events);
+        // Clean up old check-in states for events no longer in this week
+        cleanupOldCheckins(events.map(e => e.id));
+      } catch (e) {
+        console.error('Week calendar fetch failed', e);
+      }
+    };
+    
+    fetchWeekEvents();
+    // Refresh every 5 minutes
+    const interval = setInterval(fetchWeekEvents, 5 * 60 * 1000);
+    return () => clearInterval(interval);
   }, [session]);
 
 
@@ -1578,33 +1731,6 @@ useEffect(() => {
     setTasks(taskService.loadTasks());
   }, []);
 
-  // Snooze Handlers
-  const handleSnooze = useCallback((minutes: number | 'indefinite') => {
-    if (minutes === 'indefinite') {
-      setIsSnoozed(true);
-      setSnoozeUntil(null);
-      localStorage.setItem('kayley_snooze_indefinite', 'true');
-      console.log('⏸️ Check-ins snoozed indefinitely');
-    } else {
-      const snoozeEnd = Date.now() + (minutes * 60 * 1000);
-      setIsSnoozed(true);
-      setSnoozeUntil(snoozeEnd);
-      localStorage.setItem('kayley_snooze_until', snoozeEnd.toString());
-      localStorage.removeItem('kayley_snooze_indefinite');
-      console.log(`⏸️ Check-ins snoozed for ${minutes} minutes`);
-    }
-    setShowSnoozeMenu(false);
-  }, []);
-
-  const handleUnsnooze = useCallback(() => {
-    setIsSnoozed(false);
-    setSnoozeUntil(null);
-    localStorage.removeItem('kayley_snooze_until');
-    localStorage.removeItem('kayley_snooze_indefinite');
-    console.log('▶️ Check-ins resumed');
-    setShowSnoozeMenu(false);
-  }, []);
-
   const handleSendMessage = async (message: string) => {
     if (!selectedCharacter || !session) return;
     registerInteraction();
@@ -1985,6 +2111,79 @@ useEffect(() => {
           } catch (error) {
             console.error('Failed to execute calendar_action:', error);
             setErrorMessage('Failed to execute calendar action');
+          }
+        }
+
+        // Check for News Action - fetch latest tech news from Hacker News
+        const newsAction = response.news_action;
+        
+        if (newsAction && newsAction.action === 'fetch') {
+          console.log('📰 News action detected - fetching latest tech news');
+          
+          try {
+            // Show initial acknowledgment
+            setChatHistory(prev => [...prev, { role: 'model' as const, text: response.text_response }]);
+            
+            // Play the initial acknowledgment audio
+            if (!isMuted && audioData) {
+              media.enqueueAudio(audioData);
+            }
+            
+            // Fetch news from Hacker News
+            const stories = await fetchTechNews();
+            
+            if (stories.length > 0) {
+              // Build news context for AI with full URLs for sharing
+              const newsItems = stories.slice(0, 3).map((story, i) => {
+                const hostname = story.url ? new URL(story.url).hostname : 'Hacker News';
+                return `${i + 1}. "${story.title}"
+   Source: ${hostname}
+   URL: ${story.url || `https://news.ycombinator.com/item?id=${story.id}`}
+   Score: ${story.score} upvotes`;
+              }).join('\n\n');
+              
+              const newsPrompt = `
+[SYSTEM EVENT: NEWS_FETCHED]
+Here are the latest trending AI/tech stories from Hacker News:
+
+${newsItems}
+
+Your goal: Share these news stories with the user in your signature style.
+- Pick 1-2 that seem most interesting
+- Translate tech jargon into human terms
+- Be enthusiastic and conversational
+- Ask if they want to hear more about any of them
+- Keep it natural (2-3 sentences)
+
+IMPORTANT: You have the URLs above. If the user asks for a link or wants to read more:
+- Share the URL directly in your response
+- Example: "Here's the link: [URL]"
+- You can also offer to share the Hacker News discussion: https://news.ycombinator.com/item?id=[story.id]
+              `.trim();
+              
+              // Store stories for follow-up questions
+              const sharedStories = stories.slice(0, 3);
+              storeLastSharedStories(sharedStories);
+              
+              // Send news context back to AI for a natural response
+              await triggerSystemMessage(newsPrompt);
+              
+              // Mark stories as mentioned
+              sharedStories.forEach(story => markStoryMentioned(story.id));
+            } else {
+              // No news found
+              await triggerSystemMessage(`
+[SYSTEM EVENT: NEWS_FETCHED]
+I checked Hacker News but didn't find any super relevant AI/tech stories right now.
+Let the user know in a friendly way and maybe offer to check back later.
+              `.trim());
+            }
+            
+            // Skip rest of response handling since triggerSystemMessage will handle it
+            return;
+          } catch (error) {
+            console.error('Failed to fetch news:', error);
+            setErrorMessage('Failed to fetch tech news');
           }
         }
 
@@ -2472,106 +2671,11 @@ useEffect(() => {
             </button>
           )}
           
-          {/* Snooze Button - Only visible in chat view */}
-          {view === 'chat' && selectedCharacter && (
-            <div className="relative">
-              <button
-                onClick={() => setShowSnoozeMenu(!showSnoozeMenu)}
-                className={`rounded-full p-3 shadow-lg transition-all hover:scale-110 relative ${
-                  isSnoozed 
-                    ? 'bg-gradient-to-br from-orange-500 to-red-600 text-white' 
-                    : 'bg-gradient-to-br from-purple-500 to-indigo-600 text-white'
-                }`}
-                title={isSnoozed ? 'Check-ins snoozed' : 'Snooze check-ins'}
-              >
-                {isSnoozed ? (
-                  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                  </svg>
-                ) : (
-                  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
-                  </svg>
-                )}
-                {isSnoozed && (
-                  <span className="absolute -top-1 -right-1 bg-orange-500 text-white text-xs font-bold rounded-full w-5 h-5 flex items-center justify-center">
-                    ⏸
-                  </span>
-                )}
-              </button>
-              
-              {/* Snooze Menu Dropdown */}
-              {showSnoozeMenu && (
-                <>
-                  <div 
-                    className="fixed inset-0 z-40" 
-                    onClick={() => setShowSnoozeMenu(false)}
-                  />
-                  <div className="absolute top-full right-0 mt-2 w-56 bg-gray-800 border border-gray-700 rounded-lg shadow-xl z-50 overflow-hidden">
-                    {isSnoozed ? (
-                      <>
-                        <div className="px-4 py-3 border-b border-gray-700">
-                          <p className="text-sm font-semibold text-orange-400">Check-ins Paused</p>
-                          {snoozeUntil ? (
-                            <p className="text-xs text-gray-400 mt-1">
-                              Until {new Date(snoozeUntil).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                            </p>
-                          ) : (
-                            <p className="text-xs text-gray-400 mt-1">Indefinitely</p>
-                          )}
-                        </div>
-                        <button
-                          onClick={handleUnsnooze}
-                          className="w-full px-4 py-3 text-left text-sm hover:bg-gray-700 transition-colors text-green-400 font-medium"
-                        >
-                          ▶️ Resume Check-ins
-                        </button>
-                      </>
-                    ) : (
-                      <>
-                        <div className="px-4 py-3 border-b border-gray-700">
-                          <p className="text-sm font-semibold text-gray-200">Snooze Check-ins</p>
-                          <p className="text-xs text-gray-400 mt-1">Pause idle notifications</p>
-                        </div>
-                        <button
-                          onClick={() => handleSnooze(15)}
-                          className="w-full px-4 py-2 text-left text-sm hover:bg-gray-700 transition-colors"
-                        >
-                          15 minutes
-                        </button>
-                        <button
-                          onClick={() => handleSnooze(30)}
-                          className="w-full px-4 py-2 text-left text-sm hover:bg-gray-700 transition-colors"
-                        >
-                          30 minutes
-                        </button>
-                        <button
-                          onClick={() => handleSnooze(60)}
-                          className="w-full px-4 py-2 text-left text-sm hover:bg-gray-700 transition-colors"
-                        >
-                          1 hour
-                        </button>
-                        <button
-                          onClick={() => handleSnooze(120)}
-                          className="w-full px-4 py-2 text-left text-sm hover:bg-gray-700 transition-colors"
-                        >
-                          2 hours
-                        </button>
-                        <button
-                          onClick={() => handleSnooze('indefinite')}
-                          className="w-full px-4 py-2 text-left text-sm hover:bg-gray-700 transition-colors border-t border-gray-700 text-gray-400"
-                        >
-                          Until I resume...
-                        </button>
-                      </>
-                    )}
-                  </div>
-                </>
-              )}
-            </div>
-          )}
-          
-          <SettingsPanel onGmailConnectionChange={setIsGmailConnected} />
+          <SettingsPanel 
+            onGmailConnectionChange={setIsGmailConnected}
+            proactiveSettings={proactiveSettings}
+            onProactiveSettingsChange={updateProactiveSettings}
+          />
         </div>
       </header>
       

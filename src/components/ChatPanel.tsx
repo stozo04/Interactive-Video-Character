@@ -25,6 +25,7 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
   const [isEmojiOpen, setIsEmojiOpen] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
   
   // STT (Browser Speech Recognition)
   const recognitionRef = useRef<SpeechRecognition | null>(null);
@@ -36,6 +37,19 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
   };
 
   useEffect(scrollToBottom, [history]);
+
+  // Auto-resize textarea based on content
+  const autoResizeTextarea = () => {
+    const textarea = textareaRef.current;
+    if (textarea) {
+      textarea.style.height = 'auto';
+      textarea.style.height = `${Math.min(textarea.scrollHeight, 120)}px`;
+    }
+  };
+
+  useEffect(() => {
+    autoResizeTextarea();
+  }, [input]);
 
   const textBeforeRef = useRef('');
 
@@ -204,12 +218,22 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
           </button>
         )}
 
-        <input
-          type="text"
+        <textarea
+          ref={textareaRef}
           value={input}
           onChange={(e) => {
             setInput(e.target.value);
             onUserActivity?.();
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+              e.preventDefault();
+              if (input.trim() && !isSending) {
+                onSendMessage(input.trim());
+                setInput('');
+              }
+            }
+            // Shift+Enter allows default behavior (new line)
           }}
           placeholder={
             isSending ? "Processing..." : 
@@ -217,7 +241,9 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
             'Type a message...'
           }
           disabled={isSending || isListening}
-          className="flex-grow bg-gray-700 rounded-full py-2 px-4 text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:opacity-50"
+          rows={1}
+          className="flex-grow bg-gray-700 rounded-2xl py-2 px-4 text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:opacity-50 resize-none overflow-hidden"
+          style={{ minHeight: '40px', maxHeight: '120px' }}
         />
         <div className="relative">
           <button

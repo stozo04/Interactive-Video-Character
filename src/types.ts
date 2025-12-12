@@ -46,6 +46,23 @@ export interface TaskState {
   lastResetDate: string; // ISO date string (YYYY-MM-DD)
 }
 
+/**
+ * Proactive feature settings
+ * Controls what Kayley proactively brings up during check-ins
+ */
+export interface ProactiveSettings {
+  calendar: boolean;  // Calendar event reminders (day before, approaching, post-event)
+  news: boolean;      // Tech news from Hacker News during idle
+  checkins: boolean;  // Random conversation starters when idle
+}
+
+// Default settings - all features enabled
+export const DEFAULT_PROACTIVE_SETTINGS: ProactiveSettings = {
+  calendar: true,
+  news: true,
+  checkins: true,
+};
+
 // FIX: Moved browser-specific interface declarations into `declare global` to resolve type errors.
 // Add global type declarations for browser-specific objects
 declare global {
