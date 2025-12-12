@@ -108,6 +108,17 @@ export const AIActionResponseSchema = z.object({
   ),
 
   /**
+   * News action - triggered when user asks about tech/AI news
+   */
+  news_action: z.object({
+    action: z.enum(['fetch']).describe(
+      "The news action to perform: 'fetch' to get latest AI/tech news from Hacker News"
+    )
+  }).nullable().optional().describe(
+    "News action if the user asks about latest tech/AI news"
+  ),
+
+  /**
    * Whiteboard action for more complex interactions (guessing, describing, etc.)
    */
   whiteboard_action: z.object({

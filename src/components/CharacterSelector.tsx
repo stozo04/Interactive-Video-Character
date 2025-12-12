@@ -129,7 +129,6 @@ const CharacterSelector: React.FC<CharacterSelectorProps> = ({
 
           <div className="mt-6 flex items-center gap-3 text-gray-400 text-xs">
             <LoadingSpinner />
-            <span>Just a moment…</span>
           </div>
         </div>
       )}

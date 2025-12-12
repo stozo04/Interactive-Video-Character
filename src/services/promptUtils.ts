@@ -3,6 +3,7 @@ import { CharacterProfile, Task } from "../types";
 import type { RelationshipMetrics } from "./relationshipService";
 import { KAYLEY_FULL_PROFILE } from "../domain/characters/kayleyCharacterProfile";
 import { GAMES_PROFILE } from "../domain/characters/gamesProfile";
+import { getRecentNewsContext } from "./newsService";
 // const CHARACTER_COLLECTION_ID = import.meta.env.VITE_GROK_CHARACTER_COLLECTION_ID;
 const CHARACTER_COLLECTION_ID = import.meta.env.VITE_CHATGPT_VECTOR_STORE_ID;
 
@@ -488,6 +489,9 @@ Your response MUST be a single JSON object with the following structure:
     "start": string,                 // For create: ISO datetime
     "end": string,                   // For create: ISO datetime  
     "timeZone": string               // Default: "America/Chicago"
+  } | null,
+  "news_action": {                   // Optional: Only include if user asks about tech/AI news
+    "action": "fetch"                // Fetches latest AI/tech news from Hacker News
   } | null
 }
 
@@ -505,6 +509,20 @@ CALENDAR ACTION RULES:
 IMPORTANT: Do NOT include "undefined" in your JSON processing. Use "null" or omit the key entirely if not applicable.
 IMPORTANT: Return RAW JSON only. Do not wrap your response in markdown code blocks (like \`\`\`json ... \`\`\`).
 
+NEWS ACTION RULES:
+- When user asks about tech news, AI news, Hacker News, or "what's new in tech", set news_action: { "action": "fetch" }
+- Trigger phrases: "what's the latest news", "any tech news", "what's trending in AI", "hacker news", "tech headlines"
+- When you return news_action, your text_response should be a brief acknowledgment like "Let me check what's trending!" or "Ooh let me see what's happening in tech..."
+- The app will fetch the news and send it back to you for a natural response
+
+Example:
+User: "Hey what's the latest AI news?"
+Response:
+{
+  "text_response": "Ooh let me check what's trending! ✨",
+  "action_id": null,
+  "news_action": { "action": "fetch" }
+}
 
 App Launching:
 - If the user explicitly asks to open an app, set "open_app" to the URL scheme if you know it.
@@ -564,6 +582,8 @@ CREATE AN EVENT:
 
 
 ${GAMES_PROFILE}
+
+${getRecentNewsContext()}
 
 ====================================================
 STYLE & OUTPUT

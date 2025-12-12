@@ -62,6 +62,7 @@ function normalizeAiResponse(rawJson: any, rawText: string): AIActionResponse {
       task_action: rawJson.task_action || null,
       open_app: rawJson.open_app || null,
       calendar_action: rawJson.calendar_action || null,
+      news_action: rawJson.news_action || null,
       // Pass through whiteboard fields
       whiteboard_action: wbAction,
       game_move: rawJson.game_move // 0 is valid, so check undefined

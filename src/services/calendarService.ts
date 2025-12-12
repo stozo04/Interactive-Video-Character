@@ -131,6 +131,66 @@ class CalendarService extends EventTarget {
   }
 
   /**
+   * Get events for the current week (Sunday to Saturday)
+   * Used for proactive calendar check-ins
+   */
+  async getWeekEvents(accessToken: string): Promise<CalendarEvent[]> {
+    try {
+      const now = new Date();
+      
+      // Get Sunday of current week
+      const sunday = new Date(now);
+      sunday.setDate(now.getDate() - now.getDay());
+      sunday.setHours(0, 0, 0, 0);
+      
+      // Get Saturday end of current week
+      const saturday = new Date(sunday);
+      saturday.setDate(sunday.getDate() + 6);
+      saturday.setHours(23, 59, 59, 999);
+
+      const params = new URLSearchParams({
+        calendarId: 'primary',
+        timeMin: sunday.toISOString(),
+        timeMax: saturday.toISOString(),
+        singleEvents: 'true',
+        orderBy: 'startTime',
+        maxResults: '50',
+      });
+
+      const response = await fetch(
+        `${BASE_URL}/calendars/primary/events?${params.toString()}`,
+        {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            'Content-Type': 'application/json',
+          },
+        }
+      );
+
+      if (response.status === 401) {
+        console.error('Calendar API: Token expired or invalid');
+        this.dispatchEvent(new CustomEvent('auth-error'));
+        throw new Error('Authentication failed. Please reconnect your Google account.');
+      }
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('Calendar API error:', response.status, errorText);
+        throw new Error(`Failed to fetch week calendar events: ${response.statusText}`);
+      }
+
+      const data = await response.json();
+      const events: CalendarEvent[] = data.items || [];
+
+      console.log(`📅 Fetched ${events.length} events for the week (Sun-Sat)`);
+      return events;
+    } catch (error) {
+      console.error('Error fetching week calendar events:', error);
+      throw error;
+    }
+  }
+
+  /**
    * Delete a calendar event by ID
    */
   async deleteEvent(accessToken: string, eventId: string): Promise<void> {
