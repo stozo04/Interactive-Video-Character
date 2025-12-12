@@ -8,11 +8,23 @@ interface AudioPlayerProps {
 
 const AudioPlayer: React.FC<AudioPlayerProps> = ({ src, onStart, onEnded }) => {
   const audioRef = useRef<HTMLAudioElement>(null);
+  const WB_DEBUG =
+    typeof window !== 'undefined' &&
+    window.localStorage?.getItem('debug:whiteboard') === '1';
+  const wbNow = () => (typeof performance !== 'undefined' ? performance.now() : Date.now());
 
   // Detect type
   const isUrl = src ? (src.startsWith('blob:') || src.startsWith('http')) : false;
 
   useEffect(() => {
+    if (WB_DEBUG) {
+      console.log('🔊 [AudioPlayer] src changed', {
+        ts: Math.round(wbNow()),
+        kind: !src ? 'none' : isUrl ? 'url/blob' : 'base64',
+        len: src?.length ?? 0,
+      });
+    }
+
     // Handle Base64/Legacy manually (WebAudio API style logic)
     if (src && !isUrl && audioRef.current) {
       // Check if it's raw base64 (no data URI prefix) and fix it if necessary
@@ -39,7 +51,10 @@ const AudioPlayer: React.FC<AudioPlayerProps> = ({ src, onStart, onEnded }) => {
       <audio 
         src={src || undefined} 
         autoPlay 
-        onPlay={onStart}
+        onPlay={() => {
+          if (WB_DEBUG) console.log('🔊 [AudioPlayer] onPlay', { ts: Math.round(wbNow()) });
+          onStart?.();
+        }}
         onEnded={onEnded} 
         onError={(e) => console.error("Audio error", e)}
         className="hidden"
@@ -51,6 +66,10 @@ const AudioPlayer: React.FC<AudioPlayerProps> = ({ src, onStart, onEnded }) => {
   return (
     <audio
       ref={audioRef}
+      onPlay={() => {
+        if (WB_DEBUG) console.log('🔊 [AudioPlayer] onPlay', { ts: Math.round(wbNow()) });
+        onStart?.();
+      }}
       onEnded={onEnded}
       className="hidden"
     />

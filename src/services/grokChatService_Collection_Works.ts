@@ -62,17 +62,13 @@ export const grokService: IAIChatService = {
     }
   },
 
-  generateGreeting: async (character, session, previousHistory, relationship, characterContext) => {
+  generateGreeting: async (character, session, relationship, characterContext) => {
     const systemPrompt = buildSystemPrompt(character, relationship, [], characterContext);
     const greetingPrompt = "Generate a friendly, brief greeting. Keep it under 15 words.";
     
     // Reuse the logic basically
     const messages: AIMessage[] = [
       { role: 'system', content: systemPrompt },
-      ...(previousHistory || []).map(msg => ({
-         role: (msg.role === 'user' ? 'user' : 'assistant') as 'user' | 'assistant',
-         content: msg.text,
-      })),
       { role: 'user', content: greetingPrompt },
     ];
 

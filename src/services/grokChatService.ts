@@ -108,7 +108,7 @@ export class GrokService extends BaseAIService {
     }
   }
 
-  async generateGreeting(character: any, session: any, previousHistory: any, relationship: any, characterContext?: string) {
+  async generateGreeting(character: any, session: any, relationship: any, characterContext?: string) {
     const systemPrompt = buildSystemPrompt(character, relationship, [], characterContext);
     
     // Build relationship-aware greeting prompt
@@ -119,10 +119,6 @@ export class GrokService extends BaseAIService {
     
     const messages: AIMessage[] = [
       { role: 'system', content: systemPrompt },
-      ...(previousHistory || []).map((msg: any) => ({
-         role: (msg.role === 'user' ? 'user' : 'assistant') as 'user' | 'assistant',
-         content: msg.text,
-      })),
       { role: 'user', content: greetingPrompt },
     ];
 

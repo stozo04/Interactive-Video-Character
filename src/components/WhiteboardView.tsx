@@ -8,7 +8,6 @@ import {
   applyUserMove,
   applyAiMove,
   buildWhiteboardPrompt,
-  parseWhiteboardAction,
   WhiteboardAction,
 } from '../services/whiteboardModes';
 
@@ -34,23 +33,35 @@ export const WhiteboardView: React.FC<WhiteboardViewProps> = ({
   onClose,
   disabled = false,
 }) => {
+  const WB_DEBUG =
+    typeof window !== 'undefined' &&
+    window.localStorage?.getItem('debug:whiteboard') === '1';
+  const wbNow = () => (typeof performance !== 'undefined' ? performance.now() : Date.now());
+  const wbLog = (...args: any[]) => {
+    if (WB_DEBUG) console.log(...args);
+  };
+
   // State
   const [currentMode, setCurrentMode] = useState<WhiteboardMode>('freeform');
   const [gameState, setGameState] = useState<GameState | null>(null);
   const [aiDrawingAction, setAiDrawingAction] = useState<WhiteboardAction | null>(null);
   const [isAiThinking, setIsAiThinking] = useState(false);
-  const [chatMessages, setChatMessages] = useState<Array<{ role: 'user' | 'ai'; text: string }>>([]);
+  const [chatMessages, setChatMessages] = useState<Array<{ id: string; role: 'user' | 'ai'; text: string }>>([]);
   const [textInput, setTextInput] = useState('');
   const whiteboardRef = useRef<WhiteboardHandle>(null);
+  const wbReqIdRef = useRef(0);
   
   // Resize Logic
   const [sidebarWidth, setSidebarWidth] = useState(320);
   const [isResizing, setIsResizing] = useState(false);
 
-  const startResizing = useCallback(() => setIsResizing(true), []);
+  const startResizing = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    e.currentTarget.setPointerCapture(e.pointerId);
+    setIsResizing(true);
+  }, []);
   const stopResizing = useCallback(() => setIsResizing(false), []);
   
-  const handleResize = useCallback((e: MouseEvent) => {
+  const handleResize = useCallback((e: PointerEvent) => {
     if (isResizing) {
       const newWidth = window.innerWidth - e.clientX;
       setSidebarWidth(Math.max(250, Math.min(newWidth, 800)));
@@ -59,12 +70,12 @@ export const WhiteboardView: React.FC<WhiteboardViewProps> = ({
 
   useEffect(() => {
     if (isResizing) {
-      window.addEventListener('mousemove', handleResize);
-      window.addEventListener('mouseup', stopResizing);
+      window.addEventListener('pointermove', handleResize);
+      window.addEventListener('pointerup', stopResizing);
     }
     return () => {
-      window.removeEventListener('mousemove', handleResize);
-      window.removeEventListener('mouseup', stopResizing);
+      window.removeEventListener('pointermove', handleResize);
+      window.removeEventListener('pointerup', stopResizing);
     };
   }, [isResizing, handleResize, stopResizing]);
 
@@ -74,28 +85,36 @@ export const WhiteboardView: React.FC<WhiteboardViewProps> = ({
 
   const handleModeChange = (modeId: string) => {
     setCurrentMode(modeId as WhiteboardMode);
-    setChatMessages([]);
     
     if (modeId === 'tictactoe') {
       setGameState(createInitialGameState());
-      setChatMessages([{ 
-        role: 'ai', 
-        text: "Let's play Tic-Tac-Toe! You're X, I'm O. Draw your X anywhere on the grid, then click 'Send to AI' when ready! 🎮" 
+      setChatMessages([{
+        id: `m_${Date.now()}_${Math.random().toString(16).slice(2)}`,
+        role: 'ai',
+        text: "Let's play Tic-Tac-Toe! You're X, I'm O. Draw your X anywhere on the grid, then click 'Send to AI' when ready! 🎮"
       }]);
     } else if (modeId === 'pictionary') {
       setGameState(null);
-      setChatMessages([{ 
-        role: 'ai', 
-        text: "Pictionary time! Draw something and I'll try to guess what it is! 🎨" 
+      setChatMessages([{
+        id: `m_${Date.now()}_${Math.random().toString(16).slice(2)}`,
+        role: 'ai',
+        text: "Pictionary time! Draw something and I'll try to guess what it is! 🎨"
       }]);
     } else {
       setGameState(null);
-      setChatMessages([{ 
-        role: 'ai', 
-        text: "Free drawing mode! Draw anything and I'll tell you what I see! ✏️" 
+      setChatMessages([{
+        id: `m_${Date.now()}_${Math.random().toString(16).slice(2)}`,
+        role: 'ai',
+        text: "Free drawing mode! Draw anything and I'll tell you what I see! ✏️"
       }]);
     }
   };
+  
+  useEffect(() => {
+    if (chatMessages.length > 0) return;
+    handleModeChange('freeform');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // ============================================================================
   // AI INTERACTION
@@ -104,6 +123,10 @@ export const WhiteboardView: React.FC<WhiteboardViewProps> = ({
   const handleCapture = useCallback(async (base64: string, defaultMessage?: string) => {
     if (disabled || isAiThinking) return;
 
+    const reqId = ++wbReqIdRef.current;
+    const t0 = wbNow();
+    wbLog(`⏱️ [WhiteboardView#${reqId}] start`, { mode: currentMode, hasGameState: !!gameState, bytes: base64?.length ?? 0 });
+
     setIsAiThinking(true);
     
     const modeConfig = WHITEBOARD_MODES[currentMode];
@@ -111,17 +134,25 @@ export const WhiteboardView: React.FC<WhiteboardViewProps> = ({
     const modeContext = buildWhiteboardPrompt(modeConfig, userMessage, gameState || undefined);
 
     // Add user message to chat
-    setChatMessages(prev => [...prev, { role: 'user', text: userMessage }]);
+    setChatMessages(prev => [...prev, { id: `m_${Date.now()}_${Math.random().toString(16).slice(2)}`, role: 'user', text: userMessage }]);
 
     try {
+      const tBeforeSend = wbNow();
       const result = await onSendToAI(base64, userMessage, modeContext);
+      const tAfterSend = wbNow();
+      wbLog(`⏱️ [WhiteboardView#${reqId}] onSendToAI done`, {
+        dtTotalMs: Math.round(tAfterSend - t0),
+        dtSendMs: Math.round(tAfterSend - tBeforeSend),
+        hasWhiteboardAction: !!result.whiteboardAction,
+      });
       
       // Add AI response to chat
-      setChatMessages(prev => [...prev, { role: 'ai', text: result.textResponse }]);
+      setChatMessages(prev => [...prev, { id: `m_${Date.now()}_${Math.random().toString(16).slice(2)}`, role: 'ai', text: result.textResponse }]);
 
       // Handle AI Actions (Game Moves or Drawing)
       if (result.whiteboardAction) {
           let currentState = gameState;
+          wbLog(`⏱️ [WhiteboardView#${reqId}] received action`, result.whiteboardAction);
 
           // If AI detected a user move, apply it first
           if (currentMode === 'tictactoe' && currentState && 
@@ -157,26 +188,30 @@ export const WhiteboardView: React.FC<WhiteboardViewProps> = ({
                     
                     if (endMessage) {
                         setTimeout(() => {
-                            setChatMessages(prev => [...prev, { role: 'ai', text: endMessage }]);
+                            setChatMessages(prev => [...prev, { id: `m_${Date.now()}_${Math.random().toString(16).slice(2)}`, role: 'ai', text: endMessage }]);
                         }, 1000);
                     }
                 }
                 
                 // Trigger drawing animation with corrected move
+                wbLog(`⏱️ [WhiteboardView#${reqId}] setAiDrawingAction (tictactoe)`, actionToDraw);
                 setAiDrawingAction(actionToDraw);
              }
           } else {
              // For non-game actions, just draw
+             wbLog(`⏱️ [WhiteboardView#${reqId}] setAiDrawingAction`, result.whiteboardAction);
              setAiDrawingAction(result.whiteboardAction);
           }
       }
     } catch (error) {
       console.error('Error sending to AI:', error);
       setChatMessages(prev => [...prev, { 
+        id: `m_${Date.now()}_${Math.random().toString(16).slice(2)}`,
         role: 'ai', 
         text: "Oops! I had trouble seeing your drawing. Can you try again?" 
       }]);
     } finally {
+      wbLog(`⏱️ [WhiteboardView#${reqId}] done (finally)`, { dtTotalMs: Math.round(wbNow() - t0) });
       setIsAiThinking(false);
     }
   }, [currentMode, gameState, disabled, isAiThinking, onSendToAI]);
@@ -192,15 +227,16 @@ export const WhiteboardView: React.FC<WhiteboardViewProps> = ({
   const handleNewGame = () => {
     if (currentMode === 'tictactoe') {
       setGameState(createInitialGameState());
-      setChatMessages([{ 
-        role: 'ai', 
-        text: "New game! You're X, I'm O. Your move! 🎮" 
+      setChatMessages([{
+        id: `m_${Date.now()}_${Math.random().toString(16).slice(2)}`,
+        role: 'ai',
+        text: "New game! You're X, I'm O. Your move! 🎮"
       }]);
     }
   };
 
   const handleSendMessage = () => {
-    if (!textInput.trim() && !gameState) return;
+    if (!textInput.trim()) return;
     
     const base64 = whiteboardRef.current?.capture();
     if (base64) {
@@ -285,7 +321,7 @@ export const WhiteboardView: React.FC<WhiteboardViewProps> = ({
         {/* Resize Handle */}
         <div
             className={`w-1 cursor-col-resize hover:bg-blue-500 transition-colors ${isResizing ? 'bg-blue-500' : 'bg-gray-700'}`}
-            onMouseDown={startResizing}
+            onPointerDown={startResizing}
         />
 
         {/* Chat Sidebar */}
@@ -300,7 +336,7 @@ export const WhiteboardView: React.FC<WhiteboardViewProps> = ({
           <div className="flex-1 overflow-y-auto p-3 space-y-3">
             {chatMessages.map((msg, i) => (
               <div
-                key={i}
+                key={msg.id}
                 className={`
                   p-3 rounded-lg text-sm
                   ${msg.role === 'user' 

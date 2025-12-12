@@ -26,7 +26,7 @@ export interface WhiteboardAction {
   guess?: string;         // For pictionary guesses
   description?: string;   // For freeform descriptions
   draw_shapes?: Array<{   // For AI drawing
-      shape: 'line' | 'circle' | 'rect' | 'point' | 'path' | 'text';
+      shape: 'line' | 'circle' | 'rect' | 'point' | 'path' | 'text' | 'heart';
       x: number;
       y: number;
       x2?: number;
@@ -35,6 +35,8 @@ export interface WhiteboardAction {
       text?: string;      // Text content for 'text' shape
       size?: number;
       color?: string;
+      // Use `fill` in prompts/responses; keep `filled` for backward compatibility
+      fill?: boolean;
       filled?: boolean;
   }>;
   userMove?: number; // Detected user move (0-8)
@@ -71,7 +73,8 @@ DRAWING INSTRUCTIONS:
 - Coordinates are 0-100 (% of width/height).
 - Supported shapes:
   - 'circle', 'point', 'rect' (requires x2,y2), 'line' (requires x2,y2).
-  - 'path' (requires 'points' array of {x,y} objects) - USE THIS FOR CURVES, WRITING, OR COMPLEX SHAPES (like 'S', hearts, smiley faces).
+  - 'heart' (preferred for hearts) - use x,y as center and size (5-30).
+  - 'path' (requires 'points' array of {x,y} objects) - USE THIS FOR CURVES OR COMPLEX SHAPES (like 'S', smiley faces).
 - Optional properties: 'color', 'size', 'fill' (boolean).
 - Style Rule: Use colors that match your personality (pink, purple, gold, teal) automatically. Be decisive!
 - SIMPLICITY RULE: When asked to write text, ONLY write the text. Don't add extra shapes or decorations unless asked.
@@ -106,6 +109,9 @@ STYLE EXAMPLES:
 - Bold statement: {"shape": "text", "text": "WOW!", "x": 50, "y": 50, "color": "red", "style": "bold", "size": 12}
 - Playful greeting: {"shape": "text", "text": "Hi there!", "x": 50, "y": 50, "color": "pink", "style": "playful", "size": 8}
 
+HEART EXAMPLE (use this for "draw a heart"):
+"draw_shapes": [{"shape": "heart", "x": 50, "y": 70, "size": 18, "color": "gold", "fill": true}]
+
 ⚠️ CRITICAL: When asked to write someone's NAME or any WORD:
 - DO NOT use 'path' shapes to draw letters manually!
 - DO use: {"shape": "text", "text": "THE_WORD", "x": 50, "y": 50, "color": "pink", "size": 8}
@@ -117,6 +123,7 @@ OTHER SHAPES (for doodles, not text):
 - 'circle': Draw circles - ONLY use when specifically drawing a circle shape, NOT as decoration
 - 'line': Draw lines (x, y, x2, y2, color)
 - 'rect': Draw rectangles (x, y, x2, y2, color)
+- 'heart': Draw a heart (x,y,size,color,fill) - use for heart requests
 - 'path': Draw freeform paths (points array) - for doodles only, NOT text!
 
 MEMORY TOOL USAGE:

@@ -196,7 +196,6 @@ export const chatGPTService: IAIChatService = {
   generateGreeting: async (
     character: CharacterProfile,
     session?: AIChatSession,
-    chatHistory?: ChatMessage[],
     relationship?: RelationshipMetrics | null,
     characterContext?: string
   ) => {

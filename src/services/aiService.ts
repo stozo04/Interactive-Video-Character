@@ -15,6 +15,17 @@ export interface AIChatOptions {
   upcomingEvents?: any[];
   characterContext?: string; // What the character is "doing" right now
   tasks?: Task[]; // User's daily checklist tasks
+  /**
+   * Audio generation behavior for this request.
+   * - sync (default): wait for TTS before returning
+   * - async: return response immediately; generate TTS in background and call onAudioData
+   * - none: do not generate audio
+   */
+  audioMode?: 'sync' | 'async' | 'none';
+  /**
+   * Only used when audioMode === 'async'. Called when audio is ready.
+   */
+  onAudioData?: (audioData: string) => void;
 }
 
 export interface AIMessage {
@@ -45,7 +56,6 @@ export interface IAIChatService {
   generateGreeting(
     character: CharacterProfile,
     session?: AIChatSession,
-    chatHistory?: ChatMessage[],
     relationship?: RelationshipMetrics | null,
     characterContext?: string
   ): Promise<{ 
