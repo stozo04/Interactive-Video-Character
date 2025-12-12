@@ -98,7 +98,6 @@ export class GeminiService extends BaseAIService {
     const chatConfig: any = {
       systemInstruction: {
         parts: [{ text: systemPrompt }],
-        role: "user" 
       },
     };
 
@@ -248,7 +247,6 @@ export class GeminiService extends BaseAIService {
         const chatConfig: any = {
           systemInstruction: {
             parts: [{ text: systemPrompt }],
-            role: "user"
           },
         };
 

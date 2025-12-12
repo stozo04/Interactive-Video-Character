@@ -420,6 +420,35 @@ export const executeMemoryTool = async (
 ): Promise<string> => {
   console.log(`🔧 [Memory Tool] Executing: ${toolName}`, args);
 
+  const normalizeRequestedFactKey = (rawKey: string): string => {
+    const key = rawKey.trim().toLowerCase();
+
+    // Common user phrasing → canonical fact keys used in `user_facts.fact_key`
+    const aliases: Record<string, string> = {
+      // Identity
+      'first_name': 'name',
+      'firstname': 'name',
+      'given_name': 'name',
+      'name': 'name',
+      'last_name': 'last_name',
+      'lastname': 'last_name',
+      'surname': 'last_name',
+      'family_name': 'last_name',
+
+      // Work
+      'job': 'occupation',
+      'job_title': 'occupation',
+      'title': 'occupation',
+      'occupation': 'occupation',
+      'profession': 'occupation',
+      'role': 'occupation',
+      'work': 'occupation',
+      'what_do_i_do': 'occupation',
+    };
+
+    return aliases[key] || key;
+  };
+
   try {
     switch (toolName) {
       case 'recall_memory': {
@@ -434,12 +463,20 @@ export const executeMemoryTool = async (
         
         // If a specific key was requested, filter to just that
         if (specific_key) {
-          const specificFact = facts.find(f => 
-            f.fact_key.toLowerCase() === specific_key.toLowerCase()
+          const requestedKey = normalizeRequestedFactKey(specific_key);
+          const specificFact = facts.find(
+            f => f.fact_key.toLowerCase() === requestedKey
           );
           if (specificFact) {
             return `${specificFact.fact_key}: ${specificFact.fact_value}`;
           }
+
+          // Fallback: return all known facts so the model can answer without looping tool calls
+          // (e.g., model asked for "job" but we store "occupation").
+          if (facts.length > 0) {
+            return formatFactsForAI(facts);
+          }
+
           return `No information stored for "${specific_key}".`;
         }
         

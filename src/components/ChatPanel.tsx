@@ -133,7 +133,7 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
 
   const isMicSupported = !!recognitionRef.current || hasRecognition;
   const micLabel = isListening ? "Click to Send" : "Click to Speak";
-  const emojiOptions = ['😀','😁','😊','😍','🤔','😅','😭','☹️','😴','🤗','😬','🔥','✨','🎉','💪','👍','👎','🙏','❤️'];
+  const emojiOptions = ['😀','😁','😊','😉','😍','🤔','😅','😭','☹️','😴','🤗','😬','🔥','✨','🎉','💪','👍','👎','🙏','❤️'];
 
   const handleEmojiSelect = (emoji: string) => {
     setInput(prev => `${prev}${emoji}`);

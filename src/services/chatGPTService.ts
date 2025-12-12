@@ -31,6 +31,24 @@ const client = new OpenAI({
   dangerouslyAllowBrowser: true, // Client-side usage
 });
 
+function getOpenAIFunctionCallId(toolCall: any): string | undefined {
+  // OpenAI Responses API has used both `call_id` and `id` for function calls in different shapes/SDK versions.
+  return toolCall?.call_id || toolCall?.id;
+}
+
+function parseOpenAIFunctionArgs(raw: any): any {
+  if (!raw) return {};
+  if (typeof raw === "string") {
+    try {
+      return JSON.parse(raw);
+    } catch {
+      return {};
+    }
+  }
+  if (typeof raw === "object") return raw;
+  return {};
+}
+
 // Helper: Convert base64 to File/Blob for Whisper
 async function base64ToFile(
   base64: string,
@@ -127,26 +145,29 @@ export const chatGPTService: IAIChatService = {
           // Execute all tool calls
           const toolResults: any[] = [];
           for (const toolCall of toolCalls) {
-            // Type assertion for function call properties
-            const tc = toolCall as { name: string; arguments?: string; call_id: string };
-            const toolName = tc.name as MemoryToolName;
-            let toolArgs: any = {};
-            
-            try {
-              toolArgs = JSON.parse(tc.arguments || '{}');
-            } catch (e) {
-              console.warn(`Failed to parse tool arguments:`, tc.arguments);
+            const toolName = (toolCall as any).name as MemoryToolName;
+            const toolArgs = parseOpenAIFunctionArgs((toolCall as any).arguments);
+            const callId = getOpenAIFunctionCallId(toolCall);
+
+            if (!callId) {
+              console.warn("🔧 [ChatGPT] Skipping tool call with missing id/call_id:", toolCall);
+              continue;
             }
 
-            console.log(`🔧 [ChatGPT] Executing tool: ${toolName}`, toolArgs);
+            console.log(`🔧 [ChatGPT] Executing tool: ${toolName} (callId=${callId})`, toolArgs);
             
             const result = await executeMemoryTool(toolName, toolArgs, userId);
             
             toolResults.push({
               type: "function_call_output",
-              call_id: tc.call_id,
+              call_id: callId,
               output: result,
             });
+          }
+
+          if (toolResults.length === 0) {
+            console.warn("🔧 [ChatGPT] Tool calls present but no tool outputs were produced; aborting tool loop.");
+            break;
           }
 
           // Continue the conversation with tool results
@@ -266,24 +287,27 @@ export const chatGPTService: IAIChatService = {
 
         const toolResults: any[] = [];
         for (const toolCall of toolCalls) {
-          // Type assertion for function call properties
-          const tc = toolCall as { name: string; arguments?: string; call_id: string };
-          const toolName = tc.name as MemoryToolName;
-          let toolArgs: any = {};
-          
-          try {
-            toolArgs = JSON.parse(tc.arguments || '{}');
-          } catch (e) {
-            console.warn(`Failed to parse tool arguments`);
+          const toolName = (toolCall as any).name as MemoryToolName;
+          const toolArgs = parseOpenAIFunctionArgs((toolCall as any).arguments);
+          const callId = getOpenAIFunctionCallId(toolCall);
+
+          if (!callId) {
+            console.warn("🔧 [ChatGPT Greeting] Skipping tool call with missing id/call_id:", toolCall);
+            continue;
           }
 
           const result = await executeMemoryTool(toolName, toolArgs, userId);
           
           toolResults.push({
             type: "function_call_output",
-            call_id: tc.call_id,
+            call_id: callId,
             output: result,
           });
+        }
+
+        if (toolResults.length === 0) {
+          console.warn("🔧 [ChatGPT Greeting] Tool calls present but no tool outputs were produced; aborting tool loop.");
+          break;
         }
 
         response = await client.responses.create({
