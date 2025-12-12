@@ -239,6 +239,7 @@ const App: React.FC = () => {
   const [relationship, setRelationship] = useState<RelationshipMetrics | null>(null);
   const [isVideoVisible, setIsVideoVisible] = useState(true);
   const [isLoadingCharacter, setIsLoadingCharacter] = useState(false);
+  const [loadingCharacterName, setLoadingCharacterName] = useState<string | null>(null);
   
   // Task Management State
   const [tasks, setTasks] = useState<Task[]>([]);
@@ -1290,6 +1291,7 @@ useEffect(() => {
   const handleSelectCharacter = async (character: CharacterProfile) => {
     setErrorMessage(null);
     setIsLoadingCharacter(true);
+    setLoadingCharacterName(character.displayName || character.name);
     
     // Cleanup old action URLs (idle videos are now public URLs - no cleanup needed!)
     cleanupActionUrls(actionVideoUrls);
@@ -1387,6 +1389,7 @@ useEffect(() => {
       setErrorMessage('Failed to load character data.');
     } finally {
       setIsLoadingCharacter(false);
+      setLoadingCharacterName(null);
     }
   };
 
@@ -2277,6 +2280,20 @@ useEffect(() => {
       return { textResponse: "Please select a character first." };
     }
 
+    const WB_DEBUG =
+      typeof window !== 'undefined' &&
+      window.localStorage?.getItem('debug:whiteboard') === '1';
+    const wbNow = () => (typeof performance !== 'undefined' ? performance.now() : Date.now());
+    const wbLog = (...args: any[]) => {
+      if (WB_DEBUG) console.log(...args);
+    };
+    const wbT0 = wbNow();
+    wbLog('⏱️ [App/Whiteboard] handleWhiteboardCapture start', {
+      bytes: base64?.length ?? 0,
+      msgLen: userMessage?.length ?? 0,
+      hasSelectedCharacter: !!selectedCharacter,
+    });
+
     const userId = getUserId();
     const sessionToUse: AIChatSession = aiSession || { userId, characterId: selectedCharacter.id };
 
@@ -2286,8 +2303,13 @@ useEffect(() => {
       // ============================================
       let userInfoContext = '';
       try {
+        const tFacts0 = wbNow();
         const { getUserFacts } = await import('./services/memoryService');
         const userFacts = await getUserFacts(userId, 'all');
+        wbLog('⏱️ [App/Whiteboard] user_facts done', {
+          dtMs: Math.round(wbNow() - tFacts0),
+          count: Array.isArray(userFacts) ? userFacts.length : 'n/a',
+        });
         if (userFacts.length > 0) {
           const factsFormatted = userFacts.map(f => `- ${f.fact_key}: ${f.fact_value}`).join('\n');
           userInfoContext = `\n\n[KNOWN USER INFO - USE THIS!]\nYou already know these facts about the user:\n${factsFormatted}\n\nIf they ask you to draw "my name" and you have their name above, USE IT! Don't ask again!\n`;
@@ -2299,7 +2321,8 @@ useEffect(() => {
 
       const enrichedContext = modeContext + userInfoContext;
 
-      const { response, session: updatedSession, audioData } = await activeService.generateResponse(
+      const tGem0 = wbNow();
+      const { response, session: updatedSession } = await activeService.generateResponse(
         {
           type: 'image_text',
           text: enrichedContext, // Contains the full whiteboard context + user info
@@ -2311,23 +2334,43 @@ useEffect(() => {
           chatHistory: [], // Fresh context for games
           relationship,
           characterContext: `Playing a game on the whiteboard.\n\n${GAMES_PROFILE}`,
+          audioMode: 'async',
+          onAudioData: (audioData: string) => {
+            // Don't block drawing/action on TTS.
+            // Respect mute at callback time.
+            try {
+              wbLog('⏱️ [App/Whiteboard] async audio ready', { dtMs: Math.round(wbNow() - wbT0), hasAudio: !!audioData });
+            } catch {}
+            if (!audioData) return;
+            if (!isMuted) {
+              media.enqueueAudio(audioData);
+            } else {
+              wbLog('⏱️ [App/Whiteboard] async audio dropped (muted)');
+            }
+          },
         },
         sessionToUse
       );
+      wbLog('⏱️ [App/Whiteboard] generateResponse done', {
+        dtMs: Math.round(wbNow() - tGem0),
+        hasAudio: false,
+        hasActionId: !!response?.action_id,
+      });
 
       setAiSession(updatedSession);
-
-      // Play audio if available
-      if (!isMuted && audioData) {
-        media.enqueueAudio(audioData);
-      }
 
       // Play action if specified
       if (response.action_id) {
         playAction(response.action_id);
       }
 
+      const tParse0 = wbNow();
       const whiteboardAction = parseWhiteboardAction(response);
+      wbLog('⏱️ [App/Whiteboard] parseWhiteboardAction done', {
+        dtMs: Math.round(wbNow() - tParse0),
+        hasAction: !!whiteboardAction,
+        type: (whiteboardAction as any)?.type,
+      });
 
       // ============================================
       // AUTO-DETECT USER INFO (Backup for AI tools)
@@ -2347,6 +2390,8 @@ useEffect(() => {
     } catch (error) {
       console.error('Whiteboard AI error:', error);
       return { textResponse: "Hmm, I had trouble seeing your drawing. Try again?" };
+    } finally {
+      wbLog('⏱️ [App/Whiteboard] handleWhiteboardCapture end', { dtTotalMs: Math.round(wbNow() - wbT0) });
     }
   };
 
@@ -2517,6 +2562,7 @@ useEffect(() => {
                 onCreateNew={() => setView('createCharacter')}
                 onManageCharacter={handleManageCharacter}
                 isLoading={isLoadingCharacter}
+                loadingCharacterName={loadingCharacterName}
             />
         )}
 

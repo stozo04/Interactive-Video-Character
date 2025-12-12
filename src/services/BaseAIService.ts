@@ -39,9 +39,43 @@ export abstract class BaseAIService implements IAIChatService {
         session
       );
 
+      const audioMode = options.audioMode ?? 'sync';
+
       // Shared: Voice Generation
-      // Note: Some providers might return user_transcription which we might want to use, 
+      // Note: Some providers might return user_transcription which we might want to use,
       // but generateSpeech usually takes the AI's text response.
+      if (audioMode === 'none') {
+        return {
+          response: aiResponse,
+          session: updatedSession,
+        };
+      }
+
+      if (audioMode === 'async') {
+        const WB_DEBUG =
+          typeof window !== 'undefined' &&
+          window.localStorage?.getItem('debug:whiteboard') === '1';
+        const t0 = typeof performance !== 'undefined' ? performance.now() : Date.now();
+
+        // Fire-and-forget TTS so UI can react immediately (e.g. start drawing).
+        generateSpeech(aiResponse.text_response)
+          .then((audioData) => {
+            if (WB_DEBUG) {
+              const t1 = typeof performance !== 'undefined' ? performance.now() : Date.now();
+              console.log('🔊 [BaseAIService] async TTS done', { dtMs: Math.round(t1 - t0), hasAudio: !!audioData });
+            }
+            if (audioData) options.onAudioData?.(audioData);
+          })
+          .catch((err) => {
+            if (WB_DEBUG) console.warn('🔊 [BaseAIService] async TTS failed', err);
+          });
+
+        return {
+          response: aiResponse,
+          session: updatedSession,
+        };
+      }
+
       const audioData = await generateSpeech(aiResponse.text_response);
 
       return {
@@ -58,7 +92,6 @@ export abstract class BaseAIService implements IAIChatService {
   abstract generateGreeting(
     character: any, 
     session: any, 
-    previousHistory: any, 
     relationship: any,
     characterContext?: string
   ): Promise<any>;

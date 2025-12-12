@@ -216,7 +216,7 @@ export class GeminiService extends BaseAIService {
     };
   }
 
-  async generateGreeting(character: any, session: any, chatHistory: any, relationship: any, characterContext?: string) {
+  async generateGreeting(character: any, session: any, relationship: any, characterContext?: string) {
     const ai = getAiClient();
     const userId = session?.userId || USER_ID;
     const systemPrompt = buildSystemPrompt(character, relationship, [], characterContext);
