@@ -429,32 +429,31 @@ export async function getPatternToSurface(userId: string): Promise<UserPattern |
  */
 export async function markPatternSurfaced(patternId: string): Promise<void> {
   try {
-    const { error } = await supabase
-      .from(PATTERNS_TABLE)
-      .update({
-        has_been_surfaced: true,
-        surface_count: supabase.rpc ? undefined : 1, // Handle increment
-        last_surfaced_at: new Date().toISOString(),
-      })
-      .eq('id', patternId);
-    
-    if (error) {
-      console.error('[UserPatterns] Error marking pattern surfaced:', error);
-      return;
-    }
-    
-    // Increment surface_count separately (Supabase doesn't have easy increment)
-    const { data: current } = await supabase
+    // First, get current surface count
+    const { data: current, error: fetchError } = await supabase
       .from(PATTERNS_TABLE)
       .select('surface_count')
       .eq('id', patternId)
       .single();
     
-    if (current) {
-      await supabase
-        .from(PATTERNS_TABLE)
-        .update({ surface_count: (current.surface_count || 0) + 1 })
-        .eq('id', patternId);
+    if (fetchError) {
+      console.error('[UserPatterns] Error fetching pattern for surfacing:', fetchError);
+      return;
+    }
+    
+    // Update with incremented count in a single operation
+    const { error: updateError } = await supabase
+      .from(PATTERNS_TABLE)
+      .update({
+        has_been_surfaced: true,
+        surface_count: (current?.surface_count || 0) + 1,
+        last_surfaced_at: new Date().toISOString(),
+      })
+      .eq('id', patternId);
+    
+    if (updateError) {
+      console.error('[UserPatterns] Error marking pattern surfaced:', updateError);
+      return;
     }
     
     console.log(`✅ [UserPatterns] Pattern surfaced: ${patternId}`);

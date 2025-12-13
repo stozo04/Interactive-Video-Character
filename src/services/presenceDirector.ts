@@ -141,12 +141,16 @@ export function parseCharacterOpinions(profileText: string = KAYLEY_FULL_PROFILE
   return opinions;
 }
 
-// Cache parsed opinions (they don't change during runtime)
+// Cache parsed opinions with TTL for potential profile updates
 let cachedOpinions: Opinion[] | null = null;
+let opinionsCacheTimestamp: number = 0;
+const OPINIONS_CACHE_TTL = 1000 * 60 * 60; // 1 hour
 
-export function getCharacterOpinions(): Opinion[] {
-  if (!cachedOpinions) {
+export function getCharacterOpinions(forceRefresh: boolean = false): Opinion[] {
+  const now = Date.now();
+  if (forceRefresh || !cachedOpinions || (now - opinionsCacheTimestamp > OPINIONS_CACHE_TTL)) {
     cachedOpinions = parseCharacterOpinions();
+    opinionsCacheTimestamp = now;
   }
   return cachedOpinions;
 }
@@ -492,11 +496,11 @@ function detectSimplePatterns(message: string): DetectedPattern[] {
   const patterns: DetectedPattern[] = [];
   const messageLower = message.toLowerCase();
   
-  // Pending event patterns
+  // Pending event patterns - using \w+ to limit to word characters and avoid false positives like "good feeling"
   const eventPatterns = [
-    { regex: /(?:have|got) (?:a|an|my) (.+?) (?:tomorrow|later|tonight|this week)/i, type: 'pending_event' as LoopType },
+    { regex: /(?:have|got) (?:a|an|my) (\w+(?:\s+\w+)?) (?:tomorrow|later|tonight|this week)/i, type: 'pending_event' as LoopType },
     { regex: /(?:presentation|interview|meeting|date|exam|test) (?:is |on |at )?(?:tomorrow|later|tonight)/i, type: 'pending_event' as LoopType },
-    { regex: /going to (?:try|do|have|take) (.+?) (?:tomorrow|later|soon)/i, type: 'pending_event' as LoopType },
+    { regex: /going to (?:try|do|have|take) (\w+(?:\s+\w+)?) (?:tomorrow|later|soon)/i, type: 'pending_event' as LoopType },
   ];
   
   for (const pattern of eventPatterns) {

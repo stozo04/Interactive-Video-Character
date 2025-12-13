@@ -87,3 +87,34 @@ COMMENT ON COLUMN user_patterns.surface_count IS 'How many times this pattern ha
 --   confidence = LEAST(1.0, user_patterns.confidence + 0.10),
 --   last_observed = NOW(),
 --   pattern_data = COALESCE($4, user_patterns.pattern_data);
+
+-- ============================================
+-- Row Level Security (RLS) Policies
+-- ============================================
+-- Enable RLS on the table
+ALTER TABLE user_patterns ENABLE ROW LEVEL SECURITY;
+
+-- Policy: Users can only see their own patterns
+CREATE POLICY "Users can view their own patterns"
+  ON user_patterns
+  FOR SELECT
+  USING (auth.uid()::text = user_id OR user_id = 'anonymous');
+
+-- Policy: Users can only insert their own patterns  
+CREATE POLICY "Users can insert their own patterns"
+  ON user_patterns
+  FOR INSERT
+  WITH CHECK (auth.uid()::text = user_id OR user_id = 'anonymous');
+
+-- Policy: Users can only update their own patterns
+CREATE POLICY "Users can update their own patterns"
+  ON user_patterns
+  FOR UPDATE
+  USING (auth.uid()::text = user_id OR user_id = 'anonymous');
+
+-- Policy: Users can only delete their own patterns
+CREATE POLICY "Users can delete their own patterns"
+  ON user_patterns
+  FOR DELETE
+  USING (auth.uid()::text = user_id OR user_id = 'anonymous');
+

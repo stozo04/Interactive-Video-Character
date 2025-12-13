@@ -80,3 +80,34 @@ COMMENT ON COLUMN relationship_milestones.last_referenced_at IS 'When this miles
 -- INSERT INTO relationship_milestones (user_id, milestone_type, description, trigger_context)
 -- VALUES ($1, 'first_vulnerability', 'First time opening up emotionally', $2)
 -- ON CONFLICT (user_id, milestone_type) DO NOTHING;
+
+-- ============================================
+-- Row Level Security (RLS) Policies
+-- ============================================
+-- Enable RLS on the table
+ALTER TABLE relationship_milestones ENABLE ROW LEVEL SECURITY;
+
+-- Policy: Users can only see their own milestones
+CREATE POLICY "Users can view their own milestones"
+  ON relationship_milestones
+  FOR SELECT
+  USING (auth.uid()::text = user_id OR user_id = 'anonymous');
+
+-- Policy: Users can only insert their own milestones  
+CREATE POLICY "Users can insert their own milestones"
+  ON relationship_milestones
+  FOR INSERT
+  WITH CHECK (auth.uid()::text = user_id OR user_id = 'anonymous');
+
+-- Policy: Users can only update their own milestones
+CREATE POLICY "Users can update their own milestones"
+  ON relationship_milestones
+  FOR UPDATE
+  USING (auth.uid()::text = user_id OR user_id = 'anonymous');
+
+-- Policy: Users can only delete their own milestones
+CREATE POLICY "Users can delete their own milestones"
+  ON relationship_milestones
+  FOR DELETE
+  USING (auth.uid()::text = user_id OR user_id = 'anonymous');
+
