@@ -82,9 +82,12 @@ A "genuine moment" is when someone says exactly what you needed to hear:
 - Add genuine moment detection
 - Gradual mood shifts based on cumulative tone
 
-### Phase 3: Comfortable Imperfection
-- Uncertainty responses in prompts
-- Brief responses allowed
+### Phase 3: Comfortable Imperfection ✅
+- ✅ Uncertainty responses in prompts (`UNCERTAINTY_RESPONSES` array in promptUtils.ts)
+- ✅ Brief responses allowed (`BRIEF_RESPONSE_EXAMPLES` array in promptUtils.ts)
+- ✅ Follow-up questions marked as optional
+- ✅ `buildComfortableImperfectionPrompt()` function added
+- ✅ Unit tests in `promptUtils.test.ts` (21 tests)
 
 ### Phase 4: Co-Evolution (Relationship Arc)
 - `relationship_milestones` table (Supabase)
