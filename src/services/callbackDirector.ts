@@ -475,6 +475,14 @@ import {
   type RelationshipMilestone,
 } from './relationshipMilestones';
 
+import {
+  getPatternToSurface,
+  markPatternSurfaced,
+  generatePatternSurfacePrompt,
+  analyzeMessageForPatterns,
+  type UserPattern,
+} from './userPatterns';
+
 // Track which milestone IDs have been used this session
 const sessionMilestoneIds: Set<string> = new Set();
 
@@ -617,3 +625,201 @@ export function resetMilestoneSession(): void {
   console.log('🧠 [CallbackDirector] Reset milestone session');
 }
 
+// ============================================
+// "I've Noticed..." Pattern Callbacks
+// ============================================
+
+// Track which pattern IDs have been surfaced this session
+const sessionPatternIds: Set<string> = new Set();
+
+/**
+ * Get a pattern-based "I've noticed..." callback opportunity.
+ * Only surfaces patterns with sufficient confidence (60%+) that haven't been over-surfaced.
+ * 
+ * @param userId - The user's ID
+ * @returns Promise with pattern and formatted prompt, or null
+ */
+export async function getPatternCallback(
+  userId: string
+): Promise<{
+  pattern: UserPattern;
+  prompt: string;
+} | null> {
+  // Check if we should surface a pattern callback
+  // Use a lower cadence than regular callbacks (patterns are more significant)
+  const state = getStoredState();
+  
+  // Only after 10+ exchanges to avoid feeling intrusive
+  const minExchanges = 10;
+  const maxExchanges = 20;
+  
+  if (state.exchangesSinceCallback < minExchanges) {
+    return null;
+  }
+  
+  // Low probability - patterns should be rare and meaningful
+  if (state.exchangesSinceCallback < maxExchanges) {
+    const probability = (state.exchangesSinceCallback - minExchanges) / (maxExchanges - minExchanges) * 0.2;
+    if (Math.random() > probability) {
+      return null;
+    }
+  }
+  
+  // Get a pattern that's eligible for surfacing
+  const pattern = await getPatternToSurface(userId);
+  
+  if (!pattern) {
+    return null;
+  }
+  
+  // Don't surface the same pattern twice in one session
+  if (sessionPatternIds.has(pattern.id)) {
+    return null;
+  }
+  
+  const prompt = generatePatternSurfacePrompt(pattern);
+  
+  console.log(`📊 [CallbackDirector] Pattern callback ready: ${pattern.patternType} - "${pattern.observation}"`);
+  
+  return { pattern, prompt };
+}
+
+/**
+ * Mark a pattern callback as used.
+ * Call this after the AI has mentioned the pattern.
+ */
+export async function markPatternCallbackUsed(patternId: string): Promise<void> {
+  // Mark in session
+  sessionPatternIds.add(patternId);
+  
+  // Mark in database
+  await markPatternSurfaced(patternId);
+  
+  // Reset exchange counter
+  const state = getStoredState();
+  state.exchangesSinceCallback = 0;
+  storeState(state);
+  
+  console.log(`✅ [CallbackDirector] Pattern callback used: ${patternId}`);
+}
+
+/**
+ * Analyze a message for patterns (convenience wrapper).
+ * Call this after each user message to build up pattern data.
+ */
+export async function trackPatternsFromMessage(
+  userId: string,
+  message: string
+): Promise<void> {
+  await analyzeMessageForPatterns(userId, message);
+}
+
+/**
+ * Reset pattern session tracking (for testing or new session).
+ */
+export function resetPatternSession(): void {
+  sessionPatternIds.clear();
+  console.log('📊 [CallbackDirector] Reset pattern session');
+}
+
+/**
+ * Get a fully enhanced callback prompt that includes:
+ * 1. Regular micro-callbacks
+ * 2. Milestone-based "Remember when..." callbacks
+ * 3. Pattern-based "I've noticed..." callbacks
+ * 
+ * Priority:
+ * - Patterns are rarest and most significant (20% selection when available)
+ * - Milestones are significant (30% selection when available)
+ * - Regular callbacks are most common (50% selection)
+ * 
+ * @param userId - The user's ID
+ * @param totalInteractions - Total number of interactions
+ * @returns Combined callback prompt string
+ */
+export async function getFullEnhancedCallbackPrompt(
+  userId: string,
+  totalInteractions: number
+): Promise<string> {
+  const parts: string[] = [];
+  
+  // Try to get all three types of callbacks
+  const regularCallback = getCallbackOpportunity();
+  
+  const milestoneCallback = totalInteractions >= 50 
+    ? await getMilestoneCallback(userId, totalInteractions)
+    : null;
+  
+  const patternCallback = await getPatternCallback(userId);
+  
+  // If nothing available
+  if (!regularCallback && !milestoneCallback && !patternCallback) {
+    return `
+CALLBACKS: No callback this turn. Just be present.
+`;
+  }
+  
+  // Weighted selection based on significance
+  // Pattern: 20% if available (rarest, most meaningful)
+  // Milestone: 30% if available (significant)
+  // Regular: 50% if available (common)
+  const random = Math.random();
+  
+  if (patternCallback && random < 0.20) {
+    // Use pattern callback
+    parts.push(patternCallback.prompt);
+    parts.push(`\nPATTERN_ID: ${patternCallback.pattern.id}`);
+    console.log('[CallbackDirector] Selected: Pattern callback');
+  } else if (milestoneCallback && random < 0.50) {
+    // Use milestone callback
+    parts.push(milestoneCallback.prompt);
+    parts.push(`\nMILESTONE_ID: ${milestoneCallback.milestone.id}`);
+    console.log('[CallbackDirector] Selected: Milestone callback');
+  } else if (regularCallback) {
+    // Use regular callback
+    const hoursAgo = Math.round((Date.now() - regularCallback.shard.capturedAt) / (1000 * 60 * 60));
+    const timeDesc = hoursAgo < 24 ? 'earlier' : 
+                     hoursAgo < 48 ? 'yesterday' : 
+                     hoursAgo < 168 ? 'a few days ago' : 'a while back';
+    
+    parts.push(`
+CALLBACKS (use sparingly - this is a good opportunity):
+Callback from ${timeDesc}: "${regularCallback.shard.content}"
+Type: ${regularCallback.shard.type}
+${regularCallback.suggestion}
+
+CRITICAL: Don't say "I remember" or "as I recall". Just USE the reference naturally.
+If you use this callback, it should feel like something any attentive person would notice.
+`);
+    
+    parts.push(`\nCALLBACK_SHARD_ID: ${regularCallback.shard.id}`);
+    console.log('[CallbackDirector] Selected: Regular callback');
+  } else if (patternCallback) {
+    // Fallback to pattern if available
+    parts.push(patternCallback.prompt);
+    parts.push(`\nPATTERN_ID: ${patternCallback.pattern.id}`);
+  } else if (milestoneCallback) {
+    // Fallback to milestone if available
+    parts.push(milestoneCallback.prompt);
+    parts.push(`\nMILESTONE_ID: ${milestoneCallback.milestone.id}`);
+  }
+  
+  return parts.join('\n');
+}
+
+/**
+ * Reset all callback sessions (patterns, milestones, regular).
+ */
+export function resetAllCallbackSessions(): void {
+  resetMilestoneSession();
+  resetPatternSession();
+  resetCallbacks();
+}
+
+// Re-export pattern functions for convenience
+export { 
+  getPatternToSurface, 
+  markPatternSurfaced, 
+  analyzeMessageForPatterns,
+  type UserPattern,
+};

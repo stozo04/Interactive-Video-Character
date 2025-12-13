@@ -96,9 +96,14 @@ A "genuine moment" is when someone says exactly what you needed to hear:
 - ✅ Enables natural history references after 50+ interactions
 - ✅ Unit tests in `relationshipMilestones.test.ts` (28 tests)
 
-### Phase 5: Pattern Recognition
-- `user_patterns` table (Supabase)
-- "You seem stressed on Mondays"
+### Phase 5: Pattern Recognition ✅
+- ✅ `user_patterns` table (Supabase) - SQL migration in `supabase/migrations/create_user_patterns.sql`
+- ✅ Pattern types: `mood_time`, `topic_correlation`, `behavior`
+- ✅ Detection: mood indicators (stressed, happy, sad, anxious, etc.) and topic categories (work, family, relationships, etc.)
+- ✅ Confidence-based surfacing (60%+ confidence, 3+ observations required)
+- ✅ Soft language prompts: "I've noticed..." / "It seems like..."
+- ✅ Integration with `callbackDirector.ts` via `getPatternCallback()` and `getFullEnhancedCallbackPrompt()`
+- ✅ Unit tests in `userPatterns.test.ts` (50 tests)
 
 ---
 
