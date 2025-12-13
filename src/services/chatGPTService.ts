@@ -11,6 +11,7 @@ import { ChatMessage, CharacterProfile } from "../types";
 import { RelationshipMetrics } from "./relationshipService";
 import { generateSpeech } from "./elevenLabsService";
 import { executeMemoryTool, MemoryToolName } from "./memoryService";
+import { getTopLoopToSurface, markLoopSurfaced } from "./presenceDirector";
 
 const API_KEY = import.meta.env.VITE_CHATGPT_API_KEY;
 const ASSISTANT_NAME = import.meta.env.VITE_CHATGPT_ASSISTANT_NAME;
@@ -261,7 +262,18 @@ export const chatGPTService: IAIChatService = {
       }
 
       // Build relationship-aware greeting prompt
-      const greetingPrompt = buildGreetingPrompt(relationship, hasUserFacts, userName);
+      // First, fetch any open loops to ask about proactively
+      let topOpenLoop = null;
+      try {
+        topOpenLoop = await getTopLoopToSurface(userId);
+        if (topOpenLoop) {
+          console.log(`🔄 [ChatGPT] Found open loop to surface: "${topOpenLoop.topic}"`);
+        }
+      } catch (e) {
+        console.log('[ChatGPT] Could not fetch open loop for greeting');
+      }
+
+      const greetingPrompt = buildGreetingPrompt(relationship, hasUserFacts, userName, topOpenLoop);
       console.log(`🤖 [ChatGPT] Greeting tier: ${relationship?.relationshipTier || 'new'}, interactions: ${relationship?.totalInteractions || 0}`);
 
       // Initial greeting request - can use recall_user_info to personalize
@@ -334,6 +346,12 @@ export const chatGPTService: IAIChatService = {
       }
 
       const audioData = await generateSpeech(structuredResponse.text_response);
+
+      // Mark the open loop as surfaced (we asked about it)
+      if (topOpenLoop) {
+        await markLoopSurfaced(topOpenLoop.id);
+        console.log(`✅ [ChatGPT] Marked loop as surfaced: "${topOpenLoop.topic}"`);
+      }
 
       return {
         greeting: structuredResponse,
