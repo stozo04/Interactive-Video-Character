@@ -61,6 +61,7 @@ import {
   cleanupOldCheckins,
   type CheckinType,
 } from './services/calendarCheckinService';
+import { generateCompanionSelfie } from './services/imageGenerationService';
 
 // Helper to sanitize text for comparison
 const sanitizeText = (value: string): string =>
@@ -2184,6 +2185,80 @@ Let the user know in a friendly way and maybe offer to check back later.
           } catch (error) {
             console.error('Failed to fetch news:', error);
             setErrorMessage('Failed to fetch tech news');
+          }
+        }
+
+        // Check for Selfie Action - generate AI companion image
+        const selfieAction = response.selfie_action;
+        
+        if (selfieAction && selfieAction.scene) {
+          console.log('📸 Selfie action detected - generating companion image');
+          console.log('📸 Scene:', selfieAction.scene, 'Mood:', selfieAction.mood);
+          
+          try {
+            // Show initial acknowledgment with text
+            setChatHistory(prev => [...prev, { role: 'model' as const, text: response.text_response }]);
+            
+            // Play the initial acknowledgment audio
+            if (!isMuted && audioData) {
+              media.enqueueAudio(audioData);
+            }
+            
+            // Save initial conversation
+            await conversationHistoryService.appendConversationHistory(
+              userId,
+              [{ role: 'user', text: message }, { role: 'model', text: response.text_response }]
+            );
+            setLastSavedMessageIndex(updatedHistory.length);
+            
+            // Generate the selfie image
+            const selfieResult = await generateCompanionSelfie({
+              scene: selfieAction.scene,
+              mood: selfieAction.mood,
+              outfitHint: selfieAction.outfit_hint,
+            });
+            
+            if (selfieResult.success && selfieResult.imageBase64) {
+              // Add a follow-up message with the generated image
+              const imageMessage: ChatMessage = {
+                role: 'model' as const,
+                text: "Here you go! 📸✨",
+                assistantImage: selfieResult.imageBase64,
+                assistantImageMimeType: selfieResult.mimeType,
+              };
+              
+              setChatHistory(prev => [...prev, imageMessage]);
+              
+              // Generate audio for the follow-up
+              if (!isMuted) {
+                const imageAudio = await generateSpeech("Here you go!");
+                if (imageAudio) media.enqueueAudio(imageAudio);
+              }
+              
+              console.log('✅ Selfie generated and added to chat!');
+            } else {
+              // Generation failed - let the user know
+              const errorMessage = selfieResult.error || "I couldn't take that pic right now, sorry! 😅";
+              setChatHistory(prev => [...prev, { role: 'model' as const, text: errorMessage }]);
+              
+              if (!isMuted) {
+                const errorAudio = await generateSpeech(errorMessage);
+                if (errorAudio) media.enqueueAudio(errorAudio);
+              }
+              
+              console.error('❌ Selfie generation failed:', selfieResult.error);
+            }
+            
+            // Non-critical: sentiment analysis
+            startBackgroundSentiment(userId);
+            
+            if (response.action_id) maybePlayResponseAction(response.action_id);
+            
+            // Skip rest of response handling
+            return;
+          } catch (error) {
+            console.error('Failed to generate selfie:', error);
+            setErrorMessage('Failed to generate image');
           }
         }
 

@@ -152,6 +152,24 @@ export const AIActionResponseSchema = z.object({
     })).optional().describe("Shapes for AI to draw on the board")
   }).nullable().optional().describe(
     "Whiteboard interaction action"
+  ),
+
+  /**
+   * Selfie/image generation action - triggered when user asks for a picture of the AI companion
+   * Examples: "Send me a selfie", "Show me a picture of you at the beach", "What do you look like at a restaurant?"
+   */
+  selfie_action: z.object({
+    scene: z.string().describe(
+      "The scene, location, or context for the selfie (e.g., 'at a restaurant', 'at the beach', 'cozy at home', 'at a coffee shop')"
+    ),
+    mood: z.string().optional().describe(
+      "The mood or expression (e.g., 'smiling', 'playful', 'relaxed', 'excited'). Default to friendly/happy if not specified."
+    ),
+    outfit_hint: z.string().optional().describe(
+      "Optional hint about outfit style if contextually relevant (e.g., 'casual', 'dressed up', 'cozy')"
+    )
+  }).nullable().optional().describe(
+    "Selfie/image generation action - use when user asks for a picture, photo, or selfie of you"
   )
 });
 

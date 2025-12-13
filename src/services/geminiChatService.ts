@@ -65,7 +65,9 @@ function normalizeAiResponse(rawJson: any, rawText: string): AIActionResponse {
       news_action: rawJson.news_action || null,
       // Pass through whiteboard fields
       whiteboard_action: wbAction,
-      game_move: rawJson.game_move // 0 is valid, so check undefined
+      game_move: rawJson.game_move, // 0 is valid, so check undefined
+      // Selfie/image generation action
+      selfie_action: rawJson.selfie_action || null,
   };
 }
 
