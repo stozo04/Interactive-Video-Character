@@ -89,9 +89,12 @@ A "genuine moment" is when someone says exactly what you needed to hear:
 - ✅ `buildComfortableImperfectionPrompt()` function added
 - ✅ Unit tests in `promptUtils.test.ts` (21 tests)
 
-### Phase 4: Co-Evolution (Relationship Arc)
-- `relationship_milestones` table (Supabase)
-- "Remember when..." callbacks
+### Phase 4: Co-Evolution (Relationship Arc) ✅
+- ✅ `relationship_milestones` table (Supabase) - SQL migration in `supabase/migrations/create_relationship_milestones.sql`
+- ✅ Milestone types: `first_vulnerability`, `first_joke`, `first_support`, `first_deep_talk`, `first_return`, `breakthrough_moment`, `anniversary_week`, `anniversary_month`, `interaction_50`, `interaction_100`
+- ✅ "Remember when..." callbacks via `relationshipMilestones.ts` and `callbackDirector.ts`
+- ✅ Enables natural history references after 50+ interactions
+- ✅ Unit tests in `relationshipMilestones.test.ts` (28 tests)
 
 ### Phase 5: Pattern Recognition
 - `user_patterns` table (Supabase)
