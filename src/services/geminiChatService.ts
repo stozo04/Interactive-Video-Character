@@ -6,6 +6,7 @@ import { AIActionResponse, GeminiMemoryToolDeclarations } from './aiSchema';
 import { generateSpeech } from './elevenLabsService';
 import { BaseAIService } from './BaseAIService';
 import { executeMemoryTool, MemoryToolName } from './memoryService';
+import { getTopLoopToSurface, markLoopSurfaced } from './presenceDirector';
 
 // 1. LOAD BOTH MODELS FROM ENV
 const GEMINI_MODEL = import.meta.env.VITE_GEMINI_MODEL; // The Brain (e.g. gemini-2.0-flash-exp)
@@ -243,7 +244,18 @@ export class GeminiService extends BaseAIService {
         }
 
         // Build relationship-aware greeting prompt
-        const greetingPrompt = buildGreetingPrompt(relationship, hasUserFacts, userName);
+        // First, fetch any open loops to ask about proactively
+        let topOpenLoop = null;
+        try {
+          topOpenLoop = await getTopLoopToSurface(userId);
+          if (topOpenLoop) {
+            console.log(`🔄 [Gemini] Found open loop to surface: "${topOpenLoop.topic}"`);
+          }
+        } catch (e) {
+          console.log('[Gemini] Could not fetch open loop for greeting');
+        }
+
+        const greetingPrompt = buildGreetingPrompt(relationship, hasUserFacts, userName, topOpenLoop);
         console.log(`🤖 [Gemini] Greeting tier: ${relationship?.relationshipTier || 'new'}, interactions: ${relationship?.totalInteractions || 0}`);
 
         // Build config - add memory tools for personalized greetings
@@ -317,6 +329,12 @@ export class GeminiService extends BaseAIService {
 
         // 5. GENERATE AUDIO FOR GREETING USING THE VOICE
         const audioData = await generateSpeech(structuredResponse.text_response);
+
+        // Mark the open loop as surfaced (we asked about it)
+        if (topOpenLoop) {
+          await markLoopSurfaced(topOpenLoop.id);
+          console.log(`✅ [Gemini] Marked loop as surfaced: "${topOpenLoop.topic}"`);
+        }
 
         return { 
             greeting: structuredResponse, 

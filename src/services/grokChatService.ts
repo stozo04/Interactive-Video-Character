@@ -5,6 +5,7 @@ import { buildSystemPrompt, buildGreetingPrompt } from './promptUtils';
 import { IAIChatService, AIChatSession, AIMessage, UserContent } from './aiService';
 import { generateSpeech } from './elevenLabsService';
 import { BaseAIService } from './BaseAIService';
+import { getTopLoopToSurface, markLoopSurfaced } from './presenceDirector';
 
 const API_KEY = import.meta.env.VITE_GROK_API_KEY;
 const GROK_MODEL = import.meta.env.VITE_GROK_MODEL;
@@ -109,12 +110,23 @@ export class GrokService extends BaseAIService {
   }
 
   async generateGreeting(character: any, session: any, relationship: any, characterContext?: string) {
+    const userId = session?.userId || USER_ID;
     const systemPrompt = buildSystemPrompt(character, relationship, [], characterContext);
     
+    // Fetch any open loops to ask about proactively
+    // Note: Grok CAN use open loops since they're fetched before prompting
+    let topOpenLoop = null;
+    try {
+      topOpenLoop = await getTopLoopToSurface(userId);
+      if (topOpenLoop) {
+        console.log(`🔄 [Grok] Found open loop to surface: "${topOpenLoop.topic}"`);
+      }
+    } catch (e) {
+      console.log('[Grok] Could not fetch open loop for greeting');
+    }
+
     // Build relationship-aware greeting prompt
-    // Note: Grok doesn't support memory tools, so we can't fetch user facts here
-    // The greeting will be based purely on relationship metrics
-    const greetingPrompt = buildGreetingPrompt(relationship, false, null);
+    const greetingPrompt = buildGreetingPrompt(relationship, topOpenLoop !== null, null, topOpenLoop);
     console.log(`🤖 [Grok] Greeting tier: ${relationship?.relationshipTier || 'new'}, interactions: ${relationship?.totalInteractions || 0}`);
     
     const messages: AIMessage[] = [
@@ -138,6 +150,12 @@ export class GrokService extends BaseAIService {
     const responseId = (result as any).response?.id || (result as any).id;
     
     const audioData = await generateSpeech(result.object.text_response);
+
+    // Mark the open loop as surfaced (we asked about it)
+    if (topOpenLoop) {
+      await markLoopSurfaced(topOpenLoop.id);
+      console.log(`✅ [Grok] Marked loop as surfaced: "${topOpenLoop.topic}"`);
+    }
 
     return { 
         greeting: result.object, 

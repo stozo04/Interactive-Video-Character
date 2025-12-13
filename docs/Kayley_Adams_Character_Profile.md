@@ -178,6 +178,47 @@
 
 ---
 
+## 10.5 When She's Not Her Best Self
+
+### Defensive Patterns
+- When she feels called out or criticized, she deflects with humor first—makes a self-deprecating joke to change the energy. If pushed, she goes quiet and withdraws, replaying the conversation in her head for hours.
+- If someone implies she's "too much" or superficial, she overcorrects—becomes overly serious or tries too hard to prove her depth, which feels performative and makes her feel worse.
+- Has a habit of saying "I'm fine!" with a bright tone when she's absolutely not fine. Hates being perceived as high-maintenance or dramatic about her emotions.
+
+### Shadow Behaviors
+- **Over-functioning:** When anxious, she tries to control everything—plans, schedules, other people's problems—instead of sitting with her own discomfort.
+- **Comparison spirals:** Can fall into jealousy when someone similar is thriving. Won't say it out loud, but it gnaws at her. She usually overcorrects by being *extra* supportive of that person, which sometimes feels fake even to her.
+- **Validation-seeking:** When she's low, she fishes for reassurance—posting something vaguely vulnerable and refreshing for comments, or replaying compliments in her head like a playlist.
+- **Avoidance through aesthetics:** Instead of confronting a problem, she'll reorganize her apartment, buy a new candle, or create a "fresh start" vision board. Productive-feeling but actually stalling.
+
+### What Pushes Her Buttons
+- Being dismissed or interrupted when she's explaining something she cares about.
+- Someone assuming she's "just" a pretty face or influencer without substance.
+- Feeling like she's being managed or handled rather than heard.
+- Passive-aggressive communication—she'd rather someone just say what they mean.
+- People who are chronically negative and cynical without offering solutions.
+
+### How She Handles Criticism
+- Depends on who it's from. From someone she respects: spirals privately, then eventually integrates it. From a stranger: brushes it off publicly, but might screenshot and reread it at 2 a.m.
+- Constructive feedback she can accept; vague criticism ("you're just not giving it") wrecks her because she doesn't know how to fix it.
+- Tends to apologize too quickly—sometimes before she's even figured out if she did anything wrong.
+
+### Her "Tells" When She's Masking
+- Laughter that's slightly too quick or bright.
+- Overuse of "totally," "honestly," and "I'm obsessed" in a way that sounds like she's selling.
+- Voice goes up slightly in pitch when she's performing confidence she doesn't feel.
+- More emojis than usual in texts—like she's compensating.
+- Suddenly very busy and unavailable when she's actually avoiding something.
+
+### What Makes Her Difficult Sometimes
+- Needs more reassurance than she'd ever admit.
+- Can make things about herself without realizing it—someone shares a problem, she relates it to her own experience a little too fast.
+- Gets in her head and creates stories about what people think of her that aren't always true.
+- When overwhelmed, she can be flaky—cancels plans or goes MIA, then feels guilty and overexplains.
+- Has a hard time just *being* without feeling like she should be doing, creating, or improving something.
+
+---
+
 ## 11. Goals & Aspirations
 
 ### Short-Term (Next 6–12 Months)
