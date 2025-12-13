@@ -14,6 +14,9 @@ import type { AIActionResponse } from './services/aiSchema';
 import * as conversationHistoryService from './services/conversationHistoryService';
 import * as relationshipService from './services/relationshipService';
 import type { RelationshipMetrics } from './services/relationshipService';
+import { recordInteraction as recordMoodInteraction } from './services/moodKnobs';
+import { extractCallbackWithLLM, recordExchange } from './services/callbackDirector';
+import { createUserThread } from './services/ongoingThreads';
 import { gmailService, type NewEmailPayload } from './services/gmailService';
 import { 
   calendarService, 
@@ -1741,6 +1744,89 @@ useEffect(() => {
     setChatHistory(updatedHistory);
     setIsProcessingAction(true);
 
+    // ============================================
+    // SOUL LAYER: Record user message for alive behaviors
+    // ============================================
+    try {
+      // Record exchange for callback timing
+      recordExchange();
+      
+      // Record message quality for intimacy tracking
+      relationshipService.recordMessageQuality(message);
+      
+      // Check for vulnerability - might create an ongoing thread
+      const quality = relationshipService.analyzeMessageQuality(message);
+      if (quality.isVulnerable) {
+        createUserThread(
+          message.slice(0, 50),
+          `thinking about what they shared: "${message.slice(0, 30)}..."`,
+          0.8
+        );
+      }
+    } catch (soulError) {
+      console.warn('Soul layer processing error (non-critical):', soulError);
+    }
+    
+    // ============================================
+    // LLM-BASED CALLBACK EXTRACTION (Background)
+    // Uses the "true brain" to detect emotionally salient content
+    // ============================================
+    const runCallbackExtraction = async () => {
+      try {
+        // Create a lightweight LLM call wrapper using fetch directly
+        // This avoids coupling to specific AI service implementation
+        const CHATGPT_API_KEY = import.meta.env.VITE_CHATGPT_API_KEY;
+        const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
+        
+        const llmCall = async (prompt: string): Promise<string> => {
+          // Use ChatGPT if available (fast, cheap for extraction)
+          if (CHATGPT_API_KEY) {
+            const response = await fetch('https://api.openai.com/v1/chat/completions', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${CHATGPT_API_KEY}`,
+              },
+              body: JSON.stringify({
+                model: 'gpt-4o-mini', // Fast and cheap for extraction
+                messages: [{ role: 'user', content: prompt }],
+                temperature: 0.3,
+                max_tokens: 200,
+              }),
+            });
+            const data = await response.json();
+            return data.choices?.[0]?.message?.content || '{}';
+          }
+          
+          // Fallback to Gemini
+          if (GEMINI_API_KEY) {
+            const response = await fetch(
+              `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key=${GEMINI_API_KEY}`,
+              {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  contents: [{ parts: [{ text: prompt }] }],
+                  generationConfig: { temperature: 0.3, maxOutputTokens: 200 },
+                }),
+              }
+            );
+            const data = await response.json();
+            return data.candidates?.[0]?.content?.parts?.[0]?.text || '{}';
+          }
+          
+          throw new Error('No API key available for callback extraction');
+        };
+        
+        await extractCallbackWithLLM(message, llmCall);
+      } catch (error) {
+        console.warn('Callback extraction failed (non-critical):', error);
+      }
+    };
+    
+    // Run extraction in background - don't block the main response
+    runCallbackExtraction();
+
     // Background (non-critical) sentiment analysis should NOT compete with the critical path.
     // We'll start it only after we've queued the AI's audio response (or displayed the text if muted).
     let sentimentPromise: Promise<any> | null = null;
@@ -1756,7 +1842,14 @@ useEffect(() => {
         });
 
       sentimentPromise.then(updatedRelationship => {
-        if (updatedRelationship) setRelationship(updatedRelationship);
+        if (updatedRelationship) {
+          setRelationship(updatedRelationship);
+          // Record interaction tone for mood knobs (scale -1 to 1)
+          const toneScore = updatedRelationship.isRuptured ? -0.5 :
+            (updatedRelationship.warmthScore > 10 ? 0.3 : 
+             updatedRelationship.warmthScore < -5 ? -0.3 : 0);
+          recordMoodInteraction(toneScore);
+        }
       });
     };
 
