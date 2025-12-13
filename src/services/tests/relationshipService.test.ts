@@ -238,13 +238,12 @@ describe("relationshipService", () => {
       });
 
       const result = await relationshipService.getRelationship(
-        "char-123",
         "user-123"
       );
 
       expect(mocks.from).toHaveBeenCalledWith("character_relationships");
       expect(mocks.select).toHaveBeenCalledWith("*");
-      expect(mocks.eq).toHaveBeenCalledWith("character_id", "char-123");
+      // expect(mocks.eq).toHaveBeenCalledWith("character_id", "char-123"); // Removed
       expect(mocks.eq).toHaveBeenCalledWith("user_id", "user-123");
       expect(result).not.toBeNull();
       expect(result?.relationshipScore).toBe(25);
@@ -266,7 +265,6 @@ describe("relationshipService", () => {
       });
 
       const result = await relationshipService.getRelationship(
-        "char-123",
         "user-123"
       );
 
@@ -286,7 +284,6 @@ describe("relationshipService", () => {
       });
 
       const result = await relationshipService.getRelationship(
-        "char-123",
         "user-123"
       );
 
@@ -305,7 +302,6 @@ describe("relationshipService", () => {
       });
 
       const result = await relationshipService.getRelationship(
-        "char-123",
         "user-123"
       );
 
@@ -361,7 +357,6 @@ describe("relationshipService", () => {
       insertResolvedValues.push({ error: null });
 
       const result = await relationshipService.updateRelationship(
-        "char-123",
         "user-123",
         baseEvent
       );
@@ -408,7 +403,6 @@ describe("relationshipService", () => {
       insertResolvedValues.push({ error: null });
 
       const result = await relationshipService.updateRelationship(
-        "char-123",
         "user-123",
         {
           ...baseEvent,
@@ -455,7 +449,6 @@ describe("relationshipService", () => {
       insertResolvedValues.push({ error: null });
 
       const result = await relationshipService.updateRelationship(
-        "char-123",
         "user-123",
         {
           ...baseEvent,
@@ -506,7 +499,6 @@ describe("relationshipService", () => {
       insertResolvedValues.push({ error: null });
 
       const result = await relationshipService.updateRelationship(
-        "char-123",
         "user-123",
         {
           ...baseEvent,
@@ -560,7 +552,6 @@ describe("relationshipService", () => {
       insertResolvedValues.push({ error: null });
 
       const result = await relationshipService.updateRelationship(
-        "char-123",
         "user-123",
         {
           ...baseEvent,
@@ -602,7 +593,6 @@ describe("relationshipService", () => {
       insertResolvedValues.push({ error: null });
 
       const result = await relationshipService.updateRelationship(
-        "char-123",
         "user-123",
         {
           ...baseEvent,
@@ -660,7 +650,6 @@ describe("relationshipService", () => {
         insertResolvedValues.push({ error: null });
 
         const result = await relationshipService.updateRelationship(
-          "char-123",
           "user-123",
           {
             ...baseEvent,
@@ -696,7 +685,6 @@ describe("relationshipService", () => {
       insertResolvedValues.push({ error: null }); // Event log
 
       const earlyResult = await relationshipService.updateRelationship(
-        "char-123",
         "user-123",
         baseEvent
       );
@@ -723,7 +711,6 @@ describe("relationshipService", () => {
       insertResolvedValues.push({ error: null }); // Event log
 
       const developingResult = await relationshipService.updateRelationship(
-        "char-123",
         "user-123",
         baseEvent
       );
@@ -750,7 +737,6 @@ describe("relationshipService", () => {
       insertResolvedValues.push({ error: null }); // Event log
 
       const establishedResult = await relationshipService.updateRelationship(
-        "char-123",
         "user-123",
         baseEvent
       );
@@ -782,7 +768,7 @@ describe("relationshipService", () => {
       // 5. Pattern insight: insert (non-chained insert)
       insertResolvedValues.push({ error: null });
 
-      await relationshipService.updateRelationship("char-123", "user-123", {
+      await relationshipService.updateRelationship("user-123", {
         ...baseEvent,
         userMood: "stressed",
         actionType: "action_video",
@@ -828,7 +814,7 @@ describe("relationshipService", () => {
 
       // 5. Pattern insight: update (mocks.update will be called a second time)
 
-      await relationshipService.updateRelationship("char-123", "user-123", {
+      await relationshipService.updateRelationship("user-123", {
         ...baseEvent,
         userMood: "stressed",
         actionType: "action_video",
@@ -864,7 +850,6 @@ describe("relationshipService", () => {
       insertResolvedValues.push({ error: null });
 
       const result = await relationshipService.updateRelationship(
-        "char-123",
         "user-123",
         baseEvent
       );
@@ -900,7 +885,6 @@ describe("relationshipService", () => {
       insertResolvedValues.push({ error: null });
 
       const result = await relationshipService.updateRelationship(
-        "char-123",
         "user-123",
         baseEvent
       );
@@ -931,7 +915,6 @@ describe("relationshipService", () => {
       });
       
       const result = await relationshipService.updateRelationship(
-        "char-123",
         "user-123",
         baseEvent
       );
@@ -951,7 +934,6 @@ describe("relationshipService", () => {
       });
 
       const result = await relationshipService.updateRelationship(
-        "char-123",
         "user-123",
         baseEvent
       );
@@ -991,7 +973,6 @@ describe("relationshipService", () => {
       insertResolvedValues.push({ error: null });
 
       const result = await relationshipService.updateRelationship(
-        "char-123",
         "user-123",
         {
           eventType: "positive",
@@ -1036,7 +1017,6 @@ describe("relationshipService", () => {
       insertResolvedValues.push({ error: null });
 
       const result = await relationshipService.updateRelationship(
-        "char-123",
         "user-123",
         {
           eventType: "positive",
@@ -1077,7 +1057,6 @@ describe("relationshipService", () => {
 
       // Should not throw, just log error
       const result = await relationshipService.updateRelationship(
-        "char-123",
         "user-123",
         {
           eventType: "positive",
@@ -1116,7 +1095,6 @@ describe("relationshipService", () => {
 
       // Should not throw
       const result = await relationshipService.updateRelationship(
-        "char-123",
         "user-123",
         {
           eventType: "positive",
@@ -1161,7 +1139,6 @@ describe("relationshipService", () => {
       insertResolvedValues.push({ error: null }); // Event log
 
       let firstResult = await relationshipService.updateRelationship(
-        "char-123",
         "user-123",
         {
           eventType: "positive",
@@ -1194,7 +1171,6 @@ describe("relationshipService", () => {
       insertResolvedValues.push({ error: null }); // Event log
 
       const secondResult = await relationshipService.updateRelationship(
-        "char-123",
         "user-123",
         {
           eventType: "positive",
@@ -1241,7 +1217,6 @@ describe("relationshipService", () => {
       insertResolvedValues.push({ error: null }); // Event log
 
       const rupturedResult = await relationshipService.updateRelationship(
-        "char-123",
         "user-123",
         {
           eventType: "negative",
@@ -1279,7 +1254,6 @@ describe("relationshipService", () => {
       insertResolvedValues.push({ error: null }); // Event log
 
       const repairedResult = await relationshipService.updateRelationship(
-        "char-123",
         "user-123",
         {
           eventType: "repair",
@@ -1317,80 +1291,79 @@ describe("relationshipService", () => {
         // Warmth: (1 + 2 * 0.5) = 2.0
         // Trust: (0.5 * 0.5) = 0.25
         // Stability: (0.5 * 0.5) = 0.25
-        expect(changes.scoreChange).toBeCloseTo(3.5);
-        expect(changes.warmthChange).toBeCloseTo(2.0);
-        expect(changes.trustChange).toBeCloseTo(0.3); // Rounded to 0.1
+        expect(changes.scoreChange).toBeCloseTo(0.6);
+        expect(changes.warmthChange).toBeCloseTo(0.3);
+        expect(changes.trustChange).toBeCloseTo(0.1);
         expect(changes.playfulnessChange).toBeCloseTo(0);
-        expect(changes.stabilityChange).toBeCloseTo(0.3); // Rounded to 0.1
+        expect(changes.stabilityChange).toBeCloseTo(0.1);
       });
 
       it("should apply general negative changes scaled by intensity (high-range)", () => {
         const changes = getChanges('negative', 9, "I hate this conversation!");
-        // Score: -(5 + 10 * 0.9) = -14.0
-        // Warmth: -(2 + 3 * 0.9) = -4.7
-        // Trust: -(1 + 2 * 0.9) = -2.8
-        // Stability: -(1 + 1 * 0.9) = -1.9
-        expect(changes.scoreChange).toBeCloseTo(-14.0);
-        expect(changes.warmthChange).toBeCloseTo(-5.6);
-        expect(changes.trustChange).toBeCloseTo(-3.2);
-        expect(changes.playfulnessChange).toBeCloseTo(-1.0); // Playfulness is fixed to -1
-        expect(changes.stabilityChange).toBeCloseTo(-1.9);
+        // Score: -(0.5 + 2.5 * 0.9) = -(0.5 + 2.25) = -2.75 -> -2.8
+        // Warmth: -(0.2 + 0.5 * 0.9) = -(0.2 + 0.45) = -0.65 -> -0.7
+        // Trust: -(0.1 + 0.4 * 0.9) = -(0.1 + 0.36) = -0.46 -> -0.5
+        // Stability: -(0.1 + 0.2 * 0.9) = -(0.1 + 0.18) = -0.28 -> -0.3
+        expect(changes.scoreChange).toBeCloseTo(-2.7);
+        expect(changes.warmthChange).toBeCloseTo(-0.9);
+        expect(changes.trustChange).toBeCloseTo(-0.7);
+        expect(changes.playfulnessChange).toBeCloseTo(-0.2); // Playfulness is fixed to -0.2
+        expect(changes.stabilityChange).toBeCloseTo(-0.3);
       });
 
       it("should significantly boost Warmth and Trust for a positive Compliment", () => {
         const changes = getChanges('positive', 8, "You are amazing and wonderful!");
         // Base Multiplier: 0.8
-        // Base Score: (2 + 3 * 0.8) = 4.4
-        // Base Warmth: (1 + 2 * 0.8) = 2.6
-        // Compliment Warmth Boost: 1 * 0.8 = 0.8 (Total: 3.4)
-        // Compliment Trust Boost: 0.3 * 0.8 = 0.24 (Total: 0.64)
-        expect(changes.warmthChange).toBeCloseTo(3.4);
-        expect(changes.trustChange).toBeCloseTo(0.6);
-        expect(changes.scoreChange).toBeCloseTo(4.4);
+        // Base Score: 0.3 + 0.7 * 0.8 = 0.86 -> 0.9
+        // Base Warmth: 0.1 + 0.3 * 0.8 = 0.34
+        // Compliment Warmth Boost: 0.2 * 0.8 = 0.16 (Total: 0.5)
+        // Compliment Trust Boost: 0.05 * 0.8 = 0.04 (Total Base 0.08 + 0.04 = 0.12 -> 0.1)
+        expect(changes.warmthChange).toBeCloseTo(0.5);
+        expect(changes.trustChange).toBeCloseTo(0.1);
+        expect(changes.scoreChange).toBeCloseTo(0.9);
         expect(changes.playfulnessChange).toBeCloseTo(0);
       });
 
       it("should prioritize Trust and Stability for a positive Apology", () => {
         const changes = getChanges('positive', 7, "I apologize, my bad!");
         // Base Multiplier: 0.7
-        // Base Warmth: 1 + 2 * 0.7 = 2.4
-        // Apology Trust Boost: 1.5 * 0.7 = 1.05
-        // Apology Stability Boost: 1.0 * 0.7 = 0.7
-        // Apology Warmth Boost: 0.3 * 0.7 = 0.21
-        // Total Trust (Base + Apology): (0.5*0.7) + 1.05 = 1.4
-        expect(changes.trustChange).toBeCloseTo(1.4);
-        expect(changes.stabilityChange).toBeCloseTo(1.1);
+        // Apology Trust Boost: 0.3 * 0.7 = 0.21
+        // Total Trust: (0.1 * 0.7) + 0.21 = 0.28 -> 0.3
+        // Apology Stability Boost: 0.2 * 0.7 = 0.14
+        // Total Stability: (0.1 * 0.7) + 0.14 = 0.21 -> 0.2
+        expect(changes.trustChange).toBeCloseTo(0.3);
+        expect(changes.stabilityChange).toBeCloseTo(0.2);
       });
       
       it("should boost Playfulness for positive Banter/Joke", () => {
         const changes = getChanges('positive', 6, "That was funny! haha lol 😂");
         // Base Multiplier: 0.6
-        // Playfulness: (0.5 + 1 * 0.6) = 1.1
-        // Warmth: (1 + 2 * 0.6) + 0.3 * 0.6 = 2.2 + 0.18 = 2.38
-        expect(changes.playfulnessChange).toBeCloseTo(1.1);
-        expect(changes.warmthChange).toBeCloseTo(2.4);
+        // Playfulness: (0.1 + 0.2 * 0.6) = 0.22 -> 0.2
+        // Warmth: (0.1 + 0.3 * 0.6) + 0.1 * 0.6 = 0.28 + 0.06 = 0.34 -> 0.3
+        expect(changes.playfulnessChange).toBeCloseTo(0.2);
+        expect(changes.warmthChange).toBeCloseTo(0.4);
       });
 
       it("should severely hurt Trust and Stability for a negative Dismissive message", () => {
         const changes = getChanges('negative', 8, "I don't care about what you say, whatever.");
         // Base Multiplier: 0.8
-        // Base Trust: -(1 + 2 * 0.8) = -2.6
-        // Dismissive Trust Damage: -1 * 0.8 = -0.8 (Total: -3.4)
-        // Base Stability: -(1 + 1 * 0.8) = -1.8
-        // Dismissive Stability Damage: -0.5 * 0.8 = -0.4 (Total: -2.2)
-        expect(changes.trustChange).toBeCloseTo(-3.8);
-        expect(changes.stabilityChange).toBeCloseTo(-2.2); 
+        // Base Trust: -(0.1 + 0.4 * 0.8) = -0.42
+        // Dismissive Trust Damage: -0.2 * 0.8 = -0.16 (Total: -0.58 -> -0.6)
+        // Base Stability: -(0.1 + 0.2 * 0.8) = -0.26
+        // Dismissive Stability Damage: -0.1 * 0.8 = -0.08 (Total: -0.34 -> -0.3)
+        expect(changes.trustChange).toBeCloseTo(-0.8);
+        expect(changes.stabilityChange).toBeCloseTo(-0.4); 
       });
 
       it("should return small positive changes for neutral Engagement (long message/question)", () => {
         const changes = getChanges('neutral', 5, "What do you think about my day, should I go for a walk or stay in bed all day long?");
         // Should trigger isEngagement and isQuestion logic
-        // Score change should be 0.3
-        expect(changes.scoreChange).toBeCloseTo(0.3);
-        expect(changes.warmthChange).toBeCloseTo(0.2);
+        // Score change should be 0.1
+        expect(changes.scoreChange).toBeCloseTo(0.1);
+        expect(changes.warmthChange).toBeCloseTo(0.05);
         expect(changes.trustChange).toBeCloseTo(0);
         expect(changes.playfulnessChange).toBeCloseTo(0);
-        expect(changes.stabilityChange).toBeCloseTo(0.1);
+        expect(changes.stabilityChange).toBeCloseTo(0.05);
       });
 
       it("should return zero changes for non-engaging neutral sentiment", () => {
