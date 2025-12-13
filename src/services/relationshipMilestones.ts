@@ -265,34 +265,31 @@ export async function markMilestoneReferenced(
   milestoneId: string
 ): Promise<void> {
   try {
-    const { error } = await supabase
+    // First, get current reference count
+    const { data: current, error: fetchError } = await supabase
+      .from(MILESTONES_TABLE)
+      .select('reference_count')
+      .eq('id', milestoneId)
+      .single();
+
+    if (fetchError) {
+      console.error('[Milestones] Error fetching milestone for referencing:', fetchError);
+      return;
+    }
+
+    // Update with incremented count in a single operation
+    const { error: updateError } = await supabase
       .from(MILESTONES_TABLE)
       .update({
         has_been_referenced: true,
-        reference_count: supabase.rpc('increment_reference_count', { milestone_id: milestoneId }),
+        reference_count: (current?.reference_count || 0) + 1,
         last_referenced_at: new Date().toISOString(),
       })
       .eq('id', milestoneId);
 
-    // If RPC doesn't exist, do a manual increment
-    if (error) {
-      // Fallback: get current count and increment
-      const { data: current } = await supabase
-        .from(MILESTONES_TABLE)
-        .select('reference_count')
-        .eq('id', milestoneId)
-        .single();
-
-      if (current) {
-        await supabase
-          .from(MILESTONES_TABLE)
-          .update({
-            has_been_referenced: true,
-            reference_count: (current.reference_count || 0) + 1,
-            last_referenced_at: new Date().toISOString(),
-          })
-          .eq('id', milestoneId);
-      }
+    if (updateError) {
+      console.error('[Milestones] Error marking milestone referenced:', updateError);
+      return;
     }
 
     console.log(`📚 [Milestones] Marked as referenced: ${milestoneId}`);

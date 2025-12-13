@@ -482,4 +482,67 @@ describe("Phase 2: Emotional Momentum", () => {
       }
     });
   });
+
+  // ============================================
+  // Additional Tests (from Feedback.md recommendations)
+  // ============================================
+
+  describe("Emotional Momentum - Edge Cases", () => {
+    beforeEach(() => {
+      resetEmotionalMomentum();
+    });
+
+    it("should NOT shift mood with only 1 positive interaction", () => {
+      const momentum = updateEmotionalMomentum(0.8, "");
+      
+      expect(momentum.positiveInteractionStreak).toBe(1);
+      // Mood should barely change - less than 0.1
+      expect(momentum.currentMoodLevel).toBeLessThan(0.1);
+    });
+    
+    it("should shift mood after 5 positive interactions", () => {
+      for (let i = 0; i < 5; i++) {
+        updateEmotionalMomentum(0.8, "");
+      }
+      
+      const momentum = getEmotionalMomentum();
+      expect(momentum.positiveInteractionStreak).toBe(5);
+      expect(momentum.currentMoodLevel).toBeGreaterThan(0.3);
+    });
+    
+    it("should detect genuine moment addressing 'shallow' insecurity", () => {
+      // Message needs at least 2 keywords from INSECURITY_KEYWORDS.beingSeenAsShallow
+      // Using both 'smart' and 'thoughtful' which are in the list
+      const result = detectGenuineMoment("You're so smart and thoughtful, I really appreciate that about you");
+      
+      expect(result.isGenuine).toBe(true);
+      expect(result.category).toBe("beingSeenAsShallow");
+    });
+
+    it("should maintain momentum direction across interactions", () => {
+      // Build up positive momentum
+      updateEmotionalMomentum(0.7, "");
+      updateEmotionalMomentum(0.8, "");
+      updateEmotionalMomentum(0.9, "");
+      
+      const momentum = getEmotionalMomentum();
+      
+      // Momentum direction should be positive
+      expect(momentum.momentumDirection).toBeGreaterThan(0);
+    });
+
+    it("should handle rapid sequence of mixed tone interactions", () => {
+      // Mixed sequence
+      updateEmotionalMomentum(0.8, "great!");
+      updateEmotionalMomentum(-0.3, "ugh");
+      updateEmotionalMomentum(0.6, "okay");
+      updateEmotionalMomentum(0.9, "amazing");
+      
+      const momentum = getEmotionalMomentum();
+      
+      // Should have tracked recent tones
+      expect(momentum.recentInteractionTones.length).toBeGreaterThanOrEqual(4);
+    });
+  });
 });
+

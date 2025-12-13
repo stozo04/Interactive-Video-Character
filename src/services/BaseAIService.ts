@@ -2,6 +2,7 @@ import { IAIChatService, AIChatOptions, UserContent, AIChatSession, AIMessage } 
 import { buildSystemPrompt } from './promptUtils';
 import { generateSpeech } from './elevenLabsService';
 import { AIActionResponse } from './aiSchema';
+import { analyzeUserMessageBackground } from './messageAnalyzer';
 
 export abstract class BaseAIService implements IAIChatService {
   abstract model: string;
@@ -38,6 +39,14 @@ export abstract class BaseAIService implements IAIChatService {
         options.chatHistory || [],
         session
       );
+
+      // Analyze user message for patterns, milestones, and open loops (non-blocking)
+      // This powers the Phase 1-5 "magic" systems
+      const userMessageText = 'text' in input ? input.text : '';
+      if (userMessageText && updatedSession?.userId) {
+        const interactionCount = options.chatHistory?.length || 0;
+        analyzeUserMessageBackground(updatedSession.userId, userMessageText, interactionCount);
+      }
 
       const audioMode = options.audioMode ?? 'sync';
 

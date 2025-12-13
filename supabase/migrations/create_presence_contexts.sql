@@ -68,3 +68,39 @@ COMMENT ON COLUMN presence_contexts.suggested_followup IS 'A natural way Kayley 
 COMMENT ON COLUMN presence_contexts.salience IS '0-1 importance score; higher = more personal/significant';
 COMMENT ON COLUMN presence_contexts.surface_count IS 'How many times we have asked about this';
 COMMENT ON COLUMN presence_contexts.max_surfaces IS 'Maximum times to ask before auto-expiring';
+
+-- Suggested additional index for faster expiry cleanup
+CREATE INDEX IF NOT EXISTS idx_presence_active_expires 
+  ON presence_contexts(expires_at) 
+  WHERE status = 'active';
+
+-- ============================================
+-- Row Level Security (RLS) Policies
+-- ============================================
+-- Enable RLS on the table
+ALTER TABLE presence_contexts ENABLE ROW LEVEL SECURITY;
+
+-- Policy: Users can only see their own presence contexts
+CREATE POLICY "Users can view their own presence contexts"
+  ON presence_contexts
+  FOR SELECT
+  USING (auth.uid()::text = user_id OR user_id = 'anonymous');
+
+-- Policy: Users can only insert their own presence contexts  
+CREATE POLICY "Users can insert their own presence contexts"
+  ON presence_contexts
+  FOR INSERT
+  WITH CHECK (auth.uid()::text = user_id OR user_id = 'anonymous');
+
+-- Policy: Users can only update their own presence contexts
+CREATE POLICY "Users can update their own presence contexts"
+  ON presence_contexts
+  FOR UPDATE
+  USING (auth.uid()::text = user_id OR user_id = 'anonymous');
+
+-- Policy: Users can only delete their own presence contexts
+CREATE POLICY "Users can delete their own presence contexts"
+  ON presence_contexts
+  FOR DELETE
+  USING (auth.uid()::text = user_id OR user_id = 'anonymous');
+
