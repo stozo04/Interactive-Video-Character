@@ -819,3 +819,339 @@ function mapRelationshipRowToMetrics(row: RelationshipRow): RelationshipMetrics 
 function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value));
 }
+
+// ============================================
+// PROBABILISTIC INTIMACY SYSTEM
+// ============================================
+// Flirt is probabilistic and contextual, not gated.
+// Closeness is fragile - can dip from bad interactions.
+// Intimacy is earned in moments, not just time.
+
+const INTIMACY_STATE_KEY = 'kayley_intimacy_state';
+
+export interface IntimacyState {
+  /** Temporary warmth modifier from recent interactions (-0.5 to +0.5) */
+  recentToneModifier: number;
+  /** Whether user recently shared something vulnerable */
+  vulnerabilityExchangeActive: boolean;
+  /** Timestamp of last vulnerability share */
+  lastVulnerabilityAt: number | null;
+  /** Count of low-effort messages in a row */
+  lowEffortStreak: number;
+  /** Recent interaction quality (rolling average) */
+  recentQuality: number;
+}
+
+/**
+ * Get intimacy state from storage
+ */
+function getIntimacyState(): IntimacyState {
+  const stored = localStorage.getItem(INTIMACY_STATE_KEY);
+  if (!stored) {
+    return {
+      recentToneModifier: 0,
+      vulnerabilityExchangeActive: false,
+      lastVulnerabilityAt: null,
+      lowEffortStreak: 0,
+      recentQuality: 0.5,
+    };
+  }
+  try {
+    return JSON.parse(stored);
+  } catch {
+    return {
+      recentToneModifier: 0,
+      vulnerabilityExchangeActive: false,
+      lastVulnerabilityAt: null,
+      lowEffortStreak: 0,
+      recentQuality: 0.5,
+    };
+  }
+}
+
+/**
+ * Store intimacy state
+ */
+function storeIntimacyState(state: IntimacyState): void {
+  localStorage.setItem(INTIMACY_STATE_KEY, JSON.stringify(state));
+}
+
+/**
+ * Analyze message quality (effort, vulnerability, engagement)
+ */
+export function analyzeMessageQuality(message: string): {
+  quality: number;        // 0-1
+  isVulnerable: boolean;
+  isLowEffort: boolean;
+  isHighEffort: boolean;
+} {
+  const wordCount = message.split(/\s+/).length;
+  const hasQuestion = message.includes('?');
+  
+  // Low effort indicators
+  const isLowEffort = wordCount <= 3 || /^(ok|k|sure|yeah|yep|nope|idk|lol|haha|hmm|mhm|cool|nice)$/i.test(message.trim());
+  
+  // High effort indicators
+  const isHighEffort = wordCount > 20 || 
+    (wordCount > 10 && hasQuestion) ||
+    /\b(because|since|honestly|actually|thinking|feeling|wondering)\b/i.test(message);
+  
+  // Vulnerability indicators
+  const vulnerabilityPatterns = [
+    /i'?m\s+(scared|afraid|worried|anxious|nervous|stressed)/i,
+    /i\s+(feel|felt)\s+(like|that|so)/i,
+    /honestly|to be honest|tbh|between us|can i tell you/i,
+    /i'?ve never told|i don'?t usually share/i,
+    /this is hard to say|this is embarrassing/i,
+    /i need|i want|i wish|i hope/i,
+  ];
+  const isVulnerable = vulnerabilityPatterns.some(p => p.test(message));
+  
+  // Calculate quality score
+  let quality = 0.5; // baseline
+  
+  if (isLowEffort) quality -= 0.3;
+  if (isHighEffort) quality += 0.2;
+  if (isVulnerable) quality += 0.3;
+  if (hasQuestion && wordCount > 5) quality += 0.1;
+  
+  return {
+    quality: clamp(quality, 0, 1),
+    isVulnerable,
+    isLowEffort,
+    isHighEffort,
+  };
+}
+
+/**
+ * Record message quality and update intimacy state
+ */
+export function recordMessageQuality(message: string): void {
+  const state = getIntimacyState();
+  const analysis = analyzeMessageQuality(message);
+  
+  // Update low effort streak
+  if (analysis.isLowEffort) {
+    state.lowEffortStreak++;
+  } else {
+    state.lowEffortStreak = 0;
+  }
+  
+  // Update recent quality (rolling average)
+  state.recentQuality = state.recentQuality * 0.7 + analysis.quality * 0.3;
+  
+  // Update vulnerability exchange
+  if (analysis.isVulnerable) {
+    state.vulnerabilityExchangeActive = true;
+    state.lastVulnerabilityAt = Date.now();
+  } else {
+    // Vulnerability exchange expires after 30 minutes
+    if (state.lastVulnerabilityAt && Date.now() - state.lastVulnerabilityAt > 30 * 60 * 1000) {
+      state.vulnerabilityExchangeActive = false;
+    }
+  }
+  
+  // Update tone modifier based on quality
+  const qualityImpact = (analysis.quality - 0.5) * 0.2;
+  state.recentToneModifier = clamp(
+    state.recentToneModifier * 0.8 + qualityImpact,
+    -0.5,
+    0.5
+  );
+  
+  storeIntimacyState(state);
+}
+
+/**
+ * Calculate current intimacy probability
+ * Returns a 0-1 probability of Kayley being open to intimacy/flirtation
+ */
+export function calculateIntimacyProbability(
+  relationship: RelationshipMetrics | null,
+  moodFlirtThreshold: number = 0.5
+): number {
+  if (!relationship) return 0.1; // Very low for unknown users
+  
+  const state = getIntimacyState();
+  
+  // Base probability from relationship tier
+  const tierBase: Record<string, number> = {
+    adversarial: 0.0,
+    neutral_negative: 0.05,
+    acquaintance: 0.1,
+    friend: 0.3,
+    close_friend: 0.5,
+    deeply_loving: 0.7,
+  };
+  let probability = tierBase[relationship.relationshipTier] || 0.1;
+  
+  // Modify by warmth and playfulness scores
+  probability += (relationship.warmthScore / 50) * 0.15; // -0.15 to +0.15
+  probability += (relationship.playfulnessScore / 50) * 0.1; // -0.1 to +0.1
+  
+  // Apply mood flirt threshold
+  probability *= moodFlirtThreshold;
+  
+  // Apply recent tone modifier
+  probability += state.recentToneModifier;
+  
+  // Vulnerability exchange bonus
+  if (state.vulnerabilityExchangeActive) {
+    probability += 0.15; // Significant boost when user is being vulnerable
+  }
+  
+  // Low effort streak penalty
+  if (state.lowEffortStreak > 0) {
+    probability -= state.lowEffortStreak * 0.1; // -0.1 per low effort message
+  }
+  
+  // Recent quality impact
+  probability += (state.recentQuality - 0.5) * 0.2;
+  
+  // Rupture penalty
+  if (relationship.isRuptured) {
+    probability *= 0.3; // Major reduction during rupture
+  }
+  
+  // Days since interaction penalty (strangers again effect)
+  if (relationship.lastInteractionAt) {
+    const daysSince = (Date.now() - relationship.lastInteractionAt.getTime()) / (1000 * 60 * 60 * 24);
+    if (daysSince > 7) {
+      probability *= 0.5; // Significant reduction after a week
+    } else if (daysSince > 3) {
+      probability *= 0.7; // Moderate reduction after 3 days
+    }
+  }
+  
+  return clamp(probability, 0, 1);
+}
+
+/**
+ * Check if a flirt/intimacy moment should happen
+ * Uses probability to make it feel natural, not gated
+ */
+export function shouldFlirtMomentOccur(
+  relationship: RelationshipMetrics | null,
+  moodFlirtThreshold: number = 0.5,
+  bidType: string = 'neutral'
+): boolean {
+  const probability = calculateIntimacyProbability(relationship, moodFlirtThreshold);
+  
+  // Bid type multipliers
+  const bidMultipliers: Record<string, number> = {
+    play: 1.5,      // Play bids increase flirt chance
+    comfort: 0.7,   // Comfort bids - less flirty, more supportive
+    validation: 1.2,
+    challenge: 0.8,
+    attention: 1.3, // Attention bids can be flirty
+    escape: 0.5,    // Escape bids - not the time
+    neutral: 1.0,
+  };
+  
+  const adjustedProbability = probability * (bidMultipliers[bidType] || 1.0);
+  
+  return Math.random() < adjustedProbability;
+}
+
+/**
+ * Apply fragile trust penalty
+ * Trust can dip quickly from negative interactions
+ */
+export function applyFragileTrustPenalty(event: RelationshipEvent): RelationshipEvent {
+  // If the interaction was negative, amplify trust loss
+  if (event.eventType === 'negative') {
+    event.trustChange = event.trustChange * 1.5; // 50% more trust loss
+  }
+  
+  // Low effort messages also erode trust slightly
+  if (event.userMessage) {
+    const analysis = analyzeMessageQuality(event.userMessage);
+    if (analysis.isLowEffort) {
+      event.trustChange -= 0.1;
+      event.warmthChange -= 0.05;
+    }
+  }
+  
+  return event;
+}
+
+/**
+ * Get intimacy context for prompt injection
+ */
+export function getIntimacyContextForPrompt(
+  relationship: RelationshipMetrics | null,
+  moodFlirtThreshold: number = 0.5
+): string {
+  const state = getIntimacyState();
+  const probability = calculateIntimacyProbability(relationship, moodFlirtThreshold);
+  
+  // Translate probability to behavior guidance
+  let intimacyGuidance: string;
+  
+  if (probability < 0.15) {
+    intimacyGuidance = `
+INTIMACY LEVEL: Very Low
+- Keep emotional distance
+- Deflect flirtation with humor or redirect
+- Focus on friendly, surface-level engagement
+- They need to earn deeper access`;
+  } else if (probability < 0.35) {
+    intimacyGuidance = `
+INTIMACY LEVEL: Guarded
+- Open to warming up if they invest
+- Light playfulness is okay
+- Don't initiate intimacy, but can respond warmly to genuine moments
+- Watch for quality of their engagement`;
+  } else if (probability < 0.55) {
+    intimacyGuidance = `
+INTIMACY LEVEL: Open
+- Can be warmer and more playful
+- Occasional flirty moments are fine if context invites
+- Reciprocate vulnerability if they share
+- Balance warmth with maintaining some mystery`;
+  } else if (probability < 0.75) {
+    intimacyGuidance = `
+INTIMACY LEVEL: Warm
+- Feel free to be affectionate
+- Can initiate playful/flirty moments
+- Share more openly
+- Show genuine care and interest`;
+  } else {
+    intimacyGuidance = `
+INTIMACY LEVEL: Very Open
+- Deep emotional availability
+- Comfortable with intimacy and vulnerability
+- Can be openly affectionate
+- This is a close, meaningful connection`;
+  }
+  
+  // Add contextual notes
+  if (state.vulnerabilityExchangeActive) {
+    intimacyGuidance += `
+    
+VULNERABILITY EXCHANGE ACTIVE:
+They recently shared something vulnerable. This is an opportunity for deeper connection.
+- Acknowledge what they shared
+- Consider reciprocating with your own vulnerability
+- Don't make it transactional - be genuine`;
+  }
+  
+  if (state.lowEffortStreak >= 2) {
+    intimacyGuidance += `
+    
+LOW EFFORT DETECTED (${state.lowEffortStreak} in a row):
+- Match their energy - be briefer
+- Don't over-invest if they're not
+- You can gently call it out: "You're being quiet today"`;
+  }
+  
+  return intimacyGuidance;
+}
+
+/**
+ * Reset intimacy state (for testing)
+ */
+export function resetIntimacyState(): void {
+  localStorage.removeItem(INTIMACY_STATE_KEY);
+  console.log('💕 [IntimacySystem] Reset intimacy state');
+}
