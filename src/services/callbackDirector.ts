@@ -464,3 +464,156 @@ export function getCallbackStats(): {
   };
 }
 
+// ============================================
+// "Remember When..." Milestone Callbacks
+// ============================================
+
+import {
+  getMilestoneForCallback,
+  markMilestoneReferenced,
+  generateMilestoneCallbackPrompt,
+  type RelationshipMilestone,
+} from './relationshipMilestones';
+
+// Track which milestone IDs have been used this session
+const sessionMilestoneIds: Set<string> = new Set();
+
+/**
+ * Get a milestone-based "Remember when..." callback opportunity.
+ * Only triggers after 50+ interactions to ensure sufficient shared history.
+ * 
+ * @param userId - The user's ID
+ * @param totalInteractions - Total number of interactions (from relationship metrics)
+ * @returns Promise with milestone and formatted prompt, or null
+ */
+export async function getMilestoneCallback(
+  userId: string,
+  totalInteractions: number
+): Promise<{
+  milestone: RelationshipMilestone;
+  prompt: string;
+} | null> {
+  // Check if we should surface a milestone callback
+  // Uses same timing logic as regular callbacks
+  const state = getStoredState();
+  
+  // Same cadence: only every 6-10 exchanges
+  const minExchanges = 8; // Slightly higher for milestones - they're more significant
+  const maxExchanges = 15;
+  
+  if (state.exchangesSinceCallback < minExchanges) {
+    return null;
+  }
+  
+  // Probability increases as we approach maxExchanges
+  if (state.exchangesSinceCallback < maxExchanges) {
+    const probability = (state.exchangesSinceCallback - minExchanges) / (maxExchanges - minExchanges) * 0.3; // Lower base probability
+    if (Math.random() > probability) {
+      return null;
+    }
+  }
+  
+  // Get a milestone that's eligible for callback
+  const milestone = await getMilestoneForCallback(userId, totalInteractions);
+  
+  if (!milestone) {
+    return null;
+  }
+  
+  // Don't use the same milestone twice in one session
+  if (sessionMilestoneIds.has(milestone.id)) {
+    return null;
+  }
+  
+  const prompt = generateMilestoneCallbackPrompt(milestone);
+  
+  console.log(`🎯 [CallbackDirector] Milestone callback ready: ${milestone.milestoneType}`);
+  
+  return { milestone, prompt };
+}
+
+/**
+ * Mark a milestone callback as used.
+ * Call this after the AI has referenced the milestone.
+ */
+export async function markMilestoneCallbackUsed(milestoneId: string): Promise<void> {
+  // Mark in session
+  sessionMilestoneIds.add(milestoneId);
+  
+  // Mark in database
+  await markMilestoneReferenced(milestoneId);
+  
+  // Reset exchange counter (same as regular callbacks)
+  const state = getStoredState();
+  state.exchangesSinceCallback = 0;
+  storeState(state);
+  
+  console.log(`✅ [CallbackDirector] Milestone callback used: ${milestoneId}`);
+}
+
+/**
+ * Get a combined callback prompt that includes both regular callbacks
+ * and milestone-based "Remember when..." callbacks.
+ * 
+ * @param userId - The user's ID  
+ * @param totalInteractions - Total number of interactions
+ * @returns Combined callback prompt string
+ */
+export async function getEnhancedCallbackPrompt(
+  userId: string,
+  totalInteractions: number
+): Promise<string> {
+  const parts: string[] = [];
+  
+  // Try to get a regular callback first
+  const regularCallback = getCallbackOpportunity();
+  
+  // Try to get a milestone callback (only if 50+ interactions)
+  const milestoneCallback = totalInteractions >= 50 
+    ? await getMilestoneCallback(userId, totalInteractions)
+    : null;
+  
+  // If neither, return default
+  if (!regularCallback && !milestoneCallback) {
+    return `
+CALLBACKS: No callback this turn. Just be present.
+`;
+  }
+  
+  // If we have a milestone callback, prioritize it slightly
+  // Milestones are rarer and more significant
+  if (milestoneCallback && (!regularCallback || Math.random() > 0.6)) {
+    parts.push(milestoneCallback.prompt);
+    // Note: The caller should mark the milestone as used if adopted
+    parts.push(`\nMILESTONE_ID: ${milestoneCallback.milestone.id}`);
+  } else if (regularCallback) {
+    // Use regular callback
+    const hoursAgo = Math.round((Date.now() - regularCallback.shard.capturedAt) / (1000 * 60 * 60));
+    const timeDesc = hoursAgo < 24 ? 'earlier' : 
+                     hoursAgo < 48 ? 'yesterday' : 
+                     hoursAgo < 168 ? 'a few days ago' : 'a while back';
+    
+    parts.push(`
+CALLBACKS (use sparingly - this is a good opportunity):
+Callback from ${timeDesc}: "${regularCallback.shard.content}"
+Type: ${regularCallback.shard.type}
+${regularCallback.suggestion}
+
+CRITICAL: Don't say "I remember" or "as I recall". Just USE the reference naturally.
+If you use this callback, it should feel like something any attentive person would notice.
+`);
+    
+    parts.push(`\nCALLBACK_SHARD_ID: ${regularCallback.shard.id}`);
+  }
+  
+  return parts.join('\n');
+}
+
+/**
+ * Reset milestone session tracking (for testing or new session).
+ */
+export function resetMilestoneSession(): void {
+  sessionMilestoneIds.clear();
+  console.log('🧠 [CallbackDirector] Reset milestone session');
+}
+
