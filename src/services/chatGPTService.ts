@@ -75,6 +75,7 @@ function normalizeAiResponse(rawJson: any, rawText: string): AIActionResponse {
     open_app: rawJson.open_app || null,
     calendar_action: rawJson.calendar_action || null,
     news_action: rawJson.news_action || null,
+    selfie_action: rawJson.selfie_action || null,
   };
 }
 

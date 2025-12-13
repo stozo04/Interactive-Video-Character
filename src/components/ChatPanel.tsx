@@ -161,12 +161,27 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
         {history.map((msg, index) => (
           <div key={index} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
             <div className={`max-w-xs md:max-w-md lg:max-w-sm xl:max-w-md px-4 py-2 rounded-2xl ${msg.role === 'user' ? 'bg-indigo-600 text-white rounded-br-none' : 'bg-gray-700 text-gray-200 rounded-bl-none'}`}>
+              {/* User-sent images */}
               {msg.image && (
                  <img 
                    src={`data:image/jpeg;base64,${msg.image}`} 
                    alt="Uploaded content" 
                    className="max-w-full rounded-lg mb-2 border border-white/20"
                  />
+              )}
+              {/* AI-generated selfie images */}
+              {msg.assistantImage && (
+                <div className="mb-2">
+                  <img 
+                    src={`data:${msg.assistantImageMimeType || 'image/png'};base64,${msg.assistantImage}`} 
+                    alt="selfie" 
+                    className="max-w-full rounded-lg border border-pink-400/30 shadow-lg shadow-pink-500/20"
+                    style={{ maxHeight: '400px', objectFit: 'contain' }}
+                  />
+                  <div className="text-xs text-gray-400 mt-1 flex items-center gap-1">
+                    <span className="inline-block w-2 h-2 bg-pink-400 rounded-full animate-pulse"></span>
+                  </div>
+                </div>
               )}
               <p>{msg.text}</p>
             </div>
