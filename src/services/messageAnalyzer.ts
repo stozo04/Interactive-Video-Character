@@ -14,6 +14,9 @@
  * 
  * Phase 1 Semantic Intent Detection:
  * Now uses LLM-based genuine moment detection with conversation context.
+ * 
+ * Phase 2 Semantic Intent Detection:
+ * Now uses LLM-based tone & sentiment detection with sarcasm handling.
  */
 
 import { detectOpenLoops } from './presenceDirector';
@@ -21,11 +24,14 @@ import { analyzeMessageForPatterns } from './userPatterns';
 import { detectMilestoneInMessage } from './relationshipMilestones';
 import { 
   recordInteraction, 
-  recordInteractionAsync,
-  detectGenuineMoment,
   detectGenuineMomentWithLLM,
   type ConversationContext
 } from './moodKnobs';
+import {
+  detectToneLLMCached,
+  type ToneIntent,
+  type PrimaryEmotion
+} from './intentService';
 import type { OpenLoop } from './presenceDirector';
 import type { UserPattern } from './userPatterns';
 import type { RelationshipMilestone } from './relationshipMilestones';
@@ -45,7 +51,12 @@ export interface MessageAnalysisResult {
   wasGenuineMoment: boolean;
   /** Sentiment/tone of the message (-1 to 1) */
   messageTone: number;
+  /** Full tone analysis result from LLM (Phase 2) */
+  toneResult?: ToneIntent;
 }
+
+// Re-export types for consumers
+export type { ToneIntent, PrimaryEmotion, ConversationContext };
 
 // ============================================
 // Simple Tone Analysis
@@ -64,10 +75,11 @@ const NEGATIVE_INDICATORS = [
 ];
 
 /**
- * Simple tone analysis for a message.
+ * Simple keyword-based tone analysis for a message.
  * Returns a value from -1 (very negative) to 1 (very positive).
+ * This is the fallback function when LLM detection fails.
  */
-function analyzeMessageTone(message: string): number {
+function analyzeMessageToneKeywords(message: string): number {
   const lowerMessage = message.toLowerCase();
   
   let positiveCount = 0;
@@ -93,6 +105,55 @@ function analyzeMessageTone(message: string): number {
   
   // Clamp and scale for reasonable range
   return Math.max(-1, Math.min(1, tone));
+}
+
+/**
+ * Legacy function name for backward compatibility.
+ * Calls the keyword-based tone analysis.
+ */
+function analyzeMessageTone(message: string): number {
+  return analyzeMessageToneKeywords(message);
+}
+
+// ============================================
+// LLM-based Tone Detection with Fallback (Phase 2)
+// ============================================
+
+/**
+ * Detect tone using LLM with fallback to keyword-based analysis.
+ * This is the Phase 2 implementation that handles:
+ * - Sarcasm detection ("Great, just great" = negative)
+ * - Mixed emotions ("excited but also nervous")
+ * - Context-dependent tone ("You suck!!" after good news = playful)
+ * 
+ * @param message - The user's message to analyze
+ * @param context - Optional conversation context for accurate interpretation
+ * @returns Promise resolving to ToneIntent
+ */
+export async function detectToneWithLLM(
+  message: string,
+  context?: ConversationContext
+): Promise<ToneIntent> {
+  try {
+    const result = await detectToneLLMCached(message, context);
+    return result;
+  } catch (error) {
+    // LLM failed - fall back to keyword detection
+    console.warn('⚠️ [MessageAnalyzer] LLM tone detection failed, falling back to keywords:', error);
+    
+    const keywordTone = analyzeMessageToneKeywords(message);
+    
+    // Convert keyword result to ToneIntent format
+    return {
+      sentiment: keywordTone,
+      primaryEmotion: keywordTone > 0.3 ? 'happy' 
+                    : keywordTone < -0.3 ? 'sad' 
+                    : 'neutral',
+      intensity: Math.abs(keywordTone),
+      isSarcastic: false, // Keyword detection can't detect sarcasm
+      explanation: 'Fallback to keyword-based detection'
+    };
+  }
 }
 
 // ============================================
@@ -134,19 +195,20 @@ export async function analyzeUserMessage(
     };
   }
 
-  // Analyze message tone (fast, local)
-  const messageTone = analyzeMessageTone(message);
-
   // Run ALL async tasks in parallel for efficiency
-  // This includes LLM-based intent detection alongside pattern/milestone/loop detection
+  // This includes LLM-based intent detection for genuine moments AND tone (Phases 1-2)
   const [
     genuineMomentResult,
+    toneResult,
     createdLoops, 
     detectedPatterns, 
     recordedMilestone
   ] = await Promise.all([
     // LLM-based genuine moment detection (Phase 1)
     detectGenuineMomentWithLLM(message, conversationContext),
+    
+    // LLM-based tone & sentiment detection (Phase 2)
+    detectToneWithLLM(message, conversationContext),
     
     // Detect open loops (things to follow up on)
     detectOpenLoops(userId, message, llmCall),
@@ -158,7 +220,10 @@ export async function analyzeUserMessage(
     detectMilestoneInMessage(userId, message, interactionCount),
   ]);
   
-  // Record interaction for emotional momentum (sync, uses result from above)
+  // Use LLM sentiment for message tone (fallback is already in toneResult)
+  const messageTone = toneResult.sentiment;
+  
+  // Record interaction for emotional momentum (sync, uses LLM tone result)
   recordInteraction(messageTone, message);
 
   // Log what was detected
@@ -174,6 +239,9 @@ export async function analyzeUserMessage(
   if (genuineMomentResult.isGenuine) {
     console.log(`💝 [MessageAnalyzer] Genuine moment detected via LLM (${genuineMomentResult.category})`);
   }
+  if (toneResult.isSarcastic) {
+    console.log(`🎭 [MessageAnalyzer] Sarcasm detected: ${toneResult.explanation}`);
+  }
 
   return {
     createdLoops,
@@ -181,6 +249,7 @@ export async function analyzeUserMessage(
     recordedMilestone,
     wasGenuineMoment: genuineMomentResult.isGenuine,
     messageTone,
+    toneResult,
   };
 }
 
@@ -210,4 +279,6 @@ export default {
   analyzeUserMessage,
   analyzeUserMessageBackground,
   analyzeMessageTone,
+  analyzeMessageToneKeywords,
+  detectToneWithLLM,
 };

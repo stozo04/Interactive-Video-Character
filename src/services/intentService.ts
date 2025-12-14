@@ -3,8 +3,9 @@
  * Intent Service - LLM-based semantic intent detection
  * 
  * Phase 1: Genuine moment detection
- * Replaces hardcoded keyword matching with LLM understanding.
+ * Phase 2: Tone & sentiment detection with sarcasm handling
  * 
+ * Replaces hardcoded keyword matching with LLM understanding.
  * Uses gemini-2.5-flash for fast, cheap intent detection (~200ms, ~$0.0001/call)
  */
 
@@ -33,6 +34,45 @@ export interface GenuineMomentIntent {
   category: GenuineMomentCategory | null;
   confidence: number;  // 0-1
   explanation: string; // Why this was detected (for debugging)
+}
+
+// ============================================
+// Phase 2: Tone & Sentiment Types
+// ============================================
+
+/**
+ * Primary emotion categories for tone detection.
+ * These map to natural emotional states that affect conversation dynamics.
+ */
+export type PrimaryEmotion = 
+  | 'happy' 
+  | 'sad' 
+  | 'frustrated' 
+  | 'anxious' 
+  | 'excited' 
+  | 'angry' 
+  | 'playful' 
+  | 'dismissive' 
+  | 'neutral'
+  | 'mixed';
+
+/**
+ * Result of LLM-based tone and sentiment analysis.
+ * Used for emotional momentum tracking and pattern detection.
+ */
+export interface ToneIntent {
+  /** Sentiment score from -1 (very negative) to 1 (very positive) */
+  sentiment: number;
+  /** The primary emotion detected in the message */
+  primaryEmotion: PrimaryEmotion;
+  /** Intensity of the emotion from 0 (mild) to 1 (intense) */
+  intensity: number;
+  /** Whether sarcasm was detected (inverts apparent sentiment) */
+  isSarcastic: boolean;
+  /** Optional secondary emotion if mixed feelings detected */
+  secondaryEmotion?: PrimaryEmotion;
+  /** Brief explanation for debugging */
+  explanation: string;
 }
 
 // ============================================
@@ -357,6 +397,305 @@ export async function detectGenuineMomentLLMCached(
  */
 export function clearIntentCache(): void {
   intentCache.clear();
+  toneCache.clear();
+}
+
+// ============================================
+// Phase 2: Tone & Sentiment Detection
+// ============================================
+
+/**
+ * The prompt that instructs the LLM to detect tone and sentiment.
+ * Designed to understand nuanced emotional expressions including sarcasm,
+ * mixed emotions, and context-dependent meanings.
+ */
+const TONE_DETECTION_PROMPT = `You are a tone and sentiment analysis system for an AI companion.
+
+Your task is to accurately detect the EMOTIONAL TONE of a message, paying special attention to:
+1. Sarcasm and irony (words may say one thing but mean another)
+2. Mixed emotions (people often feel multiple things at once)
+3. Context-dependent meaning (same words can have different tones in different situations)
+4. Intensity (from mild to intense expression)
+
+SARCASM DETECTION IS CRITICAL:
+- "Great, just great" → SARCASTIC, negative sentiment
+- "Oh wonderful" after bad news → SARCASTIC, negative sentiment
+- "I'm SO happy" (with exaggeration markers) → Check context for sarcasm
+- "Sure, whatever" → Often dismissive/sarcastic
+- "Yeah right" → Usually sarcastic
+
+EMOJI-ONLY OR MINIMAL MESSAGES:
+- "😊" → Happy, positive, mild intensity
+- "😭" → Sad or overwhelmed, negative, can be playful if context shows humor
+- "😤" → Frustrated/angry, negative
+- "..." → Often contemplative or dismissive depending on context
+- "fine." → Often passive-aggressive/dismissive, check context
+
+MIXED EMOTIONS (return secondaryEmotion when present):
+- "I'm excited but also nervous" → excited + anxious
+- "Happy but kinda worried" → happy + anxious
+- "Sad but grateful" → sad + happy
+
+EMOTION CATEGORIES:
+- happy: genuine joy, contentment, satisfaction
+- sad: sadness, disappointment, grief
+- frustrated: annoyance, irritation, impatience
+- anxious: worry, nervousness, stress
+- excited: enthusiasm, anticipation, eagerness
+- angry: anger, outrage, hostility
+- playful: teasing, joking, banter (even if words seem negative - like "you suck" after good news)
+- dismissive: indifference, apathy, "whatever" attitude
+- neutral: no strong emotion detected
+- mixed: multiple emotions present (specify in secondaryEmotion)
+
+{context}
+
+TARGET MESSAGE: "{message}"
+
+Respond with ONLY a JSON object (no markdown, no explanation):
+{
+  "sentiment": -1.0 to 1.0 (negative to positive, AFTER accounting for sarcasm),
+  "primaryEmotion": "one of the emotion categories above",
+  "intensity": 0.0 to 1.0 (how strongly expressed),
+  "isSarcastic": true/false,
+  "secondaryEmotion": "optional, if mixed emotions detected",
+  "explanation": "brief reason for this analysis"
+}`;
+
+/**
+ * Valid primary emotions for validation
+ */
+const VALID_EMOTIONS: PrimaryEmotion[] = [
+  'happy', 'sad', 'frustrated', 'anxious', 'excited', 
+  'angry', 'playful', 'dismissive', 'neutral', 'mixed'
+];
+
+/**
+ * Validate that the emotion is one of the expected values
+ */
+function validateEmotion(emotion: unknown): PrimaryEmotion {
+  if (typeof emotion === 'string' && VALID_EMOTIONS.includes(emotion as PrimaryEmotion)) {
+    return emotion as PrimaryEmotion;
+  }
+  return 'neutral'; // Default to neutral if invalid
+}
+
+/**
+ * Normalize sentiment to -1 to 1 range
+ */
+function normalizeSentiment(sentiment: unknown): number {
+  if (typeof sentiment === 'number') {
+    return Math.max(-1, Math.min(1, sentiment));
+  }
+  return 0; // Default to neutral if not provided
+}
+
+/**
+ * Normalize intensity to 0-1 range
+ */
+function normalizeIntensity(intensity: unknown): number {
+  if (typeof intensity === 'number') {
+    return Math.max(0, Math.min(1, intensity));
+  }
+  return 0.5; // Default to medium intensity if not provided
+}
+
+/**
+ * Detect tone and sentiment using LLM semantic understanding.
+ * This is the Phase 2 core function that replaces keyword-based tone analysis.
+ * 
+ * @param message - The user's message to analyze
+ * @param context - Optional conversation context for accurate interpretation
+ * @returns Promise resolving to the detected tone
+ */
+export async function detectToneLLM(
+  message: string,
+  context?: ConversationContext
+): Promise<ToneIntent> {
+  // Edge case: Empty/trivial messages - return neutral
+  if (!message || message.trim().length < 1) {
+    return {
+      sentiment: 0,
+      primaryEmotion: 'neutral',
+      intensity: 0,
+      isSarcastic: false,
+      explanation: 'Empty or trivial message'
+    };
+  }
+
+  // Edge case: Very long messages - truncate to prevent token overflow
+  const MAX_MESSAGE_LENGTH = 500;
+  const processedMessage = message.length > MAX_MESSAGE_LENGTH 
+    ? message.slice(0, MAX_MESSAGE_LENGTH) + '...'
+    : message;
+
+  // Edge case: Check API key before making call
+  if (!GEMINI_API_KEY) {
+    console.warn('⚠️ [IntentService] API key not set, skipping LLM tone detection');
+    throw new Error('VITE_GEMINI_API_KEY is not set');
+  }
+
+  try {
+    const ai = getIntentClient();
+    
+    // Sanitize message to prevent prompt injection
+    const sanitizedMessage = processedMessage.replace(/[{}]/g, '');
+    
+    // Build conversation context string if provided
+    let contextString = '';
+    if (context?.recentMessages && context.recentMessages.length > 0) {
+      const recentContext = context.recentMessages.slice(-5);
+      const formattedContext = recentContext.map(msg => {
+        const role = msg.role === 'user' ? 'User' : 'Assistant';
+        const text = msg.text.length > 150 ? msg.text.slice(0, 150) + '...' : msg.text;
+        return `${role}: ${text.replace(/[{}]/g, '')}`;
+      }).join('\n');
+      
+      contextString = `CONVERSATION CONTEXT (CRITICAL for interpreting tone correctly):
+${formattedContext}`;
+      
+      console.log(`📝 [IntentService] Tone detection with ${recentContext.length} messages of context`);
+    }
+    
+    // Build final prompt with context
+    let prompt = TONE_DETECTION_PROMPT
+      .replace('{message}', sanitizedMessage)
+      .replace('{context}', contextString);
+    
+    // Make the LLM call
+    const result = await ai.models.generateContent({
+      model: INTENT_MODEL,
+      contents: prompt,
+      config: {
+        temperature: 0.1, // Low temperature for consistent results
+        maxOutputTokens: 200,
+      }
+    });
+    
+    const responseText = result.text || '{}';
+    
+    // Edge case: Empty response from LLM
+    if (!responseText.trim()) {
+      console.warn('⚠️ [IntentService] Empty response from LLM for tone detection');
+      return {
+        sentiment: 0,
+        primaryEmotion: 'neutral',
+        intensity: 0.5,
+        isSarcastic: false,
+        explanation: 'Empty LLM response'
+      };
+    }
+    
+    // Parse the JSON response
+    const cleanedText = responseText.replace(/```json\n?|\n?```/g, '').trim();
+    const parsed = JSON.parse(cleanedText);
+    
+    // Validate and normalize the response
+    const toneIntent: ToneIntent = {
+      sentiment: normalizeSentiment(parsed.sentiment),
+      primaryEmotion: validateEmotion(parsed.primaryEmotion),
+      intensity: normalizeIntensity(parsed.intensity),
+      isSarcastic: Boolean(parsed.isSarcastic),
+      secondaryEmotion: parsed.secondaryEmotion ? validateEmotion(parsed.secondaryEmotion) : undefined,
+      explanation: String(parsed.explanation || 'No explanation provided')
+    };
+    
+    // Log for debugging
+    console.log(`🎭 [IntentService] Tone detected via LLM:`, {
+      sentiment: toneIntent.sentiment.toFixed(2),
+      emotion: toneIntent.primaryEmotion,
+      intensity: toneIntent.intensity.toFixed(2),
+      sarcastic: toneIntent.isSarcastic,
+      secondary: toneIntent.secondaryEmotion
+    });
+    
+    return toneIntent;
+    
+  } catch (error) {
+    console.error('❌ [IntentService] Tone LLM detection failed:', error);
+    throw error; // Re-throw so caller can fall back to keywords
+  }
+}
+
+// ============================================
+// Tone Cache
+// ============================================
+
+interface ToneCacheEntry {
+  result: ToneIntent;
+  timestamp: number;
+}
+
+const toneCache = new Map<string, ToneCacheEntry>();
+
+/**
+ * Get cached tone result if available and not expired
+ */
+function getCachedTone(message: string): ToneIntent | null {
+  const cacheKey = message.toLowerCase().trim();
+  const cached = toneCache.get(cacheKey);
+  
+  if (cached && (Date.now() - cached.timestamp) < CACHE_TTL_MS) {
+    console.log('📋 [IntentService] Cache hit for tone detection');
+    return cached.result;
+  }
+  
+  // Clean up expired entry
+  if (cached) {
+    toneCache.delete(cacheKey);
+  }
+  
+  return null;
+}
+
+/**
+ * Store tone result in cache
+ */
+function cacheTone(message: string, result: ToneIntent): void {
+  const cacheKey = message.toLowerCase().trim();
+  toneCache.set(cacheKey, {
+    result,
+    timestamp: Date.now()
+  });
+  
+  // Cleanup old entries if cache gets too big
+  if (toneCache.size > 100) {
+    const now = Date.now();
+    for (const [key, entry] of toneCache.entries()) {
+      if (now - entry.timestamp > CACHE_TTL_MS) {
+        toneCache.delete(key);
+      }
+    }
+  }
+}
+
+/**
+ * Cached version of detectToneLLM.
+ * Returns cached result if available, otherwise makes LLM call and caches result.
+ * 
+ * Note: Cache key is based on message only. When context is provided,
+ * we skip the cache to ensure accurate interpretation.
+ * 
+ * @param message - The user's message to analyze
+ * @param context - Optional conversation context for accurate interpretation
+ */
+export async function detectToneLLMCached(
+  message: string,
+  context?: ConversationContext
+): Promise<ToneIntent> {
+  // Only use cache if no context was provided
+  const cached = getCachedTone(message);
+  if (cached && !context?.recentMessages?.length) {
+    return cached;
+  }
+  
+  // Make LLM call with context
+  const result = await detectToneLLM(message, context);
+  
+  // Cache the result (without context)
+  cacheTone(message, result);
+  
+  return result;
 }
 
 // ============================================

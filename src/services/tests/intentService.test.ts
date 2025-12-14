@@ -8,6 +8,18 @@
 
 import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
 
+// Mock supabaseClient before importing modules that depend on it
+vi.mock('../supabaseClient', () => ({
+  supabase: {
+    from: vi.fn(() => ({
+      select: vi.fn(() => ({ data: [], error: null })),
+      insert: vi.fn(() => ({ data: [], error: null })),
+      update: vi.fn(() => ({ data: [], error: null })),
+      delete: vi.fn(() => ({ data: [], error: null })),
+    })),
+  },
+}));
+
 // Mock the Google GenAI module before importing intentService
 vi.mock('@google/genai', () => {
   return {
@@ -23,6 +35,8 @@ vi.mock('@google/genai', () => {
 import { 
   detectGenuineMomentLLM,
   detectGenuineMomentLLMCached,
+  detectToneLLM,
+  detectToneLLMCached,
   clearIntentCache,
   mapCategoryToInsecurity
 } from "../intentService";
@@ -658,5 +672,535 @@ describe("Phase 1: Integration with moodKnobs", () => {
     // Even with LLM failure, keyword fallback should work for this message
     expect(result).toBeDefined();
     // The result depends on keyword detection since LLM failed
+  });
+});
+
+// ============================================
+// Phase 2: Tone & Sentiment Detection Tests
+// ============================================
+
+describe("Phase 2: Intent Service - LLM Tone & Sentiment Detection", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    clearIntentCache();
+    
+    // Setup the mock implementation
+    (GoogleGenAI as any).mockImplementation(() => ({
+      models: {
+        generateContent: mockGenerateContent
+      }
+    }));
+  });
+
+  afterEach(() => {
+    clearIntentCache();
+  });
+
+  // ============================================
+  // Basic Tone Detection Tests
+  // ============================================
+  
+  describe("detectToneLLM", () => {
+    describe("basic emotion detection", () => {
+      it("should detect happy/positive tone", async () => {
+        mockGenerateContent.mockResolvedValueOnce({
+          text: JSON.stringify({
+            sentiment: 0.8,
+            primaryEmotion: "happy",
+            intensity: 0.7,
+            isSarcastic: false,
+            explanation: "Genuine expression of happiness"
+          })
+        });
+
+        const result = await detectToneLLM("I'm so happy today! Everything is great!");
+        
+        expect(result.sentiment).toBeGreaterThan(0.5);
+        expect(result.primaryEmotion).toBe("happy");
+        expect(result.isSarcastic).toBe(false);
+      });
+
+      it("should detect sad/negative tone", async () => {
+        mockGenerateContent.mockResolvedValueOnce({
+          text: JSON.stringify({
+            sentiment: -0.7,
+            primaryEmotion: "sad",
+            intensity: 0.6,
+            isSarcastic: false,
+            explanation: "Expression of sadness"
+          })
+        });
+
+        const result = await detectToneLLM("I'm feeling really down today");
+        
+        expect(result.sentiment).toBeLessThan(-0.3);
+        expect(result.primaryEmotion).toBe("sad");
+      });
+
+      it("should detect frustrated tone", async () => {
+        mockGenerateContent.mockResolvedValueOnce({
+          text: JSON.stringify({
+            sentiment: -0.5,
+            primaryEmotion: "frustrated",
+            intensity: 0.8,
+            isSarcastic: false,
+            explanation: "Clear frustration expressed"
+          })
+        });
+
+        const result = await detectToneLLM("This is so annoying, nothing works!");
+        
+        expect(result.primaryEmotion).toBe("frustrated");
+        expect(result.intensity).toBeGreaterThan(0.5);
+      });
+
+      it("should detect anxious tone", async () => {
+        mockGenerateContent.mockResolvedValueOnce({
+          text: JSON.stringify({
+            sentiment: -0.3,
+            primaryEmotion: "anxious",
+            intensity: 0.6,
+            isSarcastic: false,
+            explanation: "Worry and nervousness detected"
+          })
+        });
+
+        const result = await detectToneLLM("I'm really worried about the interview tomorrow");
+        
+        expect(result.primaryEmotion).toBe("anxious");
+      });
+    });
+
+    // ============================================
+    // Sarcasm Detection Tests (Critical for Phase 2)
+    // ============================================
+    
+    describe("sarcasm detection", () => {
+      it("should detect sarcasm in 'Great, just great'", async () => {
+        mockGenerateContent.mockResolvedValueOnce({
+          text: JSON.stringify({
+            sentiment: -0.6,
+            primaryEmotion: "frustrated",
+            intensity: 0.5,
+            isSarcastic: true,
+            explanation: "Sarcastic expression, actually negative despite positive words"
+          })
+        });
+
+        const result = await detectToneLLM("Great, just great.");
+        
+        expect(result.isSarcastic).toBe(true);
+        expect(result.sentiment).toBeLessThan(0); // Negative despite 'great'
+      });
+
+      it("should detect sarcasm in 'Oh wonderful'", async () => {
+        mockGenerateContent.mockResolvedValueOnce({
+          text: JSON.stringify({
+            sentiment: -0.4,
+            primaryEmotion: "dismissive",
+            intensity: 0.4,
+            isSarcastic: true,
+            explanation: "Sarcastic use of positive word"
+          })
+        });
+
+        const result = await detectToneLLM("Oh wonderful.");
+        
+        expect(result.isSarcastic).toBe(true);
+        expect(result.sentiment).toBeLessThan(0);
+      });
+
+      it("should detect 'I'm SO happy' as sarcasm in negative context", async () => {
+        mockGenerateContent.mockResolvedValueOnce({
+          text: JSON.stringify({
+            sentiment: -0.5,
+            primaryEmotion: "frustrated",
+            intensity: 0.6,
+            isSarcastic: true,
+            explanation: "Exaggerated positivity after bad news indicates sarcasm"
+          })
+        });
+
+        const result = await detectToneLLM("I'm SO happy", {
+          recentMessages: [
+            { role: 'user', text: 'My flight got cancelled' },
+            { role: 'assistant', text: 'Oh no, that is terrible!' },
+          ]
+        });
+        
+        expect(result.isSarcastic).toBe(true);
+        expect(result.sentiment).toBeLessThan(0); // Negative despite 'happy'
+      });
+
+      it("should NOT flag genuine happiness as sarcasm", async () => {
+        mockGenerateContent.mockResolvedValueOnce({
+          text: JSON.stringify({
+            sentiment: 0.9,
+            primaryEmotion: "happy",
+            intensity: 0.8,
+            isSarcastic: false,
+            explanation: "Genuine expression of joy after good news"
+          })
+        });
+
+        const result = await detectToneLLM("I'm SO happy!", {
+          recentMessages: [
+            { role: 'user', text: 'I got the promotion!' },
+            { role: 'assistant', text: 'Congratulations!' },
+          ]
+        });
+        
+        expect(result.isSarcastic).toBe(false);
+        expect(result.sentiment).toBeGreaterThan(0.5);
+      });
+    });
+
+    // ============================================
+    // Mixed Emotions Tests
+    // ============================================
+    
+    describe("mixed emotions", () => {
+      it("should detect 'excited but nervous'", async () => {
+        mockGenerateContent.mockResolvedValueOnce({
+          text: JSON.stringify({
+            sentiment: 0.3,
+            primaryEmotion: "excited",
+            intensity: 0.7,
+            isSarcastic: false,
+            secondaryEmotion: "anxious",
+            explanation: "Mixed feelings - primarily excited with secondary anxiety"
+          })
+        });
+
+        const result = await detectToneLLM("I'm excited but also kinda nervous");
+        
+        expect(result.primaryEmotion).toBe("excited");
+        expect(result.secondaryEmotion).toBe("anxious");
+      });
+
+      it("should handle 'This is whatever' as dismissive", async () => {
+        mockGenerateContent.mockResolvedValueOnce({
+          text: JSON.stringify({
+            sentiment: -0.2,
+            primaryEmotion: "dismissive",
+            intensity: 0.3,
+            isSarcastic: false,
+            explanation: "Mild dismissive/apathetic tone"
+          })
+        });
+
+        // This is a key test case from requirements
+        const result = await detectToneLLM("This is whatever");
+        
+        expect(result.primaryEmotion).toBe("dismissive");
+        expect(result.sentiment).toBeLessThan(0); // Slightly negative
+      });
+    });
+
+    // ============================================
+    // Emoji-Only Messages Tests
+    // ============================================
+    
+    describe("emoji-only messages", () => {
+      it("should detect happy emoji", async () => {
+        mockGenerateContent.mockResolvedValueOnce({
+          text: JSON.stringify({
+            sentiment: 0.6,
+            primaryEmotion: "happy",
+            intensity: 0.4,
+            isSarcastic: false,
+            explanation: "Smiling emoji indicates happiness"
+          })
+        });
+
+        const result = await detectToneLLM(":)");
+        
+        expect(result.primaryEmotion).toBe("happy");
+        expect(result.sentiment).toBeGreaterThan(0);
+      });
+
+      it("should detect crying emoji as sad", async () => {
+        mockGenerateContent.mockResolvedValueOnce({
+          text: JSON.stringify({
+            sentiment: -0.5,
+            primaryEmotion: "sad",
+            intensity: 0.5,
+            isSarcastic: false,
+            explanation: "Crying emoji indicates sadness"
+          })
+        });
+
+        const result = await detectToneLLM(":(");
+        
+        expect(result.primaryEmotion).toBe("sad");
+        expect(result.sentiment).toBeLessThan(0);
+      });
+    });
+
+    // ============================================
+    // Context-Dependent Tone Tests
+    // ============================================
+    
+    describe("context-dependent tone", () => {
+      it("should interpret 'Fine.' as passive-aggressive without positive context", async () => {
+        mockGenerateContent.mockResolvedValueOnce({
+          text: JSON.stringify({
+            sentiment: -0.3,
+            primaryEmotion: "dismissive",
+            intensity: 0.4,
+            isSarcastic: false,
+            explanation: "Short 'fine' with period suggests passive-aggressive tone"
+          })
+        });
+
+        const result = await detectToneLLM("Fine.");
+        
+        expect(result.sentiment).toBeLessThan(0);
+      });
+
+      it("should interpret 'haha you suck' as playful after good news", async () => {
+        mockGenerateContent.mockResolvedValueOnce({
+          text: JSON.stringify({
+            sentiment: 0.5,
+            primaryEmotion: "playful",
+            intensity: 0.6,
+            isSarcastic: false,
+            explanation: "Playful teasing in response to friend's good news"
+          })
+        });
+
+        // Key test case from requirements
+        const result = await detectToneLLM("haha you suck", {
+          recentMessages: [
+            { role: 'assistant', text: 'I just won the lottery!' },
+          ]
+        });
+        
+        expect(result.primaryEmotion).toBe("playful");
+        expect(result.sentiment).toBeGreaterThan(0); // Positive despite 'suck'
+      });
+    });
+
+    // ============================================
+    // Edge Cases
+    // ============================================
+    
+    describe("edge cases", () => {
+      it("should handle empty messages", async () => {
+        const result = await detectToneLLM("");
+        
+        expect(result.sentiment).toBe(0);
+        expect(result.primaryEmotion).toBe("neutral");
+        expect(mockGenerateContent).not.toHaveBeenCalled();
+      });
+
+      it("should handle LLM JSON parsing errors gracefully", async () => {
+        mockGenerateContent.mockResolvedValueOnce({
+          text: "This is not valid JSON"
+        });
+
+        await expect(detectToneLLM("Hello there"))
+          .rejects.toThrow();
+      });
+
+      it("should handle LLM API errors", async () => {
+        mockGenerateContent.mockRejectedValueOnce(new Error("API rate limit exceeded"));
+
+        await expect(detectToneLLM("Test message"))
+          .rejects.toThrow("API rate limit exceeded");
+      });
+
+      it("should normalize sentiment to -1 to 1 range", async () => {
+        mockGenerateContent.mockResolvedValueOnce({
+          text: JSON.stringify({
+            sentiment: 2.5, // Out of range
+            primaryEmotion: "happy",
+            intensity: 0.5,
+            isSarcastic: false,
+            explanation: "Test"
+          })
+        });
+
+        const result = await detectToneLLM("Very happy message");
+        
+        expect(result.sentiment).toBeLessThanOrEqual(1);
+        expect(result.sentiment).toBeGreaterThanOrEqual(-1);
+      });
+
+      it("should normalize intensity to 0-1 range", async () => {
+        mockGenerateContent.mockResolvedValueOnce({
+          text: JSON.stringify({
+            sentiment: 0.5,
+            primaryEmotion: "happy",
+            intensity: 1.5, // Out of range
+            isSarcastic: false,
+            explanation: "Test"
+          })
+        });
+
+        const result = await detectToneLLM("Some message");
+        
+        expect(result.intensity).toBeLessThanOrEqual(1);
+        expect(result.intensity).toBeGreaterThanOrEqual(0);
+      });
+
+      it("should default invalid emotions to neutral", async () => {
+        mockGenerateContent.mockResolvedValueOnce({
+          text: JSON.stringify({
+            sentiment: 0.5,
+            primaryEmotion: "invalid_emotion",
+            intensity: 0.5,
+            isSarcastic: false,
+            explanation: "Test"
+          })
+        });
+
+        const result = await detectToneLLM("Some message");
+        
+        expect(result.primaryEmotion).toBe("neutral");
+      });
+
+      it("should strip markdown code blocks from LLM response", async () => {
+        mockGenerateContent.mockResolvedValueOnce({
+          text: '```json\n{"sentiment": 0.5, "primaryEmotion": "happy", "intensity": 0.5, "isSarcastic": false, "explanation": "Test"}\n```'
+        });
+
+        const result = await detectToneLLM("Happy message");
+        
+        expect(result.primaryEmotion).toBe("happy");
+      });
+    });
+  });
+
+  // ============================================
+  // Tone Caching Tests
+  // ============================================
+  
+  describe("detectToneLLMCached", () => {
+    it("should cache results and avoid redundant LLM calls", async () => {
+      mockGenerateContent.mockResolvedValue({
+        text: JSON.stringify({
+          sentiment: 0.7,
+          primaryEmotion: "happy",
+          intensity: 0.6,
+          isSarcastic: false,
+          explanation: "Happy tone detected"
+        })
+      });
+
+      // First call - should hit LLM
+      const result1 = await detectToneLLMCached("I'm so happy!");
+      expect(mockGenerateContent).toHaveBeenCalledTimes(1);
+      
+      // Second call with same message - should use cache
+      const result2 = await detectToneLLMCached("I'm so happy!");
+      expect(mockGenerateContent).toHaveBeenCalledTimes(1); // Still 1
+      
+      // Results should be identical
+      expect(result1.sentiment).toEqual(result2.sentiment);
+    });
+
+    it("should NOT use cache when context is provided", async () => {
+      mockGenerateContent.mockResolvedValue({
+        text: JSON.stringify({
+          sentiment: 0.5,
+          primaryEmotion: "playful",
+          intensity: 0.5,
+          isSarcastic: false,
+          explanation: "Context-dependent interpretation"
+        })
+      });
+
+      // First call without context (will cache)
+      await detectToneLLMCached("haha whatever");
+      expect(mockGenerateContent).toHaveBeenCalledTimes(1);
+      
+      // Second call WITH context - should NOT use cache
+      await detectToneLLMCached("haha whatever", {
+        recentMessages: [
+          { role: 'user', text: 'Something happened' }
+        ]
+      });
+      expect(mockGenerateContent).toHaveBeenCalledTimes(2); // New call made
+    });
+  });
+});
+
+// ============================================
+// Phase 2: Integration with messageAnalyzer
+// ============================================
+
+describe("Phase 2: Integration with messageAnalyzer", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    clearIntentCache();
+    
+    (GoogleGenAI as any).mockImplementation(() => ({
+      models: {
+        generateContent: mockGenerateContent
+      }
+    }));
+  });
+
+  it("should export detectToneWithLLM from messageAnalyzer", async () => {
+    const { detectToneWithLLM } = await import("../messageAnalyzer");
+    
+    expect(detectToneWithLLM).toBeDefined();
+    expect(typeof detectToneWithLLM).toBe("function");
+  });
+
+  it("should export ToneIntent type from messageAnalyzer", async () => {
+    // Type check - if this compiles, ToneIntent is exported correctly
+    const messageAnalyzer = await import("../messageAnalyzer");
+    
+    // Verify the module exports the types by checking the function signature works
+    expect(messageAnalyzer.detectToneWithLLM).toBeDefined();
+  });
+
+  it("should fall back to keyword detection when LLM fails", async () => {
+    mockGenerateContent.mockRejectedValueOnce(new Error("Network error"));
+    
+    const { detectToneWithLLM } = await import("../messageAnalyzer");
+    
+    // This message has clear positive keywords
+    const result = await detectToneWithLLM("I'm so happy and excited!");
+    
+    // Should have fallen back to keyword detection
+    expect(result).toBeDefined();
+    expect(result.explanation).toContain("Fallback");
+    expect(result.sentiment).toBeGreaterThan(0); // Should detect positive
+  });
+
+  it("should include toneResult in MessageAnalysisResult", async () => {
+    // Mock both genuine moment and tone detection
+    mockGenerateContent
+      .mockResolvedValueOnce({
+        text: JSON.stringify({
+          isGenuine: false,
+          category: null,
+          confidence: 0.5,
+          explanation: "Not genuine"
+        })
+      })
+      .mockResolvedValueOnce({
+        text: JSON.stringify({
+          sentiment: 0.6,
+          primaryEmotion: "happy",
+          intensity: 0.5,
+          isSarcastic: false,
+          explanation: "Happy message"
+        })
+      });
+    
+    const { analyzeUserMessage } = await import("../messageAnalyzer");
+    
+    const result = await analyzeUserMessage(
+      "test-user",
+      "I'm feeling great today!",
+      1
+    );
+    
+    expect(result.toneResult).toBeDefined();
+    expect(result.messageTone).toBeDefined();
   });
 });

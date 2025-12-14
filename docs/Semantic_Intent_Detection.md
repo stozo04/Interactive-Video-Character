@@ -1,6 +1,6 @@
 # Semantic Intent Detection
 
-> **Status**: Phase 1 ✅ Complete  
+> **Status**: Phase 1 ✅ Complete | Phase 2 ✅ Complete  
 > **Goal**: Replace hardcoded keywords with LLM-based semantic detection.
 
 ---
@@ -42,7 +42,7 @@ User Message
 | Phase | Scope | Files | Status |
 |-------|-------|-------|--------|
 | **1** | Genuine moment detection | `intentService.ts`, `moodKnobs.ts` | ✅ Complete |
-| 2 | Tone & sentiment | `messageAnalyzer.ts` | Pending |
+| **2** | Tone & sentiment | `intentService.ts`, `messageAnalyzer.ts` | ✅ Complete |
 | 3 | Mood detection | `userPatterns.ts` | Pending |
 | 4 | Topic detection | `userPatterns.ts`, `memoryService.ts` | Pending |
 | 5 | Open loop detection | `presenceDirector.ts` | Pending |
@@ -578,6 +578,150 @@ Include examples of sarcasm and mixed emotions in your prompt. Ask for:
 }
 ```
 
+### Phase 2 Implementation Lessons Learned (Added 2025-12-13)
+
+> These lessons were discovered during Phase 2 implementation and should inform Phase 3+.
+
+#### 1. Mock Supabase in Integration Tests
+
+**Problem discovered**: Integration tests importing `messageAnalyzer.ts` failed because the import chain reaches `presenceDirector.ts` → `supabaseClient.ts`, which throws without environment variables.
+
+**Solution**: Add supabase mock at the TOP of your test file:
+```typescript
+// Mock supabaseClient before importing modules that depend on it
+vi.mock('../supabaseClient', () => ({
+  supabase: {
+    from: vi.fn(() => ({
+      select: vi.fn(() => ({ data: [], error: null })),
+      insert: vi.fn(() => ({ data: [], error: null })),
+      update: vi.fn(() => ({ data: [], error: null })),
+      delete: vi.fn(() => ({ data: [], error: null })),
+    })),
+  },
+}));
+```
+
+**Action for each phase**: If your tests import modules with Supabase dependencies, add this mock.
+
+#### 2. Clean Up Unused Imports After Implementation
+
+**Problem discovered**: After replacing keyword functions with LLM versions, old imports like `detectGenuineMoment` and `recordInteractionAsync` were left behind unused.
+
+**Solution**: After implementing a phase, run through imports and remove:
+- Old keyword functions that are now only called internally as fallback
+- Types that were imported but never used
+- Async variants if you're only using the sync version (or vice versa)
+
+**Cleanup checklist**:
+- [ ] Search for imported function names in the file
+- [ ] Remove if not used (or only used as fallback inside the wrapper)
+- [ ] Run `npm test` after cleanup to ensure nothing broke
+
+#### 3. Verify BaseAIService Wiring is Complete
+
+**Good news discovered**: `BaseAIService.ts` already passes `conversationContext` to `analyzeUserMessageBackground()`. No changes needed for Phase 2+.
+
+**What's already wired**:
+```typescript
+// In BaseAIService.generateResponse():
+const conversationContext = {
+  recentMessages: (options.chatHistory || []).slice(-5).map(...)
+};
+
+analyzeUserMessageBackground(
+  updatedSession.userId, 
+  userMessageText, 
+  interactionCount,
+  conversationContext  // ← Already passed!
+);
+```
+
+**Action for each phase**: Just add your LLM function to the `Promise.all()` in `messageAnalyzer.ts` - no BaseAIService changes needed.
+
+#### 4. The Fallback Pattern is Essential
+
+**Pattern that works well**:
+```typescript
+// In messageAnalyzer.ts - wrapper function
+export async function detectXWithLLM(
+  message: string,
+  context?: ConversationContext
+): Promise<XIntent> {
+  try {
+    return await detectXLLMCached(message, context);
+  } catch (error) {
+    console.warn('⚠️ LLM failed, falling back to keywords:', error);
+    const keywordResult = analyzeXKeywords(message);
+    return convertKeywordToIntent(keywordResult);
+  }
+}
+```
+
+This ensures the app never breaks even if the LLM API fails.
+
+#### 5. Re-export Types for Consumers
+
+**Problem discovered**: Other modules need your types (e.g., `ToneIntent`) but TypeScript strips type-only exports.
+
+**Solution**: Explicitly re-export types in `messageAnalyzer.ts`:
+```typescript
+// Re-export types for consumers
+export type { ToneIntent, PrimaryEmotion, ConversationContext };
+```
+
+#### 6. Run Full Test Suite Before Marking Complete
+
+**Action**: Always run `npm run test -- --run` to ensure:
+- All 270+ existing tests still pass
+- New tests cover the key scenarios
+- No regressions in other modules
+
+#### 7. Utilize Rich Detection Results in Future Phases
+
+**Observation**: Phase 2 returns a `ToneIntent` object with rich information:
+```typescript
+interface ToneIntent {
+  sentiment: number;         // ← Currently used
+  primaryEmotion: string;    // ← NOT yet used (e.g., 'frustrated', 'playful')
+  intensity: number;         // ← NOT yet used (0-1, how strong)
+  isSarcastic: boolean;      // ← NOT yet used (true if sarcasm detected)
+  secondaryEmotion?: string; // ← NOT yet used (for mixed emotions)
+  explanation: string;       // ← Only used for logging
+}
+```
+
+**Current state**: Only `sentiment` is passed to `recordInteraction()` for emotional momentum.
+
+**Future opportunities** (implement in Phase 3-6):
+
+| Field | Where to Use | Benefit |
+|-------|--------------|---------|
+| `primaryEmotion` | Phase 3 Mood Detection | Can inform or replace mood detection entirely |
+| `isSarcastic` | User Pattern tracking | "User often uses sarcasm when discussing work" |
+| `intensity` | Emotional momentum | High intensity = faster mood shift |
+| `secondaryEmotion` | Relationship milestones | Detect nuanced vulnerability (anxious + hopeful) |
+
+**Recommended implementation for Phase 3**:
+```typescript
+// In moodKnobs.ts recordInteraction:
+export function recordInteraction(
+  toneResult: ToneIntent,  // ← Pass full object, not just sentiment
+  userMessage: string
+): void {
+  updateEmotionalMomentum(toneResult.sentiment, userMessage);
+  
+  // NEW: Use intensity for faster/slower mood shifts
+  if (toneResult.intensity > 0.7) {
+    // High intensity emotions shift mood faster
+  }
+  
+  // NEW: Track emotion types for pattern detection
+  trackEmotionPattern(toneResult.primaryEmotion);
+}
+```
+
+**Action for Phase 3+**: Refactor to pass full `ToneIntent` object instead of just `messageTone` number.
+
 ---
 
 ## Phase 3: Mood Detection - Implementation Advice
@@ -607,6 +751,41 @@ Include examples of sarcasm and mixed emotions in your prompt. Ask for:
    // Add to messageAnalyzer's Promise.all:
    const moodResult = await detectMoodLLM(message, conversationContext);
    ```
+
+### From Phase 2 Lessons - Remember To:
+- Add Supabase mock to test file (userPatterns.ts uses Supabase)
+- Create `detectMoodWithLLM()` wrapper in messageAnalyzer with keyword fallback
+- Export `MoodIntent` type from intentService and re-export from messageAnalyzer
+- Clean up old `MOOD_INDICATORS` imports after replacing with LLM
+- Run full test suite before marking complete
+
+### ⚠️ Important: Leverage Phase 2's ToneIntent Data
+
+Before creating a separate `detectMoodLLM()` function, consider whether Phase 2's `ToneIntent` already provides what you need:
+
+| Phase 2 Field | Could Replace |
+|---------------|---------------|
+| `primaryEmotion` (happy, sad, frustrated, anxious) | Mood detection |
+| `intensity` | How strongly they're feeling it |
+| `secondaryEmotion` | Complex moods like "frustrated but hopeful" |
+
+**Option A: Extend recordInteraction to use full ToneIntent**
+```typescript
+// Refactor messageAnalyzer.ts:
+recordInteraction(toneResult, message);  // Pass full object
+
+// Refactor moodKnobs.ts:
+export function recordInteraction(toneResult: ToneIntent, message: string) {
+  // Use toneResult.primaryEmotion for mood patterns
+  recordMoodTimePattern(userId, toneResult.primaryEmotion);
+}
+```
+
+**Option B: Create separate detectMoodLLM with different semantics**
+- If mood ≠ emotion (e.g., user sounds playful but mentions being stressed)
+- Keep both but use mood for pattern tracking, tone for immediate response
+
+**Recommended**: Start with Option A to avoid duplicate LLM calls. Only add Option B if you find cases where mood and emotion genuinely differ.
 
 ---
 
@@ -639,6 +818,14 @@ Include examples of sarcasm and mixed emotions in your prompt. Ask for:
    - Topics can trigger memory recalls
    - "Speaking of work, last week you mentioned..."
 
+### From Phase 2 Lessons - Remember To:
+- Add Supabase mock to test file (memoryService.ts uses Supabase)
+- Create `detectTopicsWithLLM()` wrapper in messageAnalyzer with keyword fallback
+- Export `TopicIntent` type from intentService and re-export from messageAnalyzer
+- Consider combining with Phase 3 Mood for efficient `{topic, emotion}` correlation
+- Clean up old `TOPIC_CATEGORIES` imports after replacing with LLM
+- Run full test suite before marking complete
+
 ---
 
 ## Phase 5: Open Loop Detection - Implementation Advice
@@ -670,6 +857,14 @@ Include examples of sarcasm and mixed emotions in your prompt. Ask for:
    }
    ```
 
+### From Phase 2 Lessons - Remember To:
+- Add Supabase mock to test file (presenceDirector.ts uses Supabase)
+- The function is already called from messageAnalyzer - just replace internal implementation
+- Create fallback to existing regex patterns if LLM fails
+- Export `OpenLoopIntent` type from intentService
+- Clean up old regex pattern imports after replacing with LLM
+- Run full test suite before marking complete
+
 ---
 
 ## Phase 6: Relationship Signals - Implementation Advice
@@ -697,6 +892,15 @@ Include examples of sarcasm and mixed emotions in your prompt. Ask for:
 4. **Support acknowledgment matters**
    - "That actually helped" = positive signal
    - Strengthens relationship score
+
+### From Phase 2 Lessons - Remember To:
+- Add Supabase mock to test file (relationshipMilestones.ts uses Supabase)
+- The function is already called from messageAnalyzer - just replace internal implementation
+- Create fallback to existing regex patterns if LLM fails
+- Export `RelationshipSignalIntent` type from intentService
+- Clean up old `VULNERABILITY_PATTERNS` etc. imports after replacing with LLM
+- Consider this phase as good opportunity for "Unified Intent Call" since it's the last phase
+- Run full test suite before marking complete
 
 ---
 
@@ -745,14 +949,27 @@ Unified is cheaper but slightly slower per call. Since calls are parallel, curre
 
 Use this checklist when implementing any phase:
 
+### Core Implementation
 - [ ] **Create LLM function** in `intentService.ts`
 - [ ] **Add ConversationContext parameter** to function signature
 - [ ] **Export types** for callers
 - [ ] **Create fallback function** using existing keywords
 - [ ] **Create wrapper** that tries LLM, falls back to keywords
 - [ ] **Add to Promise.all** in `messageAnalyzer.ts` (if applicable)
+
+### Testing (Updated from Phase 2)
+- [ ] **Mock Supabase** in test file if importing messageAnalyzer or related modules
 - [ ] **Update tests** with mocked LLM responses
 - [ ] **Add context tests** (same message, different context = different result)
 - [ ] **Implement caching** (skip if context provided)
-- [ ] **Verify wiring** by testing end-to-end
+- [ ] **Run full test suite** (`npm run test -- --run`) - all tests must pass
 
+### Cleanup & Verification (Added from Phase 2 lessons)
+- [ ] **Remove unused imports** - search for imported names, remove if unused
+- [ ] **Re-export types** in messageAnalyzer.ts for consumers
+- [ ] **Verify BaseAIService wiring** - confirm conversationContext is passed through
+- [ ] **Verify end-to-end** by testing in the actual app (not just unit tests)
+
+### Documentation
+- [ ] **Update this doc** with lessons learned for the phase
+- [ ] **Mark phase complete** in the status table at the top
