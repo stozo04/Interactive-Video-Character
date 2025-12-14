@@ -314,7 +314,21 @@ interface CacheEntry {
   timestamp: number;
 }
 
+// Forward declaration of ToneCacheEntry for toneCache
+interface ToneCacheEntry {
+  result: ToneIntent;
+  timestamp: number;
+}
+
+// Forward declaration of TopicCacheEntry for topicCache
+interface TopicCacheEntry {
+  result: TopicIntent;
+  timestamp: number;
+}
+
 const intentCache = new Map<string, CacheEntry>();
+const toneCache = new Map<string, ToneCacheEntry>();
+const topicCache = new Map<string, TopicCacheEntry>();
 const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 
 /**
@@ -398,6 +412,7 @@ export async function detectGenuineMomentLLMCached(
 export function clearIntentCache(): void {
   intentCache.clear();
   toneCache.clear();
+  topicCache.clear();
 }
 
 // ============================================
@@ -621,13 +636,6 @@ ${formattedContext}`;
 // Tone Cache
 // ============================================
 
-interface ToneCacheEntry {
-  result: ToneIntent;
-  timestamp: number;
-}
-
-const toneCache = new Map<string, ToneCacheEntry>();
-
 /**
  * Get cached tone result if available and not expired
  */
@@ -694,6 +702,334 @@ export async function detectToneLLMCached(
   
   // Cache the result (without context)
   cacheTone(message, result);
+  
+  return result;
+}
+
+// ============================================
+// Phase 4: Topic Detection Types
+// ============================================
+
+/**
+ * Valid topic categories for detection.
+ * These align with the existing TOPIC_CATEGORIES in userPatterns.ts but with
+ * flexibility for LLM to detect nuanced variations.
+ */
+export type TopicCategory = 
+  | 'work' 
+  | 'family' 
+  | 'relationships' 
+  | 'health' 
+  | 'money' 
+  | 'school'
+  | 'hobbies'
+  | 'personal_growth'
+  | 'other';
+
+/**
+ * Result of LLM-based topic detection.
+ * Returns multiple topics with emotional context for each.
+ */
+export interface TopicIntent {
+  /** Detected topics in the message (can be multiple) */
+  topics: TopicCategory[];
+  /** The primary/most relevant topic */
+  primaryTopic: TopicCategory | null;
+  /** Emotional context for each detected topic */
+  emotionalContext: Record<string, string>;
+  /** Specific entities mentioned (e.g., 'boss', 'deadline') */
+  entities: string[];
+  /** Brief explanation for debugging */
+  explanation: string;
+}
+
+// ============================================
+// Phase 4: Topic Detection Implementation
+// ============================================
+
+/**
+ * Valid topic categories for validation
+ */
+const VALID_TOPICS: TopicCategory[] = [
+  'work', 'family', 'relationships', 'health', 'money', 
+  'school', 'hobbies', 'personal_growth', 'other'
+];
+
+/**
+ * The prompt that instructs the LLM to detect topics and emotional context.
+ * Designed to understand semantic meaning and extract emotional associations.
+ */
+const TOPIC_DETECTION_PROMPT = `You are a topic and context analysis system for an AI companion.
+
+Your task is to identify WHAT topics a message is about and HOW the user feels about each topic.
+
+TOPIC CATEGORIES:
+- work: job, career, boss, coworkers, meetings, projects, deadlines, office
+- family: parents, siblings, relatives, family dynamics, family events
+- relationships: romantic relationships, dating, partners, breakups, crushes
+- health: physical health, mental health, exercise, diet, therapy, medical
+- money: finances, bills, debt, savings, expenses, budgeting
+- school: education, classes, exams, homework, professors, studying
+- hobbies: leisure activities, interests, sports, games, creative pursuits
+- personal_growth: self-improvement, goals, habits, personal development
+- other: topics that don't fit other categories
+
+DETECTION RULES:
+1. A message can have MULTIPLE topics (e.g., "My boss is stressing about money" = work + money)
+2. For each topic, extract the EMOTIONAL CONTEXT (how does the user feel about it?)
+3. Identify specific ENTITIES mentioned (names, specific things)
+4. The primaryTopic is the main focus of the message
+5. If no clear topic is detected, return empty topics array
+
+EMOTIONAL CONTEXT EXAMPLES:
+- "My boss is really getting to me" → work: frustrated
+- "I miss my mom" → family: sad, longing
+- "Finally hit my gym goal!" → health: happy, proud
+- "This deadline is killing me" → work: stressed
+
+{context}
+
+TARGET MESSAGE: "{message}"
+
+Respond with ONLY a JSON object (no markdown, no explanation):
+{
+  "topics": ["work", "money"],
+  "primaryTopic": "work",
+  "emotionalContext": { "work": "frustrated", "money": "anxious" },
+  "entities": ["boss", "deadline"],
+  "explanation": "User is frustrated about work stress related to money concerns"
+}`;
+
+/**
+ * Validate that a topic is one of the expected values
+ */
+function validateTopic(topic: unknown): TopicCategory | null {
+  if (typeof topic === 'string' && VALID_TOPICS.includes(topic as TopicCategory)) {
+    return topic as TopicCategory;
+  }
+  return null;
+}
+
+/**
+ * Detect topics using LLM semantic understanding.
+ * This is the Phase 4 core function that replaces keyword-based topic matching.
+ * 
+ * @param message - The user's message to analyze
+ * @param context - Optional conversation context for accurate interpretation
+ * @returns Promise resolving to the detected topics
+ */
+export async function detectTopicsLLM(
+  message: string,
+  context?: ConversationContext
+): Promise<TopicIntent> {
+  // Edge case: Empty/trivial messages - return empty topics
+  if (!message || message.trim().length < 3) {
+    return {
+      topics: [],
+      primaryTopic: null,
+      emotionalContext: {},
+      entities: [],
+      explanation: 'Message too short for topic detection'
+    };
+  }
+
+  // Edge case: Very long messages - truncate to prevent token overflow
+  const MAX_MESSAGE_LENGTH = 500;
+  const processedMessage = message.length > MAX_MESSAGE_LENGTH 
+    ? message.slice(0, MAX_MESSAGE_LENGTH) + '...'
+    : message;
+
+  // Edge case: Check API key before making call
+  if (!GEMINI_API_KEY) {
+    console.warn('⚠️ [IntentService] API key not set, skipping LLM topic detection');
+    throw new Error('VITE_GEMINI_API_KEY is not set');
+  }
+
+  try {
+    const ai = getIntentClient();
+    
+    // Sanitize message to prevent prompt injection
+    const sanitizedMessage = processedMessage.replace(/[{}]/g, '');
+    
+    // Build conversation context string if provided
+    let contextString = '';
+    if (context?.recentMessages && context.recentMessages.length > 0) {
+      const recentContext = context.recentMessages.slice(-5);
+      const formattedContext = recentContext.map(msg => {
+        const role = msg.role === 'user' ? 'User' : 'Assistant';
+        const text = msg.text.length > 150 ? msg.text.slice(0, 150) + '...' : msg.text;
+        return `${role}: ${text.replace(/[{}]/g, '')}`;
+      }).join('\n');
+      
+      contextString = `CONVERSATION CONTEXT (for understanding topic focus):
+${formattedContext}`;
+      
+      console.log(`📝 [IntentService] Topic detection with ${recentContext.length} messages of context`);
+    }
+    
+    // Build final prompt with context
+    let prompt = TOPIC_DETECTION_PROMPT
+      .replace('{message}', sanitizedMessage)
+      .replace('{context}', contextString);
+    
+    // Make the LLM call
+    const result = await ai.models.generateContent({
+      model: INTENT_MODEL,
+      contents: prompt,
+      config: {
+        temperature: 0.1, // Low temperature for consistent results
+        maxOutputTokens: 300, // Slightly more for topics + entities
+      }
+    });
+    
+    const responseText = result.text || '{}';
+    
+    // Edge case: Empty response from LLM
+    if (!responseText.trim()) {
+      console.warn('⚠️ [IntentService] Empty response from LLM for topic detection');
+      return {
+        topics: [],
+        primaryTopic: null,
+        emotionalContext: {},
+        entities: [],
+        explanation: 'Empty LLM response'
+      };
+    }
+    
+    // Parse the JSON response
+    const cleanedText = responseText.replace(/```json\n?|\n?```/g, '').trim();
+    const parsed = JSON.parse(cleanedText);
+    
+    // Validate and normalize topics
+    const validatedTopics: TopicCategory[] = [];
+    if (Array.isArray(parsed.topics)) {
+      for (const topic of parsed.topics) {
+        const validated = validateTopic(topic);
+        if (validated) {
+          validatedTopics.push(validated);
+        }
+      }
+    }
+    
+    // Validate primaryTopic
+    const validatedPrimaryTopic = validateTopic(parsed.primaryTopic);
+    
+    // Validate emotional context
+    const validatedEmotionalContext: Record<string, string> = {};
+    if (parsed.emotionalContext && typeof parsed.emotionalContext === 'object') {
+      for (const [topic, emotion] of Object.entries(parsed.emotionalContext)) {
+        if (typeof emotion === 'string') {
+          validatedEmotionalContext[topic] = emotion;
+        }
+      }
+    }
+    
+    // Validate entities
+    const validatedEntities: string[] = [];
+    if (Array.isArray(parsed.entities)) {
+      for (const entity of parsed.entities) {
+        if (typeof entity === 'string') {
+          validatedEntities.push(entity);
+        }
+      }
+    }
+    
+    const topicIntent: TopicIntent = {
+      topics: validatedTopics,
+      primaryTopic: validatedPrimaryTopic || (validatedTopics.length > 0 ? validatedTopics[0] : null),
+      emotionalContext: validatedEmotionalContext,
+      entities: validatedEntities,
+      explanation: String(parsed.explanation || 'No explanation provided')
+    };
+    
+    // Log for debugging
+    if (validatedTopics.length > 0) {
+      console.log(`📋 [IntentService] Topics detected via LLM:`, {
+        topics: topicIntent.topics,
+        primary: topicIntent.primaryTopic,
+        emotionalContext: topicIntent.emotionalContext,
+        entities: topicIntent.entities
+      });
+    }
+    
+    return topicIntent;
+    
+  } catch (error) {
+    console.error('❌ [IntentService] Topic LLM detection failed:', error);
+    throw error; // Re-throw so caller can fall back to keywords
+  }
+}
+
+// ============================================
+// Topic Cache
+// ============================================
+
+/**
+ * Get cached topic result if available and not expired
+ */
+function getCachedTopics(message: string): TopicIntent | null {
+  const cacheKey = message.toLowerCase().trim();
+  const cached = topicCache.get(cacheKey);
+  
+  if (cached && (Date.now() - cached.timestamp) < CACHE_TTL_MS) {
+    console.log('📋 [IntentService] Cache hit for topic detection');
+    return cached.result;
+  }
+  
+  // Clean up expired entry
+  if (cached) {
+    topicCache.delete(cacheKey);
+  }
+  
+  return null;
+}
+
+/**
+ * Store topic result in cache
+ */
+function cacheTopics(message: string, result: TopicIntent): void {
+  const cacheKey = message.toLowerCase().trim();
+  topicCache.set(cacheKey, {
+    result,
+    timestamp: Date.now()
+  });
+  
+  // Cleanup old entries if cache gets too big
+  if (topicCache.size > 100) {
+    const now = Date.now();
+    for (const [key, entry] of topicCache.entries()) {
+      if (now - entry.timestamp > CACHE_TTL_MS) {
+        topicCache.delete(key);
+      }
+    }
+  }
+}
+
+/**
+ * Cached version of detectTopicsLLM.
+ * Returns cached result if available, otherwise makes LLM call and caches result.
+ * 
+ * Note: Cache key is based on message only. When context is provided,
+ * we skip the cache to ensure accurate interpretation.
+ * 
+ * @param message - The user's message to analyze
+ * @param context - Optional conversation context for accurate interpretation
+ */
+export async function detectTopicsLLMCached(
+  message: string,
+  context?: ConversationContext
+): Promise<TopicIntent> {
+  // Only use cache if no context was provided
+  const cached = getCachedTopics(message);
+  if (cached && !context?.recentMessages?.length) {
+    return cached;
+  }
+  
+  // Make LLM call with context
+  const result = await detectTopicsLLM(message, context);
+  
+  // Cache the result (without context)
+  cacheTopics(message, result);
   
   return result;
 }

@@ -29,8 +29,11 @@ import {
 } from './moodKnobs';
 import {
   detectToneLLMCached,
+  detectTopicsLLMCached,
   type ToneIntent,
-  type PrimaryEmotion
+  type PrimaryEmotion,
+  type TopicIntent,
+  type TopicCategory
 } from './intentService';
 import type { OpenLoop } from './presenceDirector';
 import type { UserPattern } from './userPatterns';
@@ -53,10 +56,12 @@ export interface MessageAnalysisResult {
   messageTone: number;
   /** Full tone analysis result from LLM (Phase 2) */
   toneResult?: ToneIntent;
+  /** Full topic analysis result from LLM (Phase 4) */
+  topicResult?: TopicIntent;
 }
 
 // Re-export types for consumers
-export type { ToneIntent, PrimaryEmotion, ConversationContext };
+export type { ToneIntent, PrimaryEmotion, ConversationContext, TopicIntent, TopicCategory };
 
 // ============================================
 // Simple Tone Analysis
@@ -157,6 +162,78 @@ export async function detectToneWithLLM(
 }
 
 // ============================================
+// LLM-based Topic Detection with Fallback (Phase 4)
+// ============================================
+
+/**
+ * Simple keyword-based topic detection for fallback.
+ * Uses the same patterns as TOPIC_CATEGORIES in userPatterns.ts.
+ */
+const TOPIC_KEYWORDS: Record<TopicCategory, string[]> = {
+  work: ['work', 'job', 'boss', 'coworker', 'meeting', 'project', 'deadline', 'office', 'career'],
+  family: ['mom', 'dad', 'parent', 'brother', 'sister', 'family', 'grandma', 'grandpa', 'uncle', 'aunt'],
+  relationships: ['boyfriend', 'girlfriend', 'partner', 'dating', 'relationship', 'ex', 'crush'],
+  health: ['sick', 'doctor', 'health', 'exercise', 'gym', 'sleep', 'therapy', 'medication'],
+  money: ['money', 'bills', 'debt', 'rent', 'broke', 'expensive', 'budget', 'paycheck'],
+  school: ['school', 'class', 'homework', 'exam', 'test', 'professor', 'college', 'study'],
+  hobbies: ['hobby', 'game', 'sport', 'music', 'art', 'book', 'movie', 'show'],
+  personal_growth: ['goal', 'habit', 'improve', 'learn', 'grow', 'change', 'better'],
+  other: [], // Catch-all, not matched by keywords
+};
+
+/**
+ * Keyword-based topic detection for fallback.
+ * Returns topics found based on keyword matching.
+ */
+function detectTopicsKeywords(message: string): TopicCategory[] {
+  const lowerMessage = message.toLowerCase();
+  const foundTopics: TopicCategory[] = [];
+  
+  for (const [topic, keywords] of Object.entries(TOPIC_KEYWORDS)) {
+    if (keywords.some(keyword => lowerMessage.includes(keyword))) {
+      foundTopics.push(topic as TopicCategory);
+    }
+  }
+  
+  return foundTopics;
+}
+
+/**
+ * Detect topics using LLM with fallback to keyword-based analysis.
+ * This is the Phase 4 implementation that handles:
+ * - Multiple topics per message ("My boss is stressing about money" = work + money)
+ * - Emotional context per topic ("work: frustrated")
+ * - Entity extraction ("boss", "deadline")
+ * 
+ * @param message - The user's message to analyze
+ * @param context - Optional conversation context for accurate interpretation
+ * @returns Promise resolving to TopicIntent
+ */
+export async function detectTopicsWithLLM(
+  message: string,
+  context?: ConversationContext
+): Promise<TopicIntent> {
+  try {
+    const result = await detectTopicsLLMCached(message, context);
+    return result;
+  } catch (error) {
+    // LLM failed - fall back to keyword detection
+    console.warn('⚠️ [MessageAnalyzer] LLM topic detection failed, falling back to keywords:', error);
+    
+    const keywordTopics = detectTopicsKeywords(message);
+    
+    // Convert keyword result to TopicIntent format
+    return {
+      topics: keywordTopics,
+      primaryTopic: keywordTopics.length > 0 ? keywordTopics[0] : null,
+      emotionalContext: {}, // Keyword detection can't extract emotional context
+      entities: [], // Keyword detection can't extract entities
+      explanation: 'Fallback to keyword-based topic detection'
+    };
+  }
+}
+
+// ============================================
 // Main Analysis Function
 // ============================================
 
@@ -196,10 +273,11 @@ export async function analyzeUserMessage(
   }
 
   // Run LLM-based detection tasks in parallel for efficiency
-  // Phase 1: Genuine moment detection, Phase 2: Tone detection
+  // Phase 1: Genuine moment, Phase 2: Tone, Phase 4: Topics
   const [
     genuineMomentResult,
     toneResult,
+    topicResult,
     createdLoops,
     recordedMilestone
   ] = await Promise.all([
@@ -209,6 +287,9 @@ export async function analyzeUserMessage(
     // LLM-based tone & sentiment detection (Phase 2)
     detectToneWithLLM(message, conversationContext),
     
+    // LLM-based topic detection (Phase 4)
+    detectTopicsWithLLM(message, conversationContext),
+    
     // Detect open loops (things to follow up on)
     detectOpenLoops(userId, message, llmCall),
     
@@ -216,10 +297,10 @@ export async function analyzeUserMessage(
     detectMilestoneInMessage(userId, message, interactionCount),
   ]);
   
-  // Phase 3: Analyze for cross-session patterns WITH toneResult
-  // This enables LLM-based mood detection via primaryEmotion
-  // Runs after tone detection so we can pass the result
-  const detectedPatterns = await analyzeMessageForPatterns(userId, message, new Date(), toneResult);
+  // Phase 3: Analyze for cross-session patterns WITH toneResult AND topicResult
+  // This enables LLM-based mood detection via primaryEmotion and topic detection
+  // Runs after tone/topic detection so we can pass the results
+  const detectedPatterns = await analyzeMessageForPatterns(userId, message, new Date(), toneResult, topicResult);
   
   // Use LLM sentiment for message tone (fallback is already in toneResult)
   const messageTone = toneResult.sentiment;
@@ -246,6 +327,9 @@ export async function analyzeUserMessage(
   if (toneResult.isSarcastic) {
     console.log(`🎭 [MessageAnalyzer] Sarcasm detected: ${toneResult.explanation}`);
   }
+  if (topicResult.topics.length > 0) {
+    console.log(`📋 [MessageAnalyzer] Topics detected: ${topicResult.topics.join(', ')}`);
+  }
 
   return {
     createdLoops,
@@ -254,6 +338,7 @@ export async function analyzeUserMessage(
     wasGenuineMoment: genuineMomentResult.isGenuine,
     messageTone,
     toneResult,
+    topicResult,
   };
 }
 
@@ -285,4 +370,5 @@ export default {
   analyzeMessageTone,
   analyzeMessageToneKeywords,
   detectToneWithLLM,
+  detectTopicsWithLLM,
 };
