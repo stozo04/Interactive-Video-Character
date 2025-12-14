@@ -17,6 +17,9 @@
  * 
  * Phase 2 Semantic Intent Detection:
  * Now uses LLM-based tone & sentiment detection with sarcasm handling.
+ * 
+ * Phase 5 Semantic Intent Detection:
+ * Now uses LLM-based open loop detection with timeframe inference.
  */
 
 import { detectOpenLoops } from './presenceDirector';
@@ -30,10 +33,14 @@ import {
 import {
   detectToneLLMCached,
   detectTopicsLLMCached,
+  detectOpenLoopsLLMCached,
   type ToneIntent,
   type PrimaryEmotion,
   type TopicIntent,
-  type TopicCategory
+  type TopicCategory,
+  type OpenLoopIntent,
+  type LoopTypeIntent,
+  type FollowUpTimeframe
 } from './intentService';
 import type { OpenLoop } from './presenceDirector';
 import type { UserPattern } from './userPatterns';
@@ -58,10 +65,21 @@ export interface MessageAnalysisResult {
   toneResult?: ToneIntent;
   /** Full topic analysis result from LLM (Phase 4) */
   topicResult?: TopicIntent;
+  /** Full open loop analysis result from LLM (Phase 5) */
+  openLoopResult?: OpenLoopIntent;
 }
 
 // Re-export types for consumers
-export type { ToneIntent, PrimaryEmotion, ConversationContext, TopicIntent, TopicCategory };
+export type { 
+  ToneIntent, 
+  PrimaryEmotion, 
+  ConversationContext, 
+  TopicIntent, 
+  TopicCategory,
+  OpenLoopIntent,
+  LoopTypeIntent,
+  FollowUpTimeframe
+};
 
 // ============================================
 // Simple Tone Analysis
@@ -234,8 +252,48 @@ export async function detectTopicsWithLLM(
 }
 
 // ============================================
-// Main Analysis Function
+// LLM-based Open Loop Detection with Fallback (Phase 5)
 // ============================================
+
+/**
+ * Detect open loops using LLM with fallback when LLM fails.
+ * This is the Phase 5 implementation that handles:
+ * - Explicit events ("I have an interview tomorrow")
+ * - Emotional states ("I'm really stressed about the move")
+ * - Soft commitments ("Maybe I'll try that new gym")
+ * - Timeframe inference ("tomorrow", "this_week", "soon")
+ * 
+ * Note: This wrapper is primarily for direct access. The actual 
+ * integration with presenceDirector already uses detectOpenLoopsLLMCached
+ * internally in detectOpenLoops(), which handles creating loops in Supabase.
+ * 
+ * @param message - The user's message to analyze
+ * @param context - Optional conversation context for accurate interpretation
+ * @returns Promise resolving to OpenLoopIntent
+ */
+export async function detectOpenLoopsWithLLM(
+  message: string,
+  context?: ConversationContext
+): Promise<OpenLoopIntent> {
+  try {
+    const result = await detectOpenLoopsLLMCached(message, context);
+    return result;
+  } catch (error) {
+    // LLM failed - return no follow-up (regex fallback happens in presenceDirector)
+    console.warn('⚠️ [MessageAnalyzer] LLM open loop detection failed:', error);
+    
+    // Return a safe default - no follow-up detected
+    return {
+      hasFollowUp: false,
+      loopType: null,
+      topic: null,
+      suggestedFollowUp: null,
+      timeframe: null,
+      salience: 0,
+      explanation: 'Fallback - LLM detection failed'
+    };
+  }
+}
 
 /**
  * Analyze a user message for patterns, loops, and milestones.
@@ -273,11 +331,12 @@ export async function analyzeUserMessage(
   }
 
   // Run LLM-based detection tasks in parallel for efficiency
-  // Phase 1: Genuine moment, Phase 2: Tone, Phase 4: Topics
+  // Phase 1: Genuine moment, Phase 2: Tone, Phase 4: Topics, Phase 5: Open Loops
   const [
     genuineMomentResult,
     toneResult,
     topicResult,
+    openLoopResult,
     createdLoops,
     recordedMilestone
   ] = await Promise.all([
@@ -290,8 +349,11 @@ export async function analyzeUserMessage(
     // LLM-based topic detection (Phase 4)
     detectTopicsWithLLM(message, conversationContext),
     
-    // Detect open loops (things to follow up on)
-    detectOpenLoops(userId, message, llmCall),
+    // LLM-based open loop detection (Phase 5) - for direct access
+    detectOpenLoopsWithLLM(message, conversationContext),
+    
+    // Detect open loops and create them in Supabase (Phase 5 uses LLM internally)
+    detectOpenLoops(userId, message, llmCall, conversationContext),
     
     // Check for milestone moments
     detectMilestoneInMessage(userId, message, interactionCount),
@@ -339,6 +401,7 @@ export async function analyzeUserMessage(
     messageTone,
     toneResult,
     topicResult,
+    openLoopResult,
   };
 }
 
@@ -371,4 +434,5 @@ export default {
   analyzeMessageToneKeywords,
   detectToneWithLLM,
   detectTopicsWithLLM,
+  detectOpenLoopsWithLLM,
 };

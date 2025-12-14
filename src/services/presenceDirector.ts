@@ -15,6 +15,13 @@
 
 import { supabase } from './supabaseClient';
 import { KAYLEY_FULL_PROFILE } from '../domain/characters/kayleyCharacterProfile';
+import { 
+  detectOpenLoopsLLMCached, 
+  type OpenLoopIntent, 
+  type LoopTypeIntent,
+  type FollowUpTimeframe,
+  type ConversationContext
+} from './intentService';
 
 // ============================================
 // Types
@@ -449,11 +456,20 @@ export async function expireOldLoops(userId: string): Promise<void> {
 /**
  * Analyze a user message for potential open loops to create.
  * This should be called after each user message.
+ * 
+ * Phase 5: Now uses LLM-based detection as the primary method,
+ * with regex patterns as fallback when LLM fails or returns nothing.
+ * 
+ * @param userId - The user's ID
+ * @param userMessage - The user's message to analyze
+ * @param llmCall - DEPRECATED: no longer used, LLM detection now uses intentService
+ * @param conversationContext - Optional context for LLM detection
  */
 export async function detectOpenLoops(
   userId: string,
   userMessage: string,
-  llmCall?: (prompt: string) => Promise<string>
+  llmCall?: (prompt: string) => Promise<string>,
+  conversationContext?: ConversationContext
 ): Promise<OpenLoop[]> {
   const createdLoops: OpenLoop[] = [];
   
@@ -462,7 +478,37 @@ export async function detectOpenLoops(
     return createdLoops;
   }
   
-  // Simple pattern-based detection (fast)
+  // Phase 5: Try LLM-based detection first (preferred)
+  let llmResult: OpenLoopIntent | null = null;
+  
+  try {
+    llmResult = await detectOpenLoopsLLMCached(userMessage, conversationContext);
+    
+    if (llmResult && llmResult.hasFollowUp && llmResult.loopType && llmResult.topic) {
+      // Convert LLM result to open loop
+      const loop = await createOpenLoop(
+        userId, 
+        llmResult.loopType as LoopType,  // LoopTypeIntent maps directly to LoopType
+        llmResult.topic, 
+        {
+          triggerContext: userMessage.slice(0, 200),
+          suggestedFollowup: llmResult.suggestedFollowUp || undefined,
+          salience: llmResult.salience,
+          shouldSurfaceAfter: mapTimeframeToSurfaceDate(llmResult.timeframe)
+        }
+      );
+      if (loop) {
+        createdLoops.push(loop);
+        console.log(`🔄 [PresenceDirector] Created open loop via LLM: ${llmResult.loopType} - "${llmResult.topic}"`);
+        return createdLoops; // Return early - LLM result is preferred
+      }
+    }
+  } catch (error) {
+    console.warn('[PresenceDirector] LLM open loop detection failed, falling back to regex:', error);
+    // Fall through to regex detection below
+  }
+  
+  // Fallback: Simple pattern-based detection (fast, used when LLM fails or returns nothing)
   const simpleLoops = detectSimplePatterns(userMessage);
   
   for (const detected of simpleLoops) {
@@ -474,15 +520,37 @@ export async function detectOpenLoops(
     if (loop) createdLoops.push(loop);
   }
   
-  // LLM-based detection (if available and message is substantial enough)
-  if (llmCall && userMessage.length > 50) {
-    // Run LLM detection in background, don't await
-    detectWithLLM(userId, userMessage, llmCall).catch(err => {
-      console.warn('[PresenceDirector] LLM detection failed:', err);
-    });
-  }
-  
   return createdLoops;
+}
+
+/**
+ * Convert LLM-inferred timeframe to a Date for shouldSurfaceAfter.
+ * This enables context-aware scheduling of follow-ups.
+ */
+function mapTimeframeToSurfaceDate(timeframe: FollowUpTimeframe | null): Date | undefined {
+  if (!timeframe) return undefined;
+  
+  const now = new Date();
+  
+  switch (timeframe) {
+    case 'today':
+      // Surface after 2 hours (give event time to happen)
+      return new Date(now.getTime() + 2 * 60 * 60 * 1000);
+    case 'tomorrow':
+      // Surface next day
+      return new Date(now.getTime() + 24 * 60 * 60 * 1000);
+    case 'this_week':
+      // Surface after 2 days
+      return new Date(now.getTime() + 48 * 60 * 60 * 1000);
+    case 'soon':
+      // Surface after 3 days
+      return new Date(now.getTime() + 72 * 60 * 60 * 1000);
+    case 'later':
+      // Surface after 1 week
+      return new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+    default:
+      return undefined;
+  }
 }
 
 interface DetectedPattern {
@@ -563,50 +631,8 @@ function detectSimplePatterns(message: string): DetectedPattern[] {
   return patterns;
 }
 
-const LLM_DETECTION_PROMPT = `Analyze this user message for things worth following up on later.
-
-Look for:
-- Upcoming events or plans ("I have a presentation tomorrow")
-- Emotional states that warrant checking in ("I'm stressed about...")
-- Commitments or intentions ("I'm going to try...")
-- Things they're thinking about ("I've been considering...")
-
-User message: "{MESSAGE}"
-
-Return ONLY valid JSON (no markdown):
-{
-  "has_followup": true/false,
-  "topic": "brief description of what to follow up on" or null,
-  "loop_type": "pending_event" | "emotional_followup" | "commitment_check" | "curiosity_thread" or null,
-  "suggested_followup": "natural way to ask about it later" or null,
-  "salience": 0.0-1.0 (how personal/important this is)
-}
-
-If nothing worth following up on, return: {"has_followup": false}`;
-
-async function detectWithLLM(
-  userId: string,
-  message: string,
-  llmCall: (prompt: string) => Promise<string>
-): Promise<void> {
-  try {
-    const prompt = LLM_DETECTION_PROMPT.replace('{MESSAGE}', message);
-    const response = await llmCall(prompt);
-    
-    const cleaned = response.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
-    const result = JSON.parse(cleaned);
-    
-    if (result.has_followup && result.topic && result.loop_type) {
-      await createOpenLoop(userId, result.loop_type, result.topic, {
-        triggerContext: message.slice(0, 200),
-        suggestedFollowup: result.suggested_followup,
-        salience: result.salience || 0.5
-      });
-    }
-  } catch (error) {
-    console.warn('[PresenceDirector] LLM loop detection failed:', error);
-  }
-}
+// Note: LLM_DETECTION_PROMPT and detectWithLLM have been removed.
+// Phase 5 now uses intentService.detectOpenLoopsLLMCached for LLM-based detection.
 
 // ============================================
 // Unified Presence Context
