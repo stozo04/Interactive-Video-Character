@@ -142,4 +142,29 @@ describe("Phase 7: Unified Intent Detection", () => {
     await detectFullIntentLLMCached(msg, { recentMessages: [{role: 'user', text: 'hi'}] });
     expect(mockGenerateContent).toHaveBeenCalledTimes(2);
   });
+
+  it("should infer 'first_deep_talk' milestone when isDeepTalk is true and confidence is high, even if milestone is null", async () => {
+    mockGenerateContent.mockResolvedValueOnce({
+      text: JSON.stringify({
+        genuineMoment: { isGenuine: false },
+        tone: { sentiment: 0, primaryEmotion: "neutral" },
+        topics: { topics: [] },
+        openLoops: { hasFollowUp: false },
+        relationshipSignals: { 
+          isVulnerable: false,
+          isDeepTalk: true, // Signal detected
+          milestone: null, // Model missed the milestone label
+          milestoneConfidence: 0.8, // High confidence
+          isHostile: false,
+          explanation: "Conversation turned philosophical"
+        }
+      })
+    });
+
+    const result = await detectFullIntentLLM("This got deep huh");
+
+    expect(result.relationshipSignals.isDeepTalk).toBe(true);
+    // The inference logic should have kicked in
+    expect(result.relationshipSignals.milestone).toBe("first_deep_talk");
+  });
 });

@@ -114,6 +114,7 @@ export abstract class BaseAIService implements IAIChatService {
         return {
           response: aiResponse,
           session: updatedSession,
+          intent: preCalculatedIntent,
         };
       }
 
@@ -139,6 +140,7 @@ export abstract class BaseAIService implements IAIChatService {
         return {
           response: aiResponse,
           session: updatedSession,
+          intent: preCalculatedIntent,
         };
       }
 
@@ -147,7 +149,8 @@ export abstract class BaseAIService implements IAIChatService {
       return {
         response: aiResponse,
         session: updatedSession,
-        audioData
+        audioData,
+        intent: preCalculatedIntent
       };
     } catch (error) {
       console.error("AI Service Error:", error);

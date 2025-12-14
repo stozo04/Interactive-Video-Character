@@ -41,7 +41,7 @@ export interface RelationshipMetrics {
   ruptureCount: number;
 }
 
-import type { RelationshipSignalIntent } from './intentService';
+import type { RelationshipSignalIntent, FullMessageIntent } from './intentService';
 
 export interface RelationshipEvent {
   eventType: 'positive' | 'negative' | 'neutral' | 'milestone' | 'rupture' | 'repair';
@@ -325,9 +325,41 @@ export const updateRelationship = async (
 export const analyzeMessageSentiment = async (
   message: string,
   conversationContext: ChatMessage[],
-  aiService: string = 'grok'
+  aiService: string = 'grok',
+  intent?: FullMessageIntent
 ): Promise<RelationshipEvent> => {
   try {
+    // OPTIMIZATION: Use pre-calculated intent if available (Unified Intent Phase 7)
+    if (intent) {
+      const tone = intent.tone;
+      const sentimentVal = tone.sentiment; // -1 to 1
+      
+      // Map -1..1 to 'positive'|'neutral'|'negative'
+      let sentiment: 'positive' | 'neutral' | 'negative' = 'neutral';
+      if (sentimentVal > 0.2) sentiment = 'positive';
+      else if (sentimentVal < -0.2) sentiment = 'negative';
+
+      // Map 0..1 intensity to 1..10
+      const intensity = Math.max(1, Math.round(tone.intensity * 10));
+
+      // Map primary emotion to user mood
+      const userMood = tone.primaryEmotion;
+
+      // Calculate score changes
+      const scoreChanges = calculateScoreChanges(sentiment, intensity, message, userMood);
+
+      return {
+        eventType: sentiment,
+        source: 'chat',
+        sentimentTowardCharacter: sentiment,
+        sentimentIntensity: intensity,
+        userMood,
+        ...scoreChanges,
+        userMessage: message,
+        notes: `Unified Intent: ${tone.explanation}`
+      };
+    }
+
     // Prepare context (last 3 messages)
     const recentMessages = conversationContext.slice(-3).map(msg => ({
       role: msg.role === 'user' ? 'user' : 'assistant',

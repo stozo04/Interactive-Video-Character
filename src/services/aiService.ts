@@ -2,6 +2,8 @@ import { ChatMessage, CharacterProfile, Task } from '../types';
 import { RelationshipMetrics } from './relationshipService';
 import { AIActionResponse } from './aiSchema';
 
+import { FullMessageIntent } from './intentService';
+
 // Define what a user can send (Text OR Audio OR Image with Text)
 export type UserContent = 
   | { type: 'text'; text: string }
@@ -51,6 +53,7 @@ export interface IAIChatService {
       response: AIActionResponse; 
       session: AIChatSession;
       audioData?: string; // URL to blob or base64 audio data
+      intent?: FullMessageIntent; // Phase 7: Start returning the "brain's" intent from analysis
   }>;
 
   generateGreeting(
@@ -62,5 +65,6 @@ export interface IAIChatService {
       greeting: AIActionResponse; 
       session: AIChatSession;
       audioData?: string; // URL to blob or base64 audio data
+      intent?: FullMessageIntent;
   }>;
 }
