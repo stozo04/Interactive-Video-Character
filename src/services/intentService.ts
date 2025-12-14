@@ -40,6 +40,10 @@ export interface RelationshipSignalIntent {
   isHostile: boolean;
   hostilityReason: string | null;
   
+  // Inappropriate/Boundary-crossing detection (especially from strangers)
+  isInappropriate: boolean;
+  inappropriatenessReason: string | null;
+  
   explanation: string;
 }
 
@@ -1478,6 +1482,20 @@ RUPTURES (Hostility):
 - Strong dismissal ("go away", "stop talking", "I hate you")
 - Aggressive sarcasm
 
+INAPPROPRIATE/BOUNDARY-CROSSING BEHAVIOR:
+- Sexual comments or requests that don't match the relationship level
+- Overly intimate/flirtatious language that exceeds the current relationship intimacy
+- Pushing boundaries after being told no
+- Making you uncomfortable with inappropriate requests
+- Treating you inappropriately for the relationship level (e.g., asking for nudes from a stranger vs. a romantic partner)
+- Boundary-testing questions from strangers (e.g., "what are you wearing?", "where are you?", "are you alone?") - these are often used to test boundaries and can feel invasive
+- Personal questions that feel too intimate for the relationship level
+
+IMPORTANT: Consider the relationship context:
+- Strangers/acquaintances: Sexual requests are inappropriate
+- Friends: Sexual requests may be inappropriate if there's no romantic interest
+- Close friends/lovers: Sexual/intimate requests may be appropriate depending on trust and mutual interest
+
 {context}
 
 TARGET MESSAGE: "{message}"
@@ -1493,6 +1511,8 @@ Respond with ONLY a JSON object (no markdown, no explanation):
   "milestoneConfidence": 0.0-1.0,
   "isHostile": true/false,
   "hostilityReason": "brief reason if hostile, else null",
+  "isInappropriate": true/false,
+  "inappropriatenessReason": "brief reason if inappropriate/boundary-crossing, else null",
   "explanation": "brief reason for milestone detection"
 }`;
 
@@ -1518,6 +1538,8 @@ export async function detectRelationshipSignalsLLM(
       milestoneConfidence: 0,
       isHostile: false,
       hostilityReason: null,
+      isInappropriate: false,
+      inappropriatenessReason: null,
       explanation: 'Message too short'
     };
   }
@@ -1577,6 +1599,8 @@ ${formattedContext}`;
         milestoneConfidence: 0,
         isHostile: false,
         hostilityReason: null,
+        isInappropriate: false,
+        inappropriatenessReason: null,
         explanation: 'Failed to parse LLM response'
       };
     }
@@ -1608,6 +1632,8 @@ ${formattedContext}`;
       milestoneConfidence: typeof parsed.milestoneConfidence === 'number' ? parsed.milestoneConfidence : 0,
       isHostile: Boolean(parsed.isHostile),
       hostilityReason: parsed.hostilityReason || null,
+      isInappropriate: Boolean(parsed.isInappropriate),
+      inappropriatenessReason: parsed.inappropriatenessReason || null,
       explanation: parsed.explanation || 'No explanation provided'
     };
 
@@ -1724,6 +1750,8 @@ function validateFullIntent(parsed: any): FullMessageIntent {
     milestoneConfidence: normalizeConfidence(parsed.relationshipSignals?.milestoneConfidence),
     isHostile: Boolean(parsed.relationshipSignals?.isHostile),
     hostilityReason: parsed.relationshipSignals?.hostilityReason || null,
+    isInappropriate: Boolean(parsed.relationshipSignals?.isInappropriate),
+    inappropriatenessReason: parsed.relationshipSignals?.inappropriatenessReason || null,
     explanation: String(parsed.relationshipSignals?.explanation || 'No explanation')
   };
 
@@ -1791,7 +1819,7 @@ Respond with this EXACT JSON structure:
   "tone": { "sentiment": -1to1, "primaryEmotion": "string", "intensity": 0-1, "isSarcastic": bool, "secondaryEmotion": "string|null", "explanation": "string" },
   "topics": { "topics": ["string"], "primaryTopic": "string|null", "emotionalContext": { "topic": "emotion" }, "entities": ["string"], "explanation": "string" },
   "openLoops": { "hasFollowUp": bool, "loopType": "string|null", "topic": "string|null", "suggestedFollowUp": "string|null", "timeframe": "string|null", "salience": 0-1, "explanation": "string" },
-  "relationshipSignals": { "milestone": "string|null", "milestoneConfidence": 0-1, "isHostile": bool, "hostilityReason": "string|null", "explanation": "string" }
+  "relationshipSignals": { "milestone": "string|null", "milestoneConfidence": 0-1, "isHostile": bool, "hostilityReason": "string|null", "isInappropriate": bool, "inappropriatenessReason": "string|null", "explanation": "string" }
 }`;
 
 
@@ -1838,14 +1866,32 @@ export async function detectFullIntentLLM(
       contents: prompt,
       config: {
         temperature: 0.1, // precision is key
-        maxOutputTokens: 1000, // larger buffer for nested json
+        maxOutputTokens: 2000, // Increased from 1000 to handle full nested JSON response (all 5 sections)
         responseMimeType: "application/json"
       }
     });
 
     const responseText = result.text || '{}';
     const cleanedText = responseText.replace(/```json\n?|\n?```/g, '').trim();
-    const parsed = JSON.parse(cleanedText);
+    
+    // Check if response was truncated (common when maxOutputTokens is too low)
+    if (!cleanedText || cleanedText.length < 50) {
+      throw new Error('Response too short - likely truncated. Increase maxOutputTokens.');
+    }
+    
+    // Check for incomplete JSON (truncated response)
+    if (!cleanedText.endsWith('}') && !cleanedText.match(/}\s*$/)) {
+      console.warn('⚠️ [IntentService] Response may be truncated - JSON appears incomplete');
+      // Try to parse anyway, but log warning
+    }
+    
+    let parsed;
+    try {
+      parsed = JSON.parse(cleanedText);
+    } catch (parseError) {
+      console.error('❌ [IntentService] Failed to parse JSON response. Response text:', cleanedText.substring(0, 200));
+      throw new Error(`JSON parse failed - response may be truncated. Original error: ${parseError}`);
+    }
 
     const fullIntent = validateFullIntent(parsed);
     
@@ -1867,27 +1913,39 @@ export async function detectFullIntentLLM(
 
 /**
  * Cached version of unified intent detection
+ * 
+ * IMPORTANT: When context is provided, we still check cache first to avoid duplicate calls
+ * within the same message processing flow. The cache is based on message text only,
+ * which is safe because intent detection is primarily message-driven.
  */
 export async function detectFullIntentLLMCached(
   message: string,
   context?: ConversationContext
 ): Promise<FullMessageIntent> {
   // Check cache (key based on message only)
+  // Note: We use message-only cache even with context to prevent duplicate calls
+  // within the same processing flow. Context affects interpretation but the primary
+  // intent is usually message-driven.
   const cacheKey = message.toLowerCase().trim();
   const cached = fullIntentCache.get(cacheKey);
   
-  // Use cache if available AND no context provided (context invalidates simple cache)
+  // Use cache if available and not expired
+  // We check cache even with context to prevent duplicate calls in the same flow
   if (cached && (Date.now() - cached.timestamp) < CACHE_TTL_MS) {
-    if (!context?.recentMessages?.length) {
+    // If context is provided but cache exists, log it but still use cache
+    // This prevents duplicate calls when the same message is processed multiple times
+    if (context?.recentMessages?.length) {
+      console.log('📋 [IntentService] Cache hit for unified intent (context provided but using cached result to avoid duplicate call)');
+    } else {
       console.log('📋 [IntentService] Cache hit for unified intent');
-      return cached.result;
     }
+    return cached.result;
   }
 
   // Make fresh call
   const result = await detectFullIntentLLM(message, context);
 
-  // Update cache
+  // Update cache (always cache, even with context, to prevent duplicates)
   fullIntentCache.set(cacheKey, {
     result,
     timestamp: Date.now()

@@ -69,12 +69,16 @@ export abstract class BaseAIService implements IAIChatService {
       }
 
       // Shared: Build Prompts (now reflects updated mood if genuine!)
+      // Pass the FULL semantic intent to inform response style dynamically
       const systemPrompt = buildSystemPrompt(
         options.character, 
         options.relationship, 
         options.upcomingEvents,
         options.characterContext,
-        options.tasks
+        options.tasks,
+        preCalculatedIntent?.relationshipSignals,
+        preCalculatedIntent?.tone,
+        preCalculatedIntent // Pass the entire FullMessageIntent
       );
       
       // Debug: Log calendar events being sent to AI

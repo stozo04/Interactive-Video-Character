@@ -26,11 +26,12 @@
  */
 
 import { detectOpenLoops } from './presenceDirector';
-import { analyzeMessageForPatterns } from './userPatterns';
+import { analyzeMessageForPatterns, detectTopics } from './userPatterns';
 import { detectMilestoneInMessage } from './relationshipMilestones';
 import { 
   recordInteraction, 
   detectGenuineMomentWithLLM,
+  detectGenuineMoment, // Keyword fallback function
   type ConversationContext,
   type GenuineMomentResult
 } from './moodKnobs';
@@ -339,6 +340,8 @@ export async function detectRelationshipSignalsWithLLM(
       milestoneConfidence: 0,
       isHostile: false,
       hostilityReason: null,
+      isInappropriate: false,
+      inappropriatenessReason: null,
       explanation: 'Fallback - LLM detection failed'
     };
   }
@@ -418,41 +421,124 @@ export async function analyzeUserMessage(
     relationshipSignalResult = fullIntent.relationshipSignals;
     
   } catch (error) {
-    console.warn('⚠️ [MessageAnalyzer] Unified intent detection failed, falling back to legacy methods:', error);
+    console.warn('⚠️ [MessageAnalyzer] Unified intent detection failed, falling back to keyword detection (no LLM calls):', error);
     
-    // 3. FALLBACK: Individually safe calls (each has its own internal fallbacks)
-    // We run these in parallel as a backup plan
-    const [
-      fallbackGenuine,
-      fallbackTone,
-      fallbackTopic,
-      fallbackLoop,
-      fallbackSignal
-    ] = await Promise.all([
-      detectGenuineMomentWithLLM(message, conversationContext),
-      detectToneWithLLM(message, conversationContext),
-      detectTopicsWithLLM(message, conversationContext),
-      detectOpenLoopsWithLLM(message, conversationContext),
-      detectRelationshipSignalsWithLLM(message, conversationContext)
-    ]);
+    // 3. FALLBACK: Use keyword/regex functions directly (per DetectFullIntent.md design)
+    // CRITICAL: Do NOT fallback to individual LLM calls - that would cause 2s+ latency spikes.
+    // Instead, use fast keyword/regex detection to keep the chat responsive.
     
-    // Fallback genuine result has the correct shape already (from moodKnobs)
+    // Run keyword detection synchronously (fast, no network calls)
+    const keywordGenuine = detectGenuineMoment(message);
+    const keywordTone = analyzeMessageToneKeywords(message);
+    const keywordTopics = detectTopics(message);
+    
+    // Convert keyword results to intent format
     genuineMomentResult = {
-        isGenuine: fallbackGenuine.isGenuine,
-        category: fallbackGenuine.category as GenuineMomentCategory | null,
-        matchedKeywords: fallbackGenuine.matchedKeywords
+      isGenuine: keywordGenuine.isGenuine,
+      category: keywordGenuine.category as GenuineMomentCategory | null,
+      matchedKeywords: keywordGenuine.matchedKeywords
     };
-    toneResult = fallbackTone;
-    topicResult = fallbackTopic;
-    openLoopResult = fallbackLoop;
-    relationshipSignalResult = fallbackSignal;
+    
+    toneResult = {
+      sentiment: keywordTone,
+      primaryEmotion: keywordTone > 0.3 ? 'happy' 
+                  : keywordTone < -0.3 ? 'sad' 
+                  : 'neutral',
+      intensity: Math.abs(keywordTone),
+      isSarcastic: false, // Keyword detection can't detect sarcasm
+      explanation: 'Fallback to keyword-based detection'
+    };
+    
+    topicResult = {
+      topics: keywordTopics as TopicCategory[],
+      primaryTopic: keywordTopics[0] as TopicCategory || null,
+      emotionalContext: {}, // Keywords can't detect emotional context
+      entities: [],
+      explanation: 'Fallback to keyword-based detection'
+    };
+    
+    // Open loops and relationship signals: return safe defaults
+    // (Regex patterns are internal to presenceDirector/relationshipMilestones)
+    openLoopResult = {
+      hasFollowUp: false,
+      loopType: null,
+      topic: null,
+      suggestedFollowUp: null,
+      timeframe: null,
+      salience: 0,
+      explanation: 'Fallback - no LLM detection available'
+    };
+    
+    relationshipSignalResult = {
+      isVulnerable: false,
+      isSeekingSupport: false,
+      isAcknowledgingSupport: false,
+      isJoking: false,
+      isDeepTalk: false,
+      milestone: null,
+      milestoneConfidence: 0,
+      isHostile: false,
+      hostilityReason: null,
+      isInappropriate: false,
+      inappropriatenessReason: null,
+      explanation: 'Fallback - no LLM detection available'
+    };
   }
   
   // Ensure we have valid objects (TypeScript safety)
-  if (!toneResult) toneResult = await detectToneWithLLM(message); // Should not happen given fallback logic
-  if (!topicResult) topicResult = await detectTopicsWithLLM(message);
-  if (!openLoopResult) openLoopResult = await detectOpenLoopsWithLLM(message);
-  if (!relationshipSignalResult) relationshipSignalResult = await detectRelationshipSignalsWithLLM(message);
+  // Note: These should never be null given our fallback logic above, but TypeScript requires checks.
+  // If somehow they are null, we use keyword fallback (no LLM calls) to maintain responsiveness.
+  if (!toneResult) {
+    console.warn('⚠️ [MessageAnalyzer] toneResult was null, using keyword fallback');
+    const keywordTone = analyzeMessageToneKeywords(message);
+    toneResult = {
+      sentiment: keywordTone,
+      primaryEmotion: keywordTone > 0.3 ? 'happy' : keywordTone < -0.3 ? 'sad' : 'neutral',
+      intensity: Math.abs(keywordTone),
+      isSarcastic: false,
+      explanation: 'Emergency keyword fallback'
+    };
+  }
+  if (!topicResult) {
+    console.warn('⚠️ [MessageAnalyzer] topicResult was null, using keyword fallback');
+    const keywordTopics = detectTopics(message);
+    topicResult = {
+      topics: keywordTopics as TopicCategory[],
+      primaryTopic: keywordTopics[0] as TopicCategory || null,
+      emotionalContext: {},
+      entities: [],
+      explanation: 'Emergency keyword fallback'
+    };
+  }
+  if (!openLoopResult) {
+    console.warn('⚠️ [MessageAnalyzer] openLoopResult was null, using safe default');
+    openLoopResult = {
+      hasFollowUp: false,
+      loopType: null,
+      topic: null,
+      suggestedFollowUp: null,
+      timeframe: null,
+      salience: 0,
+      explanation: 'Emergency fallback - no detection available'
+    };
+  }
+  if (!relationshipSignalResult) {
+    console.warn('⚠️ [MessageAnalyzer] relationshipSignalResult was null, using safe default');
+    relationshipSignalResult = {
+      isVulnerable: false,
+      isSeekingSupport: false,
+      isAcknowledgingSupport: false,
+      isJoking: false,
+      isDeepTalk: false,
+      milestone: null,
+      milestoneConfidence: 0,
+      isHostile: false,
+      hostilityReason: null,
+      isInappropriate: false,
+      inappropriatenessReason: null,
+      explanation: 'Emergency fallback - no detection available'
+    };
+  }
 
   // ============================================
   // Execution & Side Effects

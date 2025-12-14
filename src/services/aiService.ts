@@ -38,7 +38,8 @@ export interface AIMessage {
 export interface AIChatSession {
   userId: string;
   model?: string;
-  previousResponseId?: string; 
+  previousResponseId?: string; // Used by ChatGPT/Grok for stateful conversations
+  interactionId?: string; // Used by Gemini Interactions API for stateful conversations
   geminiHistory?: any[]; 
 }
 
