@@ -39,6 +39,8 @@ import {
   detectToneLLMCached,
   detectTopicsLLM,
   detectTopicsLLMCached,
+  detectOpenLoopsLLM,
+  detectOpenLoopsLLMCached,
   clearIntentCache,
   mapCategoryToInsecurity
 } from "../intentService";
@@ -2003,5 +2005,492 @@ describe("Phase 4: userPatterns with TopicIntent", () => {
     );
     
     expect(Array.isArray(result)).toBe(true);
+  });
+});
+
+// ============================================
+// Phase 5: Open Loop Detection Tests
+// ============================================
+
+describe("Phase 5: Intent Service - LLM Open Loop Detection", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    clearIntentCache();
+    
+    // Setup the mock implementation
+    (GoogleGenAI as any).mockImplementation(() => ({
+      models: {
+        generateContent: mockGenerateContent
+      }
+    }));
+  });
+
+  afterEach(() => {
+    clearIntentCache();
+  });
+
+  // ============================================
+  // Pending Event Detection Tests
+  // ============================================
+  
+  describe("detectOpenLoopsLLM - pending events", () => {
+    it("should detect interview tomorrow as pending_event with timeframe", async () => {
+      mockGenerateContent.mockResolvedValueOnce({
+        text: JSON.stringify({
+          hasFollowUp: true,
+          loopType: "pending_event",
+          topic: "job interview",
+          suggestedFollowUp: "How did your interview go?",
+          timeframe: "tomorrow",
+          salience: 0.8,
+          explanation: "User has an interview tomorrow that warrants follow-up"
+        })
+      });
+
+      const result = await detectOpenLoopsLLM("I have an interview tomorrow");
+      
+      expect(result.hasFollowUp).toBe(true);
+      expect(result.loopType).toBe("pending_event");
+      expect(result.topic).toBe("job interview");
+      expect(result.timeframe).toBe("tomorrow");
+      expect(result.salience).toBeGreaterThan(0.7);
+      expect(result.suggestedFollowUp).toContain("interview");
+    });
+
+    it("should detect presentation this week as pending_event", async () => {
+      mockGenerateContent.mockResolvedValueOnce({
+        text: JSON.stringify({
+          hasFollowUp: true,
+          loopType: "pending_event",
+          topic: "work presentation",
+          suggestedFollowUp: "How did your presentation go?",
+          timeframe: "this_week",
+          salience: 0.7,
+          explanation: "User has a presentation coming up"
+        })
+      });
+
+      const result = await detectOpenLoopsLLM("Got my big presentation coming up this week");
+      
+      expect(result.hasFollowUp).toBe(true);
+      expect(result.loopType).toBe("pending_event");
+      expect(result.timeframe).toBe("this_week");
+    });
+
+    it("should detect vague future events with 'soon' timeframe", async () => {
+      mockGenerateContent.mockResolvedValueOnce({
+        text: JSON.stringify({
+          hasFollowUp: true,
+          loopType: "pending_event",
+          topic: "moving to new apartment",
+          suggestedFollowUp: "How's the move going?",
+          timeframe: "soon",
+          salience: 0.75,
+          explanation: "User is moving soon"
+        })
+      });
+
+      const result = await detectOpenLoopsLLM("I'm moving to a new apartment soon");
+      
+      expect(result.hasFollowUp).toBe(true);
+      expect(result.timeframe).toBe("soon");
+    });
+  });
+
+  // ============================================
+  // Emotional Follow-up Tests
+  // ============================================
+  
+  describe("detectOpenLoopsLLM - emotional followup", () => {
+    it("should detect stress about a situation as emotional_followup", async () => {
+      mockGenerateContent.mockResolvedValueOnce({
+        text: JSON.stringify({
+          hasFollowUp: true,
+          loopType: "emotional_followup",
+          topic: "stress about the move",
+          suggestedFollowUp: "How are you feeling about the move now?",
+          timeframe: "soon",
+          salience: 0.8,
+          explanation: "User expresses stress about moving"
+        })
+      });
+
+      const result = await detectOpenLoopsLLM("I'm really stressed about the move");
+      
+      expect(result.hasFollowUp).toBe(true);
+      expect(result.loopType).toBe("emotional_followup");
+      expect(result.topic).toContain("move");
+    });
+
+    it("should detect anxiety about something as emotional_followup", async () => {
+      mockGenerateContent.mockResolvedValueOnce({
+        text: JSON.stringify({
+          hasFollowUp: true,
+          loopType: "emotional_followup",
+          topic: "anxiety about health",
+          suggestedFollowUp: "Are you feeling any better about your health?",
+          timeframe: "later",
+          salience: 0.85,
+          explanation: "User is anxious about health matters"
+        })
+      });
+
+      const result = await detectOpenLoopsLLM("Feeling really anxious about this health stuff");
+      
+      expect(result.hasFollowUp).toBe(true);
+      expect(result.loopType).toBe("emotional_followup");
+      expect(result.salience).toBeGreaterThan(0.7);
+    });
+  });
+
+  // ============================================
+  // Commitment Detection Tests (Soft & Strong)
+  // ============================================
+  
+  describe("detectOpenLoopsLLM - commitment_check", () => {
+    it("should detect soft commitment 'maybe I'll try' as commitment_check", async () => {
+      mockGenerateContent.mockResolvedValueOnce({
+        text: JSON.stringify({
+          hasFollowUp: true,
+          loopType: "commitment_check",
+          topic: "trying new gym",
+          suggestedFollowUp: "Did you end up trying that new gym?",
+          timeframe: "soon",
+          salience: 0.4,
+          explanation: "Soft commitment to try the gym"
+        })
+      });
+
+      const result = await detectOpenLoopsLLM("Maybe I'll try that new gym");
+      
+      expect(result.hasFollowUp).toBe(true);
+      expect(result.loopType).toBe("commitment_check");
+      expect(result.salience).toBeLessThan(0.6); // Soft commitment = lower salience
+    });
+
+    it("should detect 'should probably' as commitment_check", async () => {
+      mockGenerateContent.mockResolvedValueOnce({
+        text: JSON.stringify({
+          hasFollowUp: true,
+          loopType: "commitment_check",
+          topic: "calling mom",
+          suggestedFollowUp: "Did you end up calling your mom?",
+          timeframe: "soon",
+          salience: 0.5,
+          explanation: "User feels they should call their mom"
+        })
+      });
+
+      const result = await detectOpenLoopsLLM("I should probably call my mom");
+      
+      expect(result.hasFollowUp).toBe(true);
+      expect(result.loopType).toBe("commitment_check");
+    });
+
+    it("should detect strong commitment with higher salience", async () => {
+      mockGenerateContent.mockResolvedValueOnce({
+        text: JSON.stringify({
+          hasFollowUp: true,
+          loopType: "commitment_check",
+          topic: "quitting smoking",
+          suggestedFollowUp: "How's the quitting going?",
+          timeframe: "later",
+          salience: 0.8,
+          explanation: "Strong commitment to quit smoking"
+        })
+      });
+
+      const result = await detectOpenLoopsLLM("I'm going to quit smoking for real this time");
+      
+      expect(result.hasFollowUp).toBe(true);
+      expect(result.loopType).toBe("commitment_check");
+      expect(result.salience).toBeGreaterThan(0.7);
+    });
+  });
+
+  // ============================================
+  // No Follow-up Detection Tests
+  // ============================================
+  
+  describe("detectOpenLoopsLLM - no follow-up", () => {
+    it("should return no follow-up for generic messages", async () => {
+      mockGenerateContent.mockResolvedValueOnce({
+        text: JSON.stringify({
+          hasFollowUp: false,
+          loopType: null,
+          topic: null,
+          suggestedFollowUp: null,
+          timeframe: null,
+          salience: 0,
+          explanation: "Generic greeting, no follow-up needed"
+        })
+      });
+
+      const result = await detectOpenLoopsLLM("Hey what's up?");
+      
+      expect(result.hasFollowUp).toBe(false);
+      expect(result.loopType).toBeNull();
+      expect(result.topic).toBeNull();
+    });
+
+    it("should return no follow-up for short messages without LLM call", async () => {
+      const result = await detectOpenLoopsLLM("hi");
+      
+      expect(result.hasFollowUp).toBe(false);
+      expect(result.explanation).toContain("too short");
+      expect(mockGenerateContent).not.toHaveBeenCalled();
+    });
+  });
+
+  // ============================================
+  // Edge Cases
+  // ============================================
+  
+  describe("edge cases", () => {
+    it("should handle LLM JSON parsing errors gracefully", async () => {
+      mockGenerateContent.mockResolvedValueOnce({
+        text: "This is not valid JSON"
+      });
+
+      await expect(detectOpenLoopsLLM("I have an interview tomorrow"))
+        .rejects.toThrow();
+    });
+
+    it("should handle LLM API errors", async () => {
+      mockGenerateContent.mockRejectedValueOnce(new Error("API rate limit exceeded"));
+
+      await expect(detectOpenLoopsLLM("Interview coming up"))
+        .rejects.toThrow("API rate limit exceeded");
+    });
+
+    it("should validate and filter invalid loop types", async () => {
+      mockGenerateContent.mockResolvedValueOnce({
+        text: JSON.stringify({
+          hasFollowUp: true,
+          loopType: "invalid_type",
+          topic: "test",
+          suggestedFollowUp: "Test",
+          timeframe: "tomorrow",
+          salience: 0.5,
+          explanation: "Test"
+        })
+      });
+
+      const result = await detectOpenLoopsLLM("Some test message here");
+      
+      expect(result.hasFollowUp).toBe(true);
+      expect(result.loopType).toBeNull(); // Invalid type filtered out
+    });
+
+    it("should validate and filter invalid timeframes", async () => {
+      mockGenerateContent.mockResolvedValueOnce({
+        text: JSON.stringify({
+          hasFollowUp: true,
+          loopType: "pending_event",
+          topic: "test",
+          suggestedFollowUp: "Test",
+          timeframe: "next_year", // Invalid timeframe
+          salience: 0.5,
+          explanation: "Test"
+        })
+      });
+
+      const result = await detectOpenLoopsLLM("Some test message here");
+      
+      expect(result.timeframe).toBeNull(); // Invalid timeframe filtered out
+    });
+
+    it("should normalize salience to 0-1 range", async () => {
+      mockGenerateContent.mockResolvedValueOnce({
+        text: JSON.stringify({
+          hasFollowUp: true,
+          loopType: "pending_event",
+          topic: "test",
+          suggestedFollowUp: "Test",
+          timeframe: "tomorrow",
+          salience: 1.5, // Out of range
+          explanation: "Test"
+        })
+      });
+
+      const result = await detectOpenLoopsLLM("Test message with high salience value");
+      
+      expect(result.salience).toBeLessThanOrEqual(1);
+      expect(result.salience).toBeGreaterThanOrEqual(0);
+    });
+
+    it("should strip markdown code blocks from LLM response", async () => {
+      mockGenerateContent.mockResolvedValueOnce({
+        text: '```json\n{"hasFollowUp": true, "loopType": "pending_event", "topic": "interview", "suggestedFollowUp": "How did it go?", "timeframe": "tomorrow", "salience": 0.8, "explanation": "Test"}\n```'
+      });
+
+      const result = await detectOpenLoopsLLM("Got an interview tomorrow");
+      
+      expect(result.hasFollowUp).toBe(true);
+      expect(result.loopType).toBe("pending_event");
+    });
+  });
+
+  // ============================================
+  // Caching Tests
+  // ============================================
+  
+  describe("detectOpenLoopsLLMCached", () => {
+    it("should cache results and avoid redundant LLM calls", async () => {
+      mockGenerateContent.mockResolvedValue({
+        text: JSON.stringify({
+          hasFollowUp: true,
+          loopType: "pending_event",
+          topic: "interview",
+          suggestedFollowUp: "How did it go?",
+          timeframe: "tomorrow",
+          salience: 0.8,
+          explanation: "Interview tomorrow"
+        })
+      });
+
+      // First call - should hit LLM
+      const result1 = await detectOpenLoopsLLMCached("I have an interview tomorrow");
+      expect(mockGenerateContent).toHaveBeenCalledTimes(1);
+      
+      // Second call with same message - should use cache
+      const result2 = await detectOpenLoopsLLMCached("I have an interview tomorrow");
+      expect(mockGenerateContent).toHaveBeenCalledTimes(1); // Still 1
+      
+      // Results should be identical
+      expect(result1.hasFollowUp).toEqual(result2.hasFollowUp);
+      expect(result1.loopType).toEqual(result2.loopType);
+    });
+
+    it("should NOT use cache when context is provided", async () => {
+      mockGenerateContent.mockResolvedValue({
+        text: JSON.stringify({
+          hasFollowUp: true,
+          loopType: "pending_event",
+          topic: "test",
+          suggestedFollowUp: "Test",
+          timeframe: "tomorrow",
+          salience: 0.5,
+          explanation: "Context-dependent"
+        })
+      });
+
+      // First call without context (will cache)
+      await detectOpenLoopsLLMCached("Something big happening");
+      expect(mockGenerateContent).toHaveBeenCalledTimes(1);
+      
+      // Second call WITH context - should NOT use cache
+      await detectOpenLoopsLLMCached("Something big happening", {
+        recentMessages: [
+          { role: 'user', text: 'Prior message for context' }
+        ]
+      });
+      expect(mockGenerateContent).toHaveBeenCalledTimes(2);
+    });
+
+    it("should treat similar messages with different casing as same", async () => {
+      mockGenerateContent.mockResolvedValue({
+        text: JSON.stringify({
+          hasFollowUp: true,
+          loopType: "commitment_check",
+          topic: "gym",
+          suggestedFollowUp: "Did you go?",
+          timeframe: "soon",
+          salience: 0.4,
+          explanation: "Test"
+        })
+      });
+
+      await detectOpenLoopsLLMCached("Maybe I'll try the GYM");
+      await detectOpenLoopsLLMCached("maybe i'll try the gym");
+      
+      // Should only call LLM once due to case-insensitive caching
+      expect(mockGenerateContent).toHaveBeenCalledTimes(1);
+    });
+  });
+});
+
+// ============================================
+// Phase 5: Integration with messageAnalyzer
+// ============================================
+
+describe("Phase 5: Integration with messageAnalyzer", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    clearIntentCache();
+    
+    (GoogleGenAI as any).mockImplementation(() => ({
+      models: {
+        generateContent: mockGenerateContent
+      }
+    }));
+  });
+
+  it("should export detectOpenLoopsWithLLM from messageAnalyzer", async () => {
+    const { detectOpenLoopsWithLLM } = await import("../messageAnalyzer");
+    
+    expect(detectOpenLoopsWithLLM).toBeDefined();
+    expect(typeof detectOpenLoopsWithLLM).toBe("function");
+  });
+
+  it("should export OpenLoopIntent type from messageAnalyzer", async () => {
+    // Type check - if this compiles, OpenLoopIntent is exported correctly
+    const messageAnalyzer = await import("../messageAnalyzer");
+    
+    expect(messageAnalyzer.detectOpenLoopsWithLLM).toBeDefined();
+  });
+
+  it("should include openLoopResult in MessageAnalysisResult", async () => {
+    // Mock all required LLM calls
+    mockGenerateContent
+      .mockResolvedValueOnce({
+        text: JSON.stringify({
+          isGenuine: false,
+          category: null,
+          confidence: 0.5,
+          explanation: "Not genuine"
+        })
+      })
+      .mockResolvedValueOnce({
+        text: JSON.stringify({
+          sentiment: 0.3,
+          primaryEmotion: "neutral",
+          intensity: 0.3,
+          isSarcastic: false,
+          explanation: "Neutral tone"
+        })
+      })
+      .mockResolvedValueOnce({
+        text: JSON.stringify({
+          topics: [],
+          primaryTopic: null,
+          emotionalContext: {},
+          entities: [],
+          explanation: "No topic"
+        })
+      })
+      .mockResolvedValueOnce({
+        text: JSON.stringify({
+          hasFollowUp: true,
+          loopType: "pending_event",
+          topic: "interview",
+          suggestedFollowUp: "How did it go?",
+          timeframe: "tomorrow",
+          salience: 0.8,
+          explanation: "Interview tomorrow"
+        })
+      });
+    
+    const { analyzeUserMessage } = await import("../messageAnalyzer");
+    
+    const result = await analyzeUserMessage(
+      "test-user",
+      "I have a job interview tomorrow, wish me luck!",
+      1
+    );
+    
+    expect(result.openLoopResult).toBeDefined();
+    expect(result.openLoopResult?.hasFollowUp).toBe(true);
+    expect(result.openLoopResult?.loopType).toBe("pending_event");
   });
 });

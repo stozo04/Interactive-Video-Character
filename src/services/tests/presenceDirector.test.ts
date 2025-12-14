@@ -115,6 +115,19 @@ vi.mock("../../domain/characters/kayleyCharacterProfile", () => ({
 `
 }));
 
+// Mock intentService to prevent actual LLM calls
+vi.mock("../intentService", () => ({
+  detectOpenLoopsLLMCached: vi.fn().mockResolvedValue({
+    hasFollowUp: false,
+    loopType: null,
+    topic: null,
+    suggestedFollowUp: null,
+    timeframe: null,
+    salience: 0,
+    explanation: "Mocked - no follow-up"
+  })
+}));
+
 // Import after mocks are set up
 import {
   parseCharacterOpinions,

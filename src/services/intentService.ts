@@ -326,9 +326,16 @@ interface TopicCacheEntry {
   timestamp: number;
 }
 
+// Forward declaration of OpenLoopCacheEntry for openLoopCache
+interface OpenLoopCacheEntry {
+  result: OpenLoopIntent;
+  timestamp: number;
+}
+
 const intentCache = new Map<string, CacheEntry>();
 const toneCache = new Map<string, ToneCacheEntry>();
 const topicCache = new Map<string, TopicCacheEntry>();
+const openLoopCache = new Map<string, OpenLoopCacheEntry>();
 const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 
 /**
@@ -413,6 +420,7 @@ export function clearIntentCache(): void {
   intentCache.clear();
   toneCache.clear();
   topicCache.clear();
+  openLoopCache.clear();
 }
 
 // ============================================
@@ -1030,6 +1038,360 @@ export async function detectTopicsLLMCached(
   
   // Cache the result (without context)
   cacheTopics(message, result);
+  
+  return result;
+}
+
+// ============================================
+// Phase 5: Open Loop Detection Types
+// ============================================
+
+/**
+ * Loop types for follow-up detection.
+ * These map to the LoopType in presenceDirector.ts
+ */
+export type LoopTypeIntent = 
+  | 'pending_event'       // "How did X go?"
+  | 'emotional_followup'  // "Are you feeling better about X?"
+  | 'commitment_check'    // "Did you end up doing X?"
+  | 'curiosity_thread';   // "I've been thinking about what you said about X"
+
+/**
+ * Timeframe inference for when to follow up.
+ * The LLM infers this from temporal cues in the message.
+ */
+export type FollowUpTimeframe = 
+  | 'today'        // Should follow up very soon
+  | 'tomorrow'     // Follow up next day
+  | 'this_week'    // Follow up within a few days
+  | 'soon'         // Vague near-future
+  | 'later';       // More distant future
+
+/**
+ * Result of LLM-based open loop detection.
+ * Identifies things in a user message that warrant follow-up.
+ */
+export interface OpenLoopIntent {
+  /** Whether the message contains something to follow up on */
+  hasFollowUp: boolean;
+  /** The type of follow-up if detected */
+  loopType: LoopTypeIntent | null;
+  /** Brief description of the topic to follow up on */
+  topic: string | null;
+  /** Natural way to ask about it later (LLM-generated) */
+  suggestedFollowUp: string | null;
+  /** When to follow up (inferred from temporal cues) */
+  timeframe: FollowUpTimeframe | null;
+  /** How personal/important this is (0-1) */
+  salience: number;
+  /** Brief explanation for debugging */
+  explanation: string;
+}
+
+// ============================================
+// Phase 5: Open Loop Detection Implementation
+// ============================================
+
+/**
+ * Valid loop types for validation
+ */
+const VALID_LOOP_TYPES: LoopTypeIntent[] = [
+  'pending_event', 'emotional_followup', 'commitment_check', 'curiosity_thread'
+];
+
+/**
+ * Valid timeframes for validation
+ */
+const VALID_TIMEFRAMES: FollowUpTimeframe[] = [
+  'today', 'tomorrow', 'this_week', 'soon', 'later'
+];
+
+/**
+ * The prompt that instructs the LLM to detect open loops (things to follow up on).
+ * Designed to catch both explicit mentions ("I have an interview tomorrow")
+ * and implicit ones ("I should probably call my mom").
+ */
+const OPEN_LOOP_DETECTION_PROMPT = `You are an open loop detection system for an AI companion.
+
+Your task is to identify things in a user message that the AI companion should follow up on later. These create "open loops" - natural conversation threads that make the AI feel like they genuinely care and remember.
+
+LOOP TYPES:
+1. pending_event - Upcoming events or plans ("I have an interview tomorrow", "My birthday is next week")
+   → Triggers: "How did X go?" follow-up
+
+2. emotional_followup - Emotional states that warrant checking in ("I'm really stressed about the move", "Feeling anxious about this")
+   → Triggers: "How are you feeling about X now?" follow-up
+
+3. commitment_check - Intentions or soft commitments ("I'm going to try to quit", "I should probably call my mom", "Maybe I'll try that new gym")
+   → Triggers: "Did you end up doing X?" follow-up
+
+4. curiosity_thread - Interesting topics worth exploring ("I've been thinking about changing careers", "I realized something about myself")
+   → Triggers: "I've been thinking about what you said about X" follow-up
+
+TIMEFRAME INFERENCE:
+Extract when the follow-up should happen:
+- "today" - Event is today or needs immediate follow-up
+- "tomorrow" - Event is tomorrow or referenced explicitly
+- "this_week" - Within a few days, this week
+- "soon" - Near future but unspecified
+- "later" - More distant future or ongoing
+
+DETECTION RULES:
+1. Only detect meaningful follow-ups - not every message needs one
+2. Soft commitments count ("should probably", "maybe I'll") - these are commitment_check
+3. Emotional statements need follow-up even without explicit events
+4. Infer timeframe from context clues ("coming up", "eventually", "after the weekend")
+5. Set salience based on how personal/important this is (0.3 = casual mention, 0.9 = major life event)
+
+SALIENCE GUIDELINES:
+- 0.3-0.4: Casual mentions ("might try yoga")
+- 0.5-0.6: Moderate importance ("thinking about getting a pet")
+- 0.7-0.8: Significant ("job interview", "moving to a new city")
+- 0.9-1.0: Major life events ("wedding", "having surgery", "family emergency")
+
+{context}
+
+TARGET MESSAGE: "{message}"
+
+Respond with ONLY a JSON object (no markdown, no explanation):
+{
+  "hasFollowUp": true/false,
+  "loopType": "pending_event" | "emotional_followup" | "commitment_check" | "curiosity_thread" | null,
+  "topic": "brief description of what to follow up on" | null,
+  "suggestedFollowUp": "natural way to ask about it later" | null,
+  "timeframe": "today" | "tomorrow" | "this_week" | "soon" | "later" | null,
+  "salience": 0.0-1.0,
+  "explanation": "brief reason for this classification"
+}
+
+If nothing worth following up on, return:
+{"hasFollowUp": false, "loopType": null, "topic": null, "suggestedFollowUp": null, "timeframe": null, "salience": 0, "explanation": "No follow-up needed"}`;
+
+/**
+ * Validate that the loop type is one of the expected values
+ */
+function validateLoopType(loopType: unknown): LoopTypeIntent | null {
+  if (typeof loopType === 'string' && VALID_LOOP_TYPES.includes(loopType as LoopTypeIntent)) {
+    return loopType as LoopTypeIntent;
+  }
+  return null;
+}
+
+/**
+ * Validate that the timeframe is one of the expected values
+ */
+function validateTimeframe(timeframe: unknown): FollowUpTimeframe | null {
+  if (typeof timeframe === 'string' && VALID_TIMEFRAMES.includes(timeframe as FollowUpTimeframe)) {
+    return timeframe as FollowUpTimeframe;
+  }
+  return null;
+}
+
+/**
+ * Normalize salience to 0-1 range
+ */
+function normalizeSalience(salience: unknown): number {
+  if (typeof salience === 'number') {
+    return Math.max(0, Math.min(1, salience));
+  }
+  return 0.5; // Default to medium salience if not provided
+}
+
+/**
+ * Detect open loops using LLM semantic understanding.
+ * This is the Phase 5 core function that replaces regex-based pattern matching.
+ * 
+ * @param message - The user's message to analyze
+ * @param context - Optional conversation context for accurate interpretation
+ * @returns Promise resolving to the detected open loop
+ */
+export async function detectOpenLoopsLLM(
+  message: string,
+  context?: ConversationContext
+): Promise<OpenLoopIntent> {
+  // Edge case: Empty/trivial messages - return no loop
+  if (!message || message.trim().length < 10) {
+    return {
+      hasFollowUp: false,
+      loopType: null,
+      topic: null,
+      suggestedFollowUp: null,
+      timeframe: null,
+      salience: 0,
+      explanation: 'Message too short for open loop detection'
+    };
+  }
+
+  // Edge case: Very long messages - truncate to prevent token overflow
+  const MAX_MESSAGE_LENGTH = 500;
+  const processedMessage = message.length > MAX_MESSAGE_LENGTH 
+    ? message.slice(0, MAX_MESSAGE_LENGTH) + '...'
+    : message;
+
+  // Edge case: Check API key before making call
+  if (!GEMINI_API_KEY) {
+    console.warn('⚠️ [IntentService] API key not set, skipping LLM open loop detection');
+    throw new Error('VITE_GEMINI_API_KEY is not set');
+  }
+
+  try {
+    const ai = getIntentClient();
+    
+    // Sanitize message to prevent prompt injection
+    const sanitizedMessage = processedMessage.replace(/[{}]/g, '');
+    
+    // Build conversation context string if provided
+    let contextString = '';
+    if (context?.recentMessages && context.recentMessages.length > 0) {
+      const recentContext = context.recentMessages.slice(-5);
+      const formattedContext = recentContext.map(msg => {
+        const role = msg.role === 'user' ? 'User' : 'Assistant';
+        const text = msg.text.length > 150 ? msg.text.slice(0, 150) + '...' : msg.text;
+        return `${role}: ${text.replace(/[{}]/g, '')}`;
+      }).join('\n');
+      
+      contextString = `CONVERSATION CONTEXT (for understanding temporal and emotional context):
+${formattedContext}`;
+      
+      console.log(`📝 [IntentService] Open loop detection with ${recentContext.length} messages of context`);
+    }
+    
+    // Build final prompt with context
+    let prompt = OPEN_LOOP_DETECTION_PROMPT
+      .replace('{message}', sanitizedMessage)
+      .replace('{context}', contextString);
+    
+    // Make the LLM call
+    const result = await ai.models.generateContent({
+      model: INTENT_MODEL,
+      contents: prompt,
+      config: {
+        temperature: 0.1, // Low temperature for consistent results
+        maxOutputTokens: 300,
+      }
+    });
+    
+    const responseText = result.text || '{}';
+    
+    // Edge case: Empty response from LLM
+    if (!responseText.trim()) {
+      console.warn('⚠️ [IntentService] Empty response from LLM for open loop detection');
+      return {
+        hasFollowUp: false,
+        loopType: null,
+        topic: null,
+        suggestedFollowUp: null,
+        timeframe: null,
+        salience: 0,
+        explanation: 'Empty LLM response'
+      };
+    }
+    
+    // Parse the JSON response
+    const cleanedText = responseText.replace(/```json\n?|\n?```/g, '').trim();
+    const parsed = JSON.parse(cleanedText);
+    
+    // Validate and normalize the response
+    const openLoopIntent: OpenLoopIntent = {
+      hasFollowUp: Boolean(parsed.hasFollowUp),
+      loopType: validateLoopType(parsed.loopType),
+      topic: parsed.topic && typeof parsed.topic === 'string' ? parsed.topic : null,
+      suggestedFollowUp: parsed.suggestedFollowUp && typeof parsed.suggestedFollowUp === 'string' 
+        ? parsed.suggestedFollowUp : null,
+      timeframe: validateTimeframe(parsed.timeframe),
+      salience: normalizeSalience(parsed.salience),
+      explanation: String(parsed.explanation || 'No explanation provided')
+    };
+    
+    // Log for debugging
+    if (openLoopIntent.hasFollowUp) {
+      console.log(`🔄 [IntentService] Open loop detected via LLM:`, {
+        type: openLoopIntent.loopType,
+        topic: openLoopIntent.topic,
+        timeframe: openLoopIntent.timeframe,
+        salience: openLoopIntent.salience.toFixed(2),
+        followUp: openLoopIntent.suggestedFollowUp
+      });
+    }
+    
+    return openLoopIntent;
+    
+  } catch (error) {
+    console.error('❌ [IntentService] Open loop LLM detection failed:', error);
+    throw error; // Re-throw so caller can fall back to regex patterns
+  }
+}
+
+// ============================================
+// Open Loop Cache
+// ============================================
+
+/**
+ * Get cached open loop result if available and not expired
+ */
+function getCachedOpenLoop(message: string): OpenLoopIntent | null {
+  const cacheKey = message.toLowerCase().trim();
+  const cached = openLoopCache.get(cacheKey);
+  
+  if (cached && (Date.now() - cached.timestamp) < CACHE_TTL_MS) {
+    console.log('📋 [IntentService] Cache hit for open loop detection');
+    return cached.result;
+  }
+  
+  // Clean up expired entry
+  if (cached) {
+    openLoopCache.delete(cacheKey);
+  }
+  
+  return null;
+}
+
+/**
+ * Store open loop result in cache
+ */
+function cacheOpenLoop(message: string, result: OpenLoopIntent): void {
+  const cacheKey = message.toLowerCase().trim();
+  openLoopCache.set(cacheKey, {
+    result,
+    timestamp: Date.now()
+  });
+  
+  // Cleanup old entries if cache gets too big
+  if (openLoopCache.size > 100) {
+    const now = Date.now();
+    for (const [key, entry] of openLoopCache.entries()) {
+      if (now - entry.timestamp > CACHE_TTL_MS) {
+        openLoopCache.delete(key);
+      }
+    }
+  }
+}
+
+/**
+ * Cached version of detectOpenLoopsLLM.
+ * Returns cached result if available, otherwise makes LLM call and caches result.
+ * 
+ * Note: Cache key is based on message only. When context is provided,
+ * we skip the cache to ensure accurate interpretation.
+ * 
+ * @param message - The user's message to analyze
+ * @param context - Optional conversation context for accurate interpretation
+ */
+export async function detectOpenLoopsLLMCached(
+  message: string,
+  context?: ConversationContext
+): Promise<OpenLoopIntent> {
+  // Only use cache if no context was provided
+  const cached = getCachedOpenLoop(message);
+  if (cached && !context?.recentMessages?.length) {
+    return cached;
+  }
+  
+  // Make LLM call with context
+  const result = await detectOpenLoopsLLM(message, context);
+  
+  // Cache the result (without context)
+  cacheOpenLoop(message, result);
   
   return result;
 }
