@@ -465,11 +465,28 @@ export async function expireOldLoops(userId: string): Promise<void> {
  * @param llmCall - DEPRECATED: no longer used, LLM detection now uses intentService
  * @param conversationContext - Optional context for LLM detection
  */
+/**
+ * Analyze a user message for potential open loops to create.
+ * This should be called after each user message.
+ * 
+ * Phase 5: Now uses LLM-based detection as the primary method,
+ * with regex patterns as fallback when LLM fails or returns nothing.
+ * 
+ * Phase 7 Update: Accepts 'providedIntent' from the Unified Intent System
+ * to avoid redundant LLM calls.
+ * 
+ * @param userId - The user's ID
+ * @param userMessage - The user's message to analyze
+ * @param llmCall - DEPRECATED: no longer used
+ * @param conversationContext - Optional context for LLM detection
+ * @param providedIntent - PRE-CALCULATED intent from the unified system (optimization)
+ */
 export async function detectOpenLoops(
   userId: string,
   userMessage: string,
   llmCall?: (prompt: string) => Promise<string>,
-  conversationContext?: ConversationContext
+  conversationContext?: ConversationContext,
+  providedIntent?: OpenLoopIntent
 ): Promise<OpenLoop[]> {
   const createdLoops: OpenLoop[] = [];
   
@@ -478,11 +495,17 @@ export async function detectOpenLoops(
     return createdLoops;
   }
   
-  // Phase 5: Try LLM-based detection first (preferred)
+  // Phase 5/7: Try LLM-based detection (either provided or internal)
   let llmResult: OpenLoopIntent | null = null;
   
   try {
-    llmResult = await detectOpenLoopsLLMCached(userMessage, conversationContext);
+    // If we have a pre-calculated intent, use it!
+    if (providedIntent) {
+      llmResult = providedIntent;
+    } else {
+      // Otherwise, make the internal call (Phase 5 behavior)
+      llmResult = await detectOpenLoopsLLMCached(userMessage, conversationContext);
+    }
     
     if (llmResult && llmResult.hasFollowUp && llmResult.loopType && llmResult.topic) {
       // Convert LLM result to open loop

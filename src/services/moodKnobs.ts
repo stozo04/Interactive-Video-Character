@@ -785,7 +785,8 @@ export function resetEmotionalMomentum(): void {
  */
 export function recordInteraction(
   toneOrToneIntent: number | ToneIntent = 0, 
-  userMessage: string = ''
+  userMessage: string = '',
+  genuineMomentOverride?: GenuineMomentResult
 ): void {
   const state = getStoredMoodState() || createFreshMoodState();
   
@@ -821,7 +822,7 @@ export function recordInteraction(
   localStorage.setItem(LAST_INTERACTION_KEY, Date.now().toString());
   
   // Update emotional momentum with intensity-modulated shifts
-  updateEmotionalMomentumWithIntensity(tone, intensity, userMessage);
+  updateEmotionalMomentumWithIntensity(tone, intensity, userMessage, genuineMomentOverride);
 }
 
 /**
@@ -831,11 +832,13 @@ export function recordInteraction(
  * @param tone - Sentiment from -1 to 1
  * @param intensity - Emotion intensity from 0 to 1
  * @param userMessage - Optional user message for genuine moment detection
+ * @param genuineMomentOverride - Optional pre-calculated genuine moment result (e.g. from LLM)
  */
-function updateEmotionalMomentumWithIntensity(
+export function updateEmotionalMomentumWithIntensity(
   tone: number,
   intensity: number,
-  userMessage: string = ''
+  userMessage: string = '',
+  genuineMomentOverride?: GenuineMomentResult
 ): EmotionalMomentum {
   const momentum = getEmotionalMomentum();
   const moodState = getStoredMoodState() || createFreshMoodState();
@@ -846,8 +849,8 @@ function updateEmotionalMomentumWithIntensity(
     momentum.recentInteractionTones.shift();
   }
   
-  // Check for genuine moment (still uses sync keyword detection here)
-  const genuineMoment = detectGenuineMoment(userMessage);
+  // Check for genuine moment (use override if provided, otherwise default to keyword detection)
+  const genuineMoment = genuineMomentOverride || detectGenuineMoment(userMessage);
   
   if (genuineMoment.isGenuine && genuineMoment.isPositiveAffirmation) {
     // GENUINE MOMENT DETECTED - Instant positive shift!

@@ -31,13 +31,15 @@ import { detectMilestoneInMessage } from './relationshipMilestones';
 import { 
   recordInteraction, 
   detectGenuineMomentWithLLM,
-  type ConversationContext
+  type ConversationContext,
+  type GenuineMomentResult
 } from './moodKnobs';
 import {
   detectToneLLMCached,
   detectTopicsLLMCached,
   detectOpenLoopsLLMCached,
   detectRelationshipSignalsLLMCached,
+  detectFullIntentLLMCached,
   type ToneIntent,
   type PrimaryEmotion,
   type TopicIntent,
@@ -45,7 +47,10 @@ import {
   type OpenLoopIntent,
   type LoopTypeIntent,
   type FollowUpTimeframe,
-  type RelationshipSignalIntent
+  type RelationshipSignalIntent,
+  type FullMessageIntent,
+  type GenuineMomentIntent,
+  type GenuineMomentCategory
 } from './intentService';
 import type { OpenLoop } from './presenceDirector';
 import type { UserPattern } from './userPatterns';
@@ -325,6 +330,11 @@ export async function detectRelationshipSignalsWithLLM(
     
     // Return safe default - no signal detected
     return {
+      isVulnerable: false,
+      isSeekingSupport: false,
+      isAcknowledgingSupport: false,
+      isJoking: false,
+      isDeepTalk: false,
       milestone: null,
       milestoneConfidence: 0,
       isHostile: false,
@@ -356,7 +366,8 @@ export async function analyzeUserMessage(
   message: string,
   interactionCount: number = 0,
   llmCall?: (prompt: string) => Promise<string>,
-  conversationContext?: ConversationContext
+  conversationContext?: ConversationContext,
+  preCalculatedIntent?: FullMessageIntent
 ): Promise<MessageAnalysisResult> {
   // Skip very short messages
   if (message.length < 5) {
@@ -369,51 +380,116 @@ export async function analyzeUserMessage(
     };
   }
 
-  // Run LLM-based detection tasks in parallel for efficiency
-  // Phase 1: Genuine moment, Phase 2: Tone, Phase 4: Topics, Phase 5: Open Loops
-  const [
-    genuineMomentResult,
-    toneResult,
-    topicResult,
-    openLoopResult,
-    createdLoops,
-    relationshipSignalResult
-  ] = await Promise.all([
-    // LLM-based genuine moment detection (Phase 1)
-    detectGenuineMomentWithLLM(message, conversationContext),
+  // ============================================
+  // PERF: Unified Intent Detection (Phase 7)
+  // ============================================
+  // Replaces 5 separate LLM calls with 1 master call.
+  // Falls back to keyword detection ONLY if the master call fails.
+  
+  // Initialize with null/empty defaults
+  let genuineMomentResult: { isGenuine: boolean; category: GenuineMomentCategory | null; matchedKeywords: string[] } = { 
+    isGenuine: false, 
+    category: null, 
+    matchedKeywords: [] 
+  };
+  let toneResult: ToneIntent | null = null;
+  let topicResult: TopicIntent | null = null;
+  let openLoopResult: OpenLoopIntent | null = null;
+  let relationshipSignalResult: RelationshipSignalIntent | null = null;
+  
+  try {
+    // 1. The Single Source of Truth
+    // Use pre-calculated intent if provided (optimization from BaseAIService)
+    const fullIntent = preCalculatedIntent || await detectFullIntentLLMCached(message, conversationContext);
     
-    // LLM-based tone & sentiment detection (Phase 2)
-    detectToneWithLLM(message, conversationContext),
+    // 2. Distribute results
+    // Map Genuine Moment from Intent (minimal) to Result (richer)
+    if (fullIntent.genuineMoment.isGenuine) {
+       genuineMomentResult = {
+        isGenuine: true,
+        category: fullIntent.genuineMoment.category,
+        matchedKeywords: ['LLM Unified Detection']
+      };
+    }
     
-    // LLM-based topic detection (Phase 4)
-    detectTopicsWithLLM(message, conversationContext),
+    toneResult = fullIntent.tone;
+    topicResult = fullIntent.topics;
+    openLoopResult = fullIntent.openLoops;
+    relationshipSignalResult = fullIntent.relationshipSignals;
     
-    // LLM-based open loop detection (Phase 5) - for direct access
-    detectOpenLoopsWithLLM(message, conversationContext),
+  } catch (error) {
+    console.warn('⚠️ [MessageAnalyzer] Unified intent detection failed, falling back to legacy methods:', error);
     
-    // Detect open loops and create them in Supabase (Phase 5 uses LLM internally)
-    detectOpenLoops(userId, message, llmCall, conversationContext),
+    // 3. FALLBACK: Individually safe calls (each has its own internal fallbacks)
+    // We run these in parallel as a backup plan
+    const [
+      fallbackGenuine,
+      fallbackTone,
+      fallbackTopic,
+      fallbackLoop,
+      fallbackSignal
+    ] = await Promise.all([
+      detectGenuineMomentWithLLM(message, conversationContext),
+      detectToneWithLLM(message, conversationContext),
+      detectTopicsWithLLM(message, conversationContext),
+      detectOpenLoopsWithLLM(message, conversationContext),
+      detectRelationshipSignalsWithLLM(message, conversationContext)
+    ]);
     
-    // LLM-based relationship signal detection (Phase 6)
-    detectRelationshipSignalsWithLLM(message, conversationContext)
-  ]);
+    // Fallback genuine result has the correct shape already (from moodKnobs)
+    genuineMomentResult = {
+        isGenuine: fallbackGenuine.isGenuine,
+        category: fallbackGenuine.category as GenuineMomentCategory | null,
+        matchedKeywords: fallbackGenuine.matchedKeywords
+    };
+    toneResult = fallbackTone;
+    topicResult = fallbackTopic;
+    openLoopResult = fallbackLoop;
+    relationshipSignalResult = fallbackSignal;
+  }
+  
+  // Ensure we have valid objects (TypeScript safety)
+  if (!toneResult) toneResult = await detectToneWithLLM(message); // Should not happen given fallback logic
+  if (!topicResult) topicResult = await detectTopicsWithLLM(message);
+  if (!openLoopResult) openLoopResult = await detectOpenLoopsWithLLM(message);
+  if (!relationshipSignalResult) relationshipSignalResult = await detectRelationshipSignalsWithLLM(message);
+
+  // ============================================
+  // Execution & Side Effects
+  // ============================================
+
+  // Phase 5: Create open loops (using the detected intent)
+  // We pass 'openLoopResult' so it doesn't need to call LLM again
+  const createdLoops = await detectOpenLoops(
+    userId, 
+    message, 
+    llmCall, 
+    conversationContext,
+    openLoopResult // Injection!
+  );
   
   // Phase 6: Pass intent to milestone detection
   const recordedMilestone = await detectMilestoneInMessage(userId, message, interactionCount, relationshipSignalResult);
   
-  // Phase 3: Analyze for cross-session patterns WITH toneResult AND topicResult
-  // This enables LLM-based mood detection via primaryEmotion and topic detection
-  // Runs after tone/topic detection so we can pass the results
+  // Phase 3: Analyze for cross-session patterns
   const detectedPatterns = await analyzeMessageForPatterns(userId, message, new Date(), toneResult, topicResult);
   
-  // Use LLM sentiment for message tone (fallback is already in toneResult)
+  // Use LLM sentiment for message tone
   const messageTone = toneResult.sentiment;
   
-  // Record interaction for emotional momentum (sync, uses full ToneIntent for Phase 3)
-  // Passing full toneResult enables:
-  // - primaryEmotion for mood pattern tracking
-  // - intensity for modulating mood shift speed
-  recordInteraction(toneResult, message);
+  // Record interaction for emotional momentum (sync)
+  // Phase 7 Update: We now pass the LLM-derived genuine moment result
+  // This ensures the mood system 'sees' what the LLM detected
+  recordInteraction(
+    toneResult, 
+    message,
+    {
+      isGenuine: genuineMomentResult.isGenuine,
+      category: genuineMomentResult.category as any, // Cast to avoid tight coupling issues if types drift
+      matchedKeywords: genuineMomentResult.matchedKeywords,
+      isPositiveAffirmation: true // If LLM says genuine, it implies positive affirmation
+    }
+  );
 
   // Log what was detected
   if (createdLoops.length > 0) {
@@ -463,17 +539,24 @@ export async function analyzeUserMessage(
  * @param interactionCount - Total number of interactions with this user
  * @param conversationContext - Optional recent chat history for LLM context
  */
-export function analyzeUserMessageBackground(
+export async function analyzeUserMessageBackground(
   userId: string,
   message: string,
-  interactionCount: number = 0,
-  conversationContext?: ConversationContext
-): void {
-  // Fire and forget - don't block the response
-  analyzeUserMessage(userId, message, interactionCount, undefined, conversationContext)
-    .catch(error => {
-      console.warn('[MessageAnalyzer] Background analysis failed:', error);
-    });
+  interactionCount: number,
+  conversationContext?: ConversationContext,
+  preCalculatedIntent?: FullMessageIntent
+): Promise<void> {
+  // Fire and forget - don't await this in the main thread
+  analyzeUserMessage(
+    userId, 
+    message, 
+    interactionCount, 
+    undefined, 
+    conversationContext,
+    preCalculatedIntent
+  ).catch(err => {
+    console.error('❌ [MessageAnalyzer] Background analysis failed:', err);
+  });
 }
 
 export default {

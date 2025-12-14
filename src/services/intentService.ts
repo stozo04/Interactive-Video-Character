@@ -24,6 +24,14 @@ const INTENT_MODEL = 'gemini-2.5-flash';
 // ============================================
 
 export interface RelationshipSignalIntent {
+  // Richer signal detection
+  isVulnerable: boolean;
+  vulnerabilityType?: string;
+  isSeekingSupport: boolean;
+  isAcknowledgingSupport: boolean;
+  isJoking: boolean;
+  isDeepTalk: boolean;
+
   // Milestone detection
   milestone: 'first_vulnerability' | 'first_joke' | 'first_support' | 'first_deep_talk' | null;
   milestoneConfidence: number;
@@ -105,6 +113,13 @@ function getIntentClient(): GoogleGenAI {
     aiClient = new GoogleGenAI({ apiKey: GEMINI_API_KEY });
   }
   return aiClient;
+}
+
+/**
+ * Reset the AI client (for testing purposes)
+ */
+export function resetIntentClientForTesting(): void {
+  aiClient = null;
 }
 
 // ============================================
@@ -1456,7 +1471,7 @@ MILESTONE CATEGORIES:
 - first_vulnerability: User opens up emotionally, shares secrets, shows weakness ("I've never told anyone this", "I'm scared")
 - first_joke: Shared humor, user laughing WITH the AI, inside jokes ("haha you're so funny", "lol good one")
 - first_support: User asks for help/advice on deep issues ("I don't know what to do", "I need your help")
-- first_deep_talk: Philosophical, life questions, deep meaningful conversation ("What is the meaning of life?", "I've been thinking about my future")
+- first_deep_talk: Philosophical, life questions, deep meaningful conversation OR meta-commentary about depth ("What is the meaning of life?", "This got deep huh", "We are having a real moment")
 
 RUPTURES (Hostility):
 - Direct insults ("you're stupid", "shut up", "you suck")
@@ -1468,7 +1483,12 @@ RUPTURES (Hostility):
 TARGET MESSAGE: "{message}"
 
 Respond with ONLY a JSON object (no markdown, no explanation):
-{
+  "isVulnerable": true/false,
+  "vulnerabilityType": "brief type if vulnerable",
+  "isSeekingSupport": true/false,
+  "isAcknowledgingSupport": true/false,
+  "isJoking": true/false,
+  "isDeepTalk": true/false,
   "milestone": "first_vulnerability" | "first_joke" | "first_support" | "first_deep_talk" | null,
   "milestoneConfidence": 0.0-1.0,
   "isHostile": true/false,
@@ -1489,6 +1509,11 @@ export async function detectRelationshipSignalsLLM(
   // Edge case: Empty/trivial messages
   if (!message || message.trim().length < 2) {
     return {
+      isVulnerable: false,
+      isSeekingSupport: false,
+      isAcknowledgingSupport: false,
+      isJoking: false,
+      isDeepTalk: false,
       milestone: null,
       milestoneConfidence: 0,
       isHostile: false,
@@ -1543,6 +1568,11 @@ ${formattedContext}`;
     } catch (e) {
       console.warn('⚠️ [IntentService] Failed to parse relationship signals JSON', e);
       return {
+        isVulnerable: false,
+        isSeekingSupport: false,
+        isAcknowledgingSupport: false,
+        isJoking: false,
+        isDeepTalk: false,
         milestone: null,
         milestoneConfidence: 0,
         isHostile: false,
@@ -1551,13 +1581,31 @@ ${formattedContext}`;
       };
     }
 
-    // Validate milestone
     const validMilestones = ['first_vulnerability', 'first_joke', 'first_support', 'first_deep_talk'];
-    const milestone = validMilestones.includes(parsed.milestone) ? parsed.milestone : null;
+    
+    // Normalize logic: If isDeepTalk is high confidence but milestone is null, we can hint at it
+    // But for now, we trust the LLM's milestone decision if confidence is high.
+    // However, if the user explicitly said "This got deep huh", we expect isDeepTalk=true.
+    // We map that to 'first_deep_talk' if the milestone was missed but signals are strong.
+    
+    let milestone = validMilestones.includes(parsed.milestone) ? parsed.milestone : null;
+    
+    // Auto-fix: If strong signals exist but milestone is null, inference can happen here.
+    // For "This got deep huh", isDeepTalk should be true.
+    if (!milestone && parsed.isDeepTalk && parsed.milestoneConfidence > 0.7) {
+       milestone = 'first_deep_talk';
+    }
 
     return {
+      isVulnerable: Boolean(parsed.isVulnerable),
+      vulnerabilityType: parsed.vulnerabilityType || undefined,
+      isSeekingSupport: Boolean(parsed.isSeekingSupport),
+      isAcknowledgingSupport: Boolean(parsed.isAcknowledgingSupport),
+      isJoking: Boolean(parsed.isJoking),
+      isDeepTalk: Boolean(parsed.isDeepTalk),
+      
       milestone,
-      milestoneConfidence: normalizeConfidence(parsed.milestoneConfidence),
+      milestoneConfidence: typeof parsed.milestoneConfidence === 'number' ? parsed.milestoneConfidence : 0,
       isHostile: Boolean(parsed.isHostile),
       hostilityReason: parsed.hostilityReason || null,
       explanation: parsed.explanation || 'No explanation provided'
@@ -1595,6 +1643,263 @@ export async function detectRelationshipSignalsLLMCached(
     result,
     timestamp: Date.now()
   });
+
+  return result;
+}
+
+// ============================================
+// PHASE 7: UNIFIED INTENT DETECTION (Optimization)
+// ============================================
+
+export interface FullMessageIntent {
+  genuineMoment: GenuineMomentIntent;
+  tone: ToneIntent;
+  topics: TopicIntent;
+  openLoops: OpenLoopIntent;
+  relationshipSignals: RelationshipSignalIntent;
+}
+
+interface FullIntentCacheEntry {
+  result: FullMessageIntent;
+  timestamp: number;
+}
+
+const fullIntentCache = new Map<string, FullIntentCacheEntry>();
+
+/**
+ * Validates and normalizes the full intent response from LLM
+ */
+function validateFullIntent(parsed: any): FullMessageIntent {
+  // Validate Genuine Moment
+  const genuineMoment: GenuineMomentIntent = {
+    isGenuine: Boolean(parsed.genuineMoment?.isGenuine),
+    category: validateCategory(parsed.genuineMoment?.category),
+    confidence: normalizeConfidence(parsed.genuineMoment?.confidence),
+    explanation: String(parsed.genuineMoment?.explanation || 'No explanation')
+  };
+
+  // Validate Tone
+  const tone: ToneIntent = {
+    sentiment: normalizeSentiment(parsed.tone?.sentiment),
+    primaryEmotion: validateEmotion(parsed.tone?.primaryEmotion),
+    intensity: normalizeIntensity(parsed.tone?.intensity),
+    isSarcastic: Boolean(parsed.tone?.isSarcastic),
+    secondaryEmotion: parsed.tone?.secondaryEmotion ? validateEmotion(parsed.tone?.secondaryEmotion) : undefined,
+    explanation: String(parsed.tone?.explanation || 'No explanation')
+  };
+
+  // Validate Topics
+  const topicList = Array.isArray(parsed.topics?.topics) ? parsed.topics.topics : [];
+  const topics: TopicIntent = {
+    topics: topicList.map((t: unknown) => validateTopic(t)).filter((t: TopicCategory | null): t is TopicCategory => t !== null),
+    primaryTopic: validateTopic(parsed.topics?.primaryTopic),
+    emotionalContext: parsed.topics?.emotionalContext || {},
+    entities: Array.isArray(parsed.topics?.entities) ? parsed.topics.entities.map(String) : [],
+    explanation: String(parsed.topics?.explanation || 'No explanation')
+  };
+
+  // Validate Open Loops
+  const openLoops: OpenLoopIntent = {
+    hasFollowUp: Boolean(parsed.openLoops?.hasFollowUp),
+    loopType: validateLoopType(parsed.openLoops?.loopType),
+    topic: parsed.openLoops?.topic ? String(parsed.openLoops.topic) : null,
+    suggestedFollowUp: parsed.openLoops?.suggestedFollowUp ? String(parsed.openLoops.suggestedFollowUp) : null,
+    timeframe: validateTimeframe(parsed.openLoops?.timeframe),
+    salience: normalizeSalience(parsed.openLoops?.salience),
+    explanation: String(parsed.openLoops?.explanation || 'No explanation')
+  };
+
+  // Validate Relationship Signals
+  const validMilestones = ['first_vulnerability', 'first_joke', 'first_support', 'first_deep_talk'];
+  const relationshipSignals: RelationshipSignalIntent = {
+    isVulnerable: Boolean(parsed.relationshipSignals?.isVulnerable),
+    vulnerabilityType: parsed.relationshipSignals?.vulnerabilityType || undefined,
+    isSeekingSupport: Boolean(parsed.relationshipSignals?.isSeekingSupport),
+    isAcknowledgingSupport: Boolean(parsed.relationshipSignals?.isAcknowledgingSupport),
+    isJoking: Boolean(parsed.relationshipSignals?.isJoking),
+    isDeepTalk: Boolean(parsed.relationshipSignals?.isDeepTalk),
+    milestone: validMilestones.includes(parsed.relationshipSignals?.milestone) 
+      ? parsed.relationshipSignals.milestone 
+      : null,
+    milestoneConfidence: normalizeConfidence(parsed.relationshipSignals?.milestoneConfidence),
+    isHostile: Boolean(parsed.relationshipSignals?.isHostile),
+    hostilityReason: parsed.relationshipSignals?.hostilityReason || null,
+    explanation: String(parsed.relationshipSignals?.explanation || 'No explanation')
+  };
+
+  // Inference Logic: If isDeepTalk is detected with high confidence but milestone missed, infer it
+  // This matches the logic in detectRelationshipSignalsLLM
+  if (!relationshipSignals.milestone && relationshipSignals.isDeepTalk && (relationshipSignals.milestoneConfidence > 0.6)) {
+     relationshipSignals.milestone = 'first_deep_talk';
+  }
+
+  return { genuineMoment, tone, topics, openLoops, relationshipSignals };
+}
+
+/**
+ * MASTER PROMPT: Combines all semantic detection logic into one instruction.
+ * Reducing 5 LLM calls to 1.
+ */
+const UNIFIED_INTENT_PROMPT = `You are the MASTER INTENT DETECTION SYSTEM for an AI companion named Kayley.
+
+Your task is to analyze the user's message for FIVE distinct aspects simultaneously.
+You must be precise, noting sarcasm, hidden emotions, and subtle relationship signals.
+
+---
+SECTION 1: GENUINE MOMENT (Kayley's Insecurities)
+Detect if the user GENUINELY and POSITIVELY addresses one of Kayley's core insecurities:
+1. "depth": User affirms she is thoughtful/smart, not just a pretty face.
+2. "belonging": User affirms she belongs in AI/tech/creative space (impostor syndrome).
+3. "progress": User expresses pride in her journey/accomplishments.
+4. "loneliness": User expresses genuine presence/connection ("I'm here for you").
+5. "rest": User gives permission to rest/slow down.
+*Must be directed at HER ("you"). Sarcasm = FALSE.*
+
+SECTION 2: TONE & SENTIMENT
+Analyze emotional tone. CRITICAL: Detect sarcasm ("Great, just great" = Negative).
+- Emotions: happy, sad, frustrated, anxious, excited, angry, playful, dismissive, neutral, mixed.
+- Intensity: 0.0 (mild) to 1.0 (intense)
+
+SECTION 3: TOPICS
+Identify what is being discussed: work, family, relationships, health, money, school, hobbies, personal_growth, other.
+Extract "entities" (names/places) and "emotionalContext" (how they feel about it).
+
+SECTION 4: OPEN LOOPS (Memory)
+Is there something specifically worth following up on later?
+Types: 
+- pending_event (interview tomorrow)
+- emotional_followup (feeling stressed about X)
+- commitment_check (I'll try to do X)
+- curiosity_thread (interesting topic to resume)
+
+SECTION 5: RELATIONSHIP SIGNALS
+- Milestones: 
+  - first_vulnerability (opening up/secrets)
+  - first_joke (shared humor/inside jokes)
+  - first_support (asking for help)
+  - first_deep_talk (philosophical or meta-commentary like "This got deep huh")
+- Hostility: overt insults or aggressive dismissal.
+
+---
+{context}
+
+Target Message: "{message}"
+
+Respond with this EXACT JSON structure:
+{
+  "genuineMoment": { "isGenuine": bool, "category": "string|null", "confidence": 0-1, "explanation": "string" },
+  "tone": { "sentiment": -1to1, "primaryEmotion": "string", "intensity": 0-1, "isSarcastic": bool, "secondaryEmotion": "string|null", "explanation": "string" },
+  "topics": { "topics": ["string"], "primaryTopic": "string|null", "emotionalContext": { "topic": "emotion" }, "entities": ["string"], "explanation": "string" },
+  "openLoops": { "hasFollowUp": bool, "loopType": "string|null", "topic": "string|null", "suggestedFollowUp": "string|null", "timeframe": "string|null", "salience": 0-1, "explanation": "string" },
+  "relationshipSignals": { "milestone": "string|null", "milestoneConfidence": 0-1, "isHostile": bool, "hostilityReason": "string|null", "explanation": "string" }
+}`;
+
+
+
+/**
+ * The ONE Ring to Rule Them All: Detects ALL semantic intent in a single call.
+ */
+export async function detectFullIntentLLM(
+  message: string,
+  context?: ConversationContext
+): Promise<FullMessageIntent> {
+  // Edge case: Empty message
+  if (!message || message.trim().length < 1) {
+    throw new Error('Message too short');
+  }
+
+  if (!GEMINI_API_KEY) {
+    throw new Error('VITE_GEMINI_API_KEY is not set');
+  }
+
+  try {
+    const ai = getIntentClient();
+    
+    // Build Context String
+    let contextString = '';
+    if (context?.recentMessages?.length) {
+      const recentContext = context.recentMessages.slice(-5);
+      const formattedContext = recentContext.map(msg => {
+        const role = msg.role === 'user' ? 'User' : 'Kayley';
+        const text = msg.text.length > 150 ? msg.text.slice(0, 150) + '...' : msg.text;
+        return `${role}: ${text.replace(/[{}]/g, '')}`;
+      }).join('\n');
+      contextString = `CONVERSATION CONTEXT:\n${formattedContext}`;
+    }
+
+    // Build Prompt
+    const prompt = UNIFIED_INTENT_PROMPT
+      .replace('{message}', message.replace(/[{}]/g, ''))
+      .replace('{context}', contextString);
+
+    // Call LLM
+    const result = await ai.models.generateContent({
+      model: INTENT_MODEL, // gemini-2.5-flash
+      contents: prompt,
+      config: {
+        temperature: 0.1, // precision is key
+        maxOutputTokens: 1000, // larger buffer for nested json
+        responseMimeType: "application/json"
+      }
+    });
+
+    const responseText = result.text || '{}';
+    const cleanedText = responseText.replace(/```json\n?|\n?```/g, '').trim();
+    const parsed = JSON.parse(cleanedText);
+
+    const fullIntent = validateFullIntent(parsed);
+    
+    // Log success
+    console.log(`🧠 [IntentService] UNIFIED INTENT DETECTED`, {
+      tone: fullIntent.tone.primaryEmotion,
+      genuine: fullIntent.genuineMoment.isGenuine,
+      topics: fullIntent.topics.topics,
+      loop: fullIntent.openLoops.hasFollowUp
+    });
+
+    return fullIntent;
+
+  } catch (error) {
+    console.error('❌ [IntentService] Unified detection failed:', error);
+    throw error;
+  }
+}
+
+/**
+ * Cached version of unified intent detection
+ */
+export async function detectFullIntentLLMCached(
+  message: string,
+  context?: ConversationContext
+): Promise<FullMessageIntent> {
+  // Check cache (key based on message only)
+  const cacheKey = message.toLowerCase().trim();
+  const cached = fullIntentCache.get(cacheKey);
+  
+  // Use cache if available AND no context provided (context invalidates simple cache)
+  if (cached && (Date.now() - cached.timestamp) < CACHE_TTL_MS) {
+    if (!context?.recentMessages?.length) {
+      console.log('📋 [IntentService] Cache hit for unified intent');
+      return cached.result;
+    }
+  }
+
+  // Make fresh call
+  const result = await detectFullIntentLLM(message, context);
+
+  // Update cache
+  fullIntentCache.set(cacheKey, {
+    result,
+    timestamp: Date.now()
+  });
+  
+  // Prune cache
+  if (fullIntentCache.size > 50) {
+    const now = Date.now();
+    for (const [key, entry] of fullIntentCache.entries()) {
+      if (now - entry.timestamp > CACHE_TTL_MS) fullIntentCache.delete(key);
+    }
+  }
 
   return result;
 }
