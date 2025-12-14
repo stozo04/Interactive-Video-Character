@@ -14,6 +14,7 @@ import type { AIActionResponse } from './services/aiSchema';
 import * as conversationHistoryService from './services/conversationHistoryService';
 import * as relationshipService from './services/relationshipService';
 import type { RelationshipMetrics } from './services/relationshipService';
+import type { FullMessageIntent } from './services/intentService';
 import { recordInteraction as recordMoodInteraction } from './services/moodKnobs';
 import { extractCallbackWithLLM, recordExchange } from './services/callbackDirector';
 import { createUserThread } from './services/ongoingThreads';
@@ -1779,8 +1780,10 @@ useEffect(() => {
         const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
         
         const llmCall = async (prompt: string): Promise<string> => {
-          // Use ChatGPT if available (fast, cheap for extraction)
-          if (CHATGPT_API_KEY) {
+          // STRICT RULE: Use the active service if possible
+
+          // 1. ChatGPT
+          if (activeServiceId === 'chatgpt' && CHATGPT_API_KEY) {
             const response = await fetch('https://api.openai.com/v1/chat/completions', {
               method: 'POST',
               headers: {
@@ -1797,7 +1800,67 @@ useEffect(() => {
             const data = await response.json();
             return data.choices?.[0]?.message?.content || '{}';
           }
-          
+
+          // 2. Gemini
+          if (activeServiceId === 'gemini' && GEMINI_API_KEY) {
+            const response = await fetch(
+              `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key=${GEMINI_API_KEY}`,
+              {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  contents: [{ parts: [{ text: prompt }] }],
+                  generationConfig: { temperature: 0.3, maxOutputTokens: 200 },
+                }),
+              }
+            );
+            const data = await response.json();
+            return data.candidates?.[0]?.content?.parts?.[0]?.text || '{}';
+          }
+
+          // 3. Grok (Fall through if active but no key, or logic not impl yet)
+          // For now, if active is Grok, we can try to use Grok or fallback
+          if (activeServiceId === 'grok') {
+            // Grok implementation if key exists (Assuming GROK_API_KEY is available in env scope or added here)
+            const GROK_API_KEY = import.meta.env.VITE_GROK_API_KEY;
+            if (GROK_API_KEY) {
+              const response = await fetch('https://api.x.ai/v1/chat/completions', {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  'Authorization': `Bearer ${GROK_API_KEY}`,
+                },
+                body: JSON.stringify({
+                  model: 'grok-4-fast-reasoning-latest', // Or appropriate model
+                  messages: [{ role: 'user', content: prompt }],
+                  temperature: 0.3,
+                }),
+              });
+              const data = await response.json();
+              return data.choices?.[0]?.message?.content || '{}';
+            }
+          }
+
+          // FALLBACKS (If active service key is missing, try others)
+          // Default to ChatGPT if available
+          if (CHATGPT_API_KEY) {
+            const response = await fetch('https://api.openai.com/v1/chat/completions', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${CHATGPT_API_KEY}`,
+              },
+              body: JSON.stringify({
+                model: 'gpt-4o-mini', 
+                messages: [{ role: 'user', content: prompt }],
+                temperature: 0.3,
+                max_tokens: 200,
+              }),
+            });
+            const data = await response.json();
+            return data.choices?.[0]?.message?.content || '{}';
+          }
+
           // Fallback to Gemini
           if (GEMINI_API_KEY) {
             const response = await fetch(
@@ -1830,11 +1893,11 @@ useEffect(() => {
     // Background (non-critical) sentiment analysis should NOT compete with the critical path.
     // We'll start it only after we've queued the AI's audio response (or displayed the text if muted).
     let sentimentPromise: Promise<any> | null = null;
-    const startBackgroundSentiment = (userId: string) => {
+    const startBackgroundSentiment = (userId: string, intent?: FullMessageIntent) => {
       if (sentimentPromise) return;
 
       sentimentPromise = relationshipService
-        .analyzeMessageSentiment(message, updatedHistory, activeServiceId)
+        .analyzeMessageSentiment(message, updatedHistory, activeServiceId, intent)
         .then(event => relationshipService.updateRelationship(userId, event))
         .catch(error => {
           console.error('Background sentiment analysis failed:', error);
@@ -1952,7 +2015,7 @@ useEffect(() => {
           upcomingEvents: currentEventsContext
         };
 
-        const { response, session: updatedSession, audioData } = await activeService.generateResponse(
+        const { response, session: updatedSession, audioData, intent } = await activeService.generateResponse(
           { type: 'text', text: textToSend },
           freshContext,
           sessionToUse
@@ -2152,7 +2215,7 @@ useEffect(() => {
                 }
 
                 // Non-critical: kick off sentiment *after* we queued audio
-                startBackgroundSentiment(userId);
+                startBackgroundSentiment(userId, intent);
                 
                 if (response.action_id) maybePlayResponseAction(response.action_id);
                 
@@ -2195,7 +2258,7 @@ useEffect(() => {
               }
 
               // Non-critical: kick off sentiment *after* we queued audio
-              startBackgroundSentiment(userId);
+              startBackgroundSentiment(userId, intent);
 
               if (response.action_id) maybePlayResponseAction(response.action_id);
 
@@ -2343,7 +2406,7 @@ Let the user know in a friendly way and maybe offer to check back later.
             }
             
             // Non-critical: sentiment analysis
-            startBackgroundSentiment(userId);
+            startBackgroundSentiment(userId, intent);
             
             if (response.action_id) maybePlayResponseAction(response.action_id);
             
@@ -2511,7 +2574,7 @@ Let the user know in a friendly way and maybe offer to check back later.
             }
 
             // Non-critical: kick off sentiment *after* we queued audio (or after text if muted)
-            startBackgroundSentiment(userId);
+            startBackgroundSentiment(userId, intent);
 
             if (response.action_id) {
               maybePlayResponseAction(response.action_id);
@@ -2552,7 +2615,7 @@ Let the user know in a friendly way and maybe offer to check back later.
             }
 
             // Non-critical: kick off sentiment *after* we queued audio (or after text if muted)
-            startBackgroundSentiment(userId);
+          startBackgroundSentiment(userId, intent);
 
             if (response.action_id) {
                 maybePlayResponseAction(response.action_id);
