@@ -44,7 +44,9 @@ import {
   detectRelationshipSignalsLLM,
   detectRelationshipSignalsLLMCached,
   clearIntentCache,
-  mapCategoryToInsecurity
+  mapCategoryToInsecurity,
+  resetIntentClientForTesting,
+  detectFullIntentLLM
 } from "../intentService";
 import { GoogleGenAI } from "@google/genai";
 
@@ -55,6 +57,8 @@ describe("Phase 1: Intent Service - LLM Genuine Moment Detection", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     clearIntentCache();
+    resetIntentClientForTesting();
+    mockGenerateContent.mockReset();
     
     // Setup the mock implementation
     (GoogleGenAI as any).mockImplementation(() => ({
@@ -1502,6 +1506,8 @@ describe("Phase 4: Intent Service - LLM Topic Detection", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     clearIntentCache();
+    resetIntentClientForTesting();
+    mockGenerateContent.mockReset();
     
     // Setup the mock implementation
     (GoogleGenAI as any).mockImplementation(() => ({
@@ -1880,28 +1886,42 @@ describe("Phase 4: Integration with messageAnalyzer", () => {
     mockGenerateContent
       .mockResolvedValueOnce({
         text: JSON.stringify({
-          isGenuine: false,
-          category: null,
-          confidence: 0.5,
-          explanation: "Not genuine"
-        })
-      })
-      .mockResolvedValueOnce({
-        text: JSON.stringify({
-          sentiment: 0.3,
-          primaryEmotion: "neutral",
-          intensity: 0.3,
-          isSarcastic: false,
-          explanation: "Neutral tone"
-        })
-      })
-      .mockResolvedValueOnce({
-        text: JSON.stringify({
-          topics: ["work"],
-          primaryTopic: "work",
-          emotionalContext: { work: "busy" },
-          entities: ["project"],
-          explanation: "Work topic"
+          genuineMoment: {
+            isGenuine: false,
+            category: null,
+            confidence: 0.5,
+            explanation: "Not genuine"
+          },
+          tone: {
+            sentiment: 0.3,
+            primaryEmotion: "neutral",
+            intensity: 0.3,
+            isSarcastic: false,
+            explanation: "Neutral tone"
+          },
+          topics: {
+            topics: ["work"],
+            primaryTopic: "work",
+            emotionalContext: { work: "stress" },
+            entities: [],
+            explanation: "Work topic"
+          },
+          openLoops: {
+            hasFollowUp: false,
+            loopType: null,
+            topic: null,
+            suggestedFollowUp: null,
+            timeframe: null,
+            salience: 0,
+            explanation: "No loop"
+          },
+          relationshipSignals: {
+            milestone: null,
+            milestoneConfidence: 0,
+            isHostile: false,
+            hostilityReason: null,
+            explanation: "None"
+          }
         })
       });
     
@@ -1926,6 +1946,8 @@ describe("Phase 4: userPatterns with TopicIntent", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     clearIntentCache();
+    resetIntentClientForTesting();
+    mockGenerateContent.mockReset();
     
     (GoogleGenAI as any).mockImplementation(() => ({
       models: {
@@ -2018,6 +2040,8 @@ describe("Phase 5: Intent Service - LLM Open Loop Detection", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     clearIntentCache();
+    resetIntentClientForTesting();
+    mockGenerateContent.mockReset();
     
     // Setup the mock implementation
     (GoogleGenAI as any).mockImplementation(() => ({
@@ -2420,6 +2444,8 @@ describe("Phase 5: Integration with messageAnalyzer", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     clearIntentCache();
+    resetIntentClientForTesting();
+    mockGenerateContent.mockReset();
     
     (GoogleGenAI as any).mockImplementation(() => ({
       models: {
@@ -2444,35 +2470,12 @@ describe("Phase 5: Integration with messageAnalyzer", () => {
 
   it("should include openLoopResult in MessageAnalysisResult", async () => {
     // Mock all required LLM calls
-    mockGenerateContent
-      .mockResolvedValueOnce({
-        text: JSON.stringify({
-          isGenuine: false,
-          category: null,
-          confidence: 0.5,
-          explanation: "Not genuine"
-        })
-      })
-      .mockResolvedValueOnce({
-        text: JSON.stringify({
-          sentiment: 0.3,
-          primaryEmotion: "neutral",
-          intensity: 0.3,
-          isSarcastic: false,
-          explanation: "Neutral tone"
-        })
-      })
-      .mockResolvedValueOnce({
-        text: JSON.stringify({
-          topics: [],
-          primaryTopic: null,
-          emotionalContext: {},
-          entities: [],
-          explanation: "No topic"
-        })
-      })
-      .mockResolvedValueOnce({
-        text: JSON.stringify({
+    mockGenerateContent.mockResolvedValueOnce({
+      text: JSON.stringify({
+        genuineMoment: { isGenuine: false, category: null, confidence: 0.5, explanation: "None" },
+        tone: { sentiment: 0.3, primaryEmotion: "neutral", intensity: 0.3, isSarcastic: false, explanation: "Neutral" },
+        topics: { topics: [], primaryTopic: null, emotionalContext: {}, entities: [], explanation: "None" },
+        openLoops: {
           hasFollowUp: true,
           loopType: "pending_event",
           topic: "interview",
@@ -2480,8 +2483,10 @@ describe("Phase 5: Integration with messageAnalyzer", () => {
           timeframe: "tomorrow",
           salience: 0.8,
           explanation: "Interview tomorrow"
-        })
-      });
+        },
+        relationshipSignals: { milestone: null, milestoneConfidence: 0, isHostile: false, hostilityReason: null, explanation: "None" }
+      })
+    });
     
     const { analyzeUserMessage } = await import("../messageAnalyzer");
     
@@ -2505,6 +2510,8 @@ describe("Phase 6: Intent Service - LLM Relationship Signal Detection", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     clearIntentCache();
+    resetIntentClientForTesting();
+    mockGenerateContent.mockReset();
     
     (GoogleGenAI as any).mockImplementation(() => ({
       models: {
@@ -2585,6 +2592,30 @@ describe("Phase 6: Intent Service - LLM Relationship Signal Detection", () => {
 
       const result = await detectRelationshipSignalsLLM("Do you think AI can ever truly love, or is it just simulation?");
       
+      expect(result.milestone).toBe("first_deep_talk");
+    });
+
+    it("should detect deep talk meta-commentary ('This got deep huh')", async () => {
+      // Mock returning no milestone directly, but with high isDeepTalk signal
+      mockGenerateContent.mockResolvedValueOnce({
+        text: JSON.stringify({
+          isVulnerable: false,
+          isSeekingSupport: false,
+          isAcknowledgingSupport: false,
+          isJoking: false,
+          isDeepTalk: true,
+          milestone: null,
+          milestoneConfidence: 0.8,
+          isHostile: false,
+          hostilityReason: null,
+          explanation: "Meta-commentary about conversation depth"
+        })
+      });
+
+      const result = await detectRelationshipSignalsLLM("This got deep huh");
+      
+      expect(result.isDeepTalk).toBe(true);
+      // Our logic should auto-infer the milestone due to strong signal
       expect(result.milestone).toBe("first_deep_talk");
     });
 
@@ -2690,6 +2721,76 @@ describe("Phase 6: Intent Service - LLM Relationship Signal Detection", () => {
       
       // Context changes meaning (playful vs hostile), so should re-evaluate
       expect(mockGenerateContent).toHaveBeenCalledTimes(2);
+    });
+  });
+});
+
+// ============================================
+// Phase 7: Unified Intent Detection Tests
+// ============================================
+
+describe("Phase 7: Intent Service - Unified Intent Detection", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    clearIntentCache();
+    resetIntentClientForTesting();
+    mockGenerateContent.mockReset();
+    
+    (GoogleGenAI as any).mockImplementation(() => ({
+      models: {
+        generateContent: mockGenerateContent
+      }
+    }));
+  });
+
+  describe("detectFullIntentLLM", () => {
+    it("should detect deep talk milestone via inference for 'This got deep huh'", async () => {
+        mockGenerateContent.mockResolvedValueOnce({
+          text: JSON.stringify({
+            genuineMoment: { isGenuine: false, category: null, confidence: 0, explanation: "" },
+            tone: { sentiment: 0, primaryEmotion: "neutral", intensity: 0, isSarcastic: false, explanation: "" },
+            topics: { topics: [], primaryTopic: null, emotionalContext: {}, entities: [], explanation: "" },
+            openLoops: { hasFollowUp: false, loopType: null, topic: null, suggestedFollowUp: null, timeframe: null, salience: 0, explanation: "" },
+            relationshipSignals: { 
+              isVulnerable: false,
+              isSeekingSupport: false,
+              isAcknowledgingSupport: false,
+              isJoking: false,
+              isDeepTalk: true,
+              milestone: null, // LLM fails to set this explicitly
+              milestoneConfidence: 0.8,
+              isHostile: false,
+              hostilityReason: null,
+              explanation: "Meta-commentary"
+            }
+          })
+        });
+
+        const result = await detectFullIntentLLM("This got deep huh");
+        
+        expect(result.relationshipSignals.isDeepTalk).toBe(true);
+        expect(result.relationshipSignals.milestone).toBe("first_deep_talk");
+    });
+
+    it("should return parsed values for all sections", async () => {
+        mockGenerateContent.mockResolvedValueOnce({
+            text: JSON.stringify({
+              genuineMoment: { isGenuine: true, category: "depth", confidence: 0.9, explanation: "Genuine" },
+              tone: { sentiment: 0.8, primaryEmotion: "happy", intensity: 0.7, isSarcastic: false, explanation: "Happy" },
+              topics: { topics: ["work"], primaryTopic: "work", emotionalContext: {"work": "excited"}, entities: ["project"], explanation: "Work" },
+              openLoops: { hasFollowUp: true, loopType: "pending_event", topic: "launch", suggestedFollowUp: "How did it go?", timeframe: "tomorrow", salience: 0.9, explanation: "Loop" },
+              relationshipSignals: { milestone: "first_support", milestoneConfidence: 0.9, isHostile: false, explanation: "Signal" }
+            })
+        });
+
+        const result = await detectFullIntentLLM("I'm so excited about my project launch tomorrow!");
+
+        expect(result.genuineMoment.isGenuine).toBe(true);
+        expect(result.genuineMoment.category).toBe("depth");
+        expect(result.tone.primaryEmotion).toBe("happy");
+        expect(result.topics.topics).toContain("work");
+        expect(result.openLoops.hasFollowUp).toBe(true);
+        expect(result.relationshipSignals.milestone).toBe("first_support");
     });
   });
 });
