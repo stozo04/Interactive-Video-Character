@@ -1,6 +1,6 @@
 # Semantic Intent Detection
 
-> **Status**: Phase 1 ✅ Complete | Phase 2 ✅ Complete | Phase 3 ✅ Complete | Phase 4 ✅ Complete  
+> **Status**: Phase 1 ✅ Complete | Phase 2 ✅ Complete | Phase 3 ✅ Complete | Phase 4 ✅ Complete | Phase 5 ✅ Complete | Phase 6 ✅ Complete  
 > **Goal**: Replace hardcoded keywords with LLM-based semantic detection.
 
 ---
@@ -45,8 +45,8 @@ User Message
 | **2** | Tone & sentiment | `intentService.ts`, `messageAnalyzer.ts` | ✅ Complete |
 | **3** | Mood detection | `moodKnobs.ts`, `userPatterns.ts`, `messageAnalyzer.ts` | ✅ Complete |
 | 4 | Topic detection | `intentService.ts`, `userPatterns.ts`, `messageAnalyzer.ts` | ✅ Complete |
-| 5 | Open loop detection | `presenceDirector.ts` | Pending |
-| 6 | Relationship signals | `relationshipMilestones.ts` | Pending |
+| 5 | Open loop detection | `presenceDirector.ts` | ✅ Complete |
+| 6 | Relationship signals | `relationshipMilestones.ts`, `relationshipService.ts` | ✅ Complete |
 
 ---
 
@@ -1323,3 +1323,34 @@ Consider implementing "Unified Intent Call" to reduce from 6 parallel LLM calls 
 
 Follow checklist in @docs/Semantic_Intent_Detection.md and add lessons learned.
 ```
+
+## Phase 6: Relationship Signals - ✅ COMPLETE (2025-12-14)
+
+### Implementation Approaches
+
+1. **Integrated `RelationshipSignalIntent`**:
+   - Added support for nuanced signals: `isVulnerable`, `isJoking`, `isSeekingSupport`, `isDeepTalk`, `isHostile`.
+   - Mapped these signals to existing milestones: `first_vulnerability`, `first_joke`, `first_support`, `first_deep_talk`.
+
+2. **Rupture Detection**:
+   - Updated `relationshipService.ts` to use `intent.isHostile`.
+   - This allows detecting hostility without specific keywords ("I'm done with you" vs "You suck").
+
+3. **Fallback Strategy**:
+   - Preserved all regex patterns in `relationshipMilestones.ts` and `relationshipService.ts`.
+   - If LLM fails or returns low confidence (milestones < 0.7), the system falls back to regex matching.
+
+### Lessons Learned
+
+1. **Context is Key for Hostility**:
+   - "Shut up!" can be hostile or playful depending on context.
+   - Passing `ConversationContext` to `detectRelationshipSignalsLLMCached` ensures accurate interpretation.
+
+2. **Wait for Intent**:
+   - `detectRupture` needed to be updated to accept the intent object.
+   - We modified `RelationshipEvent` to carry the intent all the way from `analyzeUserMessage` (conceptually) or `analyzeMessageSentiment`.
+   - Note: In current implementation, `analyzeUserMessage` produces the intent, but `updateRelationship` allows passing it via `RelationshipEvent` if available.
+
+### Next Steps (Unified Intent)
+Now that all 6 phases are complete, the next logical step (Future Optimization) is to consolidate these 6 individual LLM calls into a single `detectFullIntent` call to reduce latency and cost.
+

@@ -19,6 +19,22 @@ const INTENT_MODEL = 'gemini-2.5-flash';
 // Types
 // ============================================
 
+// ============================================
+// Phase 6: Relationship Signals Types
+// ============================================
+
+export interface RelationshipSignalIntent {
+  // Milestone detection
+  milestone: 'first_vulnerability' | 'first_joke' | 'first_support' | 'first_deep_talk' | null;
+  milestoneConfidence: number;
+  
+  // Rupture/Hostility detection (replacing hostilePhrases)
+  isHostile: boolean;
+  hostilityReason: string | null;
+  
+  explanation: string;
+}
+
 /**
  * Categories mapping to Kayley's core insecurities from Section 10 of her character profile:
  * - depth: "Afraid of being seen as fake or shallow because she's bubbly and aesthetic"
@@ -332,10 +348,17 @@ interface OpenLoopCacheEntry {
   timestamp: number;
 }
 
+// Forward declaration of RelationshipSignalCacheEntry for relationshipCache
+interface RelationshipSignalCacheEntry {
+  result: RelationshipSignalIntent;
+  timestamp: number;
+}
+
 const intentCache = new Map<string, CacheEntry>();
 const toneCache = new Map<string, ToneCacheEntry>();
 const topicCache = new Map<string, TopicCacheEntry>();
 const openLoopCache = new Map<string, OpenLoopCacheEntry>();
+const relationshipCache = new Map<string, RelationshipSignalCacheEntry>();
 const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 
 /**
@@ -421,6 +444,7 @@ export function clearIntentCache(): void {
   toneCache.clear();
   topicCache.clear();
   openLoopCache.clear();
+  relationshipCache.clear();
 }
 
 // ============================================
@@ -1416,4 +1440,161 @@ export function mapCategoryToInsecurity(category: GenuineMomentCategory | null):
   };
   
   return mapping[category];
+}
+
+// ============================================
+// Phase 6: Relationship Signal Detection Implementation
+// ============================================
+
+const RELATIONSHIP_SIGNAL_PROMPT = `You are a relationship signal detection system for an AI companion.
+
+Your task is to detect:
+1. Significant RELATIONSHIP MILESTONES (first time opening up, first support, first joke, deep talk)
+2. RELATIONSHIP RUPTURES (hostility, anger, dismissal)
+
+MILESTONE CATEGORIES:
+- first_vulnerability: User opens up emotionally, shares secrets, shows weakness ("I've never told anyone this", "I'm scared")
+- first_joke: Shared humor, user laughing WITH the AI, inside jokes ("haha you're so funny", "lol good one")
+- first_support: User asks for help/advice on deep issues ("I don't know what to do", "I need your help")
+- first_deep_talk: Philosophical, life questions, deep meaningful conversation ("What is the meaning of life?", "I've been thinking about my future")
+
+RUPTURES (Hostility):
+- Direct insults ("you're stupid", "shut up", "you suck")
+- Strong dismissal ("go away", "stop talking", "I hate you")
+- Aggressive sarcasm
+
+{context}
+
+TARGET MESSAGE: "{message}"
+
+Respond with ONLY a JSON object (no markdown, no explanation):
+{
+  "milestone": "first_vulnerability" | "first_joke" | "first_support" | "first_deep_talk" | null,
+  "milestoneConfidence": 0.0-1.0,
+  "isHostile": true/false,
+  "hostilityReason": "brief reason if hostile, else null",
+  "explanation": "brief reason for milestone detection"
+}`;
+
+/**
+ * Detect relationship signals (milestones, ruptures) using LLM.
+ * 
+ * @param message - The user's message to analyze
+ * @param context - Optional conversation context for better interpretation
+ */
+export async function detectRelationshipSignalsLLM(
+  message: string,
+  context?: ConversationContext
+): Promise<RelationshipSignalIntent> {
+  // Edge case: Empty/trivial messages
+  if (!message || message.trim().length < 2) {
+    return {
+      milestone: null,
+      milestoneConfidence: 0,
+      isHostile: false,
+      hostilityReason: null,
+      explanation: 'Message too short'
+    };
+  }
+
+  // Edge case: Check API key
+  if (!GEMINI_API_KEY) {
+    console.warn('⚠️ [IntentService] API key not set, skipping LLM relationship signal detection');
+    throw new Error('VITE_GEMINI_API_KEY is not set');
+  }
+
+  try {
+    const ai = getIntentClient();
+    const sanitizedMessage = message.replace(/[{}]/g, '');
+    
+    // Build conversation context string if provided
+    let contextString = '';
+    if (context?.recentMessages && context.recentMessages.length > 0) {
+      const recentContext = context.recentMessages.slice(-5);
+      const formattedContext = recentContext.map(msg => {
+        const role = msg.role === 'user' ? 'User' : 'Assistant';
+        const text = msg.text.length > 150 ? msg.text.slice(0, 150) + '...' : msg.text;
+        return `${role}: ${text.replace(/[{}]/g, '')}`;
+      }).join('\n');
+      
+      contextString = `CONVERSATION CONTEXT (for interpreting intent):
+${formattedContext}`;
+    }
+    
+    const prompt = RELATIONSHIP_SIGNAL_PROMPT
+      .replace('{message}', sanitizedMessage)
+      .replace('{context}', contextString);
+    
+    const result = await ai.models.generateContent({
+      model: INTENT_MODEL,
+      contents: prompt,
+      config: {
+        temperature: 0.1,
+        maxOutputTokens: 200,
+      }
+    });
+
+    const responseText = result.text || '{}';
+    const cleanedText = responseText.replace(/```json\n?|\n?```/g, '').trim();
+    
+    let parsed;
+    try {
+      parsed = JSON.parse(cleanedText);
+    } catch (e) {
+      console.warn('⚠️ [IntentService] Failed to parse relationship signals JSON', e);
+      return {
+        milestone: null,
+        milestoneConfidence: 0,
+        isHostile: false,
+        hostilityReason: null,
+        explanation: 'Failed to parse LLM response'
+      };
+    }
+
+    // Validate milestone
+    const validMilestones = ['first_vulnerability', 'first_joke', 'first_support', 'first_deep_talk'];
+    const milestone = validMilestones.includes(parsed.milestone) ? parsed.milestone : null;
+
+    return {
+      milestone,
+      milestoneConfidence: normalizeConfidence(parsed.milestoneConfidence),
+      isHostile: Boolean(parsed.isHostile),
+      hostilityReason: parsed.hostilityReason || null,
+      explanation: parsed.explanation || 'No explanation provided'
+    };
+
+  } catch (error) {
+    console.error('❌ [IntentService] Relationship signal detection failed:', error);
+    throw error;
+  }
+}
+
+/**
+ * Cached version of detectRelationshipSignalsLLM
+ */
+export async function detectRelationshipSignalsLLMCached(
+  message: string,
+  context?: ConversationContext
+): Promise<RelationshipSignalIntent> {
+  // Check cache (key based on message only)
+  const cacheKey = message.toLowerCase().trim();
+  const cached = relationshipCache.get(cacheKey);
+  
+  if (cached && (Date.now() - cached.timestamp) < CACHE_TTL_MS) {
+    // Only use cache if no context provided (context matters for hostility/milestones)
+    if (!context?.recentMessages?.length) {
+      return cached.result;
+    }
+  }
+
+  // Make LLM call
+  const result = await detectRelationshipSignalsLLM(message, context);
+
+  // Cache result
+  relationshipCache.set(cacheKey, {
+    result,
+    timestamp: Date.now()
+  });
+
+  return result;
 }

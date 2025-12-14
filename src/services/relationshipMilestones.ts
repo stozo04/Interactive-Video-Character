@@ -309,7 +309,8 @@ export async function markMilestoneReferenced(
 export async function detectMilestoneInMessage(
   userId: string,
   message: string,
-  interactionCount: number
+  interactionCount: number,
+  intent?: { milestone: string | null; milestoneConfidence: number; explanation: string }
 ): Promise<RelationshipMilestone | null> {
   // Check interaction milestones first
   if (interactionCount === 50) {
@@ -330,6 +331,44 @@ export async function detectMilestoneInMessage(
     );
   }
 
+  // LLM Detection Strategy (Primary)
+  if (intent?.milestone && intent.milestoneConfidence > 0.7) {
+    const triggerContext = intent.explanation || message.slice(0, 200);
+    
+    switch (intent.milestone) {
+      case 'first_vulnerability':
+        return recordMilestone(
+          userId,
+          'first_vulnerability',
+          'First time opening up emotionally',
+          triggerContext
+        );
+      case 'first_joke':
+        return recordMilestone(
+          userId,
+          'first_joke',
+          'First shared laugh together',
+          triggerContext
+        );
+      case 'first_support':
+        return recordMilestone(
+          userId,
+          'first_support',
+          'First time seeking support or advice',
+          triggerContext
+        );
+      case 'first_deep_talk':
+        return recordMilestone(
+          userId,
+          'first_deep_talk',
+          'First deep, meaningful conversation',
+          triggerContext
+        );
+    }
+  }
+
+  // Regex Fallback Strategy (Secondary)
+  
   // Check for vulnerability
   if (VULNERABILITY_PATTERNS.some(pattern => pattern.test(message))) {
     return recordMilestone(

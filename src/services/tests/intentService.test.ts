@@ -41,6 +41,8 @@ import {
   detectTopicsLLMCached,
   detectOpenLoopsLLM,
   detectOpenLoopsLLMCached,
+  detectRelationshipSignalsLLM,
+  detectRelationshipSignalsLLMCached,
   clearIntentCache,
   mapCategoryToInsecurity
 } from "../intentService";
@@ -2492,5 +2494,202 @@ describe("Phase 5: Integration with messageAnalyzer", () => {
     expect(result.openLoopResult).toBeDefined();
     expect(result.openLoopResult?.hasFollowUp).toBe(true);
     expect(result.openLoopResult?.loopType).toBe("pending_event");
+  });
+});
+
+// ============================================
+// Phase 6: Relationship Signal Detection Tests
+// ============================================
+
+describe("Phase 6: Intent Service - LLM Relationship Signal Detection", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    clearIntentCache();
+    
+    (GoogleGenAI as any).mockImplementation(() => ({
+      models: {
+        generateContent: mockGenerateContent
+      }
+    }));
+  });
+
+  afterEach(() => {
+    clearIntentCache();
+  });
+
+  // ============================================
+  // Milestone Detection Tests
+  // ============================================
+  
+  describe("detectRelationshipSignalsLLM - Milestones", () => {
+    it("should detect 'first_vulnerability' milestone", async () => {
+      mockGenerateContent.mockResolvedValueOnce({
+        text: JSON.stringify({
+          milestone: "first_vulnerability",
+          milestoneConfidence: 0.95,
+          isHostile: false,
+          hostilityReason: null,
+          explanation: "User opens up about deep fear"
+        })
+      });
+
+      const result = await detectRelationshipSignalsLLM("I've never told anyone this before, but I'm really scared of failure.");
+      
+      expect(result.milestone).toBe("first_vulnerability");
+      expect(result.milestoneConfidence).toBeGreaterThan(0.9);
+      expect(result.isHostile).toBe(false);
+    });
+
+    it("should detect 'first_joke' milestone", async () => {
+      mockGenerateContent.mockResolvedValueOnce({
+        text: JSON.stringify({
+          milestone: "first_joke",
+          milestoneConfidence: 0.88,
+          isHostile: false,
+          hostilityReason: null,
+          explanation: "Original humor shared with AI"
+        })
+      });
+
+      const result = await detectRelationshipSignalsLLM("Why did the AI cross the road? To optimize the path finding algorithm! haha");
+      
+      expect(result.milestone).toBe("first_joke");
+    });
+
+    it("should detect 'first_support' milestone", async () => {
+      mockGenerateContent.mockResolvedValueOnce({
+        text: JSON.stringify({
+          milestone: "first_support",
+          milestoneConfidence: 0.92,
+          isHostile: false,
+          hostilityReason: null,
+          explanation: "User asking for emotional support"
+        })
+      });
+
+      const result = await detectRelationshipSignalsLLM("I don't know what to do about my breakup. Can you help me?");
+      
+      expect(result.milestone).toBe("first_support");
+    });
+
+    it("should detect 'first_deep_talk' milestone", async () => {
+      mockGenerateContent.mockResolvedValueOnce({
+        text: JSON.stringify({
+          milestone: "first_deep_talk",
+          milestoneConfidence: 0.90,
+          isHostile: false,
+          hostilityReason: null,
+          explanation: "Deep philosophical question"
+        })
+      });
+
+      const result = await detectRelationshipSignalsLLM("Do you think AI can ever truly love, or is it just simulation?");
+      
+      expect(result.milestone).toBe("first_deep_talk");
+    });
+
+    it("should return null milestone when none detected", async () => {
+      mockGenerateContent.mockResolvedValueOnce({
+        text: JSON.stringify({
+          milestone: null,
+          milestoneConfidence: 0.1,
+          isHostile: false,
+          hostilityReason: null,
+          explanation: "Casual conversation"
+        })
+      });
+
+      const result = await detectRelationshipSignalsLLM("What's the weather like?");
+      
+      expect(result.milestone).toBeNull();
+    });
+  });
+
+  // ============================================
+  // Rupture/Hostility Detection Tests
+  // ============================================
+
+  describe("detectRelationshipSignalsLLM - Ruptures", () => {
+    it("should detect hostility", async () => {
+      mockGenerateContent.mockResolvedValueOnce({
+        text: JSON.stringify({
+          milestone: null,
+          milestoneConfidence: 0,
+          isHostile: true,
+          hostilityReason: "Direct insult",
+          explanation: "Hostile message"
+        })
+      });
+
+      const result = await detectRelationshipSignalsLLM("You are useless and stupid.");
+      
+      expect(result.isHostile).toBe(true);
+      expect(result.hostilityReason).toBe("Direct insult");
+    });
+
+    it("should NOT detect hostility in playful banter (with context)", async () => {
+      mockGenerateContent.mockResolvedValueOnce({
+        text: JSON.stringify({
+          milestone: "first_joke",
+          milestoneConfidence: 0.8,
+          isHostile: false,
+          hostilityReason: null,
+          explanation: "Playful teasing"
+        })
+      });
+
+      const result = await detectRelationshipSignalsLLM("Shut up, you're hilarious!", {
+        recentMessages: [
+          { role: 'assistant', text: 'I tried to bake cookies in the server room again.' },
+        ]
+      });
+      
+      expect(result.isHostile).toBe(false);
+      expect(result.milestone).toBe("first_joke");
+    });
+  });
+
+  // ============================================
+  // Caching Tests
+  // ============================================
+
+  describe("detectRelationshipSignalsLLMCached", () => {
+    it("should cache results", async () => {
+      mockGenerateContent.mockResolvedValue({
+        text: JSON.stringify({
+          milestone: "first_vulnerability",
+          milestoneConfidence: 0.95,
+          isHostile: false,
+          hostilityReason: null,
+          explanation: "Test"
+        })
+      });
+
+      await detectRelationshipSignalsLLMCached("I'm scared");
+      await detectRelationshipSignalsLLMCached("I'm scared");
+      
+      expect(mockGenerateContent).toHaveBeenCalledTimes(1);
+    });
+
+    it("should bypass cache if context provided (context sensitive)", async () => {
+      mockGenerateContent.mockResolvedValue({
+        text: JSON.stringify({
+          milestone: null,
+          milestoneConfidence: 0,
+          isHostile: false,
+          hostilityReason: null,
+          explanation: "Test"
+        })
+      });
+
+      const context1 = { recentMessages: [{ role: 'assistant' as const, text: 'Hi' }] };
+      const context2 = { recentMessages: [{ role: 'assistant' as const, text: 'Bye' }] };
+
+      await detectRelationshipSignalsLLMCached("You're weird", context1);
+      await detectRelationshipSignalsLLMCached("You're weird", context2);
+      
+      // Context changes meaning (playful vs hostile), so should re-evaluate
+      expect(mockGenerateContent).toHaveBeenCalledTimes(2);
+    });
   });
 });

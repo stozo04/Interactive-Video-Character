@@ -20,6 +20,9 @@
  * 
  * Phase 5 Semantic Intent Detection:
  * Now uses LLM-based open loop detection with timeframe inference.
+ * 
+ * Phase 6 Semantic Intent Detection:
+ * Now uses LLM-based relationship signal detection (milestones, ruptures).
  */
 
 import { detectOpenLoops } from './presenceDirector';
@@ -34,13 +37,15 @@ import {
   detectToneLLMCached,
   detectTopicsLLMCached,
   detectOpenLoopsLLMCached,
+  detectRelationshipSignalsLLMCached,
   type ToneIntent,
   type PrimaryEmotion,
   type TopicIntent,
   type TopicCategory,
   type OpenLoopIntent,
   type LoopTypeIntent,
-  type FollowUpTimeframe
+  type FollowUpTimeframe,
+  type RelationshipSignalIntent
 } from './intentService';
 import type { OpenLoop } from './presenceDirector';
 import type { UserPattern } from './userPatterns';
@@ -67,6 +72,8 @@ export interface MessageAnalysisResult {
   topicResult?: TopicIntent;
   /** Full open loop analysis result from LLM (Phase 5) */
   openLoopResult?: OpenLoopIntent;
+  /** Full relationship signal analysis (Phase 6) */
+  relationshipSignalResult?: RelationshipSignalIntent;
 }
 
 // Re-export types for consumers
@@ -75,10 +82,11 @@ export type {
   PrimaryEmotion, 
   ConversationContext, 
   TopicIntent, 
-  TopicCategory,
-  OpenLoopIntent,
-  LoopTypeIntent,
-  FollowUpTimeframe
+  TopicCategory, 
+  OpenLoopIntent, 
+  LoopTypeIntent, 
+  FollowUpTimeframe,
+  RelationshipSignalIntent
 };
 
 // ============================================
@@ -295,6 +303,37 @@ export async function detectOpenLoopsWithLLM(
   }
 }
 
+// ============================================
+// LLM-based Relationship Signal Detection (Phase 6)
+// ============================================
+
+/**
+ * Detect relationship signals (milestones, ruptures) using LLM.
+ * 
+ * @param message - The user's message to analyze
+ * @param context - Optional conversation context for accurate interpretation
+ * @returns Promise resolving to RelationshipSignalIntent
+ */
+export async function detectRelationshipSignalsWithLLM(
+  message: string,
+  context?: ConversationContext
+): Promise<RelationshipSignalIntent> {
+  try {
+    return await detectRelationshipSignalsLLMCached(message, context);
+  } catch (error) {
+    console.warn('⚠️ [MessageAnalyzer] LLM relationship signal detection failed:', error);
+    
+    // Return safe default - no signal detected
+    return {
+      milestone: null,
+      milestoneConfidence: 0,
+      isHostile: false,
+      hostilityReason: null,
+      explanation: 'Fallback - LLM detection failed'
+    };
+  }
+}
+
 /**
  * Analyze a user message for patterns, loops, and milestones.
  * 
@@ -338,7 +377,7 @@ export async function analyzeUserMessage(
     topicResult,
     openLoopResult,
     createdLoops,
-    recordedMilestone
+    relationshipSignalResult
   ] = await Promise.all([
     // LLM-based genuine moment detection (Phase 1)
     detectGenuineMomentWithLLM(message, conversationContext),
@@ -355,9 +394,12 @@ export async function analyzeUserMessage(
     // Detect open loops and create them in Supabase (Phase 5 uses LLM internally)
     detectOpenLoops(userId, message, llmCall, conversationContext),
     
-    // Check for milestone moments
-    detectMilestoneInMessage(userId, message, interactionCount),
+    // LLM-based relationship signal detection (Phase 6)
+    detectRelationshipSignalsWithLLM(message, conversationContext)
   ]);
+  
+  // Phase 6: Pass intent to milestone detection
+  const recordedMilestone = await detectMilestoneInMessage(userId, message, interactionCount, relationshipSignalResult);
   
   // Phase 3: Analyze for cross-session patterns WITH toneResult AND topicResult
   // This enables LLM-based mood detection via primaryEmotion and topic detection
@@ -392,6 +434,12 @@ export async function analyzeUserMessage(
   if (topicResult.topics.length > 0) {
     console.log(`📋 [MessageAnalyzer] Topics detected: ${topicResult.topics.join(', ')}`);
   }
+  if (relationshipSignalResult.milestone) {
+    console.log(`🏆 [MessageAnalyzer] Milestone signal detected: ${relationshipSignalResult.milestone}`);
+  }
+  if (relationshipSignalResult.isHostile) {
+    console.log(`⚠️ [MessageAnalyzer] Hostility detected: ${relationshipSignalResult.hostilityReason}`);
+  }
 
   return {
     createdLoops,
@@ -402,6 +450,7 @@ export async function analyzeUserMessage(
     toneResult,
     topicResult,
     openLoopResult,
+    relationshipSignalResult
   };
 }
 
@@ -435,4 +484,5 @@ export default {
   detectToneWithLLM,
   detectTopicsWithLLM,
   detectOpenLoopsWithLLM,
+  detectRelationshipSignalsWithLLM
 };
