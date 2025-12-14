@@ -12,6 +12,7 @@ import { RelationshipMetrics } from "./relationshipService";
 import { generateSpeech } from "./elevenLabsService";
 import { executeMemoryTool, MemoryToolName } from "./memoryService";
 import { getTopLoopToSurface, markLoopSurfaced } from "./presenceDirector";
+import { resolveActionKey } from "../utils/actionKeyMapper";
 
 const API_KEY = import.meta.env.VITE_CHATGPT_API_KEY;
 const ASSISTANT_NAME = import.meta.env.VITE_CHATGPT_ASSISTANT_NAME;
@@ -66,11 +67,15 @@ function stripCitations(text: string): string {
   return text.replace(/【\d+:\d+†source】/g, "").trim();
 }
 
-// Helper: Normalize JSON response
+// Helper: Normalize JSON response with action key resolver
+// Phase 1 Optimization: LLM returns action keys, we resolve to UUIDs
 function normalizeAiResponse(rawJson: any, rawText: string): AIActionResponse {
+  // Resolve action key to UUID (handles fuzzy matching and fallback)
+  const actionId = resolveActionKey(rawJson.action_id);
+  
   return {
     text_response: rawJson.text_response || rawJson.response || rawText,
-    action_id: rawJson.action_id || null,
+    action_id: actionId,
     user_transcription: rawJson.user_transcription || null,
     task_action: rawJson.task_action || null,
     open_app: rawJson.open_app || null,
@@ -79,6 +84,7 @@ function normalizeAiResponse(rawJson: any, rawText: string): AIActionResponse {
     selfie_action: rawJson.selfie_action || null,
   };
 }
+
 
 export const chatGPTService: IAIChatService = {
   model: MODEL,

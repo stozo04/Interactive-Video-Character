@@ -1,11 +1,12 @@
 import { createXai } from '@ai-sdk/xai';
 import { generateObject } from 'ai';
-import { AIActionResponseSchema } from './aiSchema';
+import { AIActionResponseSchema, AIActionResponse } from './aiSchema';
 import { buildSystemPrompt, buildGreetingPrompt } from './promptUtils';
 import { IAIChatService, AIChatSession, AIMessage, UserContent } from './aiService';
 import { generateSpeech } from './elevenLabsService';
 import { BaseAIService } from './BaseAIService';
 import { getTopLoopToSurface, markLoopSurfaced } from './presenceDirector';
+import { resolveActionKey } from '../utils/actionKeyMapper';
 
 const API_KEY = import.meta.env.VITE_GROK_API_KEY;
 const GROK_MODEL = import.meta.env.VITE_GROK_MODEL;
@@ -21,6 +22,16 @@ if (!API_KEY || !GROK_MODEL || !CHARACTER_COLLECTION_ID) {
 }
 
 const xai = createXai({ apiKey: API_KEY });
+
+/**
+ * Phase 1 Optimization: Post-process response to resolve action keys to UUIDs
+ */
+function resolveActionKeyInResponse(response: AIActionResponse): AIActionResponse {
+  return {
+    ...response,
+    action_id: resolveActionKey(response.action_id)
+  };
+}
 
 export class GrokService extends BaseAIService {
   model = GROK_MODEL;
@@ -99,8 +110,11 @@ export class GrokService extends BaseAIService {
           model: this.model,
       };
 
+      // Phase 1 Optimization: Resolve action key to UUID
+      const resolvedResponse = resolveActionKeyInResponse(result.object as AIActionResponse);
+
       return {
-          response: result.object,
+          response: resolvedResponse,
           session: updatedSession
       };
     } catch (error) {
@@ -108,6 +122,7 @@ export class GrokService extends BaseAIService {
       throw error;
     }
   }
+
 
   async generateGreeting(character: any, session: any, relationship: any, characterContext?: string) {
     const userId = session?.userId || USER_ID;
@@ -149,7 +164,10 @@ export class GrokService extends BaseAIService {
 
     const responseId = (result as any).response?.id || (result as any).id;
     
-    const audioData = await generateSpeech(result.object.text_response);
+    // Phase 1 Optimization: Resolve action key to UUID
+    const resolvedGreeting = resolveActionKeyInResponse(result.object as AIActionResponse);
+    
+    const audioData = await generateSpeech(resolvedGreeting.text_response);
 
     // Mark the open loop as surfaced (we asked about it)
     if (topOpenLoop) {
@@ -158,7 +176,7 @@ export class GrokService extends BaseAIService {
     }
 
     return { 
-        greeting: result.object, 
+        greeting: resolvedGreeting, 
         session: {
             userId: session?.userId || USER_ID,
             previousResponseId: responseId,
@@ -166,6 +184,7 @@ export class GrokService extends BaseAIService {
         },
         audioData
     };
+
   }
 }
 

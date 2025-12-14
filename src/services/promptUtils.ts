@@ -16,6 +16,7 @@ import {
   type OpenLoop
 } from "./presenceDirector";
 import type { RelationshipSignalIntent, ToneIntent, FullMessageIntent } from "./intentService";
+import { getActionKeysForPrompt } from "../utils/actionKeyMapper";
 
 // const CHARACTER_COLLECTION_ID = import.meta.env.VITE_GROK_CHARACTER_COLLECTION_ID;
 const CHARACTER_COLLECTION_ID = import.meta.env.VITE_CHATGPT_VECTOR_STORE_ID;
@@ -289,6 +290,108 @@ ${opinions.filter(o => o.category === 'dislikes' && o.canMention).slice(0, 3).ma
   
   // Use the full presence context prompt section
   return presenceContext.promptSection;
+}
+
+/**
+ * Phase 1 Optimization: Convert numeric relationship scores to semantic buckets.
+ * LLMs handle semantic concepts better than floating-point coordinates.
+ */
+function getSemanticBucket(score: number): string {
+  if (score <= -6) return 'cold/distant';
+  if (score <= -2) return 'guarded/cool';
+  if (score <= 1) return 'neutral';
+  if (score <= 5) return 'warm/open';
+  return 'close/affectionate';
+}
+
+/**
+ * Phase 1 Optimization: Build minified semantic intent context.
+ * Reduces ~120 tokens of verbose format to ~40 tokens of compact format.
+ */
+function buildMinifiedSemanticIntent(
+  toneIntent: ToneIntent | null | undefined,
+  fullIntent: FullMessageIntent | null | undefined,
+  relationshipSignals: RelationshipSignalIntent | null | undefined,
+  moodKnobs: MoodKnobs
+): string {
+  if (!toneIntent && !fullIntent && !relationshipSignals) {
+    return '';
+  }
+
+  const parts: string[] = [];
+  
+  // Tone context (compact)
+  if (toneIntent) {
+    const sentiment = toneIntent.sentiment > 0.1 ? '+' : toneIntent.sentiment < -0.1 ? '-' : '~';
+    const intensity = toneIntent.intensity > 0.7 ? 'HIGH' : toneIntent.intensity > 0.4 ? 'med' : 'low';
+    parts.push(`Tone=${toneIntent.primaryEmotion}(${sentiment}${Math.abs(toneIntent.sentiment).toFixed(1)},${intensity})`);
+    if (toneIntent.isSarcastic) parts.push('⚠️SARCASM');
+    if (toneIntent.secondaryEmotion) parts.push(`+${toneIntent.secondaryEmotion}`);
+  }
+  
+  // Topics context (compact)
+  if (fullIntent?.topics) {
+    const t = fullIntent.topics;
+    if (t.topics.length > 0) {
+      const topicsWithContext = t.topics.map(topic => {
+        const emotion = t.emotionalContext[topic];
+        return emotion ? `${topic}:${emotion}` : topic;
+      });
+      parts.push(`Topics={${topicsWithContext.join(',')}}`);
+    }
+    if (t.entities.length > 0) {
+      parts.push(`Entities=[${t.entities.join(',')}]`);
+    }
+  }
+  
+  // Genuine moment (compact)
+  if (fullIntent?.genuineMoment?.isGenuine) {
+    parts.push(`✨GENUINE:${fullIntent.genuineMoment.category}(${(fullIntent.genuineMoment.confidence * 100).toFixed(0)}%)`);
+  }
+  
+  // Relationship signals (compact flags)
+  const signals: string[] = [];
+  if (relationshipSignals?.isVulnerable) signals.push('vulnerable');
+  if (relationshipSignals?.isSeekingSupport) signals.push('needs-support');
+  if (relationshipSignals?.isJoking) signals.push('joking');
+  if (relationshipSignals?.isDeepTalk) signals.push('deep-talk');
+  if (relationshipSignals?.isHostile) signals.push('⚠️hostile');
+  if (relationshipSignals?.isInappropriate) signals.push('🚫inappropriate');
+  if (signals.length > 0) {
+    parts.push(`Signals=[${signals.join(',')}]`);
+  }
+  
+  // Open loop (compact)
+  if (fullIntent?.openLoops?.hasFollowUp) {
+    const ol = fullIntent.openLoops;
+    const canAsk = moodKnobs.initiationRate > 0.3 && moodKnobs.curiosityDepth !== 'shallow';
+    parts.push(`OpenLoop=${ol.topic || 'pending'}(${ol.loopType},${canAsk ? 'ask-now' : 'later'})`);
+  }
+  
+  return `[CONTEXT: ${parts.join(', ')}]`;
+}
+
+/**
+ * Phase 1 Optimization: Build compact relationship context.
+ * Replaces verbose numeric scores with semantic descriptors.
+ */
+function buildCompactRelationshipContext(relationship: RelationshipMetrics | null | undefined): string {
+  if (!relationship) {
+    return '[RELATIONSHIP: Stranger - first meeting. Be warm but maintain appropriate distance.]';
+  }
+  
+  const tier = relationship.relationshipTier || 'acquaintance';
+  const warmth = getSemanticBucket(relationship.warmthScore || 0);
+  const trust = getSemanticBucket(relationship.trustScore || 0);
+  const familiarity = relationship.familiarityStage || 'early';
+  
+  let context = `[RELATIONSHIP: ${tier}, warmth=${warmth}, trust=${trust}, stage=${familiarity}`;
+  if (relationship.isRuptured) {
+    context += ', ⚠️RUPTURED';
+  }
+  context += ']';
+  
+  return context;
 }
 
 // export const buildSystemPrompt = (
@@ -1538,34 +1641,44 @@ You MUST also include "text_response" as a sibling field.
 `;
   }
 
-  // Action menu (optional)
+  // Action menu (optional) - Phase 1 Optimization: Use simple key list instead of full objects
   if (character?.actions?.length) {
     console.log(
-      `[AI] Including ${character.actions.length} actions in system prompt`,
-      character.actions.map(a => ({ id: a.id, name: a.name, phrases: a.phrases }))
+      `[AI] Including ${character.actions.length} actions in system prompt (simplified keys)`,
+      character.actions.map(a => a.name)
     );
-  }
-  if (character?.actions?.length) {
-    const actionsMenu = character.actions.map(a => ({
-      action_id: a.id,
-      description: `${a.name}. Phrases: ${a.phrases.join(", ")}`
-    }));
+    
+    // Get simple action keys (e.g., "talking, confused, excited")
+    const actionKeys = getActionKeysForPrompt(character.actions);
+    
     prompt += `
 
-[Available Character Actions]
-${JSON.stringify(actionsMenu, null, 2)}
+[Available Actions]
+${actionKeys}
+
+Note: Use these action names in the "action_id" field when triggered. Example: "action_id": "talking"
 `;
   }
 
   prompt += `
-IMPORTANT FOOTER INSTRUCTION:
-Your final output must be a VALID JSON object.
-- Exception: if you are calling a tool, do that first; the JSON requirement applies to your final post-tool message.
-- No markdown formatting (no \`\`\`json).
-- No trailing commas.
-- No comments in the JSON.
-- "task_action" must be a sibling of "text_response".
-- CAUTION: If your "text_response" contains internal quotes, you MUST escape them (e.g. \"word\") or use single quotes (e.g. 'word'). Invalid JSON will fail.
+====================================================
+⚠️ CRITICAL OUTPUT RULES - READ LAST!
+====================================================
+Your final output MUST be a VALID JSON object:
+
+1. STRUCTURE: Start with '{' and end with '}'. No text before or after.
+2. NO PREAMBLE: Do not say "Sure!" or "Here you go:" before the JSON.
+3. NO MARKDOWN: Do not wrap in \`\`\`json code blocks.
+4. ESCAPE QUOTES: Internal quotes in strings MUST be escaped:
+   CORRECT: "She said \\"hello\\""
+   WRONG: "She said "hello""
+5. NO TRAILING COMMAS: Last item in arrays/objects has no comma.
+6. NO COMMENTS: JSON does not support // or /* comments.
+
+Exception: If calling a tool, do that first. JSON applies to your final post-tool response.
+
+YOUR RESPONSE MUST LOOK EXACTLY LIKE THIS:
+{"text_response": "Your message here", "action_id": null}
 `;
 
   return prompt;

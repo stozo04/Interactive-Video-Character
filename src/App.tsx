@@ -25,8 +25,10 @@ import {
   type NewEventPayload 
 } from './services/calendarService';
 import { generateSpeech } from './services/elevenLabsService'; // Import generateSpeech
+import { buildActionKeyMap } from './utils/actionKeyMapper'; // Phase 1 Optimization
 
 import { predictActionFromMessage } from './utils/intentUtils';
+
 import ImageUploader from './components/ImageUploader';
 import VideoPlayer from './components/VideoPlayer';
 import AudioPlayer from './components/AudioPlayer';
@@ -1468,6 +1470,13 @@ useEffect(() => {
     setActionVideoUrls(newActionUrls);
     setSelectedCharacter(character);
     
+    // Phase 1 Optimization: Build action key map for LLM response resolution
+    if (character.actions?.length) {
+      buildActionKeyMap(character.actions);
+      console.log(`🔑 Built action key map for ${character.actions.length} actions`);
+    }
+
+
     // Load tasks and perform daily rollover check
     const loadedTasks = taskService.loadTasks();
     setTasks(loadedTasks);

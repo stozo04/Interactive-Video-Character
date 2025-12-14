@@ -7,6 +7,7 @@ import { generateSpeech } from './elevenLabsService';
 import { BaseAIService } from './BaseAIService';
 import { executeMemoryTool, MemoryToolName } from './memoryService';
 import { getTopLoopToSurface, markLoopSurfaced } from './presenceDirector';
+import { resolveActionKey } from '../utils/actionKeyMapper';
 
 // 1. LOAD BOTH MODELS FROM ENV
 const GEMINI_MODEL = import.meta.env.VITE_GEMINI_MODEL; // The Brain (e.g. gemini-2.0-flash-exp)
@@ -88,6 +89,7 @@ function formatInteractionInput(userMessage: UserContent): any[] {
   return [];
 }
 
+// Phase 1 Optimization: LLM returns action keys, we resolve to UUIDs
 function normalizeAiResponse(rawJson: any, rawText: string): AIActionResponse {
   let wbAction = rawJson.whiteboard_action || null;
 
@@ -99,9 +101,12 @@ function normalizeAiResponse(rawJson: any, rawText: string): AIActionResponse {
       };
   }
 
+  // Resolve action key to UUID (handles fuzzy matching and fallback)
+  const actionId = resolveActionKey(rawJson.action_id);
+
   return {
       text_response: rawJson.text_response || rawJson.response || rawText,
-      action_id: rawJson.action_id || null,
+      action_id: actionId,
       user_transcription: rawJson.user_transcription || null,
       task_action: rawJson.task_action || null,
       open_app: rawJson.open_app || null,
@@ -114,6 +119,7 @@ function normalizeAiResponse(rawJson: any, rawText: string): AIActionResponse {
       selfie_action: rawJson.selfie_action || null,
   };
 }
+
 
 export class GeminiService extends BaseAIService {
   model = GEMINI_MODEL;
