@@ -7,7 +7,16 @@
  * rather than abstract mood labels.
  * 
  * Key principle: She can be off without explaining, but she should feel CONSISTENT.
+ * 
+ * Phase 1 Semantic Intent Detection:
+ * Now includes LLM-based genuine moment detection with keyword fallback.
  */
+
+import { 
+  detectGenuineMomentLLMCached, 
+  mapCategoryToInsecurity,
+  type ConversationContext
+} from './intentService';
 
 const MOOD_STATE_KEY = 'kayley_mood_state';
 const LAST_INTERACTION_KEY = 'kayley_last_interaction';
@@ -128,6 +137,9 @@ export const INSECURITY_KEYWORDS = {
 } as const;
 
 export type InsecurityCategory = keyof typeof INSECURITY_KEYWORDS;
+
+// Re-export ConversationContext for callers
+export type { ConversationContext } from './intentService';
 
 /**
  * Get a seeded random number for consistent daily behavior
@@ -381,6 +393,202 @@ export function detectGenuineMoment(userMessage: string): GenuineMomentResult {
   }
   
   return result;
+}
+
+// ============================================
+// LLM-based Genuine Moment Detection (Phase 1)
+// ============================================
+
+/**
+ * Async version of genuine moment detection using LLM semantic understanding.
+ * Falls back to keyword detection if LLM fails.
+ * 
+ * This is the Phase 1 implementation that replaces hardcoded keywords with
+ * LLM-based semantic detection. The LLM understands nuanced messages like:
+ * - "You really get me" (loneliness)
+ * - "I'm kinda proud of you" (progress)
+ * - "You're more than just pretty" (depth)
+ * 
+ * IMPORTANT: Passing conversation context helps the LLM correctly interpret
+ * tone. For example, "You suck!!" after "I got a raise!" is playful, not hostile.
+ * 
+ * @param userMessage - The user's message to analyze
+ * @param conversationContext - Optional recent chat history for context
+ * @returns Promise resolving to GenuineMomentResult
+ */
+export async function detectGenuineMomentWithLLM(
+  userMessage: string,
+  conversationContext?: ConversationContext
+): Promise<GenuineMomentResult> {
+  try {
+    // Try LLM-based detection first, passing conversation context
+    const llmResult = await detectGenuineMomentLLMCached(userMessage, conversationContext);
+    
+    if (llmResult.isGenuine && llmResult.category) {
+      // Map LLM category to our InsecurityCategory type
+      const mappedCategory = mapCategoryToInsecurity(llmResult.category) as InsecurityCategory | null;
+      
+      console.log(`🧠 [MoodKnobs] LLM detected genuine moment:`, {
+        category: mappedCategory,
+        confidence: llmResult.confidence,
+        explanation: llmResult.explanation
+      });
+      
+      return {
+        isGenuine: true,
+        category: mappedCategory,
+        matchedKeywords: [`LLM: ${llmResult.explanation}`],
+        isPositiveAffirmation: true,
+      };
+    }
+    
+    // LLM says not genuine
+    return {
+      isGenuine: false,
+      category: null,
+      matchedKeywords: [],
+      isPositiveAffirmation: false,
+    };
+    
+  } catch (error) {
+    // LLM failed - fall back to keyword detection
+    console.warn('⚠️ [MoodKnobs] LLM detection failed, falling back to keywords:', error);
+    return detectGenuineMoment(userMessage);
+  }
+}
+
+/**
+ * Async version of updateEmotionalMomentum that uses LLM-based detection.
+ * This is the recommended function to call for user message processing.
+ * 
+ * @param tone - Interaction tone from -1 (negative) to 1 (positive)
+ * @param userMessage - User message for genuine moment detection
+ * @param conversationContext - Optional recent chat history for context
+ * @returns Promise resolving to updated EmotionalMomentum
+ */
+export async function updateEmotionalMomentumAsync(
+  tone: number,
+  userMessage: string = '',
+  conversationContext?: ConversationContext
+): Promise<EmotionalMomentum> {
+  const momentum = getEmotionalMomentum();
+  
+  // Add tone to history (keep last MAX_TONE_HISTORY)
+  momentum.recentInteractionTones.push(tone);
+  if (momentum.recentInteractionTones.length > MAX_TONE_HISTORY) {
+    momentum.recentInteractionTones.shift();
+  }
+  
+  // Use LLM-based genuine moment detection with conversation context
+  const genuineMoment = await detectGenuineMomentWithLLM(userMessage, conversationContext);
+  
+  if (genuineMoment.isGenuine && genuineMoment.isPositiveAffirmation) {
+    // GENUINE MOMENT DETECTED - Instant positive shift!
+    console.log(`🌟 [MoodKnobs] Genuine moment detected! Category: ${genuineMoment.category}`);
+    console.log(`   Source: ${genuineMoment.matchedKeywords.join(', ')}`);
+    
+    momentum.genuineMomentDetected = true;
+    momentum.lastGenuineMomentAt = Date.now();
+    
+    // Significant boost - but cap at 0.8 (still not perfect day)
+    momentum.currentMoodLevel = Math.min(0.8, momentum.currentMoodLevel + 0.5);
+    momentum.momentumDirection = 1;
+    momentum.positiveInteractionStreak = Math.max(MOOD_SHIFT_THRESHOLDS.noticeableShiftStreak, momentum.positiveInteractionStreak);
+    
+    storeMomentum(momentum);
+    return momentum;
+  }
+  
+  // Rest of the logic is the same as updateEmotionalMomentum
+  // Update streak based on tone
+  if (tone >= MOOD_SHIFT_THRESHOLDS.positiveToneThreshold) {
+    momentum.positiveInteractionStreak++;
+  } else if (tone <= MOOD_SHIFT_THRESHOLDS.negativeToneThreshold) {
+    // Negative interaction resets some (not all) of the streak
+    momentum.positiveInteractionStreak = Math.max(0, momentum.positiveInteractionStreak - 2);
+  }
+  // Neutral maintains but doesn't extend streak
+  
+  // Calculate momentum direction from tone trend
+  momentum.momentumDirection = calculateMomentumDirection(momentum.recentInteractionTones);
+  
+  // Calculate average tone for mood adjustment
+  const avgTone = calculateAverageTone(momentum.recentInteractionTones);
+  
+  // Apply mood shifts based on streak (gradual, not instant)
+  const streak = momentum.positiveInteractionStreak;
+  const currentMood = momentum.currentMoodLevel;
+  
+  if (streak < MOOD_SHIFT_THRESHOLDS.minStreakForShift) {
+    // 1-2 positive interactions: Very minor effect
+    const microShift = tone * 0.05;
+    momentum.currentMoodLevel = clamp(currentMood + microShift, -1, 1);
+    
+  } else if (streak < MOOD_SHIFT_THRESHOLDS.noticeableShiftStreak) {
+    // 3 positives: Starting to shift
+    if (avgTone >= MOOD_SHIFT_THRESHOLDS.positiveTrendThreshold) {
+      const smallShift = 0.1 + (tone * 0.05);
+      momentum.currentMoodLevel = clamp(currentMood + smallShift, -1, 0.5);
+    }
+    
+  } else if (streak < MOOD_SHIFT_THRESHOLDS.fullThawStreak) {
+    // 4-5 positives: Mood is noticeably shifting
+    if (avgTone >= MOOD_SHIFT_THRESHOLDS.positiveTrendThreshold) {
+      const mediumShift = 0.15 + (tone * 0.1);
+      momentum.currentMoodLevel = clamp(currentMood + mediumShift, -1, 0.7);
+    }
+    
+  } else {
+    // 6+ positives: Full thaw - she opens up
+    if (avgTone >= MOOD_SHIFT_THRESHOLDS.positiveTrendThreshold) {
+      const fullShift = 0.2 + (tone * 0.15);
+      momentum.currentMoodLevel = clamp(currentMood + fullShift, -1, 1);
+    }
+  }
+  
+  // Negative interactions can pull mood down, but also gradually
+  if (tone <= MOOD_SHIFT_THRESHOLDS.negativeToneThreshold) {
+    const negativeShift = tone * 0.15;
+    momentum.currentMoodLevel = clamp(currentMood + negativeShift, -1, 1);
+  }
+  
+  // Clear genuine moment flag if it's been a while (4+ hours)
+  if (momentum.lastGenuineMomentAt) {
+    const hoursSinceGenuine = (Date.now() - momentum.lastGenuineMomentAt) / (1000 * 60 * 60);
+    if (hoursSinceGenuine > 4) {
+      momentum.genuineMomentDetected = false;
+    }
+  }
+  
+  storeMomentum(momentum);
+  return momentum;
+}
+
+/**
+ * Async version of recordInteraction that uses LLM-based detection.
+ * This is the recommended entry point for processing user messages.
+ * 
+ * @param tone - Interaction tone from -1 (negative) to 1 (positive)
+ * @param userMessage - User message for genuine moment detection
+ * @param conversationContext - Optional recent chat history for context
+ */
+export async function recordInteractionAsync(
+  tone: number = 0, 
+  userMessage: string = '',
+  conversationContext?: ConversationContext
+): Promise<void> {
+  const state = getStoredMoodState() || createFreshMoodState();
+  
+  // Deplete social battery slightly with each interaction
+  state.socialBattery = Math.max(0.2, state.socialBattery - 0.03);
+  state.lastInteractionAt = Date.now();
+  state.lastInteractionTone = tone;
+  
+  storeMoodState(state);
+  localStorage.setItem(LAST_INTERACTION_KEY, Date.now().toString());
+  
+  // Update emotional momentum with LLM-based detection and context
+  await updateEmotionalMomentumAsync(tone, userMessage, conversationContext);
 }
 
 // ============================================

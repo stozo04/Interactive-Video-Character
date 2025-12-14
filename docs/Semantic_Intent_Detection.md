@@ -1,6 +1,6 @@
 # Semantic Intent Detection
 
-> **Status**: Phase 1 In Progress  
+> **Status**: Phase 1 ✅ Complete  
 > **Goal**: Replace hardcoded keywords with LLM-based semantic detection.
 
 ---
@@ -39,14 +39,14 @@ User Message
 
 ## Migration Phases
 
-| Phase | Scope | Files |
-|-------|-------|-------|
-| **1** | Genuine moment detection | `intentService.ts`, `moodKnobs.ts` |
-| 2 | Tone & sentiment | `messageAnalyzer.ts` |
-| 3 | Mood detection | `userPatterns.ts` |
-| 4 | Topic detection | `userPatterns.ts`, `memoryService.ts` |
-| 5 | Open loop detection | `presenceDirector.ts` |
-| 6 | Relationship signals | `relationshipMilestones.ts` |
+| Phase | Scope | Files | Status |
+|-------|-------|-------|--------|
+| **1** | Genuine moment detection | `intentService.ts`, `moodKnobs.ts` | ✅ Complete |
+| 2 | Tone & sentiment | `messageAnalyzer.ts` | Pending |
+| 3 | Mood detection | `userPatterns.ts` | Pending |
+| 4 | Topic detection | `userPatterns.ts`, `memoryService.ts` | Pending |
+| 5 | Open loop detection | `presenceDirector.ts` | Pending |
+| 6 | Relationship signals | `relationshipMilestones.ts` | Pending |
 
 ---
 
@@ -441,4 +441,318 @@ const intent = await detectFullIntent(message);
 
 This reduces 6 LLM calls to 1, while maintaining semantic understanding.
 
+---
+
+## Phase 1 Implementation Lessons Learned
+
+> These lessons were discovered during Phase 1 implementation and should inform all remaining phases.
+
+### 1. Wiring is Critical - Build the Integration Path First
+
+**Problem discovered**: Features were implemented but not connected to the actual chat flow.
+
+**Lesson**: Before implementing detection logic, trace the complete data flow:
+```
+User Message → BaseAIService → messageAnalyzer → [Your New Service] → Response
+```
+
+**Action for each phase**:
+- [ ] Identify where in the flow your detection should be called
+- [ ] Update `messageAnalyzer.ts` to call your new function
+- [ ] Verify the results are used (not just calculated)
+
+### 2. Conversation Context is Essential for Accuracy
+
+**Problem discovered**: "You suck!!" after "I got a raise!" was misinterpreted without context.
+
+**Lesson**: Single messages lack context for accurate interpretation. Always pass recent chat history.
+
+**Implementation pattern**:
+```typescript
+// Your detection function should accept context
+async function detectXYZ(
+  message: string,
+  conversationContext?: ConversationContext  // ← Add this!
+): Promise<Result>
+```
+
+**Note**: `BaseAIService.ts` already builds and passes this context. Your service just needs to accept it.
+
+### 3. Run LLM Calls in Parallel for Efficiency
+
+**Problem discovered**: Sequential LLM calls add latency to background processing.
+
+**Lesson**: Use `Promise.all()` to run detection in parallel with other tasks.
+
+**Current pattern in `messageAnalyzer.ts`**:
+```typescript
+// ALL async tasks run in parallel
+const [genuineMomentResult, createdLoops, detectedPatterns, recordedMilestone] = await Promise.all([
+  detectGenuineMomentWithLLM(message, context),  // Phase 1
+  detectOpenLoops(userId, message),               // TODO: Phase 5
+  analyzeMessageForPatterns(userId, message),     // TODO: Phases 3-4
+  detectMilestoneInMessage(userId, message),      // TODO: Phase 6
+]);
+```
+
+**When adding Phase 2+**: Add your detection call to this `Promise.all()` block.
+
+### 4. Always Implement Fallback to Keywords
+
+**Lesson**: LLM calls can fail (rate limits, network issues, API key problems).
+
+**Required pattern**:
+```typescript
+export async function detectXYZWithLLM(message: string): Promise<Result> {
+  try {
+    return await detectXYZLLM(message);
+  } catch (error) {
+    console.warn('⚠️ LLM failed, falling back to keywords');
+    return detectXYZ(message);  // Keep old keyword function as fallback
+  }
+}
+```
+
+### 5. Export Types for Callers
+
+**Lesson**: Callers need your types to use your functions correctly.
+
+**Pattern**:
+```typescript
+// In your service file
+export interface ConversationContext { ... }
+export type MyCategory = 'a' | 'b' | 'c';
+
+// Re-export from consuming modules if needed
+export type { ConversationContext } from './intentService';
+```
+
+### 6. Cache Wisely, Invalidate on Context
+
+**Lesson**: Same message + different context = different result.
+
+**Caching strategy**:
+- Cache key: `message.toLowerCase().trim()`
+- Skip cache when context is provided (fresh analysis needed)
+- 5-minute TTL is reasonable for intent detection
+
+### 7. Use gemini-2.5-flash for All Intent Detection
+
+**Confirmed**: Fast (~200ms), cheap (~$0.0001), accurate enough.
+
+---
+
+## Phase 2: Tone & Sentiment - Implementation Advice
+
+### Files to Modify
+- `intentService.ts` - Add `detectToneLLM()` function
+- `messageAnalyzer.ts` - Replace `analyzeMessageTone()` with LLM version
+- NO changes needed to `BaseAIService.ts` (already wired)
+
+### Key Considerations
+
+1. **Return both raw sentiment AND emotion label**
+   - Sentiment (-1 to 1) for momentum calculations
+   - Emotion label for pattern tracking
+
+2. **Detect sarcasm explicitly**
+   - "Great, just great" should NOT be positive
+   - Add `isSarcastic: boolean` to result
+
+3. **Integration point**
+   ```typescript
+   // In messageAnalyzer.ts - replace the local function with:
+   const messageTone = await detectToneLLM(message, conversationContext);
+   ```
+
+4. **Already uses context**: The tone of "You suck!!" depends heavily on prior messages.
+
+### Prompt Guidance
+Include examples of sarcasm and mixed emotions in your prompt. Ask for:
+```json
+{
+  "sentiment": -0.3,
+  "primaryEmotion": "dismissive",
+  "intensity": 0.4,
+  "isSarcastic": true
+}
+```
+
+---
+
+## Phase 3: Mood Detection - Implementation Advice
+
+### Files to Modify
+- `intentService.ts` - Add `detectMoodLLM()` function
+- `userPatterns.ts` - Replace keyword matching with LLM call
+- `messageAnalyzer.ts` - Call the new function in `Promise.all()`
+
+### Key Considerations
+
+1. **Mood vs Tone distinction**
+   - Tone = how they're expressing (sarcastic, enthusiastic)
+   - Mood = how they're feeling (stressed, happy)
+   - Same message can have upbeat tone but stressed mood
+
+2. **Track mood over time**
+   - Current `userPatterns.ts` tracks "stressed on Mondays"
+   - Keep this cross-session tracking intact
+
+3. **Pass conversation context**
+   - Mood bleeds across messages
+   - "Everything's fine" after complaining = still stressed
+
+4. **Integration**:
+   ```typescript
+   // Add to messageAnalyzer's Promise.all:
+   const moodResult = await detectMoodLLM(message, conversationContext);
+   ```
+
+---
+
+## Phase 4: Topic Detection - Implementation Advice
+
+### Files to Modify
+- `intentService.ts` - Add `detectTopicsLLM()` function
+- `userPatterns.ts` - Replace `TOPIC_CATEGORIES` matching
+- `memoryService.ts` - Use topics for memory categorization
+
+### Key Considerations
+
+1. **Return multiple topics**
+   - "My boss is stressing about money" = work + money
+   - Array of topics, not single string
+
+2. **Extract emotional context per topic**
+   ```typescript
+   {
+     topics: ['work'],
+     emotionalContext: { work: 'frustrated' }  // ← Key insight
+   }
+   ```
+
+3. **Enable topic correlations**
+   - Kayley can say: "I've noticed you mention your boss when you're stressed"
+   - This requires storing topic + emotion pairs
+
+4. **Consider memory integration**
+   - Topics can trigger memory recalls
+   - "Speaking of work, last week you mentioned..."
+
+---
+
+## Phase 5: Open Loop Detection - Implementation Advice
+
+### Files to Modify
+- `intentService.ts` - Add `detectOpenLoopsLLM()` function
+- `presenceDirector.ts` - Replace regex patterns with LLM
+- NO changes to `messageAnalyzer.ts` (already calls `detectOpenLoops`)
+
+### Key Considerations
+
+1. **Already partially wired**
+   - `detectOpenLoops()` is already called in `messageAnalyzer`
+   - Just need to make it use LLM internally
+
+2. **Time inference is critical**
+   - "Interview's coming up" → when?
+   - LLM should infer: `timeframe: 'soon'` or 'this_week'
+
+3. **Soft commitments matter**
+   - "I should probably..." = commitment for follow-up
+   - "Maybe I'll try..." = weaker, but still worth tracking
+
+4. **Suggested follow-up**
+   ```typescript
+   {
+     needsFollowUp: true,
+     suggestedFollowUp: "How did the interview go?"  // ← LLM generates this
+   }
+   ```
+
+---
+
+## Phase 6: Relationship Signals - Implementation Advice
+
+### Files to Modify
+- `intentService.ts` - Add `detectRelationshipSignalsLLM()` function
+- `relationshipMilestones.ts` - Replace regex patterns with LLM
+- `messageAnalyzer.ts` - Already calls `detectMilestoneInMessage`
+
+### Key Considerations
+
+1. **Milestone tracking is one-time**
+   - "first_vulnerability" happens once per relationship
+   - Check if milestone already exists before recording
+
+2. **Vulnerability is nuanced**
+   - "I don't usually share this" = explicit
+   - "This got deep huh" = implicit acknowledgment
+   - LLM can catch both
+
+3. **Remember when callbacks**
+   - Store enough context to reference later
+   - "Remember when you told me about your interview anxiety?"
+
+4. **Support acknowledgment matters**
+   - "That actually helped" = positive signal
+   - Strengthens relationship score
+
+---
+
+## Unified Intent Call - Implementation Advice
+
+### When to Implement
+- After Phase 6 is complete
+- When you want to reduce from 6 LLM calls to 1
+
+### Strategy
+
+1. **Create composite prompt**
+   ```typescript
+   const UNIFIED_INTENT_PROMPT = `
+   Analyze this message for:
+   1. Genuine moments (affirming insecurities)
+   2. Tone and sentiment
+   3. Mood
+   4. Topics discussed
+   5. Open loops (things to follow up)
+   6. Relationship signals (vulnerability, support)
+   
+   Return a single JSON object with all fields.
+   `;
+   ```
+
+2. **Keep individual functions for fallback**
+   - If unified call fails, can fall back to individual calls
+   - Individual calls are useful for testing
+
+3. **Migrate gradually**
+   - Start with unified call for new deployments
+   - Keep individual calls as backup
+
+### Performance Comparison
+| Approach | LLM Calls | Latency | Cost |
+|----------|-----------|---------|------|
+| Individual (current) | 6 parallel | ~300ms | ~$0.0006 |
+| Unified (future) | 1 | ~400ms | ~$0.0002 |
+
+Unified is cheaper but slightly slower per call. Since calls are parallel, current approach is faster for user-facing latency.
+
+---
+
+## Checklist for Each Phase
+
+Use this checklist when implementing any phase:
+
+- [ ] **Create LLM function** in `intentService.ts`
+- [ ] **Add ConversationContext parameter** to function signature
+- [ ] **Export types** for callers
+- [ ] **Create fallback function** using existing keywords
+- [ ] **Create wrapper** that tries LLM, falls back to keywords
+- [ ] **Add to Promise.all** in `messageAnalyzer.ts` (if applicable)
+- [ ] **Update tests** with mocked LLM responses
+- [ ] **Add context tests** (same message, different context = different result)
+- [ ] **Implement caching** (skip if context provided)
+- [ ] **Verify wiring** by testing end-to-end
 

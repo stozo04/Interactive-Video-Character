@@ -44,9 +44,6 @@ import {
   calculateMoodKnobs,
   getMoodDescription,
   INSECURITY_KEYWORDS,
-  type EmotionalMomentum,
-  type GenuineMomentResult,
-  type InsecurityCategory,
 } from "../moodKnobs";
 
 describe("Phase 2: Emotional Momentum", () => {
