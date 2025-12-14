@@ -17,6 +17,7 @@
  */
 
 import { supabase } from './supabaseClient';
+import type { ToneIntent, PrimaryEmotion } from './intentService';
 
 // ============================================
 // Types
@@ -332,16 +333,41 @@ async function recordPattern(
 /**
  * Analyze a message for patterns.
  * This is the main entry point - call after each user message.
+ * 
+ * Phase 3 Enhancement: Now accepts optional ToneIntent from Phase 2.
+ * If provided, uses LLM-detected primaryEmotion for mood patterns,
+ * falling back to keyword detection if emotion doesn't map to a mood.
+ * 
+ * @param userId - The user's ID  
+ * @param message - The user's message text
+ * @param date - Date for time-based pattern tracking (defaults to now)
+ * @param toneResult - Optional ToneIntent from Phase 2 LLM detection
  */
 export async function analyzeMessageForPatterns(
   userId: string,
   message: string,
-  date: Date = new Date()
+  date: Date = new Date(),
+  toneResult?: ToneIntent
 ): Promise<UserPattern[]> {
   const detectedPatterns: UserPattern[] = [];
   
-  // Detect mood and topics
-  const mood = detectMood(message);
+  // Phase 3: Try to get mood from LLM-detected emotion first
+  let mood: string | null = null;
+  
+  if (toneResult?.primaryEmotion) {
+    // Map LLM emotion to mood pattern category
+    mood = mapEmotionToMoodPattern(toneResult.primaryEmotion);
+    
+    if (mood) {
+      console.log(`🧠 [UserPatterns] Using LLM emotion for mood: ${toneResult.primaryEmotion} → ${mood}`);
+    }
+  }
+  
+  // Fallback to keyword detection if LLM didn't provide a mappable mood
+  if (!mood) {
+    mood = detectMood(message);
+  }
+  
   const topics = detectTopics(message);
   
   // Record mood-time pattern if mood detected
@@ -369,6 +395,28 @@ export async function analyzeMessageForPatterns(
   }
   
   return detectedPatterns;
+}
+
+/**
+ * Maps PrimaryEmotion from ToneIntent to mood pattern categories.
+ * Returns null for emotions that don't map to trackable mood patterns.
+ * 
+ * This is the Phase 3 bridge between tone detection and mood patterns.
+ */
+function mapEmotionToMoodPattern(emotion: PrimaryEmotion): string | null {
+  const emotionToMoodMap: Record<PrimaryEmotion, string | null> = {
+    'happy': 'happy',
+    'sad': 'sad',
+    'frustrated': 'frustrated',
+    'anxious': 'anxious',
+    'excited': 'happy',  // Excited maps to happy for pattern purposes
+    'angry': 'frustrated',  // Angry maps to frustrated
+    'playful': null,  // Playful is a tone, not a mood pattern
+    'dismissive': null,  // Dismissive is a tone, not a mood pattern
+    'neutral': null,  // Neutral doesn't indicate a mood pattern
+    'mixed': null,  // Mixed is too ambiguous for patterns
+  };
+  return emotionToMoodMap[emotion] ?? null;
 }
 
 // ============================================

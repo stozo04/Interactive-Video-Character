@@ -1,6 +1,6 @@
 # Semantic Intent Detection
 
-> **Status**: Phase 1 ✅ Complete | Phase 2 ✅ Complete  
+> **Status**: Phase 1 ✅ Complete | Phase 2 ✅ Complete | Phase 3 ✅ Complete  
 > **Goal**: Replace hardcoded keywords with LLM-based semantic detection.
 
 ---
@@ -43,7 +43,7 @@ User Message
 |-------|-------|-------|--------|
 | **1** | Genuine moment detection | `intentService.ts`, `moodKnobs.ts` | ✅ Complete |
 | **2** | Tone & sentiment | `intentService.ts`, `messageAnalyzer.ts` | ✅ Complete |
-| 3 | Mood detection | `userPatterns.ts` | Pending |
+| **3** | Mood detection | `moodKnobs.ts`, `userPatterns.ts`, `messageAnalyzer.ts` | ✅ Complete |
 | 4 | Topic detection | `userPatterns.ts`, `memoryService.ts` | Pending |
 | 5 | Open loop detection | `presenceDirector.ts` | Pending |
 | 6 | Relationship signals | `relationshipMilestones.ts` | Pending |
@@ -724,68 +724,164 @@ export function recordInteraction(
 
 ---
 
-## Phase 3: Mood Detection - Implementation Advice
+## Phase 3: Mood Detection - ✅ COMPLETE (2025-12-13)
 
-### Files to Modify
-- `intentService.ts` - Add `detectMoodLLM()` function
-- `userPatterns.ts` - Replace keyword matching with LLM call
-- `messageAnalyzer.ts` - Call the new function in `Promise.all()`
+### Implementation Approach: Option A (Leverage ToneIntent)
 
-### Key Considerations
+After reviewing the codebase, we chose **Option A** - leveraging existing `ToneIntent` data from Phase 2 rather than creating a separate `detectMoodLLM()` function.
 
-1. **Mood vs Tone distinction**
-   - Tone = how they're expressing (sarcastic, enthusiastic)
-   - Mood = how they're feeling (stressed, happy)
-   - Same message can have upbeat tone but stressed mood
+**Why Option A:**
+1. `ToneIntent.primaryEmotion` already maps to moods (happy, sad, frustrated, anxious, etc.)
+2. Avoids duplicate LLM calls for nearly identical analysis
+3. `ToneIntent.intensity` enables richer mood shift behaviors
+4. Cleaner architecture - one LLM call serves multiple purposes
 
-2. **Track mood over time**
-   - Current `userPatterns.ts` tracks "stressed on Mondays"
-   - Keep this cross-session tracking intact
+### Files Modified
+- `moodKnobs.ts` - `recordInteraction()` now accepts `ToneIntent` or number
+- `messageAnalyzer.ts` - Passes full `toneResult` to `recordInteraction()`
+- `userPatterns.ts` - `analyzeMessageForPatterns()` accepts optional `ToneIntent`
 
-3. **Pass conversation context**
-   - Mood bleeds across messages
-   - "Everything's fine" after complaining = still stressed
+### New Features
 
-4. **Integration**:
+1. **Emotion-to-Mood Mapping**
    ```typescript
-   // Add to messageAnalyzer's Promise.all:
-   const moodResult = await detectMoodLLM(message, conversationContext);
+   // moodKnobs.ts
+   export function mapEmotionToMood(emotion: PrimaryEmotion): string | null {
+     const emotionToMoodMap: Record<PrimaryEmotion, string | null> = {
+       'happy': 'happy',
+       'sad': 'sad',
+       'frustrated': 'frustrated',
+       'anxious': 'anxious',
+       'excited': 'happy',  // Maps for pattern purposes
+       'angry': 'frustrated',  // Maps for pattern purposes
+       'playful': null,  // Tone, not mood
+       'dismissive': null,  // Tone, not mood
+       'neutral': null,
+       'mixed': null,
+     };
+     return emotionToMoodMap[emotion] ?? null;
+   }
    ```
 
-### From Phase 2 Lessons - Remember To:
-- Add Supabase mock to test file (userPatterns.ts uses Supabase)
-- Create `detectMoodWithLLM()` wrapper in messageAnalyzer with keyword fallback
-- Export `MoodIntent` type from intentService and re-export from messageAnalyzer
-- Clean up old `MOOD_INDICATORS` imports after replacing with LLM
-- Run full test suite before marking complete
+2. **Intensity-Modulated Mood Shifts**
+   ```typescript
+   // High intensity emotions shift mood faster (0.5x to 1.5x multiplier)
+   const intensityMultiplier = 0.5 + intensity;
+   const microShift = tone * 0.05 * intensityMultiplier;
+   ```
 
-### ⚠️ Important: Leverage Phase 2's ToneIntent Data
+3. **LLM-Based Pattern Detection**
+   ```typescript
+   // userPatterns.ts - now uses LLM emotion before falling back to keywords
+   if (toneResult?.primaryEmotion) {
+     mood = mapEmotionToMoodPattern(toneResult.primaryEmotion);
+   }
+   if (!mood) {
+     mood = detectMood(message);  // Keyword fallback
+   }
+   ```
 
-Before creating a separate `detectMoodLLM()` function, consider whether Phase 2's `ToneIntent` already provides what you need:
+### Data Flow
+```
+User Message
+      │
+      ▼
+┌─────────────────────┐
+│ detectToneWithLLM() │  ← Phase 2 LLM call
+│ (messageAnalyzer)   │
+└──────────┬──────────┘
+           │
+     ToneIntent { sentiment, primaryEmotion, intensity, ... }
+           │
+     ┌─────┴─────┬──────────────────────┐
+     ▼           ▼                      ▼
+recordInteraction()  analyzeMessageForPatterns()  Other uses
+(intensity-aware    (LLM emotion → mood pattern)
+ mood shifts)
+```
 
-| Phase 2 Field | Could Replace |
-|---------------|---------------|
-| `primaryEmotion` (happy, sad, frustrated, anxious) | Mood detection |
-| `intensity` | How strongly they're feeling it |
-| `secondaryEmotion` | Complex moods like "frustrated but hopeful" |
+### Phase 3 Implementation Lessons Learned
 
-**Option A: Extend recordInteraction to use full ToneIntent**
+#### 1. Reuse Existing LLM Data When Possible
+
+**Insight**: Phase 2's `ToneIntent` already contained the data we needed. Creating a separate `detectMoodLLM()` would have been redundant.
+
+**Pattern for future phases**: Before adding a new LLM detection function, check if an existing one already captures the needed data.
+
+#### 2. Design for Backward Compatibility
+
+**Implementation**: `recordInteraction()` accepts both number and ToneIntent:
 ```typescript
-// Refactor messageAnalyzer.ts:
-recordInteraction(toneResult, message);  // Pass full object
-
-// Refactor moodKnobs.ts:
-export function recordInteraction(toneResult: ToneIntent, message: string) {
-  // Use toneResult.primaryEmotion for mood patterns
-  recordMoodTimePattern(userId, toneResult.primaryEmotion);
+export function recordInteraction(
+  toneOrToneIntent: number | ToneIntent = 0, 
+  userMessage: string = ''
+): void {
+  if (typeof toneOrToneIntent === 'number') {
+    // Old API - use default intensity 0.5
+  } else {
+    // New API - use full ToneIntent data
+  }
 }
 ```
 
-**Option B: Create separate detectMoodLLM with different semantics**
-- If mood ≠ emotion (e.g., user sounds playful but mentions being stressed)
-- Keep both but use mood for pattern tracking, tone for immediate response
+**Benefit**: Existing code using `recordInteraction(0.5)` continues to work.
 
-**Recommended**: Start with Option A to avoid duplicate LLM calls. Only add Option B if you find cases where mood and emotion genuinely differ.
+#### 3. Sequencing Matters for Data Dependencies
+
+**Problem**: Pattern analysis needs `toneResult`, but both ran in parallel.
+
+**Solution**: Run tone detection first, then use result:
+```typescript
+// Phase 1-2: Can run in parallel
+const [genuineMomentResult, toneResult, createdLoops, ...] = await Promise.all([...]);
+
+// Phase 3: Depends on toneResult, runs after
+const detectedPatterns = await analyzeMessageForPatterns(userId, message, new Date(), toneResult);
+```
+
+#### 4. Map Types Thoughtfully, Not 1:1
+
+**Insight**: Not all emotions are moods. `playful` and `dismissive` are tones (how you say it), not moods (how you feel).
+
+**Implementation**: Explicitly return `null` for non-mood emotions:
+```typescript
+'playful': null,  // Playful is a tone, not a mood pattern
+'dismissive': null,  // Dismissive is a tone, not a mood pattern
+```
+
+#### 5. Export Types at Every Level
+
+**Pattern**: Re-export types from each module in the chain:
+```typescript
+// moodKnobs.ts
+export type { ConversationContext, ToneIntent, PrimaryEmotion } from './intentService';
+
+// messageAnalyzer.ts  
+export type { ToneIntent, PrimaryEmotion, ConversationContext };
+```
+
+**Benefit**: Consumers can import from the module they're already using.
+
+#### 6. Test Intensity Effects Comparatively
+
+**Strategy**: To test that intensity affects mood, compare two identical scenarios:
+```typescript
+// High intensity → higher mood shift
+for (let i = 0; i < 5; i++) {
+  recordInteraction({ sentiment: 0.8, intensity: 0.95, ... });
+}
+const highIntensityLevel = getEmotionalMomentum().currentMoodLevel;
+
+resetEmotionalMomentum();
+
+// Low intensity → lower mood shift  
+for (let i = 0; i < 5; i++) {
+  recordInteraction({ sentiment: 0.8, intensity: 0.2, ... });
+}
+const lowIntensityLevel = getEmotionalMomentum().currentMoodLevel;
+
+expect(highIntensityLevel).toBeGreaterThan(lowIntensityLevel);
+```
 
 ---
 
@@ -973,3 +1069,138 @@ Use this checklist when implementing any phase:
 ### Documentation
 - [ ] **Update this doc** with lessons learned for the phase
 - [ ] **Mark phase complete** in the status table at the top
+
+---
+
+## Recommended Implementation Prompts
+
+Use these prompts when starting a new conversation to implement each phase.
+
+### Phase 3 Prompt
+
+```
+Implement Phase 3 (Mood Detection) of the Semantic Intent Detection project.
+
+## Context
+- Phase 1 (Genuine Moment Detection) ✅ Complete
+- Phase 2 (Tone & Sentiment Detection) ✅ Complete  
+- Both are documented in @docs/Semantic_Intent_Detection.md
+
+## Key Decision Before Starting
+Phase 2 already returns a `ToneIntent` object with `primaryEmotion`, `intensity`, and `secondaryEmotion`. 
+
+Before implementing, review @docs/Semantic_Intent_Detection.md Phase 3 section and answer:
+1. Can we use `ToneIntent.primaryEmotion` directly for mood patterns? (Option A - recommended)
+2. Or do we need a separate `detectMoodLLM()` because mood differs from emotion? (Option B)
+
+Recommend which approach makes sense after reviewing the code.
+
+## If Option A (Leverage ToneIntent):
+1. Refactor `recordInteraction()` in @src/services/moodKnobs.ts to accept full `ToneIntent` instead of just `number`
+2. Update `messageAnalyzer.ts` to pass `toneResult` instead of `toneResult.sentiment`
+3. Use `toneResult.primaryEmotion` for mood pattern tracking in `userPatterns.ts`
+4. Use `toneResult.intensity` to affect rate of emotional momentum shift
+5. Add tests for the new behavior
+
+## If Option B (Separate Mood Detection):
+Follow the existing Phase 1-2 pattern:
+1. Add `MoodIntent` type and `detectMoodLLM()` function to @src/services/intentService.ts
+2. Add `detectMoodWithLLM()` wrapper in @src/services/messageAnalyzer.ts with keyword fallback
+3. Add to `Promise.all()` in `analyzeUserMessage()`
+4. Add comprehensive tests to @src/services/tests/intentService.test.ts
+
+## Files to Review First
+- @docs/Semantic_Intent_Detection.md (Phase 3 section + Phase 2 lessons learned)
+- @src/services/intentService.ts (existing detectToneLLM pattern)
+- @src/services/messageAnalyzer.ts (existing integration pattern)
+- @src/services/moodKnobs.ts (recordInteraction function)
+- @src/services/userPatterns.ts (mood pattern tracking)
+
+## Checklist (from docs)
+- [ ] Mock Supabase in test file (userPatterns.ts uses Supabase)
+- [ ] Export types from intentService and re-export from messageAnalyzer
+- [ ] Clean up unused imports after implementation
+- [ ] Run full test suite (`npm run test -- --run`) - all tests must pass
+
+## Deliverables
+1. Updated code files
+2. Updated tests with mocked LLM responses
+3. Update status in @docs/Semantic_Intent_Detection.md to mark Phase 3 complete
+4. Add any lessons learned to the Phase 3 section
+```
+
+### Phase 4 Prompt
+
+```
+Implement Phase 4 (Topic Detection) of the Semantic Intent Detection project.
+
+## Context
+- Phases 1-3 are complete per @docs/Semantic_Intent_Detection.md
+- Follow the patterns established in Phase 2 (detectToneLLM)
+
+## Implementation
+1. Add `TopicIntent` type and `detectTopicsLLM()` to @src/services/intentService.ts
+2. Add `detectTopicsWithLLM()` wrapper in @src/services/messageAnalyzer.ts
+3. Return array of topics with emotional context: `{ topics: ['work'], emotionalContext: { work: 'frustrated' } }`
+4. Replace `TOPIC_CATEGORIES` matching in @src/services/userPatterns.ts
+5. Add comprehensive tests with mocked LLM responses
+
+## Files to Modify
+- @src/services/intentService.ts
+- @src/services/messageAnalyzer.ts  
+- @src/services/userPatterns.ts
+- @src/services/tests/intentService.test.ts
+
+Follow checklist in @docs/Semantic_Intent_Detection.md and add lessons learned.
+```
+
+### Phase 5 Prompt
+
+```
+Implement Phase 5 (Open Loop Detection) of the Semantic Intent Detection project.
+
+## Context
+- Phases 1-4 are complete per @docs/Semantic_Intent_Detection.md
+- `detectOpenLoops()` is already called from messageAnalyzer - just replace internal implementation
+
+## Implementation
+1. Add `OpenLoopIntent` type and `detectOpenLoopsLLM()` to @src/services/intentService.ts
+2. Replace regex patterns in @src/services/presenceDirector.ts with LLM call
+3. Include time inference: "Interview's coming up" → `timeframe: 'soon'`
+4. Generate suggested follow-up: `suggestedFollowUp: "How did the interview go?"`
+5. Add fallback to existing regex patterns if LLM fails
+
+## Files to Modify
+- @src/services/intentService.ts
+- @src/services/presenceDirector.ts
+- @src/services/tests/intentService.test.ts
+
+Follow checklist in @docs/Semantic_Intent_Detection.md and add lessons learned.
+```
+
+### Phase 6 Prompt
+
+```
+Implement Phase 6 (Relationship Signals) of the Semantic Intent Detection project.
+
+## Context
+- Phases 1-5 are complete per @docs/Semantic_Intent_Detection.md
+- `detectMilestoneInMessage()` is already called from messageAnalyzer
+
+## Implementation
+1. Add `RelationshipSignalIntent` type and `detectRelationshipSignalsLLM()` to @src/services/intentService.ts
+2. Replace regex patterns in @src/services/relationshipMilestones.ts with LLM call
+3. Detect nuanced vulnerability: "I don't usually share this" AND "This got deep huh"
+4. Detect support acknowledgment: "That actually helped"
+5. Add fallback to existing patterns if LLM fails
+
+## After Phase 6
+Consider implementing "Unified Intent Call" to reduce from 6 parallel LLM calls to 1.
+
+## Files to Modify
+- @src/services/intentService.ts
+- @src/services/relationshipMilestones.ts
+- @src/services/tests/intentService.test.ts
+
+Follow checklist in @docs/Semantic_Intent_Detection.md and add lessons learned.
+```

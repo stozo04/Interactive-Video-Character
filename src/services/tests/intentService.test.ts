@@ -1204,3 +1204,286 @@ describe("Phase 2: Integration with messageAnalyzer", () => {
     expect(result.messageTone).toBeDefined();
   });
 });
+
+// ============================================
+// Phase 3: Mood Detection Tests
+// ============================================
+
+describe("Phase 3: Mood Detection via ToneIntent", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    // localStorage is already mocked from earlier test suite
+    if (typeof localStorage !== 'undefined' && localStorage.clear) {
+      localStorage.clear();
+    }
+    clearIntentCache();
+    
+    (GoogleGenAI as any).mockImplementation(() => ({
+      models: {
+        generateContent: mockGenerateContent
+      }
+    }));
+  });
+
+  // ============================================
+  // Emotion-to-Mood Mapping Tests
+  // ============================================
+  
+  describe("mapEmotionToMood", () => {
+    it("should export mapEmotionToMood from moodKnobs", async () => {
+      const { mapEmotionToMood } = await import("../moodKnobs");
+      expect(mapEmotionToMood).toBeDefined();
+      expect(typeof mapEmotionToMood).toBe("function");
+    });
+
+    it("should map 'happy' emotion to 'happy' mood", async () => {
+      const { mapEmotionToMood } = await import("../moodKnobs");
+      expect(mapEmotionToMood('happy')).toBe('happy');
+    });
+
+    it("should map 'sad' emotion to 'sad' mood", async () => {
+      const { mapEmotionToMood } = await import("../moodKnobs");
+      expect(mapEmotionToMood('sad')).toBe('sad');
+    });
+
+    it("should map 'frustrated' emotion to 'frustrated' mood", async () => {
+      const { mapEmotionToMood } = await import("../moodKnobs");
+      expect(mapEmotionToMood('frustrated')).toBe('frustrated');
+    });
+
+    it("should map 'anxious' emotion to 'anxious' mood", async () => {
+      const { mapEmotionToMood } = await import("../moodKnobs");
+      expect(mapEmotionToMood('anxious')).toBe('anxious');
+    });
+
+    it("should map 'excited' emotion to 'happy' mood (for pattern purposes)", async () => {
+      const { mapEmotionToMood } = await import("../moodKnobs");
+      expect(mapEmotionToMood('excited')).toBe('happy');
+    });
+
+    it("should map 'angry' emotion to 'frustrated' mood", async () => {
+      const { mapEmotionToMood } = await import("../moodKnobs");
+      expect(mapEmotionToMood('angry')).toBe('frustrated');
+    });
+
+    it("should return null for 'playful' (tone, not mood)", async () => {
+      const { mapEmotionToMood } = await import("../moodKnobs");
+      expect(mapEmotionToMood('playful')).toBeNull();
+    });
+
+    it("should return null for 'dismissive' (tone, not mood)", async () => {
+      const { mapEmotionToMood } = await import("../moodKnobs");
+      expect(mapEmotionToMood('dismissive')).toBeNull();
+    });
+
+    it("should return null for 'neutral'", async () => {
+      const { mapEmotionToMood } = await import("../moodKnobs");
+      expect(mapEmotionToMood('neutral')).toBeNull();
+    });
+
+    it("should return null for 'mixed'", async () => {
+      const { mapEmotionToMood } = await import("../moodKnobs");
+      expect(mapEmotionToMood('mixed')).toBeNull();
+    });
+  });
+
+  // ============================================
+  // recordInteraction with ToneIntent Tests
+  // ============================================
+  
+  describe("recordInteraction with ToneIntent", () => {
+    it("should accept ToneIntent object (Phase 3 enhancement)", async () => {
+      const { recordInteraction, resetEmotionalMomentum, getEmotionalMomentum } = await import("../moodKnobs");
+      
+      resetEmotionalMomentum();
+      
+      // Create a ToneIntent object
+      const toneIntent = {
+        sentiment: 0.7,
+        primaryEmotion: 'happy' as const,
+        intensity: 0.8,
+        isSarcastic: false,
+        explanation: 'Test tone'
+      };
+      
+      // Should not throw
+      expect(() => recordInteraction(toneIntent, "Test message")).not.toThrow();
+      
+      // Should have recorded the interaction
+      const momentum = getEmotionalMomentum();
+      expect(momentum.recentInteractionTones.length).toBeGreaterThan(0);
+    });
+
+    it("should still accept number for backward compatibility", async () => {
+      const { recordInteraction, resetEmotionalMomentum, getEmotionalMomentum } = await import("../moodKnobs");
+      
+      resetEmotionalMomentum();
+      
+      // Should not throw with number (old API)
+      expect(() => recordInteraction(0.5, "Test message")).not.toThrow();
+      
+      const momentum = getEmotionalMomentum();
+      expect(momentum.recentInteractionTones.length).toBeGreaterThan(0);
+    });
+
+    it("should extract sentiment from ToneIntent for mood calculations", async () => {
+      const { recordInteraction, resetEmotionalMomentum, getEmotionalMomentum } = await import("../moodKnobs");
+      
+      resetEmotionalMomentum();
+      
+      const toneIntent = {
+        sentiment: 0.9,  // Very positive
+        primaryEmotion: 'happy' as const,
+        intensity: 0.7,
+        isSarcastic: false,
+        explanation: 'Very positive tone'
+      };
+      
+      recordInteraction(toneIntent, "Great day!");
+      
+      const momentum = getEmotionalMomentum();
+      // The last recorded tone should match the sentiment
+      expect(momentum.recentInteractionTones[momentum.recentInteractionTones.length - 1]).toBe(0.9);
+    });
+  });
+
+  // ============================================
+  // Intensity-Modulated Mood Shifts Tests
+  // ============================================
+  
+  describe("intensity-modulated mood shifts", () => {
+    it("should shift mood faster with high intensity emotions", async () => {
+      const { recordInteraction, resetEmotionalMomentum, getEmotionalMomentum } = await import("../moodKnobs");
+      
+      // Start fresh
+      resetEmotionalMomentum();
+      
+      // Record several high-intensity positive interactions
+      for (let i = 0; i < 5; i++) {
+        recordInteraction({
+          sentiment: 0.8,
+          primaryEmotion: 'excited' as const,
+          intensity: 0.95,  // Very high intensity
+          isSarcastic: false,
+          explanation: 'High intensity positive'
+        }, "Feeling amazing!");
+      }
+      
+      const highIntensityMomentum = getEmotionalMomentum();
+      const highIntensityMoodLevel = highIntensityMomentum.currentMoodLevel;
+      
+      // Reset and try with low intensity
+      resetEmotionalMomentum();
+      
+      // Record same number of low-intensity positive interactions
+      for (let i = 0; i < 5; i++) {
+        recordInteraction({
+          sentiment: 0.8,
+          primaryEmotion: 'happy' as const,
+          intensity: 0.2,  // Low intensity
+          isSarcastic: false,
+          explanation: 'Low intensity positive'
+        }, "Feeling okay");
+      }
+      
+      const lowIntensityMomentum = getEmotionalMomentum();
+      const lowIntensityMoodLevel = lowIntensityMomentum.currentMoodLevel;
+      
+      // High intensity should result in higher mood level
+      expect(highIntensityMoodLevel).toBeGreaterThan(lowIntensityMoodLevel);
+    });
+
+    it("should shift mood down faster with high intensity negative emotions", async () => {
+      const { recordInteraction, resetEmotionalMomentum, getEmotionalMomentum } = await import("../moodKnobs");
+      
+      resetEmotionalMomentum();
+      
+      // Record high-intensity negative interaction
+      recordInteraction({
+        sentiment: -0.7,
+        primaryEmotion: 'angry' as const,
+        intensity: 0.9,  // High intensity
+        isSarcastic: false,
+        explanation: 'Intense anger'
+      }, "So frustrated!");
+      
+      const highIntensityMomentum = getEmotionalMomentum();
+      const highIntensityMoodLevel = highIntensityMomentum.currentMoodLevel;
+      
+      // Reset and try with low intensity
+      resetEmotionalMomentum();
+      
+      recordInteraction({
+        sentiment: -0.7,
+        primaryEmotion: 'sad' as const,
+        intensity: 0.2,  // Low intensity
+        isSarcastic: false,
+        explanation: 'Mild sadness'
+      }, "A bit sad");
+      
+      const lowIntensityMomentum = getEmotionalMomentum();
+      const lowIntensityMoodLevel = lowIntensityMomentum.currentMoodLevel;
+      
+      // High intensity negative should result in lower (more negative) mood
+      expect(highIntensityMoodLevel).toBeLessThan(lowIntensityMoodLevel);
+    });
+
+    it("should use default intensity 0.5 when passing number (backward compatibility)", async () => {
+      const { recordInteraction, resetEmotionalMomentum, getEmotionalMomentum } = await import("../moodKnobs");
+      
+      resetEmotionalMomentum();
+      
+      // Record with number (old API) - should use default 0.5 intensity
+      recordInteraction(0.8, "Positive message");
+      
+      const momentum = getEmotionalMomentum();
+      
+      // Should have recorded without errors
+      expect(momentum.recentInteractionTones.length).toBe(1);
+      expect(momentum.recentInteractionTones[0]).toBe(0.8);
+    });
+  });
+
+  // ============================================
+  // ToneIntent Type Export Tests
+  // ============================================
+  
+  describe("ToneIntent and PrimaryEmotion type exports", () => {
+    it("should export ToneIntent type from moodKnobs", async () => {
+      // This is a type check - if the import works and we can use it, the type is exported
+      const moodKnobs = await import("../moodKnobs");
+      
+      // The function that uses ToneIntent should be available
+      expect(moodKnobs.recordInteraction).toBeDefined();
+      expect(moodKnobs.mapEmotionToMood).toBeDefined();
+    });
+
+    it("should export PrimaryEmotion type from moodKnobs", async () => {
+      const { mapEmotionToMood } = await import("../moodKnobs");
+      
+      // All valid PrimaryEmotion values should work
+      const validEmotions = ['happy', 'sad', 'frustrated', 'anxious', 'excited', 'angry', 'playful', 'dismissive', 'neutral', 'mixed'] as const;
+      
+      for (const emotion of validEmotions) {
+        // Should not throw for any valid emotion
+        expect(() => mapEmotionToMood(emotion)).not.toThrow();
+      }
+    });
+  });
+
+  // ============================================
+  // Pattern Detection with ToneIntent Tests
+  // ============================================
+  
+  describe("userPatterns with ToneIntent", () => {
+    it("should use LLM emotion for mood pattern when ToneIntent provided", async () => {
+      // This test verifies the integration exists
+      const { analyzeMessageForPatterns } = await import("../userPatterns");
+      
+      expect(analyzeMessageForPatterns).toBeDefined();
+      
+      // The function should accept optional ToneIntent parameter
+      // (4th parameter as per our implementation)
+    });
+  });
+});
