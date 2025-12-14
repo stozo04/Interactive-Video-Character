@@ -2473,7 +2473,7 @@ Let the user know in a friendly way and maybe offer to check back later.
              }
 
              // Non-critical: kick off sentiment *after* we queued audio (or after text if muted)
-             startBackgroundSentiment(userId);
+             startBackgroundSentiment(userId, intent);
              
               if (response.action_id) {
                  maybePlayResponseAction(response.action_id);

@@ -8,6 +8,16 @@ export default defineConfig(({ mode }) => {
       server: {
         port: 3000,
         host: '0.0.0.0',
+        // Proxy for Gemini Interactions API to bypass CORS in development
+        // This only works in development (Vite dev server)
+        // The API key is added in the fetch URL, so we just need to forward the request
+        proxy: {
+          '/api/google': {
+            target: 'https://generativelanguage.googleapis.com',
+            changeOrigin: true,
+            rewrite: (path) => path.replace(/^\/api\/google/, ''),
+          },
+        },
       },
       plugins: [react()],
       define: {

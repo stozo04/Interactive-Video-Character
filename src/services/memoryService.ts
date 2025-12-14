@@ -557,7 +557,9 @@ export const detectAndStoreUserInfo = async (
     'should', 'will', 'name', 'please', 'try', 'again', 'more', 'less',
     // Common verbs
     'is', 'are', 'was', 'were', 'be', 'been', 'being', 'have', 'has', 'had',
-    'do', 'does', 'did', 'get', 'got', 'go', 'goes', 'went', 'come', 'came'
+    'do', 'does', 'did', 'get', 'got', 'go', 'goes', 'went', 'come', 'came',
+    // Character name - prevent storing the AI's own name as the user's name
+    'kayley', 'kayley adams'
   ];
 
   for (const pattern of namePatterns) {
