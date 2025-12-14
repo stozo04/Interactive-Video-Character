@@ -1791,10 +1791,10 @@ useEffect(() => {
                 'Authorization': `Bearer ${CHATGPT_API_KEY}`,
               },
               body: JSON.stringify({
-                model: 'gpt-4o-mini', // Fast and cheap for extraction
+                model: 'gpt-5-mini', // TODO: Move to env and cheap for extraction
                 messages: [{ role: 'user', content: prompt }],
-                temperature: 0.3,
-                max_tokens: 200,
+                temperature: 1,
+                max_completion_tokens: 200,
               }),
             });
             const data = await response.json();
@@ -1851,10 +1851,10 @@ useEffect(() => {
                 'Authorization': `Bearer ${CHATGPT_API_KEY}`,
               },
               body: JSON.stringify({
-                model: 'gpt-4o-mini', 
+                model: 'gpt-5-mini', // TODO: Move to env
                 messages: [{ role: 'user', content: prompt }],
-                temperature: 0.3,
-                max_tokens: 200,
+                temperature: 1,
+                max_completion_tokens: 200,
               }),
             });
             const data = await response.json();
