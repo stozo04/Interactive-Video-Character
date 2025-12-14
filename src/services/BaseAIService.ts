@@ -42,10 +42,27 @@ export abstract class BaseAIService implements IAIChatService {
 
       // Analyze user message for patterns, milestones, and open loops (non-blocking)
       // This powers the Phase 1-5 "magic" systems
+      // Phase 1: Now includes conversation context for LLM-based intent detection
       const userMessageText = 'text' in input ? input.text : '';
       if (userMessageText && updatedSession?.userId) {
         const interactionCount = options.chatHistory?.length || 0;
-        analyzeUserMessageBackground(updatedSession.userId, userMessageText, interactionCount);
+        
+        // Build conversation context from recent chat history for accurate LLM interpretation
+        // e.g., "You suck!!" after "I got a raise!" is playful, not hostile
+        const conversationContext = {
+          recentMessages: (options.chatHistory || []).slice(-5).map((msg: any) => ({
+            role: msg.role === 'user' ? 'user' as const : 'assistant' as const,
+            text: typeof msg.content === 'string' ? msg.content : 
+                  (msg.content?.text || msg.text || JSON.stringify(msg.content))
+          }))
+        };
+        
+        analyzeUserMessageBackground(
+          updatedSession.userId, 
+          userMessageText, 
+          interactionCount,
+          conversationContext
+        );
       }
 
       const audioMode = options.audioMode ?? 'sync';

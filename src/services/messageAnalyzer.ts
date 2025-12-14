@@ -11,12 +11,21 @@
  * 
  * Key principle: Call this AFTER each user message to enable
  * proactive behaviors and pattern recognition.
+ * 
+ * Phase 1 Semantic Intent Detection:
+ * Now uses LLM-based genuine moment detection with conversation context.
  */
 
 import { detectOpenLoops } from './presenceDirector';
 import { analyzeMessageForPatterns } from './userPatterns';
 import { detectMilestoneInMessage } from './relationshipMilestones';
-import { recordInteraction, detectGenuineMoment } from './moodKnobs';
+import { 
+  recordInteraction, 
+  recordInteractionAsync,
+  detectGenuineMoment,
+  detectGenuineMomentWithLLM,
+  type ConversationContext
+} from './moodKnobs';
 import type { OpenLoop } from './presenceDirector';
 import type { UserPattern } from './userPatterns';
 import type { RelationshipMilestone } from './relationshipMilestones';
@@ -96,17 +105,23 @@ function analyzeMessageTone(message: string): number {
  * Call this after each user message to enable the proactive memory systems.
  * This is the main integration point that wires together all Phase 1-5 features.
  * 
+ * Phase 1 Semantic Intent Detection:
+ * Now uses LLM-based detection with conversation context for accurate tone
+ * interpretation (e.g., "You suck!!" after good news is playful, not hostile).
+ * 
  * @param userId - The user's ID
  * @param message - The user's message text
  * @param interactionCount - Total number of interactions with this user
  * @param llmCall - Optional LLM function for advanced loop detection
+ * @param conversationContext - Optional recent chat history for LLM context
  * @returns Analysis results including any detected patterns/loops/milestones
  */
 export async function analyzeUserMessage(
   userId: string,
   message: string,
   interactionCount: number = 0,
-  llmCall?: (prompt: string) => Promise<string>
+  llmCall?: (prompt: string) => Promise<string>,
+  conversationContext?: ConversationContext
 ): Promise<MessageAnalysisResult> {
   // Skip very short messages
   if (message.length < 5) {
@@ -119,17 +134,20 @@ export async function analyzeUserMessage(
     };
   }
 
-  // Analyze message tone
+  // Analyze message tone (fast, local)
   const messageTone = analyzeMessageTone(message);
-  
-  // Check for genuine moment (addresses insecurities)
-  const genuineMomentResult = detectGenuineMoment(message);
-  
-  // Record interaction for emotional momentum
-  recordInteraction(messageTone, message);
 
-  // Run pattern detection tasks in parallel
-  const [createdLoops, detectedPatterns, recordedMilestone] = await Promise.all([
+  // Run ALL async tasks in parallel for efficiency
+  // This includes LLM-based intent detection alongside pattern/milestone/loop detection
+  const [
+    genuineMomentResult,
+    createdLoops, 
+    detectedPatterns, 
+    recordedMilestone
+  ] = await Promise.all([
+    // LLM-based genuine moment detection (Phase 1)
+    detectGenuineMomentWithLLM(message, conversationContext),
+    
     // Detect open loops (things to follow up on)
     detectOpenLoops(userId, message, llmCall),
     
@@ -139,6 +157,9 @@ export async function analyzeUserMessage(
     // Check for milestone moments
     detectMilestoneInMessage(userId, message, interactionCount),
   ]);
+  
+  // Record interaction for emotional momentum (sync, uses result from above)
+  recordInteraction(messageTone, message);
 
   // Log what was detected
   if (createdLoops.length > 0) {
@@ -151,7 +172,7 @@ export async function analyzeUserMessage(
     console.log(`🏆 [MessageAnalyzer] Recorded milestone: ${recordedMilestone.milestoneType}`);
   }
   if (genuineMomentResult.isGenuine) {
-    console.log(`💝 [MessageAnalyzer] Genuine moment detected (${genuineMomentResult.category})`);
+    console.log(`💝 [MessageAnalyzer] Genuine moment detected via LLM (${genuineMomentResult.category})`);
   }
 
   return {
@@ -166,14 +187,20 @@ export async function analyzeUserMessage(
 /**
  * Lightweight version for quick integration - doesn't wait for results.
  * Use this in the chat flow to avoid adding latency.
+ * 
+ * @param userId - The user's ID
+ * @param message - The user's message text
+ * @param interactionCount - Total number of interactions with this user
+ * @param conversationContext - Optional recent chat history for LLM context
  */
 export function analyzeUserMessageBackground(
   userId: string,
   message: string,
-  interactionCount: number = 0
+  interactionCount: number = 0,
+  conversationContext?: ConversationContext
 ): void {
   // Fire and forget - don't block the response
-  analyzeUserMessage(userId, message, interactionCount)
+  analyzeUserMessage(userId, message, interactionCount, undefined, conversationContext)
     .catch(error => {
       console.warn('[MessageAnalyzer] Background analysis failed:', error);
     });
