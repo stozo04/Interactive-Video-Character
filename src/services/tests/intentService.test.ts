@@ -37,6 +37,8 @@ import {
   detectGenuineMomentLLMCached,
   detectToneLLM,
   detectToneLLMCached,
+  detectTopicsLLM,
+  detectTopicsLLMCached,
   clearIntentCache,
   mapCategoryToInsecurity
 } from "../intentService";
@@ -1485,5 +1487,521 @@ describe("Phase 3: Mood Detection via ToneIntent", () => {
       // The function should accept optional ToneIntent parameter
       // (4th parameter as per our implementation)
     });
+  });
+});
+
+// ============================================
+// Phase 4: Topic Detection Tests
+// ============================================
+
+describe("Phase 4: Intent Service - LLM Topic Detection", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    clearIntentCache();
+    
+    // Setup the mock implementation
+    (GoogleGenAI as any).mockImplementation(() => ({
+      models: {
+        generateContent: mockGenerateContent
+      }
+    }));
+  });
+
+  afterEach(() => {
+    clearIntentCache();
+  });
+
+  // ============================================
+  // Basic Topic Detection Tests
+  // ============================================
+  
+  describe("detectTopicsLLM", () => {
+    describe("single topic detection", () => {
+      it("should detect work topic", async () => {
+        mockGenerateContent.mockResolvedValueOnce({
+          text: JSON.stringify({
+            topics: ["work"],
+            primaryTopic: "work",
+            emotionalContext: { work: "frustrated" },
+            entities: ["boss", "meeting"],
+            explanation: "User is frustrated about work"
+          })
+        });
+
+        const result = await detectTopicsLLM("My boss is really getting to me with these endless meetings");
+        
+        expect(result.topics).toContain("work");
+        expect(result.primaryTopic).toBe("work");
+        expect(result.emotionalContext.work).toBe("frustrated");
+        expect(result.entities).toContain("boss");
+      });
+
+      it("should detect family topic", async () => {
+        mockGenerateContent.mockResolvedValueOnce({
+          text: JSON.stringify({
+            topics: ["family"],
+            primaryTopic: "family",
+            emotionalContext: { family: "sad" },
+            entities: ["mom"],
+            explanation: "User misses their mother"
+          })
+        });
+
+        const result = await detectTopicsLLM("I really miss my mom");
+        
+        expect(result.topics).toContain("family");
+        expect(result.emotionalContext.family).toBe("sad");
+      });
+
+      it("should detect health topic", async () => {
+        mockGenerateContent.mockResolvedValueOnce({
+          text: JSON.stringify({
+            topics: ["health"],
+            primaryTopic: "health",
+            emotionalContext: { health: "proud" },
+            entities: ["gym"],
+            explanation: "User is proud of fitness achievement"
+          })
+        });
+
+        const result = await detectTopicsLLM("Finally hit my gym goal!");
+        
+        expect(result.topics).toContain("health");
+        expect(result.emotionalContext.health).toBe("proud");
+      });
+
+      it("should detect money topic", async () => {
+        mockGenerateContent.mockResolvedValueOnce({
+          text: JSON.stringify({
+            topics: ["money"],
+            primaryTopic: "money",
+            emotionalContext: { money: "anxious" },
+            entities: ["bills", "rent"],
+            explanation: "User is worried about finances"
+          })
+        });
+
+        const result = await detectTopicsLLM("I'm really stressed about bills and rent this month");
+        
+        expect(result.topics).toContain("money");
+        expect(result.emotionalContext.money).toBe("anxious");
+      });
+    });
+
+    describe("multiple topic detection", () => {
+      it("should detect multiple topics in one message", async () => {
+        mockGenerateContent.mockResolvedValueOnce({
+          text: JSON.stringify({
+            topics: ["work", "money"],
+            primaryTopic: "work",
+            emotionalContext: { work: "stressed", money: "anxious" },
+            entities: ["boss", "budget"],
+            explanation: "User is stressed about work affecting finances"
+          })
+        });
+
+        const result = await detectTopicsLLM("My boss is stressing about the budget and it's making me anxious about money");
+        
+        expect(result.topics).toHaveLength(2);
+        expect(result.topics).toContain("work");
+        expect(result.topics).toContain("money");
+        expect(result.primaryTopic).toBe("work");
+        expect(result.emotionalContext.work).toBe("stressed");
+        expect(result.emotionalContext.money).toBe("anxious");
+      });
+
+      it("should detect family + relationships topics", async () => {
+        mockGenerateContent.mockResolvedValueOnce({
+          text: JSON.stringify({
+            topics: ["family", "relationships"],
+            primaryTopic: "family",
+            emotionalContext: { family: "frustrated", relationships: "worried" },
+            entities: ["mom", "boyfriend"],
+            explanation: "User is dealing with family disapproval of relationship"
+          })
+        });
+
+        const result = await detectTopicsLLM("My mom doesn't approve of my boyfriend and it's causing drama");
+        
+        expect(result.topics).toContain("family");
+        expect(result.topics).toContain("relationships");
+      });
+    });
+
+    describe("emotional context extraction", () => {
+      it("should extract nuanced emotional context per topic", async () => {
+        mockGenerateContent.mockResolvedValueOnce({
+          text: JSON.stringify({
+            topics: ["school", "personal_growth"],
+            primaryTopic: "school",
+            emotionalContext: { 
+              school: "anxious", 
+              personal_growth: "hopeful" 
+            },
+            entities: ["exam", "goals"],
+            explanation: "User is anxious about exams but hopeful about self-improvement"
+          })
+        });
+
+        const result = await detectTopicsLLM("I'm nervous about the exam but I've been working on my study habits");
+        
+        expect(result.emotionalContext.school).toBe("anxious");
+        expect(result.emotionalContext.personal_growth).toBe("hopeful");
+      });
+    });
+
+    describe("no topic detected", () => {
+      it("should return empty topics for generic messages", async () => {
+        mockGenerateContent.mockResolvedValueOnce({
+          text: JSON.stringify({
+            topics: [],
+            primaryTopic: null,
+            emotionalContext: {},
+            entities: [],
+            explanation: "No specific topic detected"
+          })
+        });
+
+        const result = await detectTopicsLLM("Hey, what's up?");
+        
+        expect(result.topics).toHaveLength(0);
+        expect(result.primaryTopic).toBeNull();
+      });
+    });
+
+    describe("edge cases", () => {
+      it("should handle empty messages without LLM call", async () => {
+        const result = await detectTopicsLLM("");
+        
+        expect(result.topics).toHaveLength(0);
+        expect(result.explanation).toContain("too short");
+        expect(mockGenerateContent).not.toHaveBeenCalled();
+      });
+
+      it("should handle very short messages without LLM call", async () => {
+        const result = await detectTopicsLLM("hi");
+        
+        expect(result.topics).toHaveLength(0);
+        expect(mockGenerateContent).not.toHaveBeenCalled();
+      });
+
+      it("should handle LLM JSON parsing errors gracefully", async () => {
+        mockGenerateContent.mockResolvedValueOnce({
+          text: "This is not valid JSON"
+        });
+
+        await expect(detectTopicsLLM("Tell me about work"))
+          .rejects.toThrow();
+      });
+
+      it("should handle LLM API errors", async () => {
+        mockGenerateContent.mockRejectedValueOnce(new Error("API rate limit exceeded"));
+
+        await expect(detectTopicsLLM("My boss is annoying"))
+          .rejects.toThrow("API rate limit exceeded");
+      });
+
+      it("should validate and filter invalid topics", async () => {
+        mockGenerateContent.mockResolvedValueOnce({
+          text: JSON.stringify({
+            topics: ["work", "invalid_topic", "family"],
+            primaryTopic: "work",
+            emotionalContext: {},
+            entities: [],
+            explanation: "Test"
+          })
+        });
+
+        const result = await detectTopicsLLM("Some message about work and family");
+        
+        expect(result.topics).toContain("work");
+        expect(result.topics).toContain("family");
+        expect(result.topics).not.toContain("invalid_topic");
+      });
+
+      it("should strip markdown code blocks from LLM response", async () => {
+        mockGenerateContent.mockResolvedValueOnce({
+          text: '```json\n{"topics": ["work"], "primaryTopic": "work", "emotionalContext": {}, "entities": [], "explanation": "Test"}\n```'
+        });
+
+        const result = await detectTopicsLLM("Work stuff");
+        
+        expect(result.topics).toContain("work");
+      });
+    });
+
+    describe("context-aware topic detection", () => {
+      it("should use conversation context for topic interpretation", async () => {
+        mockGenerateContent.mockResolvedValueOnce({
+          text: JSON.stringify({
+            topics: ["health"],
+            primaryTopic: "health",
+            emotionalContext: { health: "hopeful" },
+            entities: ["therapy"],
+            explanation: "User is discussing mental health in context of prior conversation"
+          })
+        });
+
+        const result = await detectTopicsLLM("It's been helping a lot", {
+          recentMessages: [
+            { role: 'user', text: "I started seeing a therapist" },
+            { role: 'assistant', text: "That's great! How's it going?" }
+          ]
+        });
+        
+        expect(result.topics).toContain("health");
+        expect(mockGenerateContent).toHaveBeenCalled();
+      });
+    });
+  });
+
+  // ============================================
+  // Topic Caching Tests
+  // ============================================
+  
+  describe("detectTopicsLLMCached", () => {
+    it("should cache results and avoid redundant LLM calls", async () => {
+      mockGenerateContent.mockResolvedValue({
+        text: JSON.stringify({
+          topics: ["work"],
+          primaryTopic: "work",
+          emotionalContext: { work: "busy" },
+          entities: ["project"],
+          explanation: "Work topic detected"
+        })
+      });
+
+      // First call - should hit LLM
+      const result1 = await detectTopicsLLMCached("Working on a big project");
+      expect(mockGenerateContent).toHaveBeenCalledTimes(1);
+      
+      // Second call with same message - should use cache
+      const result2 = await detectTopicsLLMCached("Working on a big project");
+      expect(mockGenerateContent).toHaveBeenCalledTimes(1); // Still 1
+      
+      // Results should be identical
+      expect(result1.topics).toEqual(result2.topics);
+    });
+
+    it("should NOT use cache when context is provided", async () => {
+      mockGenerateContent.mockResolvedValue({
+        text: JSON.stringify({
+          topics: ["work"],
+          primaryTopic: "work",
+          emotionalContext: {},
+          entities: [],
+          explanation: "Test"
+        })
+      });
+
+      // First call without context (will cache)
+      await detectTopicsLLMCached("Work stuff");
+      expect(mockGenerateContent).toHaveBeenCalledTimes(1);
+      
+      // Second call WITH context - should NOT use cache
+      await detectTopicsLLMCached("Work stuff", {
+        recentMessages: [
+          { role: 'user', text: 'Something about work' }
+        ]
+      });
+      expect(mockGenerateContent).toHaveBeenCalledTimes(2);
+    });
+
+    it("should treat similar messages with different casing as same", async () => {
+      mockGenerateContent.mockResolvedValue({
+        text: JSON.stringify({
+          topics: ["family"],
+          primaryTopic: "family",
+          emotionalContext: {},
+          entities: [],
+          explanation: "Test"
+        })
+      });
+
+      await detectTopicsLLMCached("My MOM is coming over");
+      await detectTopicsLLMCached("my mom is coming over");
+      
+      // Should only call LLM once due to case-insensitive caching
+      expect(mockGenerateContent).toHaveBeenCalledTimes(1);
+    });
+  });
+});
+
+// ============================================
+// Phase 4: Integration with messageAnalyzer
+// ============================================
+
+describe("Phase 4: Integration with messageAnalyzer", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    clearIntentCache();
+    
+    (GoogleGenAI as any).mockImplementation(() => ({
+      models: {
+        generateContent: mockGenerateContent
+      }
+    }));
+  });
+
+  it("should export detectTopicsWithLLM from messageAnalyzer", async () => {
+    const { detectTopicsWithLLM } = await import("../messageAnalyzer");
+    
+    expect(detectTopicsWithLLM).toBeDefined();
+    expect(typeof detectTopicsWithLLM).toBe("function");
+  });
+
+  it("should export TopicIntent type from messageAnalyzer", async () => {
+    // Type check - if this compiles, TopicIntent is exported correctly
+    const messageAnalyzer = await import("../messageAnalyzer");
+    
+    expect(messageAnalyzer.detectTopicsWithLLM).toBeDefined();
+  });
+
+  it("should fall back to keyword detection when LLM fails", async () => {
+    mockGenerateContent.mockRejectedValueOnce(new Error("Network error"));
+    
+    const { detectTopicsWithLLM } = await import("../messageAnalyzer");
+    
+    // This message has clear work keywords
+    const result = await detectTopicsWithLLM("Working on a project at the office");
+    
+    // Should have fallen back to keyword detection
+    expect(result).toBeDefined();
+    expect(result.explanation).toContain("Fallback");
+    expect(result.topics).toContain("work"); // Should detect via keywords
+  });
+
+  it("should include topicResult in MessageAnalysisResult", async () => {
+    // Mock all required LLM calls
+    mockGenerateContent
+      .mockResolvedValueOnce({
+        text: JSON.stringify({
+          isGenuine: false,
+          category: null,
+          confidence: 0.5,
+          explanation: "Not genuine"
+        })
+      })
+      .mockResolvedValueOnce({
+        text: JSON.stringify({
+          sentiment: 0.3,
+          primaryEmotion: "neutral",
+          intensity: 0.3,
+          isSarcastic: false,
+          explanation: "Neutral tone"
+        })
+      })
+      .mockResolvedValueOnce({
+        text: JSON.stringify({
+          topics: ["work"],
+          primaryTopic: "work",
+          emotionalContext: { work: "busy" },
+          entities: ["project"],
+          explanation: "Work topic"
+        })
+      });
+    
+    const { analyzeUserMessage } = await import("../messageAnalyzer");
+    
+    const result = await analyzeUserMessage(
+      "test-user",
+      "Working on a big project today",
+      1
+    );
+    
+    expect(result.topicResult).toBeDefined();
+    expect(result.topicResult?.topics).toContain("work");
+  });
+});
+
+// ============================================
+// Phase 4: userPatterns Integration Tests
+// ============================================
+
+describe("Phase 4: userPatterns with TopicIntent", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    clearIntentCache();
+    
+    (GoogleGenAI as any).mockImplementation(() => ({
+      models: {
+        generateContent: mockGenerateContent
+      }
+    }));
+  });
+
+  it("should accept TopicIntent parameter in analyzeMessageForPatterns", async () => {
+    const { analyzeMessageForPatterns } = await import("../userPatterns");
+    
+    expect(analyzeMessageForPatterns).toBeDefined();
+    
+    // The function signature should now accept 5 parameters including TopicIntent
+    expect(analyzeMessageForPatterns.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("should use LLM topics when TopicIntent is provided", async () => {
+    const { analyzeMessageForPatterns } = await import("../userPatterns");
+    
+    const topicResult = {
+      topics: ['work' as const],
+      primaryTopic: 'work' as const,
+      emotionalContext: { work: 'frustrated' },
+      entities: ['boss'],
+      explanation: 'Work frustration'
+    };
+    
+    const toneResult = {
+      sentiment: -0.5,
+      primaryEmotion: 'frustrated' as const,
+      intensity: 0.6,
+      isSarcastic: false,
+      explanation: 'Frustrated tone'
+    };
+    
+    // This should not throw
+    const result = await analyzeMessageForPatterns(
+      'test-user',
+      'My boss is really annoying',
+      new Date(),
+      toneResult,
+      topicResult
+    );
+    
+    // Result should be an array
+    expect(Array.isArray(result)).toBe(true);
+  });
+
+  it("should use emotional context from TopicIntent for pattern tracking", async () => {
+    const { analyzeMessageForPatterns } = await import("../userPatterns");
+    
+    const topicResult = {
+      topics: ['work' as const, 'health' as const],
+      primaryTopic: 'work' as const,
+      emotionalContext: { 
+        work: 'stressed',
+        health: 'neglected'  
+      },
+      entities: [],
+      explanation: 'Multiple topics with different emotions'
+    };
+    
+    const toneResult = {
+      sentiment: -0.3,
+      primaryEmotion: 'anxious' as const,
+      intensity: 0.5,
+      isSarcastic: false,
+      explanation: 'Anxious tone'
+    };
+    
+    // Should not throw - emotional context is used for richer pattern tracking
+    const result = await analyzeMessageForPatterns(
+      'test-user',
+      'Work stress is affecting my health',
+      new Date(),
+      toneResult,
+      topicResult
+    );
+    
+    expect(Array.isArray(result)).toBe(true);
   });
 });

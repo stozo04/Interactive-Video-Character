@@ -17,7 +17,7 @@
  */
 
 import { supabase } from './supabaseClient';
-import type { ToneIntent, PrimaryEmotion } from './intentService';
+import type { ToneIntent, PrimaryEmotion, TopicIntent } from './intentService';
 
 // ============================================
 // Types
@@ -338,16 +338,22 @@ async function recordPattern(
  * If provided, uses LLM-detected primaryEmotion for mood patterns,
  * falling back to keyword detection if emotion doesn't map to a mood.
  * 
+ * Phase 4 Enhancement: Now accepts optional TopicIntent from Phase 4.
+ * If provided, uses LLM-detected topics with emotional context,
+ * falling back to keyword detection if not available.
+ * 
  * @param userId - The user's ID  
  * @param message - The user's message text
  * @param date - Date for time-based pattern tracking (defaults to now)
  * @param toneResult - Optional ToneIntent from Phase 2 LLM detection
+ * @param topicResult - Optional TopicIntent from Phase 4 LLM detection
  */
 export async function analyzeMessageForPatterns(
   userId: string,
   message: string,
   date: Date = new Date(),
-  toneResult?: ToneIntent
+  toneResult?: ToneIntent,
+  topicResult?: TopicIntent
 ): Promise<UserPattern[]> {
   const detectedPatterns: UserPattern[] = [];
   
@@ -368,7 +374,23 @@ export async function analyzeMessageForPatterns(
     mood = detectMood(message);
   }
   
-  const topics = detectTopics(message);
+  // Phase 4: Get topics from LLM or fall back to keyword detection
+  let topics: string[] = [];
+  let emotionalContext: Record<string, string> = {};
+  
+  if (topicResult && topicResult.topics.length > 0) {
+    // Use LLM-detected topics
+    topics = topicResult.topics;
+    emotionalContext = topicResult.emotionalContext;
+    
+    console.log(`📋 [UserPatterns] Using LLM topics: ${topics.join(', ')}`);
+    if (Object.keys(emotionalContext).length > 0) {
+      console.log(`📋 [UserPatterns] Emotional context:`, emotionalContext);
+    }
+  } else {
+    // Fallback to keyword detection
+    topics = detectTopics(message);
+  }
   
   // Record mood-time pattern if mood detected
   if (mood) {
@@ -378,8 +400,12 @@ export async function analyzeMessageForPatterns(
     }
     
     // Record topic-mood correlations
+    // Phase 4: Use LLM emotional context if available, otherwise use general mood
     for (const topic of topics) {
-      const pattern = await recordTopicCorrelationPattern(userId, topic, mood);
+      // Get topic-specific emotion from LLM if available
+      const topicMood = emotionalContext[topic] || mood;
+      
+      const pattern = await recordTopicCorrelationPattern(userId, topic, topicMood);
       if (pattern) {
         detectedPatterns.push(pattern);
       }
@@ -390,6 +416,17 @@ export async function analyzeMessageForPatterns(
       const pattern = await recordTopicCorrelationPattern(userId, topics[0], mood, topics[1]);
       if (pattern) {
         detectedPatterns.push(pattern);
+      }
+    }
+  } else if (topics.length > 0 && Object.keys(emotionalContext).length > 0) {
+    // Phase 4: Even without detected mood, use LLM emotional context from topics
+    for (const topic of topics) {
+      const topicEmotion = emotionalContext[topic];
+      if (topicEmotion) {
+        const pattern = await recordTopicCorrelationPattern(userId, topic, topicEmotion);
+        if (pattern) {
+          detectedPatterns.push(pattern);
+        }
       }
     }
   }
