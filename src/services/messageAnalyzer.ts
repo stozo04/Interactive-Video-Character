@@ -195,13 +195,12 @@ export async function analyzeUserMessage(
     };
   }
 
-  // Run ALL async tasks in parallel for efficiency
-  // This includes LLM-based intent detection for genuine moments AND tone (Phases 1-2)
+  // Run LLM-based detection tasks in parallel for efficiency
+  // Phase 1: Genuine moment detection, Phase 2: Tone detection
   const [
     genuineMomentResult,
     toneResult,
-    createdLoops, 
-    detectedPatterns, 
+    createdLoops,
     recordedMilestone
   ] = await Promise.all([
     // LLM-based genuine moment detection (Phase 1)
@@ -213,18 +212,23 @@ export async function analyzeUserMessage(
     // Detect open loops (things to follow up on)
     detectOpenLoops(userId, message, llmCall),
     
-    // Analyze for cross-session patterns
-    analyzeMessageForPatterns(userId, message),
-    
     // Check for milestone moments
     detectMilestoneInMessage(userId, message, interactionCount),
   ]);
   
+  // Phase 3: Analyze for cross-session patterns WITH toneResult
+  // This enables LLM-based mood detection via primaryEmotion
+  // Runs after tone detection so we can pass the result
+  const detectedPatterns = await analyzeMessageForPatterns(userId, message, new Date(), toneResult);
+  
   // Use LLM sentiment for message tone (fallback is already in toneResult)
   const messageTone = toneResult.sentiment;
   
-  // Record interaction for emotional momentum (sync, uses LLM tone result)
-  recordInteraction(messageTone, message);
+  // Record interaction for emotional momentum (sync, uses full ToneIntent for Phase 3)
+  // Passing full toneResult enables:
+  // - primaryEmotion for mood pattern tracking
+  // - intensity for modulating mood shift speed
+  recordInteraction(toneResult, message);
 
   // Log what was detected
   if (createdLoops.length > 0) {

@@ -15,7 +15,9 @@
 import { 
   detectGenuineMomentLLMCached, 
   mapCategoryToInsecurity,
-  type ConversationContext
+  type ConversationContext,
+  type ToneIntent,
+  type PrimaryEmotion
 } from './intentService';
 
 const MOOD_STATE_KEY = 'kayley_mood_state';
@@ -138,8 +140,28 @@ export const INSECURITY_KEYWORDS = {
 
 export type InsecurityCategory = keyof typeof INSECURITY_KEYWORDS;
 
-// Re-export ConversationContext for callers
-export type { ConversationContext } from './intentService';
+// Re-export types for callers
+export type { ConversationContext, ToneIntent, PrimaryEmotion } from './intentService';
+
+/**
+ * Maps PrimaryEmotion from ToneIntent to mood strings for pattern tracking.
+ * This enables Phase 3 mood detection by leveraging Phase 2's tone analysis.
+ */
+export function mapEmotionToMood(emotion: PrimaryEmotion): string | null {
+  const emotionToMoodMap: Record<PrimaryEmotion, string | null> = {
+    'happy': 'happy',
+    'sad': 'sad',
+    'frustrated': 'frustrated',
+    'anxious': 'anxious',
+    'excited': 'happy',  // Excited maps to happy for pattern purposes
+    'angry': 'frustrated',  // Angry maps to frustrated
+    'playful': null,  // Playful is a tone, not a mood pattern
+    'dismissive': null,  // Dismissive is a tone, not a mood pattern
+    'neutral': null,
+    'mixed': null,
+  };
+  return emotionToMoodMap[emotion] ?? null;
+}
 
 /**
  * Get a seeded random number for consistent daily behavior
@@ -754,11 +776,41 @@ export function resetEmotionalMomentum(): void {
  * Record an interaction (call after each exchange)
  * Now also updates emotional momentum for gradual mood shifts.
  * 
- * @param tone - Interaction tone from -1 (negative) to 1 (positive)
+ * Phase 3 Enhancement: Now accepts full ToneIntent object to leverage:
+ * - primaryEmotion for mood pattern tracking
+ * - intensity to modulate rate of mood shift
+ * 
+ * @param toneOrToneIntent - Either a simple tone number (-1 to 1) or full ToneIntent object
  * @param userMessage - Optional user message for genuine moment detection
  */
-export function recordInteraction(tone: number = 0, userMessage: string = ''): void {
+export function recordInteraction(
+  toneOrToneIntent: number | ToneIntent = 0, 
+  userMessage: string = ''
+): void {
   const state = getStoredMoodState() || createFreshMoodState();
+  
+  // Extract tone value and intensity from input
+  let tone: number;
+  let intensity: number = 0.5; // Default medium intensity
+  let primaryEmotion: PrimaryEmotion | undefined;
+  
+  if (typeof toneOrToneIntent === 'number') {
+    // Backward compatibility: simple tone number
+    tone = toneOrToneIntent;
+  } else {
+    // Phase 3: Full ToneIntent object
+    tone = toneOrToneIntent.sentiment;
+    intensity = toneOrToneIntent.intensity;
+    primaryEmotion = toneOrToneIntent.primaryEmotion;
+    
+    // Log rich tone data for debugging
+    console.log(`📊 [MoodKnobs] Recording interaction:`, {
+      tone: tone.toFixed(2),
+      emotion: primaryEmotion,
+      intensity: intensity.toFixed(2),
+      sarcastic: toneOrToneIntent.isSarcastic
+    });
+  }
   
   // Deplete social battery slightly with each interaction
   state.socialBattery = Math.max(0.2, state.socialBattery - 0.03);
@@ -768,8 +820,120 @@ export function recordInteraction(tone: number = 0, userMessage: string = ''): v
   storeMoodState(state);
   localStorage.setItem(LAST_INTERACTION_KEY, Date.now().toString());
   
-  // Update emotional momentum (Phase 2: Emotional Momentum System)
-  updateEmotionalMomentum(tone, userMessage);
+  // Update emotional momentum with intensity-modulated shifts
+  updateEmotionalMomentumWithIntensity(tone, intensity, userMessage);
+}
+
+/**
+ * Update emotional momentum with intensity modulation.
+ * Higher intensity emotions shift mood faster.
+ * 
+ * @param tone - Sentiment from -1 to 1
+ * @param intensity - Emotion intensity from 0 to 1
+ * @param userMessage - Optional user message for genuine moment detection
+ */
+function updateEmotionalMomentumWithIntensity(
+  tone: number,
+  intensity: number,
+  userMessage: string = ''
+): EmotionalMomentum {
+  const momentum = getEmotionalMomentum();
+  const moodState = getStoredMoodState() || createFreshMoodState();
+  
+  // Add tone to history (keep last MAX_TONE_HISTORY)
+  momentum.recentInteractionTones.push(tone);
+  if (momentum.recentInteractionTones.length > MAX_TONE_HISTORY) {
+    momentum.recentInteractionTones.shift();
+  }
+  
+  // Check for genuine moment (still uses sync keyword detection here)
+  const genuineMoment = detectGenuineMoment(userMessage);
+  
+  if (genuineMoment.isGenuine && genuineMoment.isPositiveAffirmation) {
+    // GENUINE MOMENT DETECTED - Instant positive shift!
+    console.log(`🌟 [MoodKnobs] Genuine moment detected! Category: ${genuineMoment.category}`);
+    console.log(`   Matched keywords: ${genuineMoment.matchedKeywords.join(', ')}`);
+    
+    momentum.genuineMomentDetected = true;
+    momentum.lastGenuineMomentAt = Date.now();
+    
+    // Significant boost - but cap at 0.8 (still not perfect day)
+    momentum.currentMoodLevel = Math.min(0.8, momentum.currentMoodLevel + 0.5);
+    momentum.momentumDirection = 1;
+    momentum.positiveInteractionStreak = Math.max(MOOD_SHIFT_THRESHOLDS.noticeableShiftStreak, momentum.positiveInteractionStreak);
+    
+    storeMomentum(momentum);
+    return momentum;
+  }
+  
+  // Update streak based on tone
+  if (tone >= MOOD_SHIFT_THRESHOLDS.positiveToneThreshold) {
+    momentum.positiveInteractionStreak++;
+  } else if (tone <= MOOD_SHIFT_THRESHOLDS.negativeToneThreshold) {
+    // Negative interaction resets some (not all) of the streak
+    momentum.positiveInteractionStreak = Math.max(0, momentum.positiveInteractionStreak - 2);
+  }
+  // Neutral maintains but doesn't extend streak much
+  
+  // Calculate momentum direction from tone trend
+  momentum.momentumDirection = calculateMomentumDirection(momentum.recentInteractionTones);
+  
+  // Calculate average tone for mood adjustment
+  const avgTone = calculateAverageTone(momentum.recentInteractionTones);
+  
+  // Phase 3: Intensity multiplier - high intensity emotions shift mood faster
+  // Range: 0.5x (low intensity) to 1.5x (high intensity)
+  const intensityMultiplier = 0.5 + intensity;
+  
+  // Apply mood shifts based on streak (gradual, not instant)
+  const streak = momentum.positiveInteractionStreak;
+  const currentMood = momentum.currentMoodLevel;
+  
+  if (streak < MOOD_SHIFT_THRESHOLDS.minStreakForShift) {
+    // 1-2 positive interactions: Very minor effect
+    // "One good joke doesn't fix a bad day"
+    const microShift = tone * 0.05 * intensityMultiplier;
+    momentum.currentMoodLevel = clamp(currentMood + microShift, -1, 1);
+    
+  } else if (streak < MOOD_SHIFT_THRESHOLDS.noticeableShiftStreak) {
+    // 3 positives: Starting to shift
+    if (avgTone >= MOOD_SHIFT_THRESHOLDS.positiveTrendThreshold) {
+      const smallShift = (0.1 + (tone * 0.05)) * intensityMultiplier;
+      momentum.currentMoodLevel = clamp(currentMood + smallShift, -1, 0.5);
+    }
+    
+  } else if (streak < MOOD_SHIFT_THRESHOLDS.fullThawStreak) {
+    // 4-5 positives: Mood is noticeably shifting
+    if (avgTone >= MOOD_SHIFT_THRESHOLDS.positiveTrendThreshold) {
+      const mediumShift = (0.15 + (tone * 0.1)) * intensityMultiplier;
+      momentum.currentMoodLevel = clamp(currentMood + mediumShift, -1, 0.7);
+    }
+    
+  } else {
+    // 6+ positives: Full thaw - she opens up
+    if (avgTone >= MOOD_SHIFT_THRESHOLDS.positiveTrendThreshold) {
+      const fullShift = (0.2 + (tone * 0.15)) * intensityMultiplier;
+      momentum.currentMoodLevel = clamp(currentMood + fullShift, -1, 1);
+    }
+  }
+  
+  // Negative interactions can pull mood down, but also gradually
+  // High intensity negative = faster mood decline
+  if (tone <= MOOD_SHIFT_THRESHOLDS.negativeToneThreshold) {
+    const negativeShift = tone * 0.15 * intensityMultiplier;
+    momentum.currentMoodLevel = clamp(currentMood + negativeShift, -1, 1);
+  }
+  
+  // Clear genuine moment flag if it's been a while (4+ hours)
+  if (momentum.lastGenuineMomentAt) {
+    const hoursSinceGenuine = (Date.now() - momentum.lastGenuineMomentAt) / (1000 * 60 * 60);
+    if (hoursSinceGenuine > 4) {
+      momentum.genuineMomentDetected = false;
+    }
+  }
+  
+  storeMomentum(momentum);
+  return momentum;
 }
 
 /**
