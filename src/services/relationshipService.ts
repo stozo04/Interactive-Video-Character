@@ -3,6 +3,7 @@ import { ChatMessage } from '../types';
 import { GoogleGenAI } from "@google/genai"; // Import Google GenAI SDK
 import {
   InsightType,
+  RelationshipInsightRow,
   UpsertRelationshipInsightInput,
   relationshipInsightRowSchema,
   buildInsightKey,
@@ -40,6 +41,8 @@ export interface RelationshipMetrics {
   ruptureCount: number;
 }
 
+import type { RelationshipSignalIntent } from './intentService';
+
 export interface RelationshipEvent {
   eventType: 'positive' | 'negative' | 'neutral' | 'milestone' | 'rupture' | 'repair';
   source: 'chat' | 'video_request' | 'system' | 'milestone' | 'decay';
@@ -54,6 +57,55 @@ export interface RelationshipEvent {
   stabilityChange: number;
   userMessage?: string;
   notes?: string;
+  relationshipIntent?: RelationshipSignalIntent; // Phase 6: LLM-detected intent
+}
+
+// ... (omitted lines)
+
+/**
+ * Detect if an event constitutes a rupture
+ */
+export function detectRupture(
+  event: RelationshipEvent,
+  previousScore: number,
+  newScore: number
+): boolean {
+  // Phase 6: LLM-based Rupture Detection (Primary)
+  if (event.relationshipIntent?.isHostile) {
+    return true;
+  }
+
+  // Existing Logic (Fallback)
+  if (
+    event.sentimentTowardCharacter === 'negative' &&
+    event.sentimentIntensity &&
+    event.sentimentIntensity >= 7 &&
+    event.scoreChange <= -10
+  ) {
+    return true;
+  }
+
+  const scoreDrop = previousScore - newScore;
+  if (scoreDrop >= 15) {
+    return true;
+  }
+
+  if (event.userMessage) {
+    const hostilePhrases = [
+      'hate you',
+      "you're useless",
+      'shut up',
+      'you suck',
+      'you\'re stupid',
+      'i hate talking to you',
+    ];
+    const lowerMessage = event.userMessage.toLowerCase();
+    if (hostilePhrases.some(phrase => lowerMessage.includes(phrase))) {
+      return true;
+    }
+  }
+
+  return false;
 }
 
 interface RelationshipRow {
@@ -635,45 +687,7 @@ export function calculateScoreChanges(
   };
 }
 
-/**
- * Detect if an event constitutes a rupture
- */
-export function detectRupture(
-  event: RelationshipEvent,
-  previousScore: number,
-  newScore: number
-): boolean {
-  if (
-    event.sentimentTowardCharacter === 'negative' &&
-    event.sentimentIntensity &&
-    event.sentimentIntensity >= 7 &&
-    event.scoreChange <= -10
-  ) {
-    return true;
-  }
 
-  const scoreDrop = previousScore - newScore;
-  if (scoreDrop >= 15) {
-    return true;
-  }
-
-  if (event.userMessage) {
-    const hostilePhrases = [
-      'hate you',
-      "you're useless",
-      'shut up',
-      'you suck',
-      'you\'re stupid',
-      'i hate talking to you',
-    ];
-    const lowerMessage = event.userMessage.toLowerCase();
-    if (hostilePhrases.some(phrase => lowerMessage.includes(phrase))) {
-      return true;
-    }
-  }
-
-  return false;
-}
 
 function getRelationshipTier(score: number): string {
   if (score <= -50) return 'adversarial';
@@ -776,7 +790,7 @@ async function recordPatternObservation(
       return;
     }
 
-    const existing = mapInsightRowToDomain(parsed.data);
+    const existing = mapInsightRowToDomain(parsed.data as RelationshipInsightRow);
     const updated = applyObservationToInsight(existing, baseInput);
 
     const updatePayload = {
