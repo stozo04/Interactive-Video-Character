@@ -571,7 +571,7 @@ export class GeminiService extends BaseAIService {
   private async generateGreetingOld(character: any, session: any, relationship: any, characterContext?: string) {
     const ai = getAiClient();
     const userId = session?.userId || USER_ID;
-    const systemPrompt = buildSystemPrompt(character, relationship, [], characterContext);
+    const systemPrompt = await buildSystemPrompt(character, relationship, [], characterContext, undefined, undefined, undefined, undefined, userId);
 
     try {
         // First, try to get user's name from stored facts
@@ -719,7 +719,7 @@ export class GeminiService extends BaseAIService {
       return await this.generateGreetingOld(character, session, relationship, characterContext);
     }
     
-    const systemPrompt = buildSystemPrompt(character, relationship, [], characterContext);
+    const systemPrompt = await buildSystemPrompt(character, relationship, [], characterContext, undefined, undefined, undefined, undefined, session?.userId);
 
     try {
         // First, try to get user's name from stored facts

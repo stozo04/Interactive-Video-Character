@@ -106,7 +106,7 @@ export function GoogleAuthProvider({
       const { accessToken, expiresAt, refreshedAt } = await googleAuth.getAccessToken(true);
       
       // Get user profile
-      const { email, id } = await googleAuth.getUserProfile(accessToken);
+      const { email } = await googleAuth.getUserProfile(accessToken);
       
       // Create and save session
       const newSession: GmailSession = {
@@ -114,7 +114,6 @@ export function GoogleAuthProvider({
         accessToken,
         expiresAt,
         refreshedAt,
-        user: { id }
       };
       
       googleAuth.saveSession(newSession);

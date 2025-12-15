@@ -204,7 +204,7 @@ export const RecallUserInfoSchema = z.object({
     "'identity' (name, age, job), " +
     "'preference' (likes, dislikes, favorites), " +
     "'relationship' (family, friends), " +
-    "'context' (current projects, recent events), " +
+    "'context' (current projects, life events - NOT tasks), " +
     "'all' (everything)"
   ),
   specific_key: z.string().optional().describe(
@@ -218,7 +218,7 @@ export const RecallUserInfoSchema = z.object({
  */
 export const StoreUserInfoSchema = z.object({
   category: z.enum(['identity', 'preference', 'relationship', 'context']).describe(
-    "Category of the fact being stored"
+    "Category of the fact being stored. Use 'context' for current projects or life events. DO NOT use for tasks/todos - use task_action instead."
   ),
   key: z.string().describe(
     "The type of fact (e.g., 'name', 'job', 'favorite_food', 'spouse_name')"
@@ -277,7 +277,7 @@ export const GeminiMemoryToolDeclarations = [
       "Retrieve stored facts about the user. " +
       "Use this to personalize responses, greet the user by name, " +
       "or reference known preferences. Categories: identity (name, job), " +
-      "preference (likes/dislikes), relationship (family), context (current projects).",
+      "preference (likes/dislikes), relationship (family), context (projects - NOT tasks).",
     parameters: {
       type: "object",
       properties: {
@@ -297,17 +297,16 @@ export const GeminiMemoryToolDeclarations = [
   {
     name: "store_user_info",
     description: 
-      "Save important information about the user for later recall. " +
-      "Use this when the user shares personal details like their name, " +
-      "job, preferences, family info, or current projects. " +
-      "This helps you remember them in future conversations.",
+      "Save PERSONAL FACTS about the user (name, job, preferences, family, current life projects). " +
+      "Use 'context' for things like 'working on a startup' or 'training for a marathon'. " +
+      "NEVER use for tasks, to-dos, or checklist items - use task_action instead.",
     parameters: {
       type: "object",
       properties: {
         category: {
           type: "string",
           enum: ["identity", "preference", "relationship", "context"],
-          description: "Category of the fact"
+          description: "Category of the fact. Use 'context' for life projects (NOT tasks!)"
         },
         key: {
           type: "string",
@@ -377,14 +376,14 @@ export const OpenAIMemoryToolDeclarations = [
     type: "function" as const,
     name: "store_user_info",
     description: 
-      "Save important information about the user for later recall.",
+      "Save PERSONAL FACTS only (name, job, preferences, life projects). Context is for things like 'building an app'. NEVER for tasks - use task_action instead.",
     parameters: {
       type: "object",
       properties: {
         category: {
           type: "string",
           enum: ["identity", "preference", "relationship", "context"],
-          description: "Category of the fact"
+          description: "Category of the fact. Use 'context' for life projects (NOT tasks!)"
         },
         key: {
           type: "string",

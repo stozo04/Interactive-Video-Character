@@ -4,7 +4,7 @@ import { generateSpeech } from './elevenLabsService';
 import { AIActionResponse } from './aiSchema';
 import { analyzeUserMessageBackground } from './messageAnalyzer';
 import { detectFullIntentLLMCached, isFunctionalCommand, type FullMessageIntent } from './intentService';
-import { updateEmotionalMomentumWithIntensity } from './moodKnobs';
+import { updateEmotionalMomentumWithIntensityAsync } from './moodKnobs';
 
 export abstract class BaseAIService implements IAIChatService {
   abstract model: string;
@@ -73,12 +73,14 @@ export abstract class BaseAIService implements IAIChatService {
                  isPositiveAffirmation: true // implied
                };
                
-               // Update momentum state now (sync-ish)
-               updateEmotionalMomentumWithIntensity(
+               // Update momentum state now
+               const targetUserId = session?.userId || import.meta.env.VITE_USER_ID;
+               await updateEmotionalMomentumWithIntensityAsync(
+                 targetUserId,
                  preCalculatedIntent.tone.sentiment, 
                  preCalculatedIntent.tone.intensity, 
                  userMessageText,
-                 genuineMomentResult as any // Cast safely
+                 genuineMomentResult as any
                );
                console.log('⚡ [BaseAIService] Instant genuine moment reaction triggered!');
             }
@@ -90,7 +92,7 @@ export abstract class BaseAIService implements IAIChatService {
 
       // Shared: Build Prompts (now reflects updated mood if genuine!)
       // Pass the FULL semantic intent to inform response style dynamically
-      const systemPrompt = buildSystemPrompt(
+      const systemPrompt = await buildSystemPrompt(
         options.character, 
         options.relationship, 
         options.upcomingEvents,
@@ -98,7 +100,8 @@ export abstract class BaseAIService implements IAIChatService {
         options.tasks,
         preCalculatedIntent?.relationshipSignals,
         preCalculatedIntent?.tone,
-        preCalculatedIntent // Pass the entire FullMessageIntent
+        preCalculatedIntent, // Pass the entire FullMessageIntent
+        session?.userId || import.meta.env.VITE_USER_ID // Pass userId for async state retrieval
       );
       
       // Debug: Log calendar events being sent to AI
@@ -119,11 +122,13 @@ export abstract class BaseAIService implements IAIChatService {
       // Phase 1: Now includes conversation context for LLM-based intent detection
       // Context is already built above
       
-      if (userMessageText && updatedSession?.userId) {
+      const finalUserId = updatedSession?.userId || session?.userId || import.meta.env.VITE_USER_ID;
+      
+      if (userMessageText && finalUserId) {
         if (preCalculatedIntent) {
           // NORMAL PATH: We already have the intent, pass it directly
           analyzeUserMessageBackground(
-            updatedSession.userId, 
+            finalUserId, 
             userMessageText, 
             interactionCount,
             conversationContext,
@@ -135,7 +140,7 @@ export abstract class BaseAIService implements IAIChatService {
           intentPromise.then(resolvedIntent => {
             if (resolvedIntent) {
               analyzeUserMessageBackground(
-                updatedSession.userId, 
+                finalUserId, 
                 userMessageText, 
                 interactionCount,
                 conversationContext,

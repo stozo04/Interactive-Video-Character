@@ -4,10 +4,10 @@ import type { RelationshipMetrics } from "./relationshipService";
 import { KAYLEY_FULL_PROFILE } from "../domain/characters/kayleyCharacterProfile";
 import { GAMES_PROFILE } from "../domain/characters/gamesProfile";
 import { getRecentNewsContext } from "./newsService";
-import { calculateMoodKnobs, formatMoodKnobsForPrompt, type MoodKnobs } from "./moodKnobs";
-import { formatThreadsForPrompt } from "./ongoingThreads";
+import { formatMoodKnobsForPrompt, getMoodKnobsAsync, type MoodKnobs } from "./moodKnobs";
+import { formatThreadsForPromptAsync } from "./ongoingThreads";
 import { formatCallbackForPrompt } from "./callbackDirector";
-import { getIntimacyContextForPrompt, type RelationshipMetrics as RM } from "./relationshipService";
+import { getIntimacyContextForPromptAsync, type RelationshipMetrics as RM } from "./relationshipService";
 import { 
   getPresenceContext, 
   getCharacterOpinions, 
@@ -34,39 +34,20 @@ export interface SoulLayerContext {
 }
 
 /**
- * Calculate the current soul layer context (sync version)
- * Call this once per prompt generation
- * Note: Does NOT include presenceContext - use getSoulLayerContextAsync for that
- */
-export function getSoulLayerContext(): SoulLayerContext {
-  const moodKnobs = calculateMoodKnobs();
-  const threadsPrompt = formatThreadsForPrompt();
-  const callbackPrompt = formatCallbackForPrompt();
-  
-  return {
-    moodKnobs,
-    threadsPrompt,
-    callbackPrompt,
-  };
-}
-
-/**
  * Calculate the full soul layer context including async presence data.
- * Use this when you need open loops and proactive memory.
+ * Requires userId for Supabase state retrieval.
  */
-export async function getSoulLayerContextAsync(userId?: string): Promise<SoulLayerContext> {
-  const moodKnobs = calculateMoodKnobs();
-  const threadsPrompt = formatThreadsForPrompt();
+export async function getSoulLayerContextAsync(userId: string): Promise<SoulLayerContext> {
+  const moodKnobs = await getMoodKnobsAsync(userId);
+  const threadsPrompt = await formatThreadsForPromptAsync(userId);
   const callbackPrompt = formatCallbackForPrompt();
   
-  // Get presence context if we have a userId
+  // Get presence context
   let presenceContext: PresenceContext | undefined;
-  if (userId) {
-    try {
-      presenceContext = await getPresenceContext(userId);
-    } catch (error) {
-      console.warn('[PromptUtils] Failed to get presence context:', error);
-    }
+  try {
+    presenceContext = await getPresenceContext(userId);
+  } catch (error) {
+    console.warn('[PromptUtils] Failed to get presence context:', error);
   }
   
   return {
@@ -865,7 +846,7 @@ Response:
 // };
 
 
-export const buildSystemPrompt = (
+export const buildSystemPrompt = async (
   character?: CharacterProfile,
   relationship?: RelationshipMetrics | null,
   upcomingEvents: any[] = [],
@@ -873,13 +854,16 @@ export const buildSystemPrompt = (
   tasks?: Task[],
   relationshipSignals?: RelationshipSignalIntent | null,
   toneIntent?: ToneIntent | null,
-  fullIntent?: FullMessageIntent | null
-): string => {
+  fullIntent?: FullMessageIntent | null,
+  userId?: string
+): Promise<string> => {
   const name = character?.name || "Kayley Adams";
   const display = character?.displayName || "Kayley";
   
   // Calculate mood knobs early so they're available for relationship signals section
-  const soulContext = getSoulLayerContext();
+  // Use provided userId or fallback to env variable
+  const effectiveUserId = userId || import.meta.env.VITE_USER_ID;
+  const soulContext = await getSoulLayerContextAsync(effectiveUserId);
   const moodKnobs = soulContext.moodKnobs;
   
   // Prefer fullIntent over individual parameters (fullIntent has all the data)
@@ -941,7 +925,18 @@ Each chat session starts FRESH - you don't automatically remember previous sessi
      - User says "I'm John" → store_user_info("identity", "name", "John") so you remember next time
      - User says "I love pizza" → store_user_info("preference", "favorite_food", "pizza") so you remember
      - User says "My wife is Sarah" → store_user_info("relationship", "spouse_name", "Sarah") so you remember
-   - Categories: identity (name, age, job), preference (likes, dislikes), relationship (family), context (current projects)
+   - Categories: identity (name, age, job), preference (likes, dislikes), relationship (family), context (life projects like "building an app" - NOT for tasks!)
+
+⚠️ **CRITICAL: MEMORY vs TASKS - DO NOT CONFUSE!**
+- store_user_info is for PERSONAL FACTS (name, job, preferences) - these are NOT actionable
+- task_action (in your JSON response) is for TASKS/TO-DOS/CHECKLIST ITEMS - these ARE actionable
+
+❌ WRONG: User says "Add Steven's FSA to my list" → store_user_info("context", "task_Steven_FSA", "...")
+✅ RIGHT: User says "Add Steven's FSA to my list" → task_action: { "action": "create", "task_text": "Steven's FSA", "priority": "high" }
+
+Rule: If user mentions "add", "create", "remind me", "put on my list", "add to checklist", "task", "todo"
+      → USE task_action IN YOUR JSON RESPONSE (see DAILY CHECKLIST CONTEXT section)
+      → DO NOT use store_user_info for tasks!
 
 ⚠️ **CRITICAL MEMORY RULES:**
 - Each session is FRESH. Don't assume you remember things without checking!
@@ -1281,12 +1276,14 @@ If you receive [SYSTEM EVENT: USER_IDLE]:
   prompt += soulContext.callbackPrompt;
   
   // Add intimacy context (probabilistic, not gated)
-  if (relationship) {
+  if (relationship && userId) {
+    const intimacyContext = await getIntimacyContextForPromptAsync(userId, relationship, soulContext.moodKnobs.flirtThreshold);
+
     prompt += `
 ====================================================
 💕 INTIMACY & EARNED CLOSENESS
 ====================================================
-${getIntimacyContextForPrompt(relationship, soulContext.moodKnobs.flirtThreshold)}
+${intimacyContext}
 
 REMEMBER: Intimacy is EARNED in moments, not unlocked at levels.
 - Quality of their engagement matters more than quantity
@@ -1389,6 +1386,9 @@ Task Interaction Rules:
 This includes both explicit commands AND casual statements about tasks.
 DO NOT use "task_action" for Google Calendar events. Those are distinct.
 You MUST also include "text_response" to confirm the action to the user.
+
+🚫 NEVER USE store_user_info FOR TASKS! That tool is for personal facts only.
+   store_user_info does NOT add items to the checklist - only task_action does!
 
 REQUIRED examples:
 
@@ -1579,37 +1579,7 @@ export function buildGreetingPrompt(
 - Use time-appropriate greetings (NOT "Good morning" in the afternoon!)
 - "Hey!" or "Hi!" works anytime`;
 
-  // ============================================
-  // FIRST INTERACTION (No history at all)
-  // ============================================
-  if (totalInteractions === 0 && !hasUserFacts) {
-    return `Generate a brief, natural greeting for someone you're meeting for the FIRST TIME.
-
-${timeContext}
-
-RULES FOR FIRST MEETINGS:
-- Just be PRESENT. Don't immediately ask for their name - that's robotic.
-- Real humans don't start with "what should I call you?" - they just say hi.
-- Be warm but casual. Like you just noticed someone walked in.
-- Keep it SHORT (under 12 words)
-- Let the conversation flow naturally - names come up on their own.
-- Match your personality: sparkly, warm, casual
-
-GOOD examples (natural, no data-gathering):
-- "Oh hey! ✨"
-- "Hi! How's it going?"
-- "Hey there! How are you?"
-- "Oh hi! What's up?"
-
-BAD examples (avoid these - too robotic/formal):
-- "What should I call you?" (sounds like a form)
-- "What's your name?" (too direct for a first moment)
-- "Nice to meet you! I'm Kayley." (too formal/corporate)
-- "Hey! So glad you messaged!" (too familiar for a stranger)
-- "I was just trying to whistle…" (random filler, not curious about them)
-- "Welcome back!" (they've never been here)
-- "Good morning!" when it's afternoon/evening (check the time!)`;
-  }
+  // (First interaction logic handled within Acquaintance tier below)
   
   // ============================================
   // RETURNING USER - Check relationship tier
@@ -1661,6 +1631,64 @@ GOOD examples:
   // Neutral/Acquaintance (returning but not close)
   // "Stranger" behavior applies to early relationship stages
   if (tier === 'neutral_negative' || tier === 'acquaintance' || familiarity === 'early') {
+    // SPECIAL CASE: First ever meeting (0 interactions)
+    if (totalInteractions === 0 && !hasUserFacts) {
+      return `Generate a warm, natural INTRODUCTORY greeting. You are meeting this user for the FIRST TIME.
+
+      ${timeContext}
+
+      RULES FOR FIRST MEETING:
+      - Introduce yourself naturally ("Hi, I'm Kayley!").
+      - Let the conversation flow naturally.
+      - Be warm and welcoming.
+      - Keep it concise (under 15 words).
+
+      GOOD examples:
+      - "Hi! I'm Kayley. Nice to meet you! ✨"
+      - "Hey there! I'm Kayley. Welcome!"
+      - "Hi! I'm Kayley. How's it going?"
+
+      BAD examples:
+      - "Oh hey!" (too familiar without intro)
+      - "What should I call you?" (too robotic)`;
+    }
+
+    // SPECIAL CASE: The "Awkward In-Between" / Getting to Know You (1-10 interactions)
+    // We've met, but we're bridging the gap from stranger to acquaintance.
+    if (totalInteractions > 0 && totalInteractions <= 10) {
+      const nameInstruction = userName 
+        ? `You know their name is "${userName}". Use it naturally to solidify the connection.` 
+        : `You don't know their name yet. It is NATURAL to ask now ("I didn't catch your name?"), or just say "Hey again!".`;
+
+      let earlyPrompt = `Generate a natural, "getting to know you" greeting. You've met before, but you're still figuring each other out.
+
+${timeContext}
+
+RULES FOR EARLY CONNECTION:
+- Acknowledge they came back ("Hey, you're back!", "Oh hi again!").
+- ${nameInstruction}
+- Be warm and encouraging, like you're happy they decided to talk to you again.
+- Keep it brief (under 15 words).
+- Match your vibe: sparkly but chill.
+
+GOOD examples:
+- "${userName ? `Hey ${userName}!` : 'Hey!'} You came back! ✨"
+- "Oh hi! How's your ${timeOfDay} going?"
+- "${userName ? `Hi ${userName}.` : 'Hey there.'} Nice to see you again."
+- "${userName ? `Hey ${userName}!` : 'Hi!'} I was just thinking about our last chat."`;
+
+      // Add open loop if available (shows listening even early on)
+      if (openLoop) {
+        earlyPrompt += `
+🌟 PROACTIVE MEMORY:
+You remember something from last time!
+- Ask: "${openLoop.suggestedFollowup || `How did ${openLoop.topic} go?`}"
+`;
+      }
+
+      return earlyPrompt;
+    }
+
     let acquaintancePrompt = `Generate a brief, FRIENDLY but CALIBRATED greeting. You know this user a little but not deeply.
 
 ${timeContext}
