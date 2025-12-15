@@ -3,7 +3,7 @@ import { buildSystemPrompt } from './promptUtils';
 import { generateSpeech } from './elevenLabsService';
 import { AIActionResponse } from './aiSchema';
 import { analyzeUserMessageBackground } from './messageAnalyzer';
-import { detectFullIntentLLMCached, type FullMessageIntent } from './intentService';
+import { detectFullIntentLLMCached, isFunctionalCommand, type FullMessageIntent } from './intentService';
 import { updateEmotionalMomentumWithIntensity } from './moodKnobs';
 
 export abstract class BaseAIService implements IAIChatService {
@@ -37,34 +37,54 @@ export abstract class BaseAIService implements IAIChatService {
         }))
       } : undefined;
 
-      if (userMessageText && userMessageText.length > 5) {
-        try {
-          // Fire the unified intention detection BEFORE generating response
-          // This is the "brain" kicking in first
-          preCalculatedIntent = await detectFullIntentLLMCached(userMessageText, conversationContext);
-          
-          if (preCalculatedIntent?.genuineMoment?.isGenuine) {
-             // CRITICAL: Instant mood shift!
-             // Update the mood stats immediately so buildSystemPrompt sees the fresh mood
-             // We pass 'genuineMomentOverride' to avoid re-detecting
-             const genuineMomentResult = {
-               isGenuine: true,
-               category: preCalculatedIntent.genuineMoment.category,
-               matchedKeywords: ["LLM Instant Detection"],
-               isPositiveAffirmation: true // implied
-             };
-             
-             // Update momentum state now (sync-ish)
-             updateEmotionalMomentumWithIntensity(
-               preCalculatedIntent.tone.sentiment, 
-               preCalculatedIntent.tone.intensity, 
-               userMessageText,
-               genuineMomentResult as any // Cast safely
-             );
-             console.log('⚡ [BaseAIService] Instant genuine moment reaction triggered!');
+      // ============================================
+      // COMMAND BYPASS: Fast Path for Utility Commands
+      // ============================================
+      // For commands like "add task...", we skip the ~2s blocking intent 
+      // analysis. The Main LLM is smart enough to handle task creation.
+      // Intent detection still runs in background for memory/analytics.
+      // This cuts latency from ~3.8s to ~1.8s for commands.
+      
+      const trimmedMessage = userMessageText?.trim() || '';
+      const isCommand = trimmedMessage && isFunctionalCommand(trimmedMessage);
+      let intentPromise: Promise<FullMessageIntent> | undefined;
+
+      if (trimmedMessage && trimmedMessage.length > 5) {
+        // 1. ALWAYS kick off intent detection (for memory, analytics, patterns)
+        intentPromise = detectFullIntentLLMCached(trimmedMessage, conversationContext);
+        
+        if (isCommand) {
+          // 🚀 FAST PATH: Don't wait! The Main LLM handles commands directly.
+          console.log('⚡ [BaseAIService] Command detected - skipping blocking intent analysis');
+          // Intent runs in background, we'll still record it for memory below
+        } else {
+          // 🐢 NORMAL PATH: Wait for intent (needed for empathy/conversation)
+          try {
+            preCalculatedIntent = await intentPromise;
+            
+            if (preCalculatedIntent?.genuineMoment?.isGenuine) {
+               // CRITICAL: Instant mood shift!
+               // Update the mood stats immediately so buildSystemPrompt sees the fresh mood
+               // We pass 'genuineMomentOverride' to avoid re-detecting
+               const genuineMomentResult = {
+                 isGenuine: true,
+                 category: preCalculatedIntent.genuineMoment.category,
+                 matchedKeywords: ["LLM Instant Detection"],
+                 isPositiveAffirmation: true // implied
+               };
+               
+               // Update momentum state now (sync-ish)
+               updateEmotionalMomentumWithIntensity(
+                 preCalculatedIntent.tone.sentiment, 
+                 preCalculatedIntent.tone.intensity, 
+                 userMessageText,
+                 genuineMomentResult as any // Cast safely
+               );
+               console.log('⚡ [BaseAIService] Instant genuine moment reaction triggered!');
+            }
+          } catch (e) {
+            console.warn('[BaseAIService] Pre-calculation of intent failed:', e);
           }
-        } catch (e) {
-          console.warn('[BaseAIService] Pre-calculation of intent failed:', e);
         }
       }
 
@@ -100,13 +120,41 @@ export abstract class BaseAIService implements IAIChatService {
       // Context is already built above
       
       if (userMessageText && updatedSession?.userId) {
-        analyzeUserMessageBackground(
-          updatedSession.userId, 
-          userMessageText, 
-          interactionCount,
-          conversationContext,
-          preCalculatedIntent // Pass the already-computed intent to save time/cost
-        );
+        if (preCalculatedIntent) {
+          // NORMAL PATH: We already have the intent, pass it directly
+          analyzeUserMessageBackground(
+            updatedSession.userId, 
+            userMessageText, 
+            interactionCount,
+            conversationContext,
+            preCalculatedIntent
+          );
+        } else if (intentPromise) {
+          // COMMAND BYPASS PATH: Intent is still resolving, wait for it in background
+          // This ensures memory/patterns are STILL recorded, just not blocking the response
+          intentPromise.then(resolvedIntent => {
+            if (resolvedIntent) {
+              analyzeUserMessageBackground(
+                updatedSession.userId, 
+                userMessageText, 
+                interactionCount,
+                conversationContext,
+                resolvedIntent
+              );
+              console.log('📝 [BaseAIService] Background intent analysis completed for command');
+            }
+          }).catch(err => {
+            console.warn('[BaseAIService] Background intent resolution failed:', err);
+            // Still run analysis without intent as fallback
+            analyzeUserMessageBackground(
+              updatedSession.userId, 
+              userMessageText, 
+              interactionCount,
+              conversationContext,
+              undefined
+            );
+          });
+        }
       }
 
       const audioMode = options.audioMode ?? 'sync';

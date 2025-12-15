@@ -539,16 +539,6 @@ User: "You suck!!" (after bad interaction) → Angry tone (not cached, context p
 
 ### 4.3 Edge Cases 🔍
 
-#### Edge Case 1: Multi-Language Input (Not Tested)
-**What happens**:
-```typescript
-const result = await detectToneLLM("Je suis très heureux!");  // French: "I am very happy"
-```
-
-**Expected**: Should detect happy tone (LLM likely handles it)  
-**Actual**: Unknown - not tested  
-**Risk**: LOW (LLM probably handles it, but should verify)
-
 #### Edge Case 2: Emoji-Heavy Messages
 ```typescript
 const result = await detectToneLLM("😭😭😭");  // Just emojis

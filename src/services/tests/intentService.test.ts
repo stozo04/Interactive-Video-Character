@@ -46,7 +46,8 @@ import {
   clearIntentCache,
   mapCategoryToInsecurity,
   resetIntentClientForTesting,
-  detectFullIntentLLM
+  detectFullIntentLLM,
+  isFunctionalCommand
 } from "../intentService";
 import { GoogleGenAI } from "@google/genai";
 
@@ -2787,6 +2788,120 @@ describe("Phase 7: Intent Service - Unified Intent Detection", () => {
         expect(result.topics.topics).toContain("work");
         expect(result.openLoops.hasFollowUp).toBe(true);
         expect(result.relationshipSignals.milestone).toBe("first_support");
+    });
+  });
+});
+
+// ============================================
+// Command Bypass - isFunctionalCommand Tests
+// ============================================
+
+describe("Command Bypass: isFunctionalCommand", () => {
+  describe("should detect task commands", () => {
+    it("should detect 'add task' commands", () => {
+      expect(isFunctionalCommand("add task go to work")).toBe(true);
+      expect(isFunctionalCommand("Add task buy groceries")).toBe(true);
+      expect(isFunctionalCommand("ADD TASK call mom")).toBe(true);
+    });
+
+    it("should detect 'create task' commands", () => {
+      expect(isFunctionalCommand("create task finish project")).toBe(true);
+      expect(isFunctionalCommand("Create a task for tomorrow")).toBe(true);
+    });
+
+    it("should detect 'please' prefix commands", () => {
+      expect(isFunctionalCommand("please add task water plants")).toBe(true);
+      expect(isFunctionalCommand("Please create reminder for meeting")).toBe(true);
+    });
+
+    it("should detect 'can you' prefix commands", () => {
+      expect(isFunctionalCommand("can you add task pick up dry cleaning")).toBe(true);
+      expect(isFunctionalCommand("Can you create a reminder for 3pm")).toBe(true);
+    });
+
+    it("should detect delete/remove commands", () => {
+      expect(isFunctionalCommand("delete task laundry")).toBe(true);
+      expect(isFunctionalCommand("remove reminder meeting")).toBe(true);
+      expect(isFunctionalCommand("clear my tasks")).toBe(true);
+    });
+
+    it("should detect list/show commands", () => {
+      expect(isFunctionalCommand("list my tasks")).toBe(true);
+      expect(isFunctionalCommand("show calendar")).toBe(true);
+      expect(isFunctionalCommand("show my events")).toBe(true);
+    });
+
+    it("should detect schedule/reminder commands", () => {
+      expect(isFunctionalCommand("schedule meeting at 3pm")).toBe(true);
+      expect(isFunctionalCommand("remind me to call doctor")).toBe(true);
+      expect(isFunctionalCommand("set reminder for dentist")).toBe(true);
+    });
+
+    it("should detect update/edit commands", () => {
+      expect(isFunctionalCommand("update task deadline")).toBe(true);
+      expect(isFunctionalCommand("edit reminder time")).toBe(true);
+    });
+
+    it("should detect complete/mark commands", () => {
+      expect(isFunctionalCommand("complete task laundry")).toBe(true);
+      expect(isFunctionalCommand("mark task done")).toBe(true);
+      expect(isFunctionalCommand("check off task groceries")).toBe(true);
+    });
+
+    it("should detect cancel/dismiss commands", () => {
+      expect(isFunctionalCommand("cancel reminder")).toBe(true);
+      expect(isFunctionalCommand("dismiss alarm")).toBe(true);
+    });
+  });
+
+  describe("should NOT detect conversational messages", () => {
+    it("should not detect regular greetings", () => {
+      expect(isFunctionalCommand("hello")).toBe(false);
+      expect(isFunctionalCommand("hi there")).toBe(false);
+      expect(isFunctionalCommand("hey kayley")).toBe(false);
+    });
+
+    it("should not detect emotional messages", () => {
+      expect(isFunctionalCommand("I'm feeling stressed about work")).toBe(false);
+      expect(isFunctionalCommand("I had an amazing day today!")).toBe(false);
+      expect(isFunctionalCommand("I'm really worried about my interview")).toBe(false);
+    });
+
+    it("should not detect questions", () => {
+      expect(isFunctionalCommand("what do you think about this?")).toBe(false);
+      expect(isFunctionalCommand("how are you doing today?")).toBe(false);
+      expect(isFunctionalCommand("can you help me understand something?")).toBe(false);
+    });
+
+    it("should not detect messages that mention tasks but aren't commands", () => {
+      expect(isFunctionalCommand("I'm thinking about adding tasks to my routine")).toBe(false);
+      expect(isFunctionalCommand("My mom wants me to create a task list")).toBe(false);
+      expect(isFunctionalCommand("What tasks should I do tomorrow?")).toBe(false);
+    });
+
+    it("should not detect affirmations or emotional support", () => {
+      expect(isFunctionalCommand("You're so smart!")).toBe(false);
+      expect(isFunctionalCommand("I really appreciate you")).toBe(false);
+      expect(isFunctionalCommand("Thank you for listening")).toBe(false);
+    });
+
+    it("should not detect story/context sharing", () => {
+      expect(isFunctionalCommand("So my boss said the strangest thing today")).toBe(false);
+      expect(isFunctionalCommand("Let me tell you what happened at the meeting")).toBe(false);
+    });
+  });
+
+  describe("edge cases", () => {
+    it("should handle empty strings", () => {
+      expect(isFunctionalCommand("")).toBe(false);
+    });
+
+    it("should handle whitespace-only strings", () => {
+      expect(isFunctionalCommand("   ")).toBe(false);
+    });
+
+    it("should trim leading/trailing whitespace", () => {
+      expect(isFunctionalCommand("   add task test   ")).toBe(true);
     });
   });
 });
