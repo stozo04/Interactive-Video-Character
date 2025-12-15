@@ -1478,9 +1478,21 @@ useEffect(() => {
 
 
     // Load tasks and perform daily rollover check
-    const loadedTasks = taskService.loadTasks();
-    setTasks(loadedTasks);
-    console.log(`📋 Loaded ${loadedTasks.length} task(s)`);
+    // ASYNC TASK LOADING
+    let currentTasks: Task[] = [];
+    try {
+      // Use session ID if available, otherwise fallback to env user ID
+      const userId = session?.user?.id || getUserId();
+      if (userId) {
+        currentTasks = await taskService.fetchTasks(userId);
+        console.log(`📋 Loaded ${currentTasks.length} task(s) from Supabase for user ${userId}`);
+      } else {
+        console.warn('⚠️ No user ID available, skipping task fetch');
+      }
+    } catch (err) {
+      console.error('Failed to fetch tasks', err);
+    }
+    setTasks(currentTasks);
     
     // Load snooze state
     const snoozeIndefinite = localStorage.getItem('kayley_snooze_indefinite');
@@ -1683,32 +1695,38 @@ useEffect(() => {
   };
 
   // Task Management Handlers
-  const handleTaskCreate = useCallback((text: string, priority?: 'low' | 'medium' | 'high') => {
-    taskService.createTask(text, priority);
-    setTasks(taskService.loadTasks()); // Reload from service for consistency
-    
-    // Kayley celebrates the task creation
-    if (selectedCharacter && !isMuted) {
-      const celebrations = [
-        "Got it! Added to your list ✨",
-        "Done! I'll help you remember that.",
-        "Added! One step at a time 🤍",
-        "On the list! You've got this."
-      ];
-      const message = celebrations[Math.floor(Math.random() * celebrations.length)];
-      
-      generateSpeech(message).then(audio => {
-        if (audio) media.enqueueAudio(audio);
-      });
-      
-      setChatHistory(prev => [...prev, { role: 'model', text: message }]);
+  const handleTaskCreate = useCallback(async (text: string, priority?: 'low' | 'medium' | 'high') => {
+    const userId = session?.user?.id || getUserId();
+    const newTask = await taskService.createTask(userId, text, priority);
+    if (newTask) {
+      setTasks(prev => [...prev, newTask]);
+
+      // Kayley celebrates the task creation
+      if (selectedCharacter && !isMuted) {
+        const celebrations = [
+          "Got it! Added to your list ✨",
+          "Done! I'll help you remember that.",
+          "Added! One step at a time 🤍",
+          "On the list! You've got this."
+        ];
+        const message = celebrations[Math.floor(Math.random() * celebrations.length)];
+
+        generateSpeech(message).then(audio => {
+          if (audio) media.enqueueAudio(audio);
+        });
+
+        setChatHistory(prev => [...prev, { role: 'model', text: message }]);
+      }
     }
   }, [selectedCharacter, isMuted, media]);
 
-  const handleTaskToggle = useCallback((taskId: string) => {
-    const updatedTask = taskService.toggleTask(taskId);
+  const handleTaskToggle = useCallback(async (taskId: string) => {
+    const task = tasks.find(t => t.id === taskId);
+    if (!task) return;
+
+    const updatedTask = await taskService.toggleTask(taskId, task.completed);
     if (updatedTask) {
-      setTasks(taskService.loadTasks());
+      setTasks(prev => prev.map(t => t.id === taskId ? updatedTask : t));
       
       // Celebrate completion!
       if (updatedTask.completed && selectedCharacter && !isMuted) {
@@ -1738,11 +1756,13 @@ useEffect(() => {
         }
       }
     }
-  }, [selectedCharacter, isMuted, media]);
+  }, [tasks, selectedCharacter, isMuted, media, playAction]); // Added tasks dependency for current state
 
-  const handleTaskDelete = useCallback((taskId: string) => {
-    taskService.deleteTask(taskId);
-    setTasks(taskService.loadTasks());
+  const handleTaskDelete = useCallback(async (taskId: string) => {
+    const success = await taskService.deleteTask(taskId);
+    if (success) {
+      setTasks(prev => prev.filter(t => t.id !== taskId));
+    }
   }, []);
 
   const handleSendMessage = async (message: string) => {
@@ -1752,7 +1772,8 @@ useEffect(() => {
     
     const updatedHistory = [...chatHistory, { role: 'user' as const, text: message }];
     setChatHistory(updatedHistory);
-    setIsProcessingAction(true);
+    // ... [rest of function] ...
+
 
     // ============================================
     // SOUL LAYER: Record user message for alive behaviors
@@ -2115,45 +2136,51 @@ useEffect(() => {
         // Check for Task Action
         if (taskAction && taskAction.action) {
           console.log('📋 Task action detected:', taskAction);
+          const userId = session?.user?.id || getUserId();
           
           try {
             switch (taskAction.action) {
               case 'create':
                 if (taskAction.task_text) {
-                  const newTask = taskService.createTask(
+                  const newTask = await taskService.createTask(
+                    userId,
                     taskAction.task_text, 
                     taskAction.priority as 'low' | 'medium' | 'high' | undefined
                   );
-                  setTasks(taskService.loadTasks());
-                  console.log('✅ Task created:', newTask.text);
+                  if (newTask) setTasks(prev => [...prev, newTask]);
+                  console.log('✅ Task created (AI):', newTask?.text);
                 }
                 break;
                 
               case 'complete':
                 if (taskAction.task_text) {
-                  const foundTask = taskService.findTaskByText(taskAction.task_text);
+                  const foundTask = await taskService.findTaskByText(userId, taskAction.task_text);
                   if (foundTask) {
-                    taskService.toggleTask(foundTask.id);
-                    setTasks(taskService.loadTasks());
-                    console.log('✅ Task completed:', foundTask.text);
+                    const updated = await taskService.toggleTask(foundTask.id, foundTask.completed);
+                    if (updated) setTasks(prev => prev.map(t => t.id === foundTask.id ? updated : t));
+                    console.log('✅ Task completed (AI):', foundTask.text);
                   }
                 } else if (taskAction.task_id) {
-                  taskService.toggleTask(taskAction.task_id);
-                  setTasks(taskService.loadTasks());
+                  // We need current state to toggle
+                  const task = tasks.find(t => t.id === taskAction.task_id);
+                  if (task) {
+                    const updated = await taskService.toggleTask(taskAction.task_id, task.completed);
+                    if (updated) setTasks(prev => prev.map(t => t.id === taskAction.task_id ? updated : t));
+                  }
                 }
                 break;
                 
               case 'delete':
                 if (taskAction.task_text) {
-                  const foundTask = taskService.findTaskByText(taskAction.task_text);
+                  const foundTask = await taskService.findTaskByText(userId, taskAction.task_text);
                   if (foundTask) {
-                    taskService.deleteTask(foundTask.id);
-                    setTasks(taskService.loadTasks());
-                    console.log('🗑️ Task deleted:', foundTask.text);
+                    await taskService.deleteTask(foundTask.id);
+                    setTasks(prev => prev.filter(t => t.id !== foundTask.id));
+                    console.log('🗑️ Task deleted (AI):', foundTask.text);
                   }
                 } else if (taskAction.task_id) {
-                  taskService.deleteTask(taskAction.task_id);
-                  setTasks(taskService.loadTasks());
+                  await taskService.deleteTask(taskAction.task_id);
+                  setTasks(prev => prev.filter(t => t.id !== taskAction.task_id));
                 }
                 break;
                 
@@ -2666,7 +2693,7 @@ Let the user know in a friendly way and maybe offer to check back later.
     hasInteractedRef.current = false;
 
     // 3. Start the Timer
-    const timer = setTimeout(() => {
+    const timer = setTimeout(async () => {
       // 🛑 STOP if user has already typed/clicked
       if (hasInteractedRef.current) {
         console.log("User busy, skipping briefing.");
@@ -2690,7 +2717,8 @@ Let the user know in a friendly way and maybe offer to check back later.
       }
 
       // Task summary - load current tasks at briefing time
-      const currentTasks = taskService.loadTasks();
+      const userId = session?.user?.id || getUserId();
+      const currentTasks = await taskService.fetchTasks(userId);
       const incompleteTasks = currentTasks.filter(t => !t.completed);
       const taskSummary = incompleteTasks.length > 0
         ? `User has ${incompleteTasks.length} task(s) from yesterday that need attention: ${incompleteTasks.slice(0, 3).map(t => t.text).join(', ')}`

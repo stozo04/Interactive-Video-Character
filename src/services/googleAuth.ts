@@ -19,6 +19,9 @@ export interface GmailSession {
   accessToken: string;
   expiresAt: number; // Timestamp (Date.now() + expiresIn * 1000)
   refreshedAt: number; // Timestamp of last refresh
+  user?: {
+    id: string;
+  }
 }
 
 /**
@@ -140,6 +143,9 @@ export async function getAccessToken(
             accessToken: tokenResponse.access_token,
             expiresAt: expiresAt,
             refreshedAt: Date.now(),
+            user: { id: 'legacy-user' } // Populate with real ID in getUserEmail step if possible, or leave as placeholder to be filled.
+            // Actually, getAccessToken only resolves tokens. getUserEmail fetches profile. 
+            // We should update getUserEmail to return ID as well.
           });
         },
         error_callback: (error: any) => {
@@ -209,12 +215,12 @@ export async function ensureValidSession(
 }
 
 /**
- * Fetches the user's email address (for display).
+ * Fetches the user's profile (email and ID).
  * This also confirms the token is valid.
  */
-export async function getUserEmail(accessToken: string): Promise<string> {
+export async function getUserProfile(accessToken: string): Promise<{ email: string; id: string }> {
   try {
-    const response = await fetch("https://www.googleapis.com/gmail/v1/users/me/profile", {
+    const response = await fetch("https://www.googleapis.com/oauth2/v2/userinfo", {
       headers: {
         Authorization: `Bearer ${accessToken}`,
       },
@@ -230,13 +236,13 @@ export async function getUserEmail(accessToken: string): Promise<string> {
 
     const data = await response.json();
     
-    if (!data.emailAddress) {
+    if (!data.email) {
       throw new Error("No email address returned from Google.");
     }
     
-    return data.emailAddress;
+    return { email: data.email, id: data.id };
   } catch (error) {
-    console.error('Error fetching user email:', error);
+    console.error('Error fetching user profile:', error);
     throw error;
   }
 }
