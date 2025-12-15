@@ -187,8 +187,7 @@ export async function detectToneWithLLM(
                     : keywordTone < -0.3 ? 'sad' 
                     : 'neutral',
       intensity: Math.abs(keywordTone),
-      isSarcastic: false, // Keyword detection can't detect sarcasm
-      explanation: 'Fallback to keyword-based detection'
+      isSarcastic: false // Keyword detection can't detect sarcasm
     };
   }
 }
@@ -259,8 +258,7 @@ export async function detectTopicsWithLLM(
       topics: keywordTopics,
       primaryTopic: keywordTopics.length > 0 ? keywordTopics[0] : null,
       emotionalContext: {}, // Keyword detection can't extract emotional context
-      entities: [], // Keyword detection can't extract entities
-      explanation: 'Fallback to keyword-based topic detection'
+      entities: [] // Keyword detection can't extract entities
     };
   }
 }
@@ -303,8 +301,7 @@ export async function detectOpenLoopsWithLLM(
       topic: null,
       suggestedFollowUp: null,
       timeframe: null,
-      salience: 0,
-      explanation: 'Fallback - LLM detection failed'
+      salience: 0
     };
   }
 }
@@ -341,8 +338,7 @@ export async function detectRelationshipSignalsWithLLM(
       isHostile: false,
       hostilityReason: null,
       isInappropriate: false,
-      inappropriatenessReason: null,
-      explanation: 'Fallback - LLM detection failed'
+      inappropriatenessReason: null
     };
   }
 }
@@ -445,16 +441,14 @@ export async function analyzeUserMessage(
                   : keywordTone < -0.3 ? 'sad' 
                   : 'neutral',
       intensity: Math.abs(keywordTone),
-      isSarcastic: false, // Keyword detection can't detect sarcasm
-      explanation: 'Fallback to keyword-based detection'
+      isSarcastic: false // Keyword detection can't detect sarcasm
     };
     
     topicResult = {
       topics: keywordTopics as TopicCategory[],
       primaryTopic: keywordTopics[0] as TopicCategory || null,
       emotionalContext: {}, // Keywords can't detect emotional context
-      entities: [],
-      explanation: 'Fallback to keyword-based detection'
+      entities: []
     };
     
     // Open loops and relationship signals: return safe defaults
@@ -465,8 +459,7 @@ export async function analyzeUserMessage(
       topic: null,
       suggestedFollowUp: null,
       timeframe: null,
-      salience: 0,
-      explanation: 'Fallback - no LLM detection available'
+      salience: 0
     };
     
     relationshipSignalResult = {
@@ -480,8 +473,7 @@ export async function analyzeUserMessage(
       isHostile: false,
       hostilityReason: null,
       isInappropriate: false,
-      inappropriatenessReason: null,
-      explanation: 'Fallback - no LLM detection available'
+      inappropriatenessReason: null
     };
   }
   
@@ -495,8 +487,7 @@ export async function analyzeUserMessage(
       sentiment: keywordTone,
       primaryEmotion: keywordTone > 0.3 ? 'happy' : keywordTone < -0.3 ? 'sad' : 'neutral',
       intensity: Math.abs(keywordTone),
-      isSarcastic: false,
-      explanation: 'Emergency keyword fallback'
+      isSarcastic: false
     };
   }
   if (!topicResult) {
@@ -506,8 +497,7 @@ export async function analyzeUserMessage(
       topics: keywordTopics as TopicCategory[],
       primaryTopic: keywordTopics[0] as TopicCategory || null,
       emotionalContext: {},
-      entities: [],
-      explanation: 'Emergency keyword fallback'
+      entities: []
     };
   }
   if (!openLoopResult) {
@@ -518,8 +508,7 @@ export async function analyzeUserMessage(
       topic: null,
       suggestedFollowUp: null,
       timeframe: null,
-      salience: 0,
-      explanation: 'Emergency fallback - no detection available'
+      salience: 0
     };
   }
   if (!relationshipSignalResult) {
@@ -535,8 +524,7 @@ export async function analyzeUserMessage(
       isHostile: false,
       hostilityReason: null,
       isInappropriate: false,
-      inappropriatenessReason: null,
-      explanation: 'Emergency fallback - no detection available'
+      inappropriatenessReason: null
     };
   }
 
@@ -591,7 +579,7 @@ export async function analyzeUserMessage(
     console.log(`💝 [MessageAnalyzer] Genuine moment detected via LLM (${genuineMomentResult.category})`);
   }
   if (toneResult.isSarcastic) {
-    console.log(`🎭 [MessageAnalyzer] Sarcasm detected: ${toneResult.explanation}`);
+    console.log(`🎭 [MessageAnalyzer] Sarcasm detected in message`);
   }
   if (topicResult.topics.length > 0) {
     console.log(`📋 [MessageAnalyzer] Topics detected: ${topicResult.topics.join(', ')}`);

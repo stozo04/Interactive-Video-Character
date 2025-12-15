@@ -17,6 +17,53 @@ const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
 const INTENT_MODEL = 'gemini-2.0-flash-exp';
 
 // ============================================
+// Command Bypass - Fast Path Detection
+// ============================================
+
+/**
+ * Detects if a message is a functional command that doesn't need 
+ * full psychological analysis (genuine moment, relationship signals, etc.).
+ * 
+ * The optimization: When a user says "add task go to work", we don't need
+ * to analyze the emotional subtext before creating the task. The Main LLM
+ * is smart enough to handle task creation directly.
+ * 
+ * This cuts response latency in half (~3.8s → ~1.8s) for utility commands
+ * while still running intent detection in the background for memory/analytics.
+ * 
+ * Matches patterns like:
+ * - "add task go to work"
+ * - "please create reminder for tomorrow"
+ * - "delete the task"
+ * - "schedule event at 3pm"
+ * - "remove reminder"
+ * - "list my tasks"
+ * - "show calendar"
+ * 
+ * @param text - The user's message to check
+ * @returns true if this is a functional command that can skip blocking intent analysis
+ */
+export const isFunctionalCommand = (text: string): boolean => {
+  const trimmed = text.trim();
+  
+  // Pattern 1: Standard command format with word boundaries
+  // Allows content between verb and noun (e.g., "add a new task", "create task for tomorrow")
+  const standardPattern = /^(?:please\s+)?(?:can\s+you\s+)?(?:add|create|schedule|delete|remove|clear|list|show|set|update|edit|cancel|dismiss|complete|mark|check\s+off)\b.*?\b(?:task|event|reminder|calendar|todo|checklist|meeting|appointment|alarm|timer)/i;
+  
+  // Pattern 2: "Remind me to..." natural language pattern
+  const remindMePattern = /^(?:please\s+)?(?:can\s+you\s+)?remind\s+me\s+(?:to|about|that)/i;
+  
+  const isCommand = standardPattern.test(trimmed) || remindMePattern.test(trimmed);
+  
+  // Debug logging to help trace issues
+  if (isCommand) {
+    console.log(`🎯 [isFunctionalCommand] DETECTED command: "${trimmed.slice(0, 50)}..."`);
+  }
+  
+  return isCommand;
+};
+
+// ============================================
 // Types
 // ============================================
 

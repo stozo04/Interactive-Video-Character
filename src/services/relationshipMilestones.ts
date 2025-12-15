@@ -310,7 +310,7 @@ export async function detectMilestoneInMessage(
   userId: string,
   message: string,
   interactionCount: number,
-  intent?: { milestone: string | null; milestoneConfidence: number; explanation: string }
+  intent?: { milestone: string | null; milestoneConfidence: number }
 ): Promise<RelationshipMilestone | null> {
   // Check interaction milestones first
   if (interactionCount === 50) {
@@ -333,7 +333,7 @@ export async function detectMilestoneInMessage(
 
   // LLM Detection Strategy (Primary)
   if (intent?.milestone && intent.milestoneConfidence > 0.7) {
-    const triggerContext = intent.explanation || message.slice(0, 200);
+    const triggerContext = message.slice(0, 200);
     
     switch (intent.milestone) {
       case 'first_vulnerability':
