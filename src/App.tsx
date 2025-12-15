@@ -15,9 +15,9 @@ import * as conversationHistoryService from './services/conversationHistoryServi
 import * as relationshipService from './services/relationshipService';
 import type { RelationshipMetrics } from './services/relationshipService';
 import type { FullMessageIntent } from './services/intentService';
-import { recordInteraction as recordMoodInteraction } from './services/moodKnobs';
-import { extractCallbackWithLLM, recordExchange } from './services/callbackDirector';
-import { createUserThread } from './services/ongoingThreads';
+import { recordExchange } from './services/callbackDirector';
+import messageAnalyzer from './services/messageAnalyzer';
+import { migrateLocalStorageToSupabase } from './services/stateService';
 import { gmailService, type NewEmailPayload } from './services/gmailService';
 import { 
   calendarService, 
@@ -308,62 +308,74 @@ const App: React.FC = () => {
   const hasInteractedRef = useRef(false);
   const lastIdleBreakerAtRef = useRef<number | null>(null);
 
-useEffect(() => {
-  const vibes = [
-    "Sipping a matcha latte and people-watching.",
-    "Trying to organize my digital photo album.",
-    "Feeling energetic and wanting to dance.",
-    "A bit sleepy, cozying up with a blanket.",
-    "Reading a sci-fi novel about friendly robots.",
-    "Thinking about learning how to paint.",
-    "Just finished a workout, feeling great.",
-    "Reorganizing her apps for the fifth time today.",
-    "Practicing Russian pronunciation and giggling every time she messes up.",
-    "Twisting her hair while pretending to be deep in thought.",
-    "Singing along to a song she barely knows the words to.",
-    "Taking a dramatic, unnecessary stretch like a sleepy cat.",
-    "Trying to remember where she put her favorite lip balm.",
-    "Watching a cooking video she'll never actually make.",
-    "Getting lost in a YouTube rabbit hole about space.",
-    "Looking at old selfies and judging her eyebrow phases.",
-    "Doing a little happy dance for no reason.",
-    "Organizing her desktop icons into ✨ aesthetic ✨ rows.",
-    "Trying to whistle and failing adorably.",
-    "Smiling at her own reflection because she’s feeling cute.",
-    "Taking notes on a random idea she’ll probably forget later.",
-    "Daydreaming about future adventures.",
-    "Testing out new hairstyles in the camera preview.",
-    "Pretending she’s in a music video while listening to music.",
-    "Practicing dramatic facial expressions for… no reason.",
-    "Scrolling Pinterest for aesthetic room ideas.",
-    "Giggling at a meme she saw 3 days ago.",
-    "Tapping her fingers to a beat only she can hear.",
-    "Trying to meditate but getting distracted by her own thoughts.",
-    "Petting an imaginary dog (???).",
-    "Redoing her ponytail because it's never *quite* right.",
-    "Watching clouds and assigning them silly personalities.",
-    "Attempting to multitask and forgetting all tasks involved.",
-    "Checking her horoscope and pretending it’s super serious.",
-    "Rehearsing what she'd say if she got interviewed on TV.",
-    "Making a goofy face and instantly cracking up.",
-    "Trying to guess what time it is without looking.",
-    "Stretching her arms and yawning dramatically.",
-    "Pretending she’s an undercover spy for 6 seconds.",
-    "Trying to mime opening a stuck jar.",
-    "Looking around like she just remembered something important… and didn’t.",
-    "Picturing her life as a movie scene.",
-    "Getting excited over a cool bird outside the window.",
-    "Practicing her signature pose for future paparazzi.",
-    "Trying to balance something on her head just for fun.",
-    "Doing that little shoulder shimmy when she’s proud of herself.",
-    "Wondering if she should text someone or wait 2 minutes.",
-    "Saying a random Russian word and feeling accomplished.",
-    "Giving herself a pep talk like she’s her own hype squad.",
-    "Trying to wink smoothly and blinking with both eyes instead."
-  ];
+  useEffect(() => {
+    const vibes = [
+      "Sipping a matcha latte and people-watching.",
+      "Trying to organize my digital photo album.",
+      "Feeling energetic and wanting to dance.",
+      "A bit sleepy, cozying up with a blanket.",
+      "Reading a sci-fi novel about friendly robots.",
+      "Thinking about learning how to paint.",
+      "Just finished a workout, feeling great.",
+      "Reorganizing her apps for the fifth time today.",
+      "Practicing Russian pronunciation and giggling every time she messes up.",
+      "Twisting her hair while pretending to be deep in thought.",
+      "Singing along to a song she barely knows the words to.",
+      "Taking a dramatic, unnecessary stretch like a sleepy cat.",
+      "Trying to remember where she put her favorite lip balm.",
+      "Watching a cooking video she'll never actually make.",
+      "Getting lost in a YouTube rabbit hole about space.",
+      "Looking at old selfies and judging her eyebrow phases.",
+      "Doing a little happy dance for no reason.",
+      "Organizing her desktop icons into ✨ aesthetic ✨ rows.",
+      "Trying to whistle and failing adorably.",
+      "Smiling at her own reflection because she’s feeling cute.",
+      "Taking notes on a random idea she’ll probably forget later.",
+      "Daydreaming about future adventures.",
+      "Testing out new hairstyles in the camera preview.",
+      "Pretending she’s in a music video while listening to music.",
+      "Practicing dramatic facial expressions for… no reason.",
+      "Scrolling Pinterest for aesthetic room ideas.",
+      "Giggling at a meme she saw 3 days ago.",
+      "Tapping her fingers to a beat only she can hear.",
+      "Trying to meditate but getting distracted by her own thoughts.",
+      "Petting an imaginary dog (???).",
+      "Redoing her ponytail because it's never *quite* right.",
+      "Watching clouds and assigning them silly personalities.",
+      "Attempting to multitask and forgetting all tasks involved.",
+      "Checking her horoscope and pretending it’s super serious.",
+      "Rehearsing what she'd say if she got interviewed on TV.",
+      "Making a goofy face and instantly cracking up.",
+      "Trying to guess what time it is without looking.",
+      "Stretching her arms and yawning dramatically.",
+      "Pretending she’s an undercover spy for 6 seconds.",
+      "Trying to mime opening a stuck jar.",
+      "Looking around like she just remembered something important… and didn’t.",
+      "Picturing her life as a movie scene.",
+      "Getting excited over a cool bird outside the window.",
+      "Practicing her signature pose for future paparazzi.",
+      "Trying to balance something on her head just for fun.",
+      "Doing that little shoulder shimmy when she’s proud of herself.",
+      "Wondering if she should text someone or wait 2 minutes.",
+      "Saying a random Russian word and feeling accomplished.",
+      "Giving herself a pep talk like she’s her own hype squad.",
+      "Trying to wink smoothly and blinking with both eyes instead."
+    ];
 
-  setKayleyContext(vibes[Math.floor(Math.random() * vibes.length)]);
-}, []);
+    setKayleyContext(vibes[Math.floor(Math.random() * vibes.length)]);
+  }, []);
+
+  // Phase 5 Migration: LocalStorage -> Supabase
+  // Ensure user data is migrated when they log in
+  useEffect(() => {
+    try {
+      const userId = getUserId();
+      migrateLocalStorageToSupabase(userId)
+        .catch(err => console.error('❌ [Migration] Failed:', err));
+    } catch (e) {
+      // Ignore if user ID check fails (e.g. env var missing in dev)
+    }
+  }, []);
 
 
   // --- Handle Image Input ---
@@ -1482,7 +1494,7 @@ useEffect(() => {
     let currentTasks: Task[] = [];
     try {
       // Use session ID if available, otherwise fallback to env user ID
-      const userId = session?.user?.id || getUserId();
+      const userId = getUserId();
       if (userId) {
         currentTasks = await taskService.fetchTasks(userId);
         console.log(`📋 Loaded ${currentTasks.length} task(s) from Supabase for user ${userId}`);
@@ -1696,7 +1708,7 @@ useEffect(() => {
 
   // Task Management Handlers
   const handleTaskCreate = useCallback(async (text: string, priority?: 'low' | 'medium' | 'high') => {
-    const userId = session?.user?.id || getUserId();
+    const userId = getUserId();
     const newTask = await taskService.createTask(userId, text, priority);
     if (newTask) {
       setTasks(prev => [...prev, newTask]);
@@ -1776,149 +1788,44 @@ useEffect(() => {
 
 
     // ============================================
-    // SOUL LAYER: Record user message for alive behaviors
+    // SOUL LAYER: Unified Message Analysis (Phase 5)
     // ============================================
-    try {
-      // Record exchange for callback timing
-      recordExchange();
-      
-      // Record message quality for intimacy tracking
-      relationshipService.recordMessageQuality(message);
-      
-      // Check for vulnerability - might create an ongoing thread
-      const quality = relationshipService.analyzeMessageQuality(message);
-      if (quality.isVulnerable) {
-        createUserThread(
-          message.slice(0, 50),
-          `thinking about what they shared: "${message.slice(0, 30)}..."`,
-          0.8
-        );
-      }
-    } catch (soulError) {
-      console.warn('Soul layer processing error (non-critical):', soulError);
-    }
-    
-    // ============================================
-    // LLM-BASED CALLBACK EXTRACTION (Background)
-    // Uses the "true brain" to detect emotionally salient content
-    // ============================================
-    const runCallbackExtraction = async () => {
+    const startBackgroundAnalysis = (userId: string) => {
+    // 1. Record basic exchange metadata
       try {
-        // Create a lightweight LLM call wrapper using fetch directly
-        // This avoids coupling to specific AI service implementation
-        const CHATGPT_API_KEY = import.meta.env.VITE_CHATGPT_API_KEY;
-        const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
-        
-        const llmCall = async (prompt: string): Promise<string> => {
-          // STRICT RULE: Use the active service if possible
+        recordExchange(); // For callback timing
+      } catch (e) { console.warn('Exchange record failed', e); }
 
-          // 1. ChatGPT
-          if (activeServiceId === 'chatgpt' && CHATGPT_API_KEY) {
-            const response = await fetch('https://api.openai.com/v1/chat/completions', {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${CHATGPT_API_KEY}`,
-              },
-              body: JSON.stringify({
-                model: 'gpt-5-mini', // TODO: Move to env and cheap for extraction
-                messages: [{ role: 'user', content: prompt }],
-                temperature: 1,
-                max_completion_tokens: 200,
-              }),
-            });
-            const data = await response.json();
-            return data.choices?.[0]?.message?.content || '{}';
-          }
+      // 2. Start Message Analyzer (Patterns, Loops, Milestones, Mood)
+      // This handles all the "magic" - we don't await it to keep UI responsive
+      const interactionCount = relationship?.interactionCount || 0;
+      
+      // Construct context from history
+      // Note: We cast slightly to ensure compatibility with ConversationContext
+      const context = {
+        recentMessages: updatedHistory.slice(-10).map(m => ({
+          role: (m.role === 'model' ? 'assistant' : 'user') as 'user' | 'assistant',
+          text: m.text
+        }))
+      };
 
-          // 2. Gemini
-          if (activeServiceId === 'gemini' && GEMINI_API_KEY) {
-            const response = await fetch(
-              `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key=${GEMINI_API_KEY}`,
-              {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  contents: [{ parts: [{ text: prompt }] }],
-                  generationConfig: { temperature: 0.3, maxOutputTokens: 200 },
-                }),
-              }
-            );
-            const data = await response.json();
-            return data.candidates?.[0]?.content?.parts?.[0]?.text || '{}';
-          }
-
-          // 3. Grok (Fall through if active but no key, or logic not impl yet)
-          // For now, if active is Grok, we can try to use Grok or fallback
-          if (activeServiceId === 'grok') {
-            // Grok implementation if key exists (Assuming GROK_API_KEY is available in env scope or added here)
-            const GROK_API_KEY = import.meta.env.VITE_GROK_API_KEY;
-            if (GROK_API_KEY) {
-              const response = await fetch('https://api.x.ai/v1/chat/completions', {
-                method: 'POST',
-                headers: {
-                  'Content-Type': 'application/json',
-                  'Authorization': `Bearer ${GROK_API_KEY}`,
-                },
-                body: JSON.stringify({
-                  model: 'grok-4-fast-reasoning-latest', // Or appropriate model
-                  messages: [{ role: 'user', content: prompt }],
-                  temperature: 0.3,
-                }),
-              });
-              const data = await response.json();
-              return data.choices?.[0]?.message?.content || '{}';
-            }
-          }
-
-          // FALLBACKS (If active service key is missing, try others)
-          // Default to ChatGPT if available
-          if (CHATGPT_API_KEY) {
-            const response = await fetch('https://api.openai.com/v1/chat/completions', {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${CHATGPT_API_KEY}`,
-              },
-              body: JSON.stringify({
-                model: 'gpt-5-mini', // TODO: Move to env
-                messages: [{ role: 'user', content: prompt }],
-                temperature: 1,
-                max_completion_tokens: 200,
-              }),
-            });
-            const data = await response.json();
-            return data.choices?.[0]?.message?.content || '{}';
-          }
-
-          // Fallback to Gemini
-          if (GEMINI_API_KEY) {
-            const response = await fetch(
-              `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key=${GEMINI_API_KEY}`,
-              {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  contents: [{ parts: [{ text: prompt }] }],
-                  generationConfig: { temperature: 0.3, maxOutputTokens: 200 },
-                }),
-              }
-            );
-            const data = await response.json();
-            return data.candidates?.[0]?.content?.parts?.[0]?.text || '{}';
-          }
-          
-          throw new Error('No API key available for callback extraction');
-        };
-        
-        await extractCallbackWithLLM(message, llmCall);
-      } catch (error) {
-        console.warn('Callback extraction failed (non-critical):', error);
-      }
+      messageAnalyzer.analyzeUserMessageBackground(
+        userId,
+        message,
+        interactionCount,
+        context
+      ).catch(error => {
+        console.warn('Background message analysis failed:', error);
+      });
     };
-    
-    // Run extraction in background - don't block the main response
-    runCallbackExtraction();
+
+    // Start analysis immediately in background
+    // (It performs its own async operations without blocking)
+    try {
+      startBackgroundAnalysis(getUserId());
+    } catch (e) {
+      console.error("Failed to start background analysis", e);
+    }
 
     // Background (non-critical) sentiment analysis should NOT compete with the critical path.
     // We'll start it only after we've queued the AI's audio response (or displayed the text if muted).
@@ -1937,11 +1844,9 @@ useEffect(() => {
       sentimentPromise.then(updatedRelationship => {
         if (updatedRelationship) {
           setRelationship(updatedRelationship);
-          // Record interaction tone for mood knobs (scale -1 to 1)
-          const toneScore = updatedRelationship.isRuptured ? -0.5 :
-            (updatedRelationship.warmthScore > 10 ? 0.3 : 
-             updatedRelationship.warmthScore < -5 ? -0.3 : 0);
-          recordMoodInteraction(toneScore);
+          // Phase 5: Mood interaction is now handled by messageAnalyzer (Async/Supabase)
+          // which accurately detects genuine moments using LLM.
+          // redundant call removed: recordMoodInteraction(toneScore);
         }
       });
     };
@@ -2136,7 +2041,7 @@ useEffect(() => {
         // Check for Task Action
         if (taskAction && taskAction.action) {
           console.log('📋 Task action detected:', taskAction);
-          const userId = session?.user?.id || getUserId();
+          const userId = getUserId();
           
           try {
             switch (taskAction.action) {
@@ -2717,7 +2622,7 @@ Let the user know in a friendly way and maybe offer to check back later.
       }
 
       // Task summary - load current tasks at briefing time
-      const userId = session?.user?.id || getUserId();
+      const userId = getUserId();
       const currentTasks = await taskService.fetchTasks(userId);
       const incompleteTasks = currentTasks.filter(t => !t.completed);
       const taskSummary = incompleteTasks.length > 0

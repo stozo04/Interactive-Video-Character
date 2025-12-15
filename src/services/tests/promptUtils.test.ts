@@ -45,7 +45,7 @@ vi.mock("../callbackDirector", () => ({
 
 // Mock ongoingThreads
 vi.mock("../ongoingThreads", () => ({
-  formatThreadsForPrompt: vi.fn(() => ""),
+  formatThreadsForPromptAsync: vi.fn(() => Promise.resolve("")),
 }));
 
 // Mock moodKnobs for integration tests (but keep real exports available)
@@ -240,8 +240,8 @@ describe("Phase 3: Comfortable Imperfection", () => {
   // ============================================
   
   describe("buildSystemPrompt - Phase 3 Integration", () => {
-    it("should include comfortable imperfection prompt in system prompt", () => {
-      const systemPrompt = buildSystemPrompt();
+    it("should include comfortable imperfection prompt in system prompt", async () => {
+      const systemPrompt = await buildSystemPrompt();
       
       // Verify Phase 3 content is present
       expect(systemPrompt).toContain("COMFORTABLE IMPERFECTION");
@@ -249,8 +249,8 @@ describe("Phase 3: Comfortable Imperfection", () => {
       expect(systemPrompt).toContain("BREVITY IS ALLOWED");
     });
 
-    it("should place comfortable imperfection in the soul layer section", () => {
-      const systemPrompt = buildSystemPrompt();
+    it("should place comfortable imperfection in the soul layer section", async () => {
+      const systemPrompt = await buildSystemPrompt();
       
       // Check that it appears after selective attention and before motivated friction
       const selectiveAttentionIndex = systemPrompt.indexOf("SELECTIVE ATTENTION");
@@ -262,8 +262,8 @@ describe("Phase 3: Comfortable Imperfection", () => {
       expect(motivatedFrictionIndex).toBeGreaterThan(comfortableImperfectionIndex);
     });
 
-    it("should include specific uncertainty responses in system prompt", () => {
-      const systemPrompt = buildSystemPrompt();
+    it("should include specific uncertainty responses in system prompt", async () => {
+      const systemPrompt = await buildSystemPrompt();
       
       // Check for key phrases from the implementation plan
       expect(systemPrompt).toContain("not sure what to say");
@@ -271,8 +271,8 @@ describe("Phase 3: Comfortable Imperfection", () => {
       expect(systemPrompt).toContain("don't have a smart take");
     });
 
-    it("should include specific brief response examples in system prompt", () => {
-      const systemPrompt = buildSystemPrompt();
+    it("should include specific brief response examples in system prompt", async () => {
+      const systemPrompt = await buildSystemPrompt();
       
       // Check for the "That's really cool ✨" example from implementation plan
       expect(systemPrompt).toContain("That's really cool");

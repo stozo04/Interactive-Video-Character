@@ -10,42 +10,68 @@
  * Threads can be:
  * - Autonomous (her own stuff: creative projects, family, self-improvement)
  * - User-triggered ("I keep thinking about what you said")
+ * 
+ * Phase 3 Supabase Migration:
+ * - All state now persisted to Supabase via stateService
+ * - Local caching to avoid DB hits on every call
+ * - Async-first API with sync fallbacks for backwards compatibility
+ * - userId required for all state operations
  */
 
-const THREADS_KEY = 'kayley_ongoing_threads';
+import {
+  getOngoingThreads as getSupabaseThreads,
+  saveAllOngoingThreads,
+  type OngoingThread as SupabaseOngoingThread,
+  type ThreadTheme as SupabaseThreadTheme,
+} from './stateService';
+
+// ============================================
+// Types (re-export for backwards compatibility)
+// ============================================
+
+export type ThreadTheme = SupabaseThreadTheme;
+export type OngoingThread = SupabaseOngoingThread;
+
+// ============================================
+// Constants
+// ============================================
+
 const MAX_THREADS = 5;
 const MIN_THREADS = 2;
+const CACHE_TTL = 60000; // 1 minute cache TTL
 
-export type ThreadTheme = 
-  | 'creative_project'   // video editing, content ideas
-  | 'family'             // mom, brother Ethan, relationships
-  | 'self_improvement'   // therapy, habits, growth
-  | 'social'             // Lena, creator friends
-  | 'work'               // freelance clients, channel growth
-  | 'existential'        // life meaning, future, choices
-  | 'user_reflection';   // thinking about something user said
+// ============================================
+// Local Caching Layer
+// ============================================
 
-export interface OngoingThread {
-  id: string;
-  theme: ThreadTheme;
-  /** What she's currently feeling/thinking about this */
-  currentState: string;
-  /** 0.1-1.0 - how present is this in her mind? */
-  intensity: number;
-  /** Prevent over-repetition */
-  lastMentioned: number | null;
-  /** Is this about something user said? */
-  userRelated: boolean;
-  /** When this thread was created */
-  createdAt: number;
-  /** Optional: what the user said that triggered this */
-  userTrigger?: string;
+interface CacheEntry<T> {
+  userId: string;
+  data: T;
+  timestamp: number;
 }
 
-interface ThreadsState {
-  threads: OngoingThread[];
-  lastUpdated: number;
+let threadsCache: CacheEntry<OngoingThread[]> | null = null;
+
+/**
+ * Check if a cache entry is still valid
+ */
+function isCacheValid<T>(cache: CacheEntry<T> | null, userId: string): boolean {
+  if (!cache) return false;
+  if (cache.userId !== userId) return false;
+  if (Date.now() - cache.timestamp > CACHE_TTL) return false;
+  return true;
 }
+
+/**
+ * Clear threads cache (for testing or user switch)
+ */
+export function clearThreadsCache(): void {
+  threadsCache = null;
+}
+
+// ============================================
+// Autonomous Thread Templates
+// ============================================
 
 /**
  * Autonomous thread templates - things she might be thinking about
@@ -117,34 +143,15 @@ const AUTONOMOUS_THREAD_TEMPLATES: Array<{
   },
 ];
 
+// ============================================
+// Internal Helper Functions
+// ============================================
+
 /**
  * Generate a unique ID
  */
 function generateId(): string {
   return `thread_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-}
-
-/**
- * Get stored threads state
- */
-function getStoredThreads(): ThreadsState {
-  const stored = localStorage.getItem(THREADS_KEY);
-  if (!stored) {
-    return { threads: [], lastUpdated: 0 };
-  }
-  
-  try {
-    return JSON.parse(stored);
-  } catch {
-    return { threads: [], lastUpdated: 0 };
-  }
-}
-
-/**
- * Store threads state
- */
-function storeThreads(state: ThreadsState): void {
-  localStorage.setItem(THREADS_KEY, JSON.stringify(state));
 }
 
 /**
@@ -234,125 +241,29 @@ function ensureMinimumThreads(threads: OngoingThread[]): OngoingThread[] {
 }
 
 /**
- * Get current threads, processing decay and cleanup
+ * Process threads: apply decay, cleanup, ensure minimum
  */
-export function getOngoingThreads(): OngoingThread[] {
-  const state = getStoredThreads();
-  
+function processThreads(threads: OngoingThread[]): OngoingThread[] {
   // Apply decay
-  let threads = decayThreads(state.threads);
+  let processed = decayThreads(threads);
   
   // Cleanup old/dead threads
-  threads = cleanupThreads(threads);
+  processed = cleanupThreads(processed);
   
   // Ensure minimum
-  threads = ensureMinimumThreads(threads);
+  processed = ensureMinimumThreads(processed);
   
   // Limit to max
-  threads = threads.slice(0, MAX_THREADS);
+  processed = processed.slice(0, MAX_THREADS);
   
-  // Store updated state
-  storeThreads({
-    threads,
-    lastUpdated: Date.now(),
-  });
-  
-  return threads;
+  return processed;
 }
 
 /**
- * Create a user-triggered thread (when user says something she'll think about)
- */
-export function createUserThread(
-  trigger: string,
-  currentState: string,
-  intensity: number = 0.7
-): OngoingThread {
-  const state = getStoredThreads();
-  
-  const newThread: OngoingThread = {
-    id: generateId(),
-    theme: 'user_reflection',
-    currentState,
-    intensity: Math.min(1.0, intensity),
-    lastMentioned: null,
-    userRelated: true,
-    createdAt: Date.now(),
-    userTrigger: trigger,
-  };
-  
-  // Add to threads (remove oldest if at max)
-  let threads = [...state.threads, newThread];
-  if (threads.length > MAX_THREADS) {
-    // Remove lowest intensity non-user thread first
-    threads.sort((a, b) => {
-      if (a.userRelated !== b.userRelated) return a.userRelated ? 1 : -1;
-      return a.intensity - b.intensity;
-    });
-    threads = threads.slice(1);
-  }
-  
-  storeThreads({
-    threads,
-    lastUpdated: Date.now(),
-  });
-  
-  return newThread;
-}
-
-/**
- * Boost a thread's intensity (when it becomes relevant)
- */
-export function boostThread(threadId: string, amount: number = 0.2): void {
-  const state = getStoredThreads();
-  
-  const threads = state.threads.map(thread => {
-    if (thread.id === threadId) {
-      return {
-        ...thread,
-        intensity: Math.min(1.0, thread.intensity + amount),
-      };
-    }
-    return thread;
-  });
-  
-  storeThreads({
-    threads,
-    lastUpdated: Date.now(),
-  });
-}
-
-/**
- * Mark a thread as mentioned (to prevent over-repetition)
- */
-export function markThreadMentioned(threadId: string): void {
-  const state = getStoredThreads();
-  
-  const threads = state.threads.map(thread => {
-    if (thread.id === threadId) {
-      return {
-        ...thread,
-        lastMentioned: Date.now(),
-        // Reduce intensity after mentioning to prevent spam
-        intensity: thread.intensity * 0.7,
-      };
-    }
-    return thread;
-  });
-  
-  storeThreads({
-    threads,
-    lastUpdated: Date.now(),
-  });
-}
-
-/**
- * Get the most relevant thread to potentially surface
+ * Get the most relevant thread to potentially surface (internal logic)
  * Returns null if no thread should be surfaced right now
  */
-export function getThreadToSurface(): OngoingThread | null {
-  const threads = getOngoingThreads();
-  
+function findThreadToSurface(threads: OngoingThread[]): OngoingThread | null {
   // Find threads that are high intensity and haven't been mentioned recently
   const now = Date.now();
   const cooldownMs = 1000 * 60 * 30; // 30 minutes between mentions of same thread
@@ -386,12 +297,9 @@ export function getThreadToSurface(): OngoingThread | null {
 }
 
 /**
- * Format threads for prompt context (doesn't reveal everything - just sets mental state)
+ * Format threads for prompt (internal logic)
  */
-export function formatThreadsForPrompt(): string {
-  const threads = getOngoingThreads();
-  const topThread = getThreadToSurface();
-  
+function formatThreadsInternal(threads: OngoingThread[], topThread: OngoingThread | null): string {
   if (threads.length === 0) {
     return '';
   }
@@ -405,7 +313,7 @@ You have a few things on your mind right now. They affect your mood but you don'
   // Show top 2-3 threads by intensity
   const sorted = [...threads].sort((a, b) => b.intensity - a.intensity).slice(0, 3);
   
-  sorted.forEach((thread, i) => {
+  sorted.forEach((thread) => {
     const intensityLabel = thread.intensity > 0.7 ? 'strongly' : 
                           thread.intensity > 0.4 ? 'somewhat' : 'faintly';
     prompt += `- ${intensityLabel} thinking about: "${thread.currentState}"${thread.userRelated ? ' (about something user said)' : ''}\n`;
@@ -425,11 +333,191 @@ No thread is pressing enough to bring up right now. Just be present.
   return prompt;
 }
 
+// ============================================
+// Async Functions (Primary API - Supabase-backed)
+// ============================================
+
 /**
- * Reset threads (for testing)
+ * Get ongoing threads from Supabase with caching and processing.
+ * 
+ * @param userId - User ID for Supabase lookup
+ * @returns Promise resolving to processed OngoingThread array
  */
-export function resetThreads(): void {
-  localStorage.removeItem(THREADS_KEY);
+export async function getOngoingThreadsAsync(userId: string): Promise<OngoingThread[]> {
+  // Return from cache if valid
+  if (isCacheValid(threadsCache, userId)) {
+    return threadsCache!.data;
+  }
+  
+  try {
+    const threads = await getSupabaseThreads(userId);
+    
+    // Process threads (decay, cleanup, ensure minimum)
+    const processed = processThreads(threads);
+    
+    // Update cache
+    threadsCache = { userId, data: processed, timestamp: Date.now() };
+    
+    // Save processed threads back to Supabase (non-blocking)
+    saveAllOngoingThreads(userId, processed).catch(console.error);
+    
+    return processed;
+  } catch (error) {
+    console.error('[OngoingThreads] Error fetching threads:', error);
+    
+    // Return minimum threads on error
+    const fallback = ensureMinimumThreads([]);
+    threadsCache = { userId, data: fallback, timestamp: Date.now() };
+    return fallback;
+  }
+}
+
+/**
+ * Create a user-triggered thread (when user says something she'll think about)
+ * 
+ * @param userId - User ID for Supabase
+ * @param trigger - What the user said
+ * @param currentState - What she's thinking about it
+ * @param intensity - How present in her mind (0.1-1.0)
+ * @returns Promise resolving to the new thread
+ */
+export async function createUserThreadAsync(
+  userId: string,
+  trigger: string,
+  currentState: string,
+  intensity: number = 0.7
+): Promise<OngoingThread> {
+  const threads = await getOngoingThreadsAsync(userId);
+  
+  const newThread: OngoingThread = {
+    id: generateId(),
+    theme: 'user_reflection',
+    currentState,
+    intensity: Math.min(1.0, intensity),
+    lastMentioned: null,
+    userRelated: true,
+    createdAt: Date.now(),
+    userTrigger: trigger,
+  };
+  
+  // Add to threads (remove oldest if at max)
+  let updatedThreads = [...threads, newThread];
+  if (updatedThreads.length > MAX_THREADS) {
+    // Remove lowest intensity non-user thread first
+    updatedThreads.sort((a, b) => {
+      if (a.userRelated !== b.userRelated) return a.userRelated ? 1 : -1;
+      return a.intensity - b.intensity;
+    });
+    updatedThreads = updatedThreads.slice(1);
+  }
+  
+  // Update cache
+  threadsCache = { userId, data: updatedThreads, timestamp: Date.now() };
+  
+  // Save to Supabase
+  await saveAllOngoingThreads(userId, updatedThreads);
+  
+  return newThread;
+}
+
+/**
+ * Boost a thread's intensity (when it becomes relevant)
+ * 
+ * @param userId - User ID for Supabase
+ * @param threadId - Thread to boost
+ * @param amount - Amount to boost (default 0.2)
+ */
+export async function boostThreadAsync(
+  userId: string,
+  threadId: string,
+  amount: number = 0.2
+): Promise<void> {
+  const threads = await getOngoingThreadsAsync(userId);
+  
+  const updatedThreads = threads.map(thread => {
+    if (thread.id === threadId) {
+      return {
+        ...thread,
+        intensity: Math.min(1.0, thread.intensity + amount),
+      };
+    }
+    return thread;
+  });
+  
+  // Update cache
+  threadsCache = { userId, data: updatedThreads, timestamp: Date.now() };
+  
+  // Save to Supabase
+  await saveAllOngoingThreads(userId, updatedThreads);
+}
+
+/**
+ * Mark a thread as mentioned (to prevent over-repetition)
+ * 
+ * @param userId - User ID for Supabase
+ * @param threadId - Thread to mark
+ */
+export async function markThreadMentionedAsync(
+  userId: string,
+  threadId: string
+): Promise<void> {
+  const threads = await getOngoingThreadsAsync(userId);
+  
+  const updatedThreads = threads.map(thread => {
+    if (thread.id === threadId) {
+      return {
+        ...thread,
+        lastMentioned: Date.now(),
+        // Reduce intensity after mentioning to prevent spam
+        intensity: thread.intensity * 0.7,
+      };
+    }
+    return thread;
+  });
+  
+  // Update cache
+  threadsCache = { userId, data: updatedThreads, timestamp: Date.now() };
+  
+  // Save to Supabase
+  await saveAllOngoingThreads(userId, updatedThreads);
+}
+
+/**
+ * Get the most relevant thread to potentially surface
+ * Returns null if no thread should be surfaced right now
+ * 
+ * @param userId - User ID for Supabase
+ * @returns Promise resolving to thread or null
+ */
+export async function getThreadToSurfaceAsync(userId: string): Promise<OngoingThread | null> {
+  const threads = await getOngoingThreadsAsync(userId);
+  return findThreadToSurface(threads);
+}
+
+/**
+ * Format threads for prompt context (async version)
+ * 
+ * @param userId - User ID for Supabase
+ * @returns Promise resolving to formatted prompt string
+ */
+export async function formatThreadsForPromptAsync(userId: string): Promise<string> {
+  const threads = await getOngoingThreadsAsync(userId);
+  const topThread = findThreadToSurface(threads);
+  return formatThreadsInternal(threads, topThread);
+}
+
+/**
+ * Reset threads (async version)
+ * 
+ * @param userId - User ID for Supabase
+ */
+export async function resetThreadsAsync(userId: string): Promise<void> {
+  // Clear cache
+  threadsCache = null;
+  
+  // Clear from Supabase
+  await saveAllOngoingThreads(userId, []);
+  
   console.log('🧠 [OngoingThreads] Reset threads');
 }
 

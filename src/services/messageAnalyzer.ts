@@ -26,10 +26,12 @@
  */
 
 import { detectOpenLoops } from './presenceDirector';
+import * as relationshipService from './relationshipService';
 import { analyzeMessageForPatterns, detectTopics } from './userPatterns';
 import { detectMilestoneInMessage } from './relationshipMilestones';
 import { 
-  recordInteraction, 
+  recordInteraction,
+  recordInteractionAsync,
   detectGenuineMomentWithLLM,
   detectGenuineMoment, // Keyword fallback function
   type ConversationContext,
@@ -551,10 +553,11 @@ export async function analyzeUserMessage(
   // Use LLM sentiment for message tone
   const messageTone = toneResult.sentiment;
   
-  // Record interaction for emotional momentum (sync)
+  // Record interaction for emotional momentum (async with Supabase persistence)
   // Phase 7 Update: We now pass the LLM-derived genuine moment result
   // This ensures the mood system 'sees' what the LLM detected
-  recordInteraction(
+  await recordInteractionAsync(
+    userId,
     toneResult, 
     message,
     {
@@ -564,6 +567,9 @@ export async function analyzeUserMessage(
       isPositiveAffirmation: true // If LLM says genuine, it implies positive affirmation
     }
   );
+
+  // Phase 7 Update: Record message quality for probabilistic intimacy / stats
+  await relationshipService.recordMessageQualityAsync(userId, message);
 
   // Log what was detected
   if (createdLoops.length > 0) {

@@ -124,12 +124,7 @@ const CharacterSelector: React.FC<CharacterSelectorProps> = ({
               <span style={{ animationDelay: '240ms' }} className="animate-pulse">.</span>
             </span>
           </p>
-          
           <p className="text-gray-300 mt-2 text-sm text-center">{statusLine}</p>
-
-          <div className="mt-6 flex items-center gap-3 text-gray-400 text-xs">
-            <LoadingSpinner />
-          </div>
         </div>
       )}
     </div>

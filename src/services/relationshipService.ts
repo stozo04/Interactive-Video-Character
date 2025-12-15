@@ -11,6 +11,12 @@ import {
   applyObservationToInsight,
   mapInsightRowToDomain,
 } from '../domain/relationships/patternInsights';
+import {
+  getIntimacyState as getSupabaseIntimacyState,
+  saveIntimacyState as saveSupabaseIntimacyState,
+  createDefaultIntimacyState,
+  type IntimacyState as SupabaseIntimacyState,
+} from './stateService';
 
 const RELATIONSHIPS_TABLE = 'character_relationships';
 const RELATIONSHIP_EVENTS_TABLE = 'relationship_events';
@@ -356,7 +362,7 @@ export const analyzeMessageSentiment = async (
         userMood,
         ...scoreChanges,
         userMessage: message,
-        notes: `Unified Intent: ${tone.explanation}`
+        notes: `Unified Intent: ${tone.primaryEmotion} (sentiment: ${tone.sentiment.toFixed(2)}, intensity: ${tone.intensity.toFixed(2)})`
       };
     }
 
@@ -872,58 +878,199 @@ function clamp(value: number, min: number, max: number): number {
 // Flirt is probabilistic and contextual, not gated.
 // Closeness is fragile - can dip from bad interactions.
 // Intimacy is earned in moments, not just time.
+// 
+// Phase 4: Migrated to Supabase via stateService
+// - Async-primary functions with userId parameter
+// - Local caching with CacheEntry<T> pattern
+// - Sync fallbacks for backwards compatibility
 
-const INTIMACY_STATE_KEY = 'kayley_intimacy_state';
+// Re-export the IntimacyState type from stateService
+export type IntimacyState = SupabaseIntimacyState;
 
-export interface IntimacyState {
-  /** Temporary warmth modifier from recent interactions (-0.5 to +0.5) */
-  recentToneModifier: number;
-  /** Whether user recently shared something vulnerable */
-  vulnerabilityExchangeActive: boolean;
-  /** Timestamp of last vulnerability share */
-  lastVulnerabilityAt: number | null;
-  /** Count of low-effort messages in a row */
-  lowEffortStreak: number;
-  /** Recent interaction quality (rolling average) */
-  recentQuality: number;
+// ============================================
+// CACHING INFRASTRUCTURE
+// ============================================
+
+interface CacheEntry<T> {
+  userId: string;
+  data: T;
+  timestamp: number;
+}
+
+let intimacyCache: CacheEntry<IntimacyState> | null = null;
+const CACHE_TTL = 60000; // 1 minute
+
+/**
+ * Check if cache is valid for the given userId
+ */
+function isCacheValid(cache: CacheEntry<IntimacyState> | null, userId: string): boolean {
+  return (
+    cache !== null &&
+    cache.userId === userId &&
+    Date.now() - cache.timestamp < CACHE_TTL
+  );
 }
 
 /**
- * Get intimacy state from storage
+ * Clear the intimacy cache (for testing and user switching)
  */
-function getIntimacyState(): IntimacyState {
-  const stored = localStorage.getItem(INTIMACY_STATE_KEY);
-  if (!stored) {
-    return {
-      recentToneModifier: 0,
-      vulnerabilityExchangeActive: false,
-      lastVulnerabilityAt: null,
-      lowEffortStreak: 0,
-      recentQuality: 0.5,
-    };
+export function clearIntimacyCache(): void {
+  intimacyCache = null;
+}
+
+// ============================================
+// ASYNC FUNCTIONS (Primary - Use These)
+// ============================================
+
+/**
+ * Get intimacy state from Supabase with caching
+ */
+export async function getIntimacyStateAsync(userId: string): Promise<IntimacyState> {
+  // Return from cache if fresh
+  if (isCacheValid(intimacyCache, userId)) {
+    return intimacyCache!.data;
   }
+
   try {
-    return JSON.parse(stored);
-  } catch {
-    return {
-      recentToneModifier: 0,
-      vulnerabilityExchangeActive: false,
-      lastVulnerabilityAt: null,
-      lowEffortStreak: 0,
-      recentQuality: 0.5,
-    };
+    const state = await getSupabaseIntimacyState(userId);
+    intimacyCache = { userId, data: state, timestamp: Date.now() };
+    return state;
+  } catch (error) {
+    console.error('[IntimacySystem] Error getting intimacy state:', error);
+    const defaultState = createDefaultIntimacyState();
+    intimacyCache = { userId, data: defaultState, timestamp: Date.now() };
+    return defaultState;
   }
 }
 
 /**
- * Store intimacy state
+ * Store intimacy state to Supabase and update cache
  */
-function storeIntimacyState(state: IntimacyState): void {
-  localStorage.setItem(INTIMACY_STATE_KEY, JSON.stringify(state));
+export async function storeIntimacyStateAsync(userId: string, state: IntimacyState): Promise<void> {
+  // Update cache immediately
+  intimacyCache = { userId, data: state, timestamp: Date.now() };
+  
+  try {
+    await saveSupabaseIntimacyState(userId, state);
+  } catch (error) {
+    console.error('[IntimacySystem] Error saving intimacy state:', error);
+  }
 }
+
+/**
+ * Record message quality and update intimacy state (async)
+ */
+export async function recordMessageQualityAsync(userId: string, message: string): Promise<void> {
+  const state = await getIntimacyStateAsync(userId);
+  const analysis = analyzeMessageQuality(message);
+  
+  // Update low effort streak
+  if (analysis.isLowEffort) {
+    state.lowEffortStreak++;
+  } else {
+    state.lowEffortStreak = 0;
+  }
+  
+  // Update recent quality (rolling average)
+  state.recentQuality = state.recentQuality * 0.7 + analysis.quality * 0.3;
+  
+  // Update vulnerability exchange
+  if (analysis.isVulnerable) {
+    state.vulnerabilityExchangeActive = true;
+    state.lastVulnerabilityAt = Date.now();
+  } else {
+    // Vulnerability exchange expires after 30 minutes
+    if (state.lastVulnerabilityAt && Date.now() - state.lastVulnerabilityAt > 30 * 60 * 1000) {
+      state.vulnerabilityExchangeActive = false;
+    }
+  }
+  
+  // Update tone modifier based on quality
+  const qualityImpact = (analysis.quality - 0.5) * 0.2;
+  state.recentToneModifier = clamp(
+    state.recentToneModifier * 0.8 + qualityImpact,
+    -0.5,
+    0.5
+  );
+  
+  await storeIntimacyStateAsync(userId, state);
+}
+
+/**
+ * Calculate current intimacy probability (async)
+ * Returns a 0-1 probability of Kayley being open to intimacy/flirtation
+ */
+export async function calculateIntimacyProbabilityAsync(
+  userId: string,
+  relationship: RelationshipMetrics | null,
+  moodFlirtThreshold: number = 0.5
+): Promise<number> {
+  if (!relationship) return 0.1; // Very low for unknown users
+  
+  const state = await getIntimacyStateAsync(userId);
+  
+  return calculateIntimacyProbabilityWithState(relationship, moodFlirtThreshold, state);
+}
+
+/**
+ * Check if a flirt/intimacy moment should happen (async)
+ * Uses probability to make it feel natural, not gated
+ */
+export async function shouldFlirtMomentOccurAsync(
+  userId: string,
+  relationship: RelationshipMetrics | null,
+  moodFlirtThreshold: number = 0.5,
+  bidType: string = 'neutral'
+): Promise<boolean> {
+  const probability = await calculateIntimacyProbabilityAsync(userId, relationship, moodFlirtThreshold);
+  
+  // Bid type multipliers
+  const bidMultipliers: Record<string, number> = {
+    play: 1.5,      // Play bids increase flirt chance
+    comfort: 0.7,   // Comfort bids - less flirty, more supportive
+    validation: 1.2,
+    challenge: 0.8,
+    attention: 1.3, // Attention bids can be flirty
+    escape: 0.5,    // Escape bids - not the time
+    neutral: 1.0,
+  };
+  
+  const adjustedProbability = probability * (bidMultipliers[bidType] || 1.0);
+  
+  return Math.random() < adjustedProbability;
+}
+
+/**
+ * Get intimacy context for prompt injection (async)
+ */
+export async function getIntimacyContextForPromptAsync(
+  userId: string,
+  relationship: RelationshipMetrics | null,
+  moodFlirtThreshold: number = 0.5
+): Promise<string> {
+  const state = await getIntimacyStateAsync(userId);
+  const probability = calculateIntimacyProbabilityWithState(relationship, moodFlirtThreshold, state);
+  
+  return formatIntimacyGuidance(probability, state);
+}
+
+/**
+ * Reset intimacy state (async)
+ */
+export async function resetIntimacyStateAsync(userId: string): Promise<void> {
+  const defaultState = createDefaultIntimacyState();
+  intimacyCache = null; // Clear cache so next fetch hits DB
+  await saveSupabaseIntimacyState(userId, defaultState);
+  console.log('💕 [IntimacySystem] Reset intimacy state for user:', userId);
+}
+
+// ============================================
+// PURE HELPER FUNCTIONS
+// ============================================
 
 /**
  * Analyze message quality (effort, vulnerability, engagement)
+ * This is a pure function - no state access needed
  */
 export function analyzeMessageQuality(message: string): {
   quality: number;        // 0-1
@@ -970,55 +1117,40 @@ export function analyzeMessageQuality(message: string): {
 }
 
 /**
- * Record message quality and update intimacy state
+ * Apply fragile trust penalty
+ * Trust can dip quickly from negative interactions
  */
-export function recordMessageQuality(message: string): void {
-  const state = getIntimacyState();
-  const analysis = analyzeMessageQuality(message);
-  
-  // Update low effort streak
-  if (analysis.isLowEffort) {
-    state.lowEffortStreak++;
-  } else {
-    state.lowEffortStreak = 0;
+export function applyFragileTrustPenalty(event: RelationshipEvent): RelationshipEvent {
+  // If the interaction was negative, amplify trust loss
+  if (event.eventType === 'negative') {
+    event.trustChange = event.trustChange * 1.5; // 50% more trust loss
   }
   
-  // Update recent quality (rolling average)
-  state.recentQuality = state.recentQuality * 0.7 + analysis.quality * 0.3;
-  
-  // Update vulnerability exchange
-  if (analysis.isVulnerable) {
-    state.vulnerabilityExchangeActive = true;
-    state.lastVulnerabilityAt = Date.now();
-  } else {
-    // Vulnerability exchange expires after 30 minutes
-    if (state.lastVulnerabilityAt && Date.now() - state.lastVulnerabilityAt > 30 * 60 * 1000) {
-      state.vulnerabilityExchangeActive = false;
+  // Low effort messages also erode trust slightly
+  if (event.userMessage) {
+    const analysis = analyzeMessageQuality(event.userMessage);
+    if (analysis.isLowEffort) {
+      event.trustChange -= 0.1;
+      event.warmthChange -= 0.05;
     }
   }
   
-  // Update tone modifier based on quality
-  const qualityImpact = (analysis.quality - 0.5) * 0.2;
-  state.recentToneModifier = clamp(
-    state.recentToneModifier * 0.8 + qualityImpact,
-    -0.5,
-    0.5
-  );
-  
-  storeIntimacyState(state);
+  return event;
 }
 
+// ============================================
+// INTERNAL HELPER FUNCTIONS
+// ============================================
+
 /**
- * Calculate current intimacy probability
- * Returns a 0-1 probability of Kayley being open to intimacy/flirtation
+ * Calculate intimacy probability given a state (shared logic)
  */
-export function calculateIntimacyProbability(
+function calculateIntimacyProbabilityWithState(
   relationship: RelationshipMetrics | null,
-  moodFlirtThreshold: number = 0.5
+  moodFlirtThreshold: number,
+  state: IntimacyState
 ): number {
   if (!relationship) return 0.1; // Very low for unknown users
-  
-  const state = getIntimacyState();
   
   // Base probability from relationship tier
   const tierBase: Record<string, number> = {
@@ -1073,64 +1205,9 @@ export function calculateIntimacyProbability(
 }
 
 /**
- * Check if a flirt/intimacy moment should happen
- * Uses probability to make it feel natural, not gated
+ * Format intimacy guidance string from probability and state
  */
-export function shouldFlirtMomentOccur(
-  relationship: RelationshipMetrics | null,
-  moodFlirtThreshold: number = 0.5,
-  bidType: string = 'neutral'
-): boolean {
-  const probability = calculateIntimacyProbability(relationship, moodFlirtThreshold);
-  
-  // Bid type multipliers
-  const bidMultipliers: Record<string, number> = {
-    play: 1.5,      // Play bids increase flirt chance
-    comfort: 0.7,   // Comfort bids - less flirty, more supportive
-    validation: 1.2,
-    challenge: 0.8,
-    attention: 1.3, // Attention bids can be flirty
-    escape: 0.5,    // Escape bids - not the time
-    neutral: 1.0,
-  };
-  
-  const adjustedProbability = probability * (bidMultipliers[bidType] || 1.0);
-  
-  return Math.random() < adjustedProbability;
-}
-
-/**
- * Apply fragile trust penalty
- * Trust can dip quickly from negative interactions
- */
-export function applyFragileTrustPenalty(event: RelationshipEvent): RelationshipEvent {
-  // If the interaction was negative, amplify trust loss
-  if (event.eventType === 'negative') {
-    event.trustChange = event.trustChange * 1.5; // 50% more trust loss
-  }
-  
-  // Low effort messages also erode trust slightly
-  if (event.userMessage) {
-    const analysis = analyzeMessageQuality(event.userMessage);
-    if (analysis.isLowEffort) {
-      event.trustChange -= 0.1;
-      event.warmthChange -= 0.05;
-    }
-  }
-  
-  return event;
-}
-
-/**
- * Get intimacy context for prompt injection
- */
-export function getIntimacyContextForPrompt(
-  relationship: RelationshipMetrics | null,
-  moodFlirtThreshold: number = 0.5
-): string {
-  const state = getIntimacyState();
-  const probability = calculateIntimacyProbability(relationship, moodFlirtThreshold);
-  
+function formatIntimacyGuidance(probability: number, state: IntimacyState): string {
   // Translate probability to behavior guidance
   let intimacyGuidance: string;
   
@@ -1192,12 +1269,4 @@ LOW EFFORT DETECTED (${state.lowEffortStreak} in a row):
   }
   
   return intimacyGuidance;
-}
-
-/**
- * Reset intimacy state (for testing)
- */
-export function resetIntimacyState(): void {
-  localStorage.removeItem(INTIMACY_STATE_KEY);
-  console.log('💕 [IntimacySystem] Reset intimacy state');
 }

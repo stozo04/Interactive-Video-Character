@@ -4,9 +4,12 @@
 const GMAIL_SCOPE = "https://www.googleapis.com/auth/gmail.metadata";
 // Calendar scope for read/write access
 const CALENDAR_SCOPE = "https://www.googleapis.com/auth/calendar.events";
+// User info scopes for authentication
+const USERINFO_EMAIL_SCOPE = "https://www.googleapis.com/auth/userinfo.email";
+const USERINFO_PROFILE_SCOPE = "https://www.googleapis.com/auth/userinfo.profile";
 
 // Combine all scopes into one string
-const SCOPES = [GMAIL_SCOPE, CALENDAR_SCOPE].join(' ');
+const SCOPES = [GMAIL_SCOPE, CALENDAR_SCOPE, USERINFO_EMAIL_SCOPE, USERINFO_PROFILE_SCOPE].join(' ');
 
 // Buffer time before token expiry to refresh (5 minutes)
 const TOKEN_REFRESH_BUFFER_MS = 5 * 60 * 1000;
@@ -19,9 +22,6 @@ export interface GmailSession {
   accessToken: string;
   expiresAt: number; // Timestamp (Date.now() + expiresIn * 1000)
   refreshedAt: number; // Timestamp of last refresh
-  user?: {
-    id: string;
-  }
 }
 
 /**
@@ -143,9 +143,6 @@ export async function getAccessToken(
             accessToken: tokenResponse.access_token,
             expiresAt: expiresAt,
             refreshedAt: Date.now(),
-            user: { id: 'legacy-user' } // Populate with real ID in getUserEmail step if possible, or leave as placeholder to be filled.
-            // Actually, getAccessToken only resolves tokens. getUserEmail fetches profile. 
-            // We should update getUserEmail to return ID as well.
           });
         },
         error_callback: (error: any) => {
