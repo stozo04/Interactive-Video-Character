@@ -1,7 +1,8 @@
 // src/services/taskService.ts
-import { Task, TaskState } from '../types';
+import { supabase } from './supabaseClient';
+import { Task } from '../types';
 
-const STORAGE_KEY = 'kayley_daily_tasks';
+export const TABLE_NAME = 'daily_tasks';
 
 /**
  * Get today's date as ISO string (YYYY-MM-DD)
@@ -12,146 +13,147 @@ const getTodayString = (): string => {
 };
 
 /**
- * Generate a unique ID for a task
+ * Load tasks from Supabase
+ * Returns tasks that are either:
+ * 1. Scheduled for today
+ * 2. Incomplete and from the past (carry-over)
  */
-const generateTaskId = (): string => {
-  return `task_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-};
-
-/**
- * Load task state from localStorage with automatic daily rollover
- * If it's a new day, completed tasks are deleted and incomplete tasks carry over
- */
-export const loadTasks = (): Task[] => {
+export const fetchTasks = async (userId: string): Promise<Task[]> => {
   try {
-    const stored = localStorage.getItem(STORAGE_KEY);
-    if (!stored) {
-      // First time - initialize empty state
-      const initialState: TaskState = {
-        tasks: [],
-        lastResetDate: getTodayString()
-      };
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(initialState));
-      return [];
-    }
-
-    const state: TaskState = JSON.parse(stored);
     const today = getTodayString();
+    
+    // We want: (scheduled_date = today) OR (scheduled_date < today AND completed = false)
+    // Supabase OR syntax: or=(scheduled_date.eq.today,and(scheduled_date.lt.today,completed.eq.false))
+    // However, simplified logic: Get all tasks that are NOT (completed AND scheduled_date < today) matches most active views,
+    // but better to be explicit about "Today or Incomplete Past".
+    
+    // Let's just fetch:
+    // 1. All incomplete tasks (regardless of date - they carry over)
+    // 2. Completed tasks ONLY from today
+    
+    const { data, error } = await supabase
+      .from(TABLE_NAME)
+      .select('*')
+      .eq('user_id', userId)
+      .or(`completed.eq.false,and(completed.eq.true,scheduled_date.eq.${today})`)
+      .order('created_at', { ascending: true });
 
-    // Check if it's a new day
-    if (state.lastResetDate !== today) {
-      console.log(`📅 New day detected! Rolling over tasks from ${state.lastResetDate} to ${today}`);
-      
-      // Keep only incomplete tasks
-      const incompleteTasks = state.tasks.filter(task => !task.completed);
-      
-      const newState: TaskState = {
-        tasks: incompleteTasks,
-        lastResetDate: today
-      };
-      
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(newState));
-      console.log(`✅ Rolled over ${incompleteTasks.length} incomplete task(s)`);
-      
-      return incompleteTasks;
+    if (error) {
+      console.error('Error fetching tasks fetching:', error);
+      throw error;
     }
 
-    return state.tasks;
+    return (data || []).map(row => ({
+      id: row.id,
+      text: row.text,
+      completed: row.completed,
+      priority: row.priority as 'low' | 'medium' | 'high',
+      category: row.category,
+      createdAt: new Date(row.created_at).getTime(),
+      completedAt: row.completed_at ? new Date(row.completed_at).getTime() : null,
+      scheduledDate: row.scheduled_date
+    }));
   } catch (error) {
-    console.error('Failed to load tasks from localStorage:', error);
+    console.error('Failed to load tasks from Supabase:', error);
     return [];
-  }
-};
-
-/**
- * Save tasks to localStorage
- */
-export const saveTasks = (tasks: Task[]): void => {
-  try {
-    const state: TaskState = {
-      tasks,
-      lastResetDate: getTodayString()
-    };
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-  } catch (error) {
-    console.error('Failed to save tasks to localStorage:', error);
   }
 };
 
 /**
  * Create a new task
  */
-export const createTask = (
+export const createTask = async (
+  userId: string,
   text: string, 
-  priority?: 'low' | 'medium' | 'high',
+  priority: 'low' | 'medium' | 'high' = 'low',
   category?: string
-): Task => {
-  const newTask: Task = {
-    id: generateTaskId(),
+): Promise<Task | null> => {
+  const newTaskPayload = {
+    user_id: userId,
     text: text.trim(),
-    completed: false,
-    createdAt: Date.now(),
-    completedAt: null,
     priority,
-    category
+    category,
+    scheduled_date: getTodayString(), // Default to today
+    completed: false
   };
 
-  const currentTasks = loadTasks();
-  const updatedTasks = [...currentTasks, newTask];
-  saveTasks(updatedTasks);
+  const { data, error } = await supabase
+    .from(TABLE_NAME)
+    .insert(newTaskPayload)
+    .select()
+    .single();
 
-  console.log(`✅ Created task: "${text}"`);
-  return newTask;
+  if (error) {
+    console.error('Error creating task:', error);
+    return null;
+  }
+
+  return {
+    id: data.id,
+    text: data.text,
+    completed: data.completed,
+    priority: data.priority,
+    category: data.category,
+    createdAt: new Date(data.created_at).getTime(),
+    completedAt: null
+  };
 };
 
 /**
  * Toggle task completion status
  */
-export const toggleTask = (taskId: string): Task | null => {
-  const currentTasks = loadTasks();
-  const taskIndex = currentTasks.findIndex(t => t.id === taskId);
-  
-  if (taskIndex === -1) {
-    console.warn(`Task ${taskId} not found`);
+export const toggleTask = async (taskId: string, currentCompleted: boolean): Promise<Task | null> => {
+  const updates = {
+    completed: !currentCompleted,
+    completed_at: !currentCompleted ? new Date().toISOString() : null
+  };
+
+  const { data, error } = await supabase
+    .from(TABLE_NAME)
+    .update(updates)
+    .eq('id', taskId)
+    .select()
+    .single();
+
+  if (error) {
+    console.error('Error toggling task:', error);
     return null;
   }
 
-  const task = currentTasks[taskIndex];
-  const updatedTask: Task = {
-    ...task,
-    completed: !task.completed,
-    completedAt: !task.completed ? Date.now() : null
+  return {
+    id: data.id,
+    text: data.text,
+    completed: data.completed,
+    priority: data.priority,
+    category: data.category,
+    createdAt: new Date(data.created_at).getTime(),
+    completedAt: data.completed_at ? new Date(data.completed_at).getTime() : null
   };
-
-  currentTasks[taskIndex] = updatedTask;
-  saveTasks(currentTasks);
-
-  console.log(`✅ Toggled task "${task.text}" to ${updatedTask.completed ? 'complete' : 'incomplete'}`);
-  return updatedTask;
 };
 
 /**
  * Delete a task
  */
-export const deleteTask = (taskId: string): boolean => {
-  const currentTasks = loadTasks();
-  const filteredTasks = currentTasks.filter(t => t.id !== taskId);
-  
-  if (filteredTasks.length === currentTasks.length) {
-    console.warn(`Task ${taskId} not found`);
+export const deleteTask = async (taskId: string): Promise<boolean> => {
+  const { error } = await supabase
+    .from(TABLE_NAME)
+    .delete()
+    .eq('id', taskId);
+
+  if (error) {
+    console.error('Error deleting task:', error);
     return false;
   }
 
-  saveTasks(filteredTasks);
-  console.log(`🗑️ Deleted task ${taskId}`);
   return true;
 };
 
 /**
- * Get task statistics for AI context
+ * Get task statistics for AI context (Sync version not possible anymore, must be async or cached)
+ * We will return a promise or expect the caller to have the data.
+ * For AI context, we usually pass the already loaded tasks from the state.
  */
-export const getTaskStats = () => {
-  const tasks = loadTasks();
+export const getTaskStats = (tasks: Task[]) => {
   const completed = tasks.filter(t => t.completed);
   const incomplete = tasks.filter(t => !t.completed);
   const highPriority = incomplete.filter(t => t.priority === 'high');
@@ -166,11 +168,45 @@ export const getTaskStats = () => {
 };
 
 /**
+ * Update task text or priority
+ */
+export const updateTask = async (
+  taskId: string, 
+  updates: Partial<Pick<Task, 'text' | 'priority' | 'category'>>
+): Promise<Task | null> => {
+  const { data, error } = await supabase
+    .from(TABLE_NAME)
+    .update(updates)
+    .eq('id', taskId)
+    .select()
+    .single();
+
+  if (error) {
+    console.error(`Error updating task ${taskId}:`, error);
+    return null;
+  }
+
+  return {
+    id: data.id,
+    text: data.text,
+    completed: data.completed,
+    priority: data.priority,
+    category: data.category,
+    createdAt: new Date(data.created_at).getTime(),
+    completedAt: data.completed_at ? new Date(data.completed_at).getTime() : null
+  };
+};
+
+/**
  * Find task by partial text match (for voice commands)
  */
-export const findTaskByText = (searchText: string): Task | null => {
-  const tasks = loadTasks();
+export const findTaskByText = async (userId: string, searchText: string): Promise<Task | null> => {
   const normalized = searchText.toLowerCase().trim();
+  
+  // Fetch all tasks for the user (we could filter in DB but "includes" is harder with simple LIKE if we want exact/partial logic)
+  // For simplicity and to match old logic, let's fetch active tasks and search in memory. 
+  // Optimization: Only fetch incomplete tasks or tasks from today.
+  const tasks = await fetchTasks(userId);
   
   // Try exact match first
   let found = tasks.find(t => t.text.toLowerCase() === normalized);
@@ -185,50 +221,4 @@ export const findTaskByText = (searchText: string): Task | null => {
   return found || null;
 };
 
-/**
- * Update task text or priority
- */
-export const updateTask = (
-  taskId: string, 
-  updates: Partial<Pick<Task, 'text' | 'priority' | 'category'>>
-): Task | null => {
-  const currentTasks = loadTasks();
-  const taskIndex = currentTasks.findIndex(t => t.id === taskId);
-  
-  if (taskIndex === -1) {
-    console.warn(`Task ${taskId} not found`);
-    return null;
-  }
-
-  const updatedTask: Task = {
-    ...currentTasks[taskIndex],
-    ...updates,
-    text: updates.text?.trim() || currentTasks[taskIndex].text
-  };
-
-  currentTasks[taskIndex] = updatedTask;
-  saveTasks(currentTasks);
-
-  console.log(`✅ Updated task ${taskId}`);
-  return updatedTask;
-};
-
-/**
- * Manually trigger daily rollover (for testing or forced reset)
- */
-export const checkDailyRollover = (): { rolled: boolean; deletedCount: number } => {
-  const stored = localStorage.getItem(STORAGE_KEY);
-  if (!stored) return { rolled: false, deletedCount: 0 };
-
-  const state: TaskState = JSON.parse(stored);
-  const today = getTodayString();
-
-  if (state.lastResetDate !== today) {
-    const completedCount = state.tasks.filter(t => t.completed).length;
-    loadTasks(); // This will trigger the rollover
-    return { rolled: true, deletedCount: completedCount };
-  }
-
-  return { rolled: false, deletedCount: 0 };
-};
 

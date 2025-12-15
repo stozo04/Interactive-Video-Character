@@ -105,8 +105,8 @@ export function GoogleAuthProvider({
       // Get access token (force consent to show popup)
       const { accessToken, expiresAt, refreshedAt } = await googleAuth.getAccessToken(true);
       
-      // Get user email
-      const email = await googleAuth.getUserEmail(accessToken);
+      // Get user profile
+      const { email, id } = await googleAuth.getUserProfile(accessToken);
       
       // Create and save session
       const newSession: GmailSession = {
@@ -114,6 +114,7 @@ export function GoogleAuthProvider({
         accessToken,
         expiresAt,
         refreshedAt,
+        user: { id }
       };
       
       googleAuth.saveSession(newSession);
