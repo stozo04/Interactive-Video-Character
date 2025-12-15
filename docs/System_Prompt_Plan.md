@@ -359,13 +359,29 @@ The following reordering addresses recency bias and reduces cognitive load:
    - NOTE: These helpers are available for Phase 2 when we switch to minified format
 
 
-### Phase 2: Structural Refactor (1 day)
+### Phase 2: Structural Refactor (1 day) ✅ COMPLETE
 > [!IMPORTANT]
 > Requires careful testing as prompt ordering affects LLM behavior.
 
-4. **Reorder prompt sections** - Put output format at end
-5. **Remove redundant identity sections** - Consolidate to single source
-6. **Convert metrics to semantic buckets** - Remove false precision
+4. **Reorder prompt sections** ✅ - JSON schema moved to end for recency bias
+   - Replaced verbose `ACTIONS & JSON FORMAT` (60 lines) with minimal `TOOL USAGE` (8 lines)
+   - Added `OUTPUT FORMAT` section at the end with full JSON schema
+   - JSON schema now in last 15% of prompt (was at 55%)
+   - Added 8 new V2 tests to verify section positioning
+5. **Remove redundant identity sections** ✅ - Consolidated 3 identity sections into 1
+   - Replaced ~83 lines of redundant identity text with ~25 lines
+   - Created IDENTITY ANCHOR with essential persona info
+   - Removed CORE PERSONALITY SNAPSHOT (redundant with anchor)
+6. **Convert metrics to semantic buckets** ✅ - Enabled compact formats
+   - Replaced verbose semantic intent (~170 lines) with `buildMinifiedSemanticIntent()` (~15 lines)
+   - Replaced verbose relationship metrics with `buildCompactRelationshipContext()`
+   - Now uses semantic descriptors: `warmth=warm/open` instead of `warmth: 5.1`
+
+**Phase 2 Final Results:**
+- **File reduction**: 1927 → 1676 lines (251 lines / 13%)
+- **Byte reduction**: 94.6KB → 72.5KB (~22KB / 23%)
+- **Estimated token savings**: ~700-900 tokens per prompt
+- **Tests**: 500 all passing (including 8 new V2 recency tests)
 
 #### 📝 Implementation Notes from Phase 1
 
@@ -404,14 +420,80 @@ const USE_NEW_PROMPT_FORMAT = import.meta.env.VITE_USE_NEW_PROMPT_FORMAT === 'tr
 - **Determinism test**: The `should be deterministic` test will catch any non-deterministic changes
 - **Section ordering test**: Update this test to reflect new ordering AFTER confirming it works
 
+#### 📝 Implementation Notes from Phase 2
+
+**Key Learnings:**
+
+1. **TDD worked well for section reordering**
+   - We added 8 new tests in `systemPrompt.test.ts` BEFORE implementing the changes
+   - Tests verify section positioning (identity in first 5%, output format in last 15%, etc.)
+   - Key test: `"should have JSON schema in the last 20% of the prompt"` - validates recency bias optimization
+
+2. **Section splitting was the key technique**
+   - The old `ACTIONS & JSON FORMAT` section (60 lines) was problematic because it put JSON schema too early
+   - Solution: Split into two sections:
+     - `TOOL USAGE` (8 lines) - early in prompt, just says "see OUTPUT FORMAT at end"
+     - `OUTPUT FORMAT` (55 lines) - at the very end, has full JSON schema
+   - This leverages **recency bias** - LLMs pay more attention to the end of the prompt
+
+3. **Identity consolidation yielded high ROI**
+   - Three separate identity sections were saying the same thing with different words
+   - Consolidated into one `IDENTITY ANCHOR` section
+   - The `KAYLEY_FULL_PROFILE` import is the source of truth - no need to repeat it
+
+4. **Helper functions made semantic changes safe**
+   - `buildMinifiedSemanticIntent()` and `buildCompactRelationshipContext()` were already tested
+   - Wiring them in was low-risk because the functions themselves were validated
+   - The compact format is: `[CONTEXT: Tone=happy(+0.7,HIGH), Topics={work}]`
+
+**Structure After Phase 2:**
+
+```
+Lines 677-700:   IDENTITY ANCHOR (23 lines) - was 83 lines across 3 sections
+Lines 700-787:   MEMORY TOOLS (87 lines) - unchanged
+Lines 788-891:   RELATIONSHIP STATE + context (103 lines) - uses compact functions
+Lines 893-900:   TOOL USAGE (8 lines) - was 60 lines
+Lines 901-1338:  Behavioral rules, calendar, tasks, etc. (437 lines)
+Lines 1339-1355: [Available Actions] (16 lines)
+Lines 1359-1413: OUTPUT FORMAT (54 lines) - NEW SECTION at end
+Lines 1414-1432: CRITICAL OUTPUT RULES (18 lines) - always last
+```
+
+**Metrics Improvements:**
+
+| Metric | Before Phase 2 | After Phase 2 | Improvement |
+|--------|----------------|---------------|-------------|
+| File lines | 1,927 | 1,676 | -13% |
+| File bytes | 94.6 KB | 72.5 KB | -23% |
+| Identity section | 83 lines | 23 lines | -72% |
+| Semantic intent | 170 lines | 15 lines | -91% |
+| JSON schema position | 55% of prompt | 90% of prompt | Recency optimized |
+
+**Watch Out For:**
+
+- **The "90%" rule**: Tests check that output format is in the last 10-15% of the prompt
+- **Compact format readability**: The minified format `[CONTEXT: ...]` is less human-readable but more token-efficient
+- **Keep critical safety guidance**: Even when minifying, we kept the inappropriate behavior detection - safety is essential
+
 ---
 
-### Phase 3: Pre-computation (1 day)
+### Phase 3: Pre-computation (1 day) ✅ COMPLETE
 > [!WARNING]
 > Requires changes to multiple service files.
 
-7. **Pre-compute relationship rules** - Inject only applicable state
-8. **Update AI services** - Add post-response action UUID mapping
+7. **Pre-compute relationship rules** ✅ - Inject only applicable state
+   - Created `getTierBehaviorPrompt(tier)` function - only includes CURRENT tier behavior
+   - Created `buildDynamicDimensionEffects(relationship)` - only includes EXTREME dimension values
+   - Created `getSelfieRulesConfig(relationship)` - helper for conditional selfie rules
+   - Created `buildSelfieRulesPrompt(relationship)` - friends get full rules, strangers get deflection only
+8. **Update AI services** ✅ - Already done in Phase 1 (action UUID mapping)
+
+**Phase 3 Final Results:**
+- **Tier behavior reduction**: 10 lines per tier × 6 tiers = 60 lines → ~5 lines (current tier only) = **~55 lines saved**
+- **Dimension effects reduction**: 6 lines always → 0-4 lines (only extreme values) = **~4-6 lines saved avg**
+- **Selfie rules reduction**: 86 lines always → ~25 lines for friends OR ~18 lines for strangers = **~60-70 lines saved**
+- **Tests**: 532 all passing (including 17 new Phase 3 tests)
+- **Total estimated token savings**: ~250-350 tokens per prompt for strangers/acquaintances
 
 #### 📝 Implementation Notes from Phase 1
 
@@ -466,32 +548,222 @@ The following lint errors in `grokChatService.ts` are PRE-EXISTING and unrelated
    });
    ```
 
+#### 📋 Phase 3 Implementation Guide (from Phase 1 & 2 learnings)
+
+**Overview:**
+Phase 3 focuses on *runtime* optimization - instead of sending ALL possible rules, we pre-compute and send ONLY the rules that apply to the current context. This is the final ~20% token reduction.
+
+**🎯 Primary Goals:**
+
+1. **Pre-compute tier-specific rules** - Currently all 6 tier behaviors are included in every prompt
+2. **Dynamic section inclusion** - Only include selfie rules for established relationships, etc.
+
+**📍 Key Locations to Modify:**
+
+1. **`src/services/promptUtils.ts`** (lines 809-820) - Tier behavior section
+   - Current: Includes ALL tiers (adversarial, rival, acquaintance, friend, close_friend, deeply_loving)
+   - Target: Include ONLY the current tier + one tier above/below for context
+   
+2. **`src/services/promptUtils.ts`** (lines 901-1000) - Selfie rules section
+   - Current: Always included (~100 lines)
+   - Target: Only include for `friend` tier and above (save ~100 lines for strangers)
+
+3. **`src/services/promptUtils.ts`** (lines 820-834) - Dimension effects
+   - Current: Generic HIGH/LOW thresholds for all dimensions
+   - Target: Only include guidance for dimensions that are extreme (>15 or <-10)
+
+**🔧 Recommended Implementation Approach:**
+
+```typescript
+// Step 1: Create tier-specific prompt builder
+function getTierBehaviorPrompt(tier: RelationshipTier): string {
+  const tierRules: Record<RelationshipTier, string> = {
+    'adversarial': `[Your Tier: ADVERSARIAL]
+    - Be dry, short, guarded
+    - Light sarcasm is okay but still caring underneath
+    - Don't be cruel, just distant`,
+    
+    'acquaintance': `[Your Tier: ACQUAINTANCE]
+    - Friendly but calibrated - you don't know them well
+    - Be curious but not invasive
+    - No flirting, no deep sharing`,
+    
+    'friend': `[Your Tier: FRIEND]
+    - Warm, playful, encouraging
+    - Can be more personal and share more
+    - Comfortable teasing is fine`,
+    
+    // ... etc
+  };
+  
+  return tierRules[tier] || tierRules['acquaintance'];
+}
+
+// Step 2: Create conditional section includer
+function shouldIncludeSelfieRules(relationship: RelationshipMetrics | null): boolean {
+  if (!relationship) return false;
+  const tier = relationship.relationshipTier;
+  return ['friend', 'close_friend', 'deeply_loving'].includes(tier);
+}
+
+// Step 3: Update buildSystemPrompt to use these
+if (shouldIncludeSelfieRules(relationship)) {
+  prompt += buildSelfieRulesSection();
+}
+```
+
+**📊 Expected Token Savings:**
+
+| Section | Current | Phase 3 Target | Savings |
+|---------|---------|----------------|---------|
+| Tier behaviors | 60 lines (all 6 tiers) | ~15 lines (1-2 tiers) | ~75% |
+| Selfie rules | 100 lines always | 0 lines for strangers | 100% for strangers |
+| Dimension effects | 24 lines always | ~8 lines (only extremes) | ~67% |
+| **Total for acquaintance** | - | - | **~200-300 additional tokens** |
+
+**⚠️ Risks and Mitigations:**
+
+1. **Risk: Tier boundary confusion**
+   - If user rapidly changes tier (rare), prompt might be stale
+   - Mitigation: Include adjacent tier hints (e.g., "approaching friend")
+   
+2. **Risk: Missing context for edge cases**
+   - Some behaviors span tiers (e.g., boundaries apply to all)
+   - Mitigation: Keep a "universal rules" section that's always included
+
+3. **Risk: Over-optimization breaks behavior**
+   - Removing too much context can confuse the LLM
+   - Mitigation: A/B test with a feature flag, compare response quality
+
+**🧪 Testing Strategy:**
+
+```typescript
+// Add these tests to systemPrompt.test.ts
+
+describe('Pre-computed Relationship Rules', () => {
+  it('should include only acquaintance rules for acquaintance tier', () => {
+    const prompt = buildSystemPrompt(mockCharacter, acquaintanceRelationship);
+    
+    expect(prompt).toContain('ACQUAINTANCE');
+    expect(prompt).not.toContain('deeply_loving:');
+  });
+
+  it('should NOT include selfie rules for strangers', () => {
+    const prompt = buildSystemPrompt(mockCharacter, strangerRelationship);
+    
+    expect(prompt).not.toContain('SELFIE');
+  });
+
+  it('should include selfie rules for friends', () => {
+    const prompt = buildSystemPrompt(mockCharacter, friendRelationship);
+    
+    expect(prompt).toContain('SELFIE');
+  });
+});
+```
+
+```
+
+#### � Implementation Notes from Phase 3
+
+**Key Learnings:**
+
+1. **TDD approach continued to work well**
+   - We wrote 17 new tests BEFORE implementing the optimization
+   - Tests validated both the new helper functions AND the integration
+   - Key test: `"should NOT include dimension effects for moderate values"` validates the token-saving behavior
+
+2. **Pre-computation pattern is highly effective**
+   - Instead of listing ALL tier behaviors, we now call `getTierBehaviorPrompt(tier)` which returns ONLY the current tier
+   - Previously: 60+ lines of tier behavior (all 6 tiers) in EVERY prompt
+   - Now: ~5 lines (just the current tier) based on relationship state
+
+3. **Dynamic dimension effects saves tokens for typical relationships**
+   - Most relationships have moderate scores (warmth: 0-10, trust: 0-10)
+   - `buildDynamicDimensionEffects()` returns EMPTY string for moderate values
+   - Only includes guidance for extreme values (>15 or <-10)
+
+**Helper Functions Added:**
+
+```typescript
+// Only includes CURRENT tier, not all 6 tiers
+getTierBehaviorPrompt(tier: string): string
+
+// Returns config for conditional selfie rules
+getSelfieRulesConfig(relationship): { shouldIncludeFull, shouldIncludeDeflection }
+
+// Only includes dimension guidance for extreme values
+buildDynamicDimensionEffects(relationship): string
+
+// Conditional selfie rules - friends get full, strangers get deflection only
+buildSelfieRulesPrompt(relationship): string
+```
+
+**Metrics Improvements:**
+
+| Metric | Before Phase 3 | After Phase 3 | Improvement |
+|--------|----------------|---------------|-------------|
+| Tier behavior section | 60+ lines (all tiers) | ~5 lines (current tier) | -92% |
+| Dimension effects | 6 lines always | 0-4 lines (conditional) | -50% avg |
+| Selfie rules | 86 lines always | 18-25 lines (conditional) | -70% avg |
+| Tests | 515 | 532 | +17 new tests |
+
+**Watch Out For:**
+
+- **Tier changes mid-session**: If relationship tier changes rapidly, the prompt will adapt automatically
+- **Universal rules preserved**: Familiarity behavior and rupture guidance are still always included
+- **Selfie rules are now conditional**: Friends see full instructions, strangers see deflection only
+
 ---
 
-### 🔄 Recommended Phase 2 Task Order
+### 🔄 Recommended Phase 2 Task Order ✅ COMPLETE
 
-Based on Phase 1 implementation, here's the recommended order for Phase 2:
+This order was followed and all tasks completed successfully:
 
-1. **First: Enable minified semantic intent**
-   - Wire `buildMinifiedSemanticIntent()` into `buildSystemPrompt()`
-   - This is low-risk since the function already exists
-   - Measure token savings
+1. ✅ **First: Enable minified semantic intent**
+   - Wired `buildMinifiedSemanticIntent()` into `buildSystemPrompt()`
+   - Token savings: ~300-400
 
-2. **Second: Enable compact relationship context**
-   - Wire `buildCompactRelationshipContext()` into the prompt
-   - Replace verbose relationship metrics with semantic buckets
-   - Measure token savings
+2. ✅ **Second: Enable compact relationship context**
+   - Wired `buildCompactRelationshipContext()` into the prompt
+   - Token savings: ~100-150
 
-3. **Third: Reorder sections**
-   - This is the highest-risk change
-   - Create `buildSystemPromptV2()` with new ordering
-   - Add feature flag
-   - Test extensively with manual QA
+3. ✅ **Third: Reorder sections**
+   - Used TDD approach - wrote tests first
+   - Split `ACTIONS & JSON FORMAT` → `TOOL USAGE` (early) + `OUTPUT FORMAT` (end)
+   - No feature flag needed - tests validated changes
 
-4. **Fourth: Remove redundant identity sections**
-   - Search for duplicate identity instructions
-   - Consolidate to single source of truth
-   - Verify character still behaves correctly
+4. ✅ **Fourth: Remove redundant identity sections**
+   - Consolidated 3 identity sections into `IDENTITY ANCHOR`
+   - Token savings: ~200-250
+
+---
+
+### 🔄 Recommended Phase 3 Task Order
+
+Based on Phase 1 & 2 implementation, here's the recommended order for Phase 3:
+
+1. **First: Tier-specific behavior rules** (LOWEST RISK)
+   - Currently includes all 6 tiers in every prompt
+   - Create `getTierBehaviorPrompt(tier)` function
+   - Only include current tier + 1 adjacent tier
+   - Expected savings: ~40 lines / ~100 tokens
+
+2. **Second: Conditional selfie rules** (MEDIUM RISK)
+   - Selfie section is ~100 lines
+   - Only include for `friend` tier and above
+   - Create `shouldIncludeSelfieRules(relationship)` helper
+   - Expected savings for strangers: ~100 lines / ~200 tokens
+
+3. **Third: Dynamic dimension effects** (MEDIUM RISK)
+   - Currently shows all 4 dimensions with generic guidance
+   - Only include guidance for dimensions with extreme values (>15 or <-10)
+   - Expected savings: ~16 lines / ~40 tokens
+
+4. **Fourth: Conditional calendar/task sections** (HIGHER RISK)
+   - Consider only including if user has calendar/tasks
+   - Needs careful testing - users expect these features
+   - Only do this if the above saves aren't enough
 
 
 ---
