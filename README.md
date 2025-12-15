@@ -73,6 +73,25 @@ See [docs/GOOGLE_OAUTH_SETUP.md](docs/GOOGLE_OAUTH_SETUP.md) for detailed setup 
 └─ vite.config.ts         # Vite config with @ alias pointing to src/
 ```
 
+## Documentation
+
+Key developer documentation in the `docs/` folder:
+
+| Document | Purpose |
+|----------|---------|
+| **[System Prompt Guidelines](docs/System_Prompt_Guidelines.md)** | ⭐ **Required reading** before modifying the AI's system prompt. Covers token efficiency, conditional inclusion patterns, and testing requirements. |
+| [Semantic Intent Detection](docs/Semantic_Intent_Detection.md) | LLM-based intent detection system. How messages are analyzed for mood, tone, topics, and relationship signals. |
+| [System Prompt Plan](docs/System_Prompt_Plan.md) | Original optimization plan with implementation details and lessons learned. |
+| [Google OAuth Setup](docs/GOOGLE_OAUTH_SETUP.md) | Step-by-step guide for configuring Google authentication. |
+
+### Developer Workflow
+
+When working on AI behavior:
+
+1. **Modifying the system prompt?** → Read [System Prompt Guidelines](docs/System_Prompt_Guidelines.md) first
+2. **Adding intent detection?** → See [Semantic Intent Detection](docs/Semantic_Intent_Detection.md)
+3. **Running tests:** `npm test -- --run` (554+ tests should pass)
+
 ## Supabase Schema Setup
 
 1. Create three storage buckets:
