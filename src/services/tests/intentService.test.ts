@@ -93,7 +93,7 @@ describe("Phase 1: Intent Service - LLM Genuine Moment Detection", () => {
         expect(result.isGenuine).toBe(true);
         expect(result.category).toBe("depth");
         expect(result.confidence).toBeGreaterThan(0.9);
-        expect(result.explanation).toContain("intelligence");
+        
       });
 
       it("should detect belonging/impostor syndrome affirmations", async () => {
@@ -229,7 +229,7 @@ describe("Phase 1: Intent Service - LLM Genuine Moment Detection", () => {
         const result = await detectGenuineMomentLLM("");
         
         expect(result.isGenuine).toBe(false);
-        expect(result.explanation).toContain("too short");
+        
         expect(mockGenerateContent).not.toHaveBeenCalled();
       });
 
@@ -522,7 +522,7 @@ describe("Phase 1: Intent Service - LLM Genuine Moment Detection", () => {
       // Should NOT be detected as genuine (it's banter, not affirmation)
       // The key is that with context, the LLM understands the tone
       expect(result.isGenuine).toBe(false);
-      expect(result.explanation.toLowerCase()).toContain("playful");
+      // Note: explanation field removed for optimization - we just verify the detection result
     });
 
     it("should correctly identify genuine moment even with prior messages", async () => {
@@ -1177,7 +1177,7 @@ describe("Phase 2: Integration with messageAnalyzer", () => {
     
     // Should have fallen back to keyword detection
     expect(result).toBeDefined();
-    expect(result.explanation).toContain("Fallback");
+    
     expect(result.sentiment).toBeGreaterThan(0); // Should detect positive
   });
 
@@ -1374,8 +1374,7 @@ describe("Phase 3: Mood Detection via ToneIntent", () => {
           sentiment: 0.8,
           primaryEmotion: 'excited' as const,
           intensity: 0.95,  // Very high intensity
-          isSarcastic: false,
-          explanation: 'High intensity positive'
+          isSarcastic: false
         }, "Feeling amazing!");
       }
       
@@ -1391,8 +1390,7 @@ describe("Phase 3: Mood Detection via ToneIntent", () => {
           sentiment: 0.8,
           primaryEmotion: 'happy' as const,
           intensity: 0.2,  // Low intensity
-          isSarcastic: false,
-          explanation: 'Low intensity positive'
+          isSarcastic: false
         }, "Feeling okay");
       }
       
@@ -1413,8 +1411,7 @@ describe("Phase 3: Mood Detection via ToneIntent", () => {
         sentiment: -0.7,
         primaryEmotion: 'angry' as const,
         intensity: 0.9,  // High intensity
-        isSarcastic: false,
-        explanation: 'Intense anger'
+        isSarcastic: false
       }, "So frustrated!");
       
       const highIntensityMomentum = getEmotionalMomentum();
@@ -1427,8 +1424,7 @@ describe("Phase 3: Mood Detection via ToneIntent", () => {
         sentiment: -0.7,
         primaryEmotion: 'sad' as const,
         intensity: 0.2,  // Low intensity
-        isSarcastic: false,
-        explanation: 'Mild sadness'
+        isSarcastic: false
       }, "A bit sad");
       
       const lowIntensityMomentum = getEmotionalMomentum();
@@ -1684,7 +1680,7 @@ describe("Phase 4: Intent Service - LLM Topic Detection", () => {
         const result = await detectTopicsLLM("");
         
         expect(result.topics).toHaveLength(0);
-        expect(result.explanation).toContain("too short");
+        
         expect(mockGenerateContent).not.toHaveBeenCalled();
       });
 
@@ -1877,7 +1873,7 @@ describe("Phase 4: Integration with messageAnalyzer", () => {
     
     // Should have fallen back to keyword detection
     expect(result).toBeDefined();
-    expect(result.explanation).toContain("Fallback");
+    
     expect(result.topics).toContain("work"); // Should detect via keywords
   });
 
@@ -2263,7 +2259,7 @@ describe("Phase 5: Intent Service - LLM Open Loop Detection", () => {
       const result = await detectOpenLoopsLLM("hi");
       
       expect(result.hasFollowUp).toBe(false);
-      expect(result.explanation).toContain("too short");
+      
       expect(mockGenerateContent).not.toHaveBeenCalled();
     });
   });

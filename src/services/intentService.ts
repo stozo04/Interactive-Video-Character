@@ -13,7 +13,8 @@ import { GoogleGenAI } from "@google/genai";
 
 const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
 // Use flash model for intent detection - fast and cheap
-const INTENT_MODEL = 'gemini-2.5-flash';
+// Switched from gemini-2.5-flash to gemini-2.0-flash-exp for lower latency
+const INTENT_MODEL = 'gemini-2.0-flash-exp';
 
 // ============================================
 // Types
@@ -43,8 +44,7 @@ export interface RelationshipSignalIntent {
   // Inappropriate/Boundary-crossing detection (especially from strangers)
   isInappropriate: boolean;
   inappropriatenessReason: string | null;
-  
-  explanation: string;
+  // REMOVED: explanation field - not needed, reduces token usage
 }
 
 /**
@@ -61,7 +61,7 @@ export interface GenuineMomentIntent {
   isGenuine: boolean;
   category: GenuineMomentCategory | null;
   confidence: number;  // 0-1
-  explanation: string; // Why this was detected (for debugging)
+  // REMOVED: explanation field - not needed, reduces token usage
 }
 
 // ============================================
@@ -99,8 +99,7 @@ export interface ToneIntent {
   isSarcastic: boolean;
   /** Optional secondary emotion if mixed feelings detected */
   secondaryEmotion?: PrimaryEmotion;
-  /** Brief explanation for debugging */
-  explanation: string;
+  // REMOVED: explanation field - not needed, reduces token usage
 }
 
 // ============================================
@@ -210,8 +209,7 @@ export async function detectGenuineMomentLLM(
     return {
       isGenuine: false,
       category: null,
-      confidence: 1.0,
-      explanation: 'Message too short for genuine moment'
+      confidence: 1.0
     };
   }
 
@@ -276,8 +274,7 @@ ${formattedContext}`;
       return {
         isGenuine: false,
         category: null,
-        confidence: 0.5,
-        explanation: 'Empty LLM response'
+        confidence: 0.5
       };
     }
     
@@ -289,16 +286,14 @@ ${formattedContext}`;
     const intent: GenuineMomentIntent = {
       isGenuine: Boolean(parsed.isGenuine),
       category: validateCategory(parsed.category),
-      confidence: normalizeConfidence(parsed.confidence),
-      explanation: String(parsed.explanation || 'No explanation provided')
+      confidence: normalizeConfidence(parsed.confidence)
     };
     
     // Log for debugging (can be removed in production)
     if (intent.isGenuine) {
       console.log(`🌟 [IntentService] Genuine moment detected via LLM:`, {
         category: intent.category,
-        confidence: intent.confidence,
-        explanation: intent.explanation
+        confidence: intent.confidence
       });
     }
     
@@ -584,8 +579,7 @@ export async function detectToneLLM(
       sentiment: 0,
       primaryEmotion: 'neutral',
       intensity: 0,
-      isSarcastic: false,
-      explanation: 'Empty or trivial message'
+      isSarcastic: false
     };
   }
 
@@ -647,8 +641,7 @@ ${formattedContext}`;
         sentiment: 0,
         primaryEmotion: 'neutral',
         intensity: 0.5,
-        isSarcastic: false,
-        explanation: 'Empty LLM response'
+        isSarcastic: false
       };
     }
     
@@ -662,8 +655,7 @@ ${formattedContext}`;
       primaryEmotion: validateEmotion(parsed.primaryEmotion),
       intensity: normalizeIntensity(parsed.intensity),
       isSarcastic: Boolean(parsed.isSarcastic),
-      secondaryEmotion: parsed.secondaryEmotion ? validateEmotion(parsed.secondaryEmotion) : undefined,
-      explanation: String(parsed.explanation || 'No explanation provided')
+      secondaryEmotion: parsed.secondaryEmotion ? validateEmotion(parsed.secondaryEmotion) : undefined
     };
     
     // Log for debugging
@@ -790,8 +782,7 @@ export interface TopicIntent {
   emotionalContext: Record<string, string>;
   /** Specific entities mentioned (e.g., 'boss', 'deadline') */
   entities: string[];
-  /** Brief explanation for debugging */
-  explanation: string;
+  // REMOVED: explanation field - not needed, reduces token usage
 }
 
 // ============================================
@@ -879,8 +870,7 @@ export async function detectTopicsLLM(
       topics: [],
       primaryTopic: null,
       emotionalContext: {},
-      entities: [],
-      explanation: 'Message too short for topic detection'
+      entities: []
     };
   }
 
@@ -942,8 +932,7 @@ ${formattedContext}`;
         topics: [],
         primaryTopic: null,
         emotionalContext: {},
-        entities: [],
-        explanation: 'Empty LLM response'
+        entities: []
       };
     }
     
@@ -989,8 +978,7 @@ ${formattedContext}`;
       topics: validatedTopics,
       primaryTopic: validatedPrimaryTopic || (validatedTopics.length > 0 ? validatedTopics[0] : null),
       emotionalContext: validatedEmotionalContext,
-      entities: validatedEntities,
-      explanation: String(parsed.explanation || 'No explanation provided')
+      entities: validatedEntities
     };
     
     // Log for debugging
@@ -1127,8 +1115,7 @@ export interface OpenLoopIntent {
   timeframe: FollowUpTimeframe | null;
   /** How personal/important this is (0-1) */
   salience: number;
-  /** Brief explanation for debugging */
-  explanation: string;
+  // REMOVED: explanation field - not needed, reduces token usage
 }
 
 // ============================================
@@ -1260,8 +1247,7 @@ export async function detectOpenLoopsLLM(
       topic: null,
       suggestedFollowUp: null,
       timeframe: null,
-      salience: 0,
-      explanation: 'Message too short for open loop detection'
+      salience: 0
     };
   }
 
@@ -1325,8 +1311,7 @@ ${formattedContext}`;
         topic: null,
         suggestedFollowUp: null,
         timeframe: null,
-        salience: 0,
-        explanation: 'Empty LLM response'
+        salience: 0
       };
     }
     
@@ -1342,8 +1327,7 @@ ${formattedContext}`;
       suggestedFollowUp: parsed.suggestedFollowUp && typeof parsed.suggestedFollowUp === 'string' 
         ? parsed.suggestedFollowUp : null,
       timeframe: validateTimeframe(parsed.timeframe),
-      salience: normalizeSalience(parsed.salience),
-      explanation: String(parsed.explanation || 'No explanation provided')
+      salience: normalizeSalience(parsed.salience)
     };
     
     // Log for debugging
@@ -1539,8 +1523,7 @@ export async function detectRelationshipSignalsLLM(
       isHostile: false,
       hostilityReason: null,
       isInappropriate: false,
-      inappropriatenessReason: null,
-      explanation: 'Message too short'
+      inappropriatenessReason: null
     };
   }
 
@@ -1600,8 +1583,7 @@ ${formattedContext}`;
         isHostile: false,
         hostilityReason: null,
         isInappropriate: false,
-        inappropriatenessReason: null,
-        explanation: 'Failed to parse LLM response'
+        inappropriatenessReason: null
       };
     }
 
@@ -1633,8 +1615,7 @@ ${formattedContext}`;
       isHostile: Boolean(parsed.isHostile),
       hostilityReason: parsed.hostilityReason || null,
       isInappropriate: Boolean(parsed.isInappropriate),
-      inappropriatenessReason: parsed.inappropriatenessReason || null,
-      explanation: parsed.explanation || 'No explanation provided'
+      inappropriatenessReason: parsed.inappropriatenessReason || null
     };
 
   } catch (error) {
@@ -1700,8 +1681,7 @@ function validateFullIntent(parsed: any): FullMessageIntent {
   const genuineMoment: GenuineMomentIntent = {
     isGenuine: Boolean(parsed.genuineMoment?.isGenuine),
     category: validateCategory(parsed.genuineMoment?.category),
-    confidence: normalizeConfidence(parsed.genuineMoment?.confidence),
-    explanation: String(parsed.genuineMoment?.explanation || 'No explanation')
+    confidence: normalizeConfidence(parsed.genuineMoment?.confidence)
   };
 
   // Validate Tone
@@ -1710,8 +1690,7 @@ function validateFullIntent(parsed: any): FullMessageIntent {
     primaryEmotion: validateEmotion(parsed.tone?.primaryEmotion),
     intensity: normalizeIntensity(parsed.tone?.intensity),
     isSarcastic: Boolean(parsed.tone?.isSarcastic),
-    secondaryEmotion: parsed.tone?.secondaryEmotion ? validateEmotion(parsed.tone?.secondaryEmotion) : undefined,
-    explanation: String(parsed.tone?.explanation || 'No explanation')
+    secondaryEmotion: parsed.tone?.secondaryEmotion ? validateEmotion(parsed.tone?.secondaryEmotion) : undefined
   };
 
   // Validate Topics
@@ -1720,8 +1699,7 @@ function validateFullIntent(parsed: any): FullMessageIntent {
     topics: topicList.map((t: unknown) => validateTopic(t)).filter((t: TopicCategory | null): t is TopicCategory => t !== null),
     primaryTopic: validateTopic(parsed.topics?.primaryTopic),
     emotionalContext: parsed.topics?.emotionalContext || {},
-    entities: Array.isArray(parsed.topics?.entities) ? parsed.topics.entities.map(String) : [],
-    explanation: String(parsed.topics?.explanation || 'No explanation')
+    entities: Array.isArray(parsed.topics?.entities) ? parsed.topics.entities.map(String) : []
   };
 
   // Validate Open Loops
@@ -1731,8 +1709,7 @@ function validateFullIntent(parsed: any): FullMessageIntent {
     topic: parsed.openLoops?.topic ? String(parsed.openLoops.topic) : null,
     suggestedFollowUp: parsed.openLoops?.suggestedFollowUp ? String(parsed.openLoops.suggestedFollowUp) : null,
     timeframe: validateTimeframe(parsed.openLoops?.timeframe),
-    salience: normalizeSalience(parsed.openLoops?.salience),
-    explanation: String(parsed.openLoops?.explanation || 'No explanation')
+    salience: normalizeSalience(parsed.openLoops?.salience)
   };
 
   // Validate Relationship Signals
@@ -1751,8 +1728,7 @@ function validateFullIntent(parsed: any): FullMessageIntent {
     isHostile: Boolean(parsed.relationshipSignals?.isHostile),
     hostilityReason: parsed.relationshipSignals?.hostilityReason || null,
     isInappropriate: Boolean(parsed.relationshipSignals?.isInappropriate),
-    inappropriatenessReason: parsed.relationshipSignals?.inappropriatenessReason || null,
-    explanation: String(parsed.relationshipSignals?.explanation || 'No explanation')
+    inappropriatenessReason: parsed.relationshipSignals?.inappropriatenessReason || null
   };
 
   // Inference Logic: If isDeepTalk is detected with high confidence but milestone missed, infer it
@@ -1813,13 +1789,13 @@ SECTION 5: RELATIONSHIP SIGNALS
 
 Target Message: "{message}"
 
-Respond with this EXACT JSON structure:
+Respond with this EXACT JSON structure (do NOT include explanation fields):
 {
-  "genuineMoment": { "isGenuine": bool, "category": "string|null", "confidence": 0-1, "explanation": "string" },
-  "tone": { "sentiment": -1to1, "primaryEmotion": "string", "intensity": 0-1, "isSarcastic": bool, "secondaryEmotion": "string|null", "explanation": "string" },
-  "topics": { "topics": ["string"], "primaryTopic": "string|null", "emotionalContext": { "topic": "emotion" }, "entities": ["string"], "explanation": "string" },
-  "openLoops": { "hasFollowUp": bool, "loopType": "string|null", "topic": "string|null", "suggestedFollowUp": "string|null", "timeframe": "string|null", "salience": 0-1, "explanation": "string" },
-  "relationshipSignals": { "milestone": "string|null", "milestoneConfidence": 0-1, "isHostile": bool, "hostilityReason": "string|null", "isInappropriate": bool, "inappropriatenessReason": "string|null", "explanation": "string" }
+  "genuineMoment": { "isGenuine": bool, "category": "string|null", "confidence": 0-1 },
+  "tone": { "sentiment": -1to1, "primaryEmotion": "string", "intensity": 0-1, "isSarcastic": bool, "secondaryEmotion": "string|null" },
+  "topics": { "topics": ["string"], "primaryTopic": "string|null", "emotionalContext": { "topic": "emotion" }, "entities": ["string"] },
+  "openLoops": { "hasFollowUp": bool, "loopType": "string|null", "topic": "string|null", "suggestedFollowUp": "string|null", "timeframe": "string|null", "salience": 0-1 },
+  "relationshipSignals": { "milestone": "string|null", "milestoneConfidence": 0-1, "isHostile": bool, "hostilityReason": "string|null", "isInappropriate": bool, "inappropriatenessReason": "string|null" }
 }`;
 
 

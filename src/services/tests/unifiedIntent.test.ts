@@ -44,11 +44,11 @@ describe("Phase 7: Unified Intent Detection", () => {
   // Helper to create a standard full response
   const createMockResponse = (overrides: Partial<FullMessageIntent> = {}) => {
     const base: FullMessageIntent = {
-      genuineMoment: { isGenuine: false, category: null, confidence: 0, explanation: "None" },
-      tone: { sentiment: 0, primaryEmotion: "neutral", intensity: 0, isSarcastic: false, explanation: "Neutral" },
-      topics: { topics: [], primaryTopic: null, emotionalContext: {}, entities: [], explanation: "None" },
-      openLoops: { hasFollowUp: false, loopType: null, topic: null, suggestedFollowUp: null, timeframe: null, salience: 0, explanation: "None" },
-      relationshipSignals: { isVulnerable: false, isSeekingSupport: false, isAcknowledgingSupport: false, isJoking: false, isDeepTalk: false, milestone: null, milestoneConfidence: 0, isHostile: false, hostilityReason: null, explanation: "None" }
+      genuineMoment: { isGenuine: false, category: null, confidence: 0 },
+      tone: { sentiment: 0, primaryEmotion: "neutral", intensity: 0, isSarcastic: false },
+      topics: { topics: [], primaryTopic: null, emotionalContext: {}, entities: [] },
+      openLoops: { hasFollowUp: false, loopType: null, topic: null, suggestedFollowUp: null, timeframe: null, salience: 0 },
+      relationshipSignals: { isVulnerable: false, isSeekingSupport: false, isAcknowledgingSupport: false, isJoking: false, isDeepTalk: false, milestone: null, milestoneConfidence: 0, isHostile: false, hostilityReason: null, isInappropriate: false, inappropriatenessReason: null }
     };
     
     // deeply merge would be better but simple spread works for top level
@@ -64,11 +64,11 @@ describe("Phase 7: Unified Intent Detection", () => {
   it("should parse a complete unified response correctly", async () => {
     mockGenerateContent.mockResolvedValueOnce({
       text: JSON.stringify({
-        genuineMoment: { isGenuine: true, category: "depth", confidence: 0.9, explanation: "Saw deep" },
-        tone: { sentiment: 0.8, primaryEmotion: "happy", intensity: 0.7, isSarcastic: false, explanation: "Happy" },
-        topics: { topics: ["work"], primaryTopic: "work", emotionalContext: { work: "happy" }, entities: [], explanation: "Work stuff" },
-        openLoops: { hasFollowUp: true, loopType: "pending_event", topic: "interview", suggestedFollowUp: "How did it go?", timeframe: "today", salience: 0.8, explanation: "Interview" },
-        relationshipSignals: { milestone: "first_vulnerability", milestoneConfidence: 0.85, isHostile: false, hostilityReason: null, explanation: "Opened up" }
+        genuineMoment: { isGenuine: true, category: "depth", confidence: 0.9 },
+        tone: { sentiment: 0.8, primaryEmotion: "happy", intensity: 0.7, isSarcastic: false },
+        topics: { topics: ["work"], primaryTopic: "work", emotionalContext: { work: "happy" }, entities: [] },
+        openLoops: { hasFollowUp: true, loopType: "pending_event", topic: "interview", suggestedFollowUp: "How did it go?", timeframe: "today", salience: 0.8 },
+        relationshipSignals: { milestone: "first_vulnerability", milestoneConfidence: 0.85, isHostile: false, hostilityReason: null, isInappropriate: false, inappropriatenessReason: null }
       })
     });
 
@@ -161,8 +161,7 @@ describe("Phase 7: Unified Intent Detection", () => {
           isDeepTalk: true, // Signal detected
           milestone: null, // Model missed the milestone label
           milestoneConfidence: 0.8, // High confidence
-          isHostile: false,
-          explanation: "Conversation turned philosophical"
+          isHostile: false
         }
       })
     });
