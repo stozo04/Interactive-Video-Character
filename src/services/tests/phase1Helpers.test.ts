@@ -182,7 +182,6 @@ describe("Phase 1 Helper Functions - Minified Intent", () => {
       sentiment: 0.7,
       intensity: 0.8,
       isSarcastic: false,
-      explanation: "User seems happy",
     };
 
     // mockMoodKnobs is not currently used directly in tests, 

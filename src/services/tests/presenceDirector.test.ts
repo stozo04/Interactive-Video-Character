@@ -123,8 +123,7 @@ vi.mock("../intentService", () => ({
     topic: null,
     suggestedFollowUp: null,
     timeframe: null,
-    salience: 0,
-    explanation: "Mocked - no follow-up"
+    salience: 0
   })
 }));
 
