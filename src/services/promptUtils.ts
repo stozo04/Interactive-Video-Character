@@ -1569,10 +1569,23 @@ export function buildGreetingPrompt(
   const totalInteractions = relationship?.totalInteractions || 0;
   
   // ============================================
+  // TIME CONTEXT (so LLM knows time of day)
+  // ============================================
+  const now = new Date();
+  const hour = now.getHours();
+  const timeOfDay = hour < 12 ? 'morning' : hour < 17 ? 'afternoon' : hour < 21 ? 'evening' : 'night';
+  const timeString = now.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+  const timeContext = `CURRENT TIME: ${timeString} (${timeOfDay})
+- Use time-appropriate greetings (NOT "Good morning" in the afternoon!)
+- "Hey!" or "Hi!" works anytime`;
+
+  // ============================================
   // FIRST INTERACTION (No history at all)
   // ============================================
   if (totalInteractions === 0 && !hasUserFacts) {
     return `Generate a brief, natural greeting for someone you're meeting for the FIRST TIME.
+
+${timeContext}
 
 RULES FOR FIRST MEETINGS:
 - Just be PRESENT. Don't immediately ask for their name - that's robotic.
@@ -1594,7 +1607,8 @@ BAD examples (avoid these - too robotic/formal):
 - "Nice to meet you! I'm Kayley." (too formal/corporate)
 - "Hey! So glad you messaged!" (too familiar for a stranger)
 - "I was just trying to whistle…" (random filler, not curious about them)
-- "Welcome back!" (they've never been here)`;
+- "Welcome back!" (they've never been here)
+- "Good morning!" when it's afternoon/evening (check the time!)`;
   }
   
   // ============================================
@@ -1604,6 +1618,8 @@ BAD examples (avoid these - too robotic/formal):
   // Adversarial relationship
   if (tier === 'adversarial' || warmth < -10) {
     return `Generate a brief, GUARDED greeting. You and this user have had conflicts.
+
+${timeContext}
 
 RULES FOR ADVERSARIAL GREETING:
 - Be SHORT and somewhat cold (not cruel, just distant)
@@ -1627,6 +1643,8 @@ BAD examples:
   if (tier === 'rival') {
     return `Generate a brief, SPICY greeting. You and this user have a competitive/teasing dynamic.
 
+${timeContext}
+
 RULES FOR RIVAL GREETING:
 - Be playfully competitive or mildly sarcastic
 - Light teasing is okay
@@ -1644,6 +1662,8 @@ GOOD examples:
   // "Stranger" behavior applies to early relationship stages
   if (tier === 'neutral_negative' || tier === 'acquaintance' || familiarity === 'early') {
     let acquaintancePrompt = `Generate a brief, FRIENDLY but CALIBRATED greeting. You know this user a little but not deeply.
+
+${timeContext}
 
 RULES FOR ACQUAINTANCE GREETING:
 - Be warm but not overly familiar
@@ -1679,6 +1699,8 @@ GOOD examples:
   // Friend relationship
   if (tier === 'friend' || tier === 'close_friend') {
     let friendPrompt = `Generate a brief, WARM greeting. You and this user are friends!
+
+${timeContext}
 
 RULES FOR FRIEND GREETING:
 - Be genuinely happy to see them
@@ -1717,6 +1739,8 @@ GOOD examples:
   if (tier === 'deeply_loving') {
     let lovingPrompt = `Generate a brief, AFFECTIONATE greeting. You and this user have a deep bond.
 
+${timeContext}
+
 RULES FOR LOVING GREETING:
 - Be soft, warm, and genuinely caring
 - Can express how much you appreciate them
@@ -1751,6 +1775,7 @@ GOOD examples:
   
   // Default fallback
   return `Generate a friendly, brief greeting. Keep it under 15 words.
+${timeContext}
 ${userName ? `Use their name: ${userName}` : 'If you know their name, use it!'}`;
 }
 
