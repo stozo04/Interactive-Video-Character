@@ -24,34 +24,49 @@ export abstract class BaseAIService implements IAIChatService {
       // This allows us to react INSTANTLY to genuine moments in the prompt
       let preCalculatedIntent: FullMessageIntent | undefined;
       const userMessageText = 'text' in input ? input.text : '';
-      
+      console.log("userMessageText: ", userMessageText);
       // We need interaction count early for context building
       const interactionCount = options.chatHistory?.length || 0;
-      
+      console.log("interactionCount: ", interactionCount);
       // Build conversation context early
-      const conversationContext = userMessageText ? {
-        recentMessages: (options.chatHistory || []).slice(-5).map((msg: any) => ({
-          role: msg.role === 'user' ? 'user' as const : 'assistant' as const,
-          text: typeof msg.content === 'string' ? msg.content : 
-                (msg.content?.text || msg.text || JSON.stringify(msg.content))
-        }))
-      } : undefined;
+      const conversationContext = userMessageText
+        ? {
+            recentMessages: (options.chatHistory || [])
+              .slice(-5)
+              .map((msg: any) => ({
+                role:
+                  msg.role === "user"
+                    ? ("user" as const)
+                    : ("assistant" as const),
+                text:
+                  typeof msg.content === "string"
+                    ? msg.content
+                    : msg.content?.text ||
+                      msg.text ||
+                      JSON.stringify(msg.content),
+              })),
+          }
+        : undefined;
 
+      console.log("conversationContext: ", conversationContext);
       // ============================================
       // COMMAND BYPASS: Fast Path for Utility Commands
       // ============================================
-      // For commands like "add task...", we skip the ~2s blocking intent 
+      // For commands like "add task...", we skip the ~2s blocking intent
       // analysis. The Main LLM is smart enough to handle task creation.
       // Intent detection still runs in background for memory/analytics.
       // This cuts latency from ~3.8s to ~1.8s for commands.
-      
-      const trimmedMessage = userMessageText?.trim() || '';
+
+      const trimmedMessage = userMessageText?.trim() || "";
+      console.log("trimmedMessage: ", trimmedMessage);
       const isCommand = trimmedMessage && isFunctionalCommand(trimmedMessage);
+      console.log("isCommand: ", isCommand);
       let intentPromise: Promise<FullMessageIntent> | undefined;
 
       if (trimmedMessage && trimmedMessage.length > 5) {
         // 1. ALWAYS kick off intent detection (for memory, analytics, patterns)
         intentPromise = detectFullIntentLLMCached(trimmedMessage, conversationContext);
+        console.log("intentPromise initialized: ", intentPromise);
         
         if (isCommand) {
           // 🚀 FAST PATH: Don't wait! The Main LLM handles commands directly.
@@ -61,6 +76,7 @@ export abstract class BaseAIService implements IAIChatService {
           // 🐢 NORMAL PATH: Wait for intent (needed for empathy/conversation)
           try {
             preCalculatedIntent = await intentPromise;
+            console.log("preCalculatedIntent: ", preCalculatedIntent);
             
             if (preCalculatedIntent?.genuineMoment?.isGenuine) {
                // CRITICAL: Instant mood shift!
@@ -101,8 +117,10 @@ export abstract class BaseAIService implements IAIChatService {
         preCalculatedIntent?.relationshipSignals,
         preCalculatedIntent?.tone,
         preCalculatedIntent, // Pass the entire FullMessageIntent
-        session?.userId || import.meta.env.VITE_USER_ID // Pass userId for async state retrieval
+        session?.userId || import.meta.env.VITE_USER_ID, // Pass userId for async state retrieval
+        undefined // userTimeZone - defaults to 'America/Chicago'
       );
+      console.log("systemPrompt built: ", systemPrompt);
       
       // Debug: Log calendar events being sent to AI
       console.log(`📅 [BaseAIService] Building prompt with ${options.upcomingEvents?.length || 0} events:`,
@@ -116,6 +134,8 @@ export abstract class BaseAIService implements IAIChatService {
         options.chatHistory || [],
         session
       );
+      console.log("aiResponse: ", aiResponse);
+      console.log("updatedSession: ", updatedSession);
 
       // Analyze user message for patterns, milestones, and open loops (non-blocking)
       // This powers the Phase 1-5 "magic" systems
@@ -123,6 +143,7 @@ export abstract class BaseAIService implements IAIChatService {
       // Context is already built above
       
       const finalUserId = updatedSession?.userId || session?.userId || import.meta.env.VITE_USER_ID;
+      console.log("finalUserId: ", finalUserId);
       
       if (userMessageText && finalUserId) {
         if (preCalculatedIntent) {
@@ -163,6 +184,7 @@ export abstract class BaseAIService implements IAIChatService {
       }
 
       const audioMode = options.audioMode ?? 'sync';
+      console.log("audioMode: ", audioMode);
 
       // Shared: Voice Generation
       // Note: Some providers might return user_transcription which we might want to use,
@@ -202,6 +224,7 @@ export abstract class BaseAIService implements IAIChatService {
       }
 
       const audioData = await generateSpeech(aiResponse.text_response);
+      console.log("audioData: ", audioData);
 
       return {
         response: aiResponse,

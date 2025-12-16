@@ -113,12 +113,17 @@ export const chatGPTService: IAIChatService = {
         }
 
         // Build system prompt with memory tool instructions
-        const systemPrompt = buildSystemPrompt(
+        const systemPrompt = await buildSystemPrompt(
           options.character,
           options.relationship,
           options.upcomingEvents || [],
           options.characterContext,
-          options.tasks
+          options.tasks,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          undefined
         );
 
         // Initial request
@@ -247,7 +252,7 @@ export const chatGPTService: IAIChatService = {
         console.log('🧠 [ChatGPT] Memory tools enabled for greeting');
       }
 
-      const systemPrompt = buildSystemPrompt(character, relationship, [], characterContext);
+      const systemPrompt = await buildSystemPrompt(character, relationship, [], characterContext, undefined, undefined, undefined, undefined, undefined, undefined);
 
       // First, try to get user's name from stored facts
       let userName: string | null = null;

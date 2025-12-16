@@ -53,13 +53,19 @@ import {
 describe("Phase 2: moodKnobs Supabase Migration", () => {
   const testUserId = "test-user-123";
   
+  // Helper to get today's daily seed (matches getDailySeed() logic)
+  const getTodaySeed = (): number => {
+    const today = new Date();
+    return today.getFullYear() * 10000 + (today.getMonth() + 1) * 100 + today.getDate();
+  };
+
   // Default mock data
   const defaultMoodState: MoodState = {
     dailyEnergy: 0.7,
     socialBattery: 1.0,
     internalProcessing: false,
     calculatedAt: Date.now(),
-    dailySeed: 20251215,
+    dailySeed: getTodaySeed(), // Use today's seed to avoid "new day" logic
     lastInteractionAt: Date.now(),
     lastInteractionTone: 0,
   };
