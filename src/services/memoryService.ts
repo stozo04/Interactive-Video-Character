@@ -386,7 +386,15 @@ export const formatFactsForAI = (facts: UserFact[]): string => {
 // Tool Execution Handler
 // ============================================
 
-export type MemoryToolName = 'recall_memory' | 'recall_user_info' | 'store_user_info';
+export type MemoryToolName = 'recall_memory' | 'recall_user_info' | 'store_user_info' | 'task_action' | 'calendar_action';
+
+/**
+ * Optional context passed to tool execution (e.g., access tokens)
+ */
+export interface ToolExecutionContext {
+  googleAccessToken?: string;
+  currentEvents?: Array<{ id: string; summary: string }>;
+}
 
 export interface ToolCallArgs {
   recall_memory: {
@@ -402,6 +410,21 @@ export interface ToolCallArgs {
     key: string;
     value: string;
   };
+  task_action: {
+    action: 'create' | 'complete' | 'delete' | 'list';
+    task_text?: string;
+    priority?: 'low' | 'medium' | 'high';
+  };
+  calendar_action: {
+    action: 'create' | 'delete';
+    summary?: string;
+    start?: string;
+    end?: string;
+    timeZone?: string;
+    event_id?: string;
+    event_ids?: string[];
+    delete_all?: boolean;
+  };
 }
 
 /**
@@ -416,7 +439,8 @@ export interface ToolCallArgs {
 export const executeMemoryTool = async (
   toolName: MemoryToolName,
   args: ToolCallArgs[typeof toolName],
-  userId: string
+  userId: string,
+  context?: ToolExecutionContext
 ): Promise<string> => {
   console.log(`🔧 [Memory Tool] Executing: ${toolName}`, args);
 
@@ -489,6 +513,153 @@ export const executeMemoryTool = async (
         return success 
           ? `✓ Stored: ${key} = "${value}"` 
           : `Failed to store information.`;
+      }
+
+      case 'task_action': {
+        // Import taskService functions dynamically to avoid circular dependency
+        const { fetchTasks, createTask, toggleTask, deleteTask } = await import('./taskService');
+        const { action, task_text, priority } = args as ToolCallArgs['task_action'];
+        
+        switch (action) {
+          case 'create': {
+            if (!task_text) {
+              return 'Error: task_text is required for creating a task.';
+            }
+            await createTask(userId, task_text, priority || 'low');
+            return `✓ Created task: "${task_text}" (priority: ${priority || 'low'})`;
+          }
+          
+          case 'complete': {
+            if (!task_text) {
+              return 'Error: task_text is required for completing a task.';
+            }
+            // Find and complete the task
+            const tasks = await fetchTasks(userId);
+            const matchingTask = tasks.find(t => 
+              t.text.toLowerCase().includes(task_text.toLowerCase())
+            );
+            if (matchingTask) {
+              await toggleTask(matchingTask.id, false); // false = currently not completed, toggle to complete
+              return `✓ Completed task: "${matchingTask.text}"`;
+            }
+            return `Could not find a task matching "${task_text}".`;
+          }
+          
+          case 'delete': {
+            if (!task_text) {
+              return 'Error: task_text is required for deleting a task.';
+            }
+            // Find and delete the task
+            const allTasks = await fetchTasks(userId);
+            const taskToDelete = allTasks.find(t => 
+              t.text.toLowerCase().includes(task_text.toLowerCase())
+            );
+            if (taskToDelete) {
+              await deleteTask(taskToDelete.id);
+              return `✓ Deleted task: "${taskToDelete.text}"`;
+            }
+            return `Could not find a task matching "${task_text}".`;
+          }
+          
+          case 'list': {
+            const taskList = await fetchTasks(userId);
+            if (taskList.length === 0) {
+              return 'No tasks on your checklist.';
+            }
+            const incomplete = taskList.filter(t => !t.completed);
+            const completed = taskList.filter(t => t.completed);
+            
+            let result = `Your checklist (${taskList.length} total):\n`;
+            if (incomplete.length > 0) {
+              result += '\nPending:\n' + incomplete.map(t => 
+                `  [ ] ${t.text}${t.priority !== 'low' ? ` (${t.priority} priority)` : ''}`
+              ).join('\n');
+            }
+            if (completed.length > 0) {
+              result += '\n\nCompleted:\n' + completed.map(t => 
+                `  [✓] ${t.text}`
+              ).join('\n');
+            }
+            return result;
+          }
+          
+          default:
+            return `Unknown task action: ${action}`;
+        }
+      }
+
+      case 'calendar_action': {
+        const { calendarService } = await import('./calendarService');
+        const calendarArgs = args as ToolCallArgs['calendar_action'];
+        const { action, summary, start, end, timeZone, event_id, event_ids, delete_all } = calendarArgs;
+        
+        if (!context?.googleAccessToken) {
+          return 'Error: Not connected to Google Calendar. Please sign in with Google first.';
+        }
+        
+        const accessToken = context.googleAccessToken;
+        
+        switch (action) {
+          case 'create': {
+            if (!summary || !start || !end) {
+              return 'Error: Calendar event requires summary, start, and end time.';
+            }
+            
+            try {
+              const tz = timeZone || 'America/Chicago';
+              const newEvent = await calendarService.createEvent(accessToken, {
+                summary,
+                start: { dateTime: start, timeZone: tz },
+                end: { dateTime: end, timeZone: tz },
+              });
+              
+              console.log('📅 Created calendar event:', newEvent);
+              return `✓ Created calendar event: "${summary}"`;
+            } catch (error) {
+              console.error('Calendar create error:', error);
+              return `Error creating calendar event: ${error instanceof Error ? error.message : 'Unknown error'}`;
+            }
+          }
+          
+          case 'delete': {
+            try {
+              let deletedCount = 0;
+              let eventIdsToDelete: string[] = [];
+              
+              if (delete_all && context.currentEvents) {
+                eventIdsToDelete = context.currentEvents.map(e => e.id);
+                console.log('📅 Deleting ALL events:', eventIdsToDelete.length);
+              } else if (event_ids && event_ids.length > 0) {
+                eventIdsToDelete = event_ids;
+              } else if (event_id) {
+                eventIdsToDelete = [event_id];
+              } else {
+                return 'Error: No event ID provided for deletion.';
+              }
+              
+              for (const id of eventIdsToDelete) {
+                try {
+                  await calendarService.deleteEvent(accessToken, id);
+                  deletedCount++;
+                } catch (err) {
+                  console.error(`Failed to delete event ${id}:`, err);
+                }
+              }
+              
+              if (deletedCount === 0) {
+                return 'Could not find any events to delete.';
+              }
+              
+              return `✓ Deleted ${deletedCount} calendar event(s)`;
+            } catch (error) {
+              console.error('Calendar delete error:', error);
+              return `Error deleting calendar event: ${error instanceof Error ? error.message : 'Unknown error'}`;
+            }
+          }
+          
+          default:
+            return `Unknown calendar action: ${action}`;
+        }
       }
 
       default:

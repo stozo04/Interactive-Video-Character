@@ -17,6 +17,7 @@ export interface AIChatOptions {
   upcomingEvents?: any[];
   characterContext?: string; // What the character is "doing" right now
   tasks?: Task[]; // User's daily checklist tasks
+  googleAccessToken?: string; // Google OAuth access token for calendar operations
   /**
    * Audio generation behavior for this request.
    * - sync (default): wait for TTS before returning

@@ -2,7 +2,7 @@ import { createXai } from '@ai-sdk/xai';
 import { generateObject } from 'ai';
 import { AIActionResponseSchema, AIActionResponse } from './aiSchema';
 import { buildSystemPrompt, buildGreetingPrompt } from './promptUtils';
-import { IAIChatService, AIChatSession, AIMessage, UserContent } from './aiService';
+import { IAIChatService, AIChatSession, AIMessage, UserContent, AIChatOptions } from './aiService';
 import { generateSpeech } from './elevenLabsService';
 import { BaseAIService } from './BaseAIService';
 import { getTopLoopToSurface, markLoopSurfaced } from './presenceDirector';
@@ -40,7 +40,8 @@ export class GrokService extends BaseAIService {
     systemPrompt: string, 
     userMessage: UserContent, 
     history: any[],
-    session?: AIChatSession
+    session?: AIChatSession,
+    options?: AIChatOptions
   ) {
     const userId = session?.userId || USER_ID;
 

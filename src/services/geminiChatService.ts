@@ -1,6 +1,6 @@
 import { GoogleGenAI } from "@google/genai";
 import { ChatMessage, UploadedImage } from '../types';
-import { IAIChatService, AIChatOptions, AIChatSession, UserContent } from './aiService';
+import { AIChatSession, UserContent, AIChatOptions } from './aiService';
 import { buildSystemPrompt, buildGreetingPrompt } from './promptUtils';
 import { AIActionResponse, GeminiMemoryToolDeclarations } from './aiSchema';
 import { generateSpeech } from './elevenLabsService';
@@ -11,18 +11,14 @@ import { resolveActionKey } from '../utils/actionKeyMapper';
 
 // 1. LOAD BOTH MODELS FROM ENV
 const GEMINI_MODEL = import.meta.env.VITE_GEMINI_MODEL; // The Brain (e.g. gemini-2.0-flash-exp)
-
 const USER_ID = import.meta.env.VITE_USER_ID;
 const GEMINI_VIDEO_MODEL = import.meta.env.VITE_GEMINI_VIDEO_MODEL;
 const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
-
 // Feature flag for memory tools (can be disabled if issues arise)
 const ENABLE_MEMORY_TOOLS = true;
-
 // Feature flag for Interactions API (beta) - enables stateful conversations
 // Set VITE_USE_GEMINI_INTERACTIONS_API=true in .env to enable
 const USE_INTERACTIONS_API = import.meta.env.VITE_USE_GEMINI_INTERACTIONS_API === 'true';
-
 // Vite proxy for development (bypasses CORS)
 // Vite's proxy only works in development mode
 const USE_VITE_PROXY = import.meta.env.DEV; // true in development, false in production
@@ -108,7 +104,7 @@ function normalizeAiResponse(rawJson: any, rawText: string): AIActionResponse {
       text_response: rawJson.text_response || rawJson.response || rawText,
       action_id: actionId,
       user_transcription: rawJson.user_transcription || null,
-      task_action: rawJson.task_action || null,
+      // NOTE: task_action is now a function tool, not part of JSON response
       open_app: rawJson.open_app || null,
       calendar_action: rawJson.calendar_action || null,
       news_action: rawJson.news_action || null,
@@ -130,7 +126,8 @@ export class GeminiService extends BaseAIService {
     systemPrompt: string, 
     userMessage: UserContent, 
     history: any[],
-    session?: AIChatSession
+    session?: AIChatSession,
+    options?: AIChatOptions
   ) {
     const userId = session?.userId || USER_ID;
     
@@ -145,12 +142,13 @@ export class GeminiService extends BaseAIService {
         userMessage,
         history,
         session,
-        isCalendarQuery
+        isCalendarQuery,
+        options
       );
     }
     
     // Fallback to old API (existing implementation)
-    return await this.callProviderOld(systemPrompt, userMessage, history, session, isCalendarQuery);
+    return await this.callProviderOld(systemPrompt, userMessage, history, session, isCalendarQuery, options);
   }
 
   /**
@@ -162,7 +160,8 @@ export class GeminiService extends BaseAIService {
     userMessage: UserContent, 
     history: any[],
     session?: AIChatSession,
-    isCalendarQuery: boolean = false
+    isCalendarQuery: boolean = false,
+    options?: AIChatOptions
   ): Promise<{ response: AIActionResponse, session: AIChatSession }> {
     const ai = getAiClient();
     const userId = session?.userId || USER_ID;
@@ -252,7 +251,10 @@ export class GeminiService extends BaseAIService {
           console.log(`🔧 [Gemini] Executing tool: ${toolName}`, toolArgs);
           
           // Execute the memory tool
-          const toolResult = await executeMemoryTool(toolName, toolArgs, userId);
+          const toolResult = await executeMemoryTool(toolName, toolArgs, userId, {
+            googleAccessToken: options?.googleAccessToken,
+            currentEvents: options?.upcomingEvents
+          });
           
           return {
             functionResponse: {
@@ -314,7 +316,8 @@ export class GeminiService extends BaseAIService {
     userMessage: UserContent,
     history: any[],
     session?: AIChatSession,
-    isCalendarQuery: boolean = false
+    isCalendarQuery: boolean = false,
+    options?: AIChatOptions
   ): Promise<{ response: AIActionResponse, session: AIChatSession }> {
     const ai = getAiClient();
     const userId = session?.userId || USER_ID;
@@ -332,23 +335,27 @@ export class GeminiService extends BaseAIService {
     
     // Determine if this is first message (no previous interaction)
     const isFirstMessage = !session?.interactionId;
-    
+    console.log('🔗 [Gemini Interactions] SESSION DEBUG:');
+    console.log('   - isFirstMessage:', isFirstMessage);
+    console.log('   - Incoming session.interactionId:', session?.interactionId || 'NONE'); 
     // Build interaction config
     const interactionConfig: any = {
       model: this.model,
       input: input,
     };
     
-    // CRITICAL: Always send system prompt - Interactions API doesn't persist it reliably
-    // Send it on every message to ensure character identity is maintained
+    // CRITICAL: Always send system_instruction on every message!
+    // The Interactions API only persists conversation history (inputs/outputs)
+    // via previous_interaction_id - system_instruction is NOT persisted.
+    // It's configuration, not conversation content, so it must be sent each time.
     interactionConfig.system_instruction = systemPrompt;
     
     if (isFirstMessage) {
-      console.log('🆕 [Gemini Interactions] First message - sending full system prompt');
+      console.log('🆕 [Gemini Interactions] First message - sending system prompt');
     } else {
       console.log('🔄 [Gemini Interactions] Continuing conversation - using previous_interaction_id + system prompt');
+      // Chain to previous conversation history
       interactionConfig.previous_interaction_id = session.interactionId;
-      // NOTE: We send system prompt on every message because Interactions API doesn't reliably persist it
     }
     
     // Add memory tools if enabled
@@ -461,7 +468,10 @@ export class GeminiService extends BaseAIService {
           
           console.log(`🔧 [Gemini Interactions] Executing tool: ${toolName}`, toolArgs);
           
-          const toolResult = await executeMemoryTool(toolName, toolArgs, userId);
+          const toolResult = await executeMemoryTool(toolName, toolArgs, userId, {
+            googleAccessToken: options?.googleAccessToken,
+            currentEvents: options?.upcomingEvents
+          });
           
           return {
             type: 'function_result',
@@ -540,6 +550,10 @@ export class GeminiService extends BaseAIService {
     }
     
     // Update session with interaction ID (critical for stateful conversations!)
+    console.log('🔗 [Gemini Interactions] RESPONSE DEBUG:');
+    console.log('   - API returned interaction.id:', interaction.id);
+    console.log('   - Storing this ID for next message');
+    
     const updatedSession: AIChatSession = {
       userId: userId,
       model: this.model,

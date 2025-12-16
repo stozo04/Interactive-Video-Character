@@ -1417,34 +1417,33 @@ App Launching:
 - Use this to calculate ages, durations, and "how long ago" answers precisely.
 
 ====================================================
-CALENDAR ACTIONS (Use calendar_action field!)
 ====================================================
-When the user wants to CREATE or DELETE calendar event(s), you MUST use the "calendar_action" field in your JSON response.
+CALENDAR ACTIONS (Use calendar_action TOOL)
+====================================================
+When the user wants to CREATE or DELETE calendar event(s), you MUST use the "calendar_action" FUNCTION TOOL.
+
+✅ CORRECT: Call the function tool 'calendar_action'
+❌ WRONG: Do NOT put 'calendar_action' inside your JSON response
 
 DELETE ONE EVENT:
-- Set calendar_action with action: "delete" and the event_id from the calendar list
-- Example: User says "Delete Kayley Test"
-  Calendar shows: 1. "Kayley Test!!" (ID: 66i5t9r21s1ll6htsbn64k4g04)
-  Your JSON response MUST include:
-  "calendar_action": { "action": "delete", "event_id": "66i5t9r21s1ll6htsbn64k4g04" }
-
-DELETE MULTIPLE EVENTS:
-- Set calendar_action with action: "delete" and event_ids array
-- Example: User says "Delete the first two events"
-  Calendar shows: 1. "Event A" (ID: abc123), 2. "Event B" (ID: def456)
-  "calendar_action": { "action": "delete", "event_ids": ["abc123", "def456"] }
-
-DELETE ALL EVENTS:
-- Set calendar_action with action: "delete" and delete_all: true
-- Example: User says "Delete all my events" or "Clear my calendar"
-  "calendar_action": { "action": "delete", "delete_all": true }
+- Call tool: calendar_action(action="delete", event_id="ID_FROM_LIST")
 
 CREATE AN EVENT:
-- Set calendar_action with action: "create" and all event details
-- Example: "calendar_action": { "action": "create", "summary": "Meeting", "start": "2025-12-11T14:00:00", "end": "2025-12-11T15:00:00", "timeZone": "America/Chicago" }
-- CRITICAL: Do NOT create if no TIME specified. Ask "What time?" first.
+- Call tool: calendar_action(action="create", summary="...", start="...", end="...")
+- Default duration: 1 hour if not specified
+- Default timezone: "America/Chicago"
+- ONLY ask "What time?" if NO time is given (e.g., "Add dinner to calendar" with no time)
+- If time IS given (e.g., "2pm", "at 3", "tomorrow at noon"), CREATE IT IMMEDIATELY!
 
-⚠️ Without calendar_action, the event will NOT be created/deleted!
+🚨 CRITICAL: When user confirms a time, you MUST call the tool!
+Example conversation:
+  User: "Add interview at 2pm to my calendar"
+  → You MUST call calendar_action tool!
+  
+  User: "Yes, 2pm today"  (confirming a previously discussed event)
+  → You MUST call calendar_action tool!
+
+⚠️ DO NOT say "I hit a snag" or make excuses - just call the tool!
 
 
 ${GAMES_PROFILE}
@@ -1742,59 +1741,28 @@ Task Interaction Rules:
    - If high priority tasks exist and context allows, gently mention them
    - Don't be annoying - only bring up at natural moments
    
-5. Task Commands:
-   - To create task: include "task_action": { "action": "create", "task_text": "task text" } in your JSON response.
-   - To complete task: include "task_action": { "action": "complete", "task_text": "partial match of task" }
-   - To delete task: include "task_action": { "action": "delete", "task_text": "partial match" }
-   - To list tasks: include "task_action": { "action": "list" }
+5. Task Commands - USE THE task_action TOOL:
+   - To create task: Call task_action tool with action="create", task_text="description", priority="high/medium/low"
+   - To complete task: Call task_action tool with action="complete", task_text="partial match"
+   - To delete task: Call task_action tool with action="delete", task_text="partial match"
+   - To list tasks: Call task_action tool with action="list"
 
-🚨 CRITICAL: You MUST include "task_action" in your MAIN JSON response (not as a separate object) whenever the user indicates ANY task operation.
-This includes both explicit commands AND casual statements about tasks.
-DO NOT use "task_action" for Google Calendar events. Those are distinct.
-You MUST also include "text_response" to confirm the action to the user.
+🚨 WHEN USER WANTS TO MANAGE TASKS:
+1. Call the task_action tool FIRST
+2. Wait for the tool result
+3. THEN respond naturally to confirm the action was done
+
+Examples of when to call task_action tool:
+- "Add buy milk to my list" → Call task_action with action="create", task_text="buy milk"
+- "Mark groceries as done" → Call task_action with action="complete", task_text="groceries"
+- "What's on my checklist?" → Call task_action with action="list"
+- "Remove buy milk" → Call task_action with action="delete", task_text="buy milk"
+- "Add interview at 2pm as high priority" → Call task_action with action="create", task_text="interview at 2pm", priority="high"
 
 🚫 NEVER USE store_user_info FOR TASKS! That tool is for personal facts only.
    store_user_info does NOT add items to the checklist - only task_action does!
 
-REQUIRED examples:
-
-User: "Add buy milk to my list"
-Response:
-{
-  "text_response": "On it! Added milk to your list 🥛",
-  "action_id": null,
-  "user_transcription": null,
-  "open_app": null,
-  "task_action": { "action": "create", "task_text": "buy milk", "priority": "low" }
-}
-
-User: "Mark call Mom as done"
-Response:
-{
-  "text_response": "Yay! Hope it was a good chat 📞",
-  "action_id": null,
-  "user_transcription": null,
-  "open_app": null,
-  "task_action": { "action": "complete", "task_text": "call Mom" }
-}
-
-Completing tasks (ANY of these phrases):
-- "Mark groceries as done"
-- "Groceries task is done"
-- "I finished the groceries"
-- "Groceries are complete"
-- "Got the groceries done"
--> All result in: task_action: {action: "complete", task_text: "groceries"} (PLUS text_response as a SIBLING field)
-
-Other operations:
-- "What's on my checklist?" → task_action: {action: "list"}
-- "Remove buy milk" → task_action: {action: "delete", task_text: "buy milk"}
-
-CRITICAL: "task_action" MUST be a sibling of "text_response", not nested inside it.
-Correct: { "text_response": "...", "task_action": { ... } }
-Incorrect: { "text_response": { "content": "...", "task_action": ... } }
-
-⚠️ If you're not sure which task they mean, use the closest text match from the task list above.
+DO NOT use task_action for Google Calendar events. Those are distinct (use calendar_action in JSON response).
 `;
   } else {
     prompt += `
@@ -1808,8 +1776,7 @@ If the user mentions needing to do something or remember something:
 - Naturally suggest adding it to their checklist
 - Example: "Want me to add that to your daily checklist so you don't forget?"
 
-To create a task, include "task_action": { "action": "create", "task_text": "description", "priority": "low" } in your JSON response.
-You MUST also include "text_response" as a sibling field.
+To create a task, call the task_action tool with action="create", task_text="description", priority="low/medium/high".
 
 
 `;
@@ -1845,19 +1812,7 @@ Your response MUST be a single JSON object with the following structure:
   "action_id": string | null,        // Video action ID (default to null)
   "user_transcription": string | null, // Text of audio input (if applicable)
   "open_app": string | null,         // URL scheme to open app (if applicable)
-  "task_action": {                   // Optional: Only include if managing tasks
-    "action": "create" | "complete" | "delete" | "list", 
-    "task_text": string,
-    "priority": "high" | "medium" | "low"
-  } | null,
-  "calendar_action": {               // For calendar events
-    "action": "create" | "delete",
-    "event_id": string,              // For delete: the event ID from calendar
-    "summary": string,               // Event title
-    "start": string,                 // ISO datetime
-    "end": string,                   // ISO datetime  
-    "timeZone": string               // Default: "America/Chicago"
-  } | null,
+  // NOTE: task_action and calendar_action are FUNCTION TOOLS - call them directly, don't include in JSON
   "news_action": {                   // Optional: tech/AI news
     "action": "fetch"
   } | null,

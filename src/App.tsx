@@ -1801,35 +1801,15 @@ const App: React.FC = () => {
 
 
     // ============================================
-    // SOUL LAYER: Unified Message Analysis (Phase 5)
+    // SOUL LAYER: Exchange Recording (Phase 5)
     // ============================================
-    const startBackgroundAnalysis = (userId: string) => {
-    // 1. Record basic exchange metadata
+    // NOTE: analyzeUserMessageBackground is now called in BaseAIService.generateResponse
+    // with the pre-calculated intent, preventing duplicate detectFullIntentLLMCached calls.
+    // We only record the exchange here for callback timing.
+    const startBackgroundAnalysis = (_userId: string) => {
       try {
         recordExchange(); // For callback timing
       } catch (e) { console.warn('Exchange record failed', e); }
-
-      // 2. Start Message Analyzer (Patterns, Loops, Milestones, Mood)
-      // This handles all the "magic" - we don't await it to keep UI responsive
-      const interactionCount = relationship?.interactionCount || 0;
-      
-      // Construct context from history
-      // Note: We cast slightly to ensure compatibility with ConversationContext
-      const context = {
-        recentMessages: updatedHistory.slice(-10).map(m => ({
-          role: (m.role === 'model' ? 'assistant' : 'user') as 'user' | 'assistant',
-          text: m.text
-        }))
-      };
-
-      messageAnalyzer.analyzeUserMessageBackground(
-        userId,
-        message,
-        interactionCount,
-        context
-      ).catch(error => {
-        console.warn('Background message analysis failed:', error);
-      });
     };
 
     // Start analysis immediately in background
@@ -1909,6 +1889,7 @@ const App: React.FC = () => {
           upcomingEvents: upcomingEvents,
           characterContext: kayleyContext,
           tasks: tasks,
+        googleAccessToken: session.accessToken,
       };
 
       // 1. Start AI response immediately (main critical path)
@@ -1944,7 +1925,7 @@ const App: React.FC = () => {
 
               if (isDeleteRequest) {
                 // Add explicit delete reminder with the exact format needed
-                textToSend = `${message}\n\n[LIVE CALENDAR DATA - ${freshEvents.length} EVENTS: ${eventList}]\n\n⚠️ DELETE REMINDER: To delete an event, you MUST include [CALENDAR_DELETE]{"id": "EVENT_ID"} in your response. Copy the ID from the list above.`;
+                textToSend = `${message}\n\n[LIVE CALENDAR DATA - ${freshEvents.length} EVENTS: ${eventList}]\n\n⚠️ DELETE REMINDER: To delete an event, use the calendar_action tool with action="delete" and the exact "event_id" from the list above.`;
                 console.log(`🗑️ Delete request detected - added deletion reminder`);
               } else {
                 textToSend = `${message}\n\n[LIVE CALENDAR DATA - ${freshEvents.length} EVENTS: ${eventList}]`;
@@ -1974,6 +1955,15 @@ const App: React.FC = () => {
         // Debug: Log full response to check structure
         console.log('🔍 Full AI response:', JSON.stringify(response, null, 2));
         
+        // IMPORTANT: Refresh tasks after AI response in case task_action tool was called
+        // The tool modifies Supabase directly, so we need to sync UI state
+        taskService.fetchTasks(userId).then(freshTasks => {
+          setTasks(freshTasks);
+          console.log('📋 Tasks refreshed after AI response');
+        }).catch(err => {
+          console.warn('Failed to refresh tasks:', err);
+        });
+
         // Detect and store character facts from the response (background, non-blocking)
         // This captures new facts about Kayley that aren't in the profile
         if (response.text_response) {

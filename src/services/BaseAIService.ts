@@ -36,7 +36,8 @@ export abstract class BaseAIService implements IAIChatService {
     systemPrompt: string, 
     userMessage: UserContent, 
     history: any[],
-    session?: AIChatSession
+    session?: AIChatSession,
+    options?: AIChatOptions
   ): Promise<{ response: AIActionResponse, session: AIChatSession }>; // Returns structured JSON response and updated session
 
   // 2. Shared Logic
@@ -154,7 +155,8 @@ export abstract class BaseAIService implements IAIChatService {
         systemPrompt, 
         input, 
         options.chatHistory || [],
-        session
+        session,
+        options
       );
       console.log("aiResponse: ", aiResponse);
       console.log("updatedSession: ", updatedSession);
