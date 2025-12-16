@@ -170,6 +170,26 @@ export const AIActionResponseSchema = z.object({
     )
   }).nullable().optional().describe(
     "Selfie/image generation action - use when user asks for a picture, photo, or selfie of you"
+  ),
+
+  /**
+   * Store new facts about yourself (Kayley) that emerge in conversation.
+   * Use this when you share something NEW about yourself that isn't in your profile.
+   * This ensures you remember it in future conversations!
+   */
+  store_self_info: z.object({
+    category: z.enum(['quirk', 'experience', 'preference', 'relationship', 'detail']).describe(
+      "Category of the fact: 'quirk' (habits, personality), 'experience' (stories, events), " +
+      "'preference' (new likes/dislikes), 'relationship' (new friends/connections), 'detail' (specific facts)"
+    ),
+    key: z.string().describe(
+      "A short, descriptive key for the fact (e.g., 'smoke_alarm_incident', 'new_coffee_order', 'met_yoga_friend')"
+    ),
+    value: z.string().describe(
+      "The fact to remember (e.g., 'Set off smoke alarm making toast twice in one week')"
+    )
+  }).nullable().optional().describe(
+    "Store a NEW fact about yourself (Kayley) that you just shared. Use when you mention something not in your profile."
   )
 });
 

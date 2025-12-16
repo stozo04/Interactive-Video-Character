@@ -13,6 +13,7 @@
  */
 
 import { supabase } from './supabaseClient';
+import { Task } from '../types';
 
 // ============================================
 // Table Names
@@ -648,6 +649,62 @@ export async function migrateLocalStorageToSupabase(userId: string): Promise<voi
       console.log(`✅ [StateService] Migrated intimacy state to Supabase`);
     } catch {
       console.warn('[StateService] Could not migrate intimacy state');
+    }
+  }
+  
+  // Daily Tasks
+  const tasksRaw = localStorage.getItem('kayley_daily_tasks');
+  if (tasksRaw) {
+    try {
+      const taskState = JSON.parse(tasksRaw) as { tasks: Task[]; lastResetDate?: string };
+      if (taskState.tasks && Array.isArray(taskState.tasks) && taskState.tasks.length > 0) {
+        // Migrate each task to Supabase using direct insert to preserve dates
+        let migratedCount = 0;
+        for (const task of taskState.tasks) {
+          try {
+            // Calculate scheduled_date from createdAt timestamp (YYYY-MM-DD format)
+            const taskDate = new Date(task.createdAt);
+            const scheduledDate = taskDate.toISOString().split('T')[0];
+            
+            // Prepare task payload
+            const taskPayload: any = {
+              user_id: userId,
+              text: task.text.trim(),
+              priority: task.priority || 'low',
+              category: task.category || null,
+              scheduled_date: scheduledDate,
+              completed: task.completed || false,
+              completed_at: task.completed && task.completedAt 
+                ? new Date(task.completedAt).toISOString() 
+                : null
+            };
+            
+            // Insert directly into Supabase to preserve all fields
+            const { error: insertError } = await supabase
+              .from('daily_tasks')
+              .insert(taskPayload);
+            
+            if (insertError) {
+              console.warn(`[StateService] Could not migrate task "${task.text}":`, insertError);
+            } else {
+              migratedCount++;
+            }
+          } catch (taskError) {
+            console.warn(`[StateService] Could not migrate task "${task.text}":`, taskError);
+          }
+        }
+        
+        if (migratedCount > 0) {
+          localStorage.removeItem('kayley_daily_tasks');
+          console.log(`✅ [StateService] Migrated ${migratedCount} task(s) to Supabase`);
+        }
+      } else {
+        // Empty task list, just remove the key
+        localStorage.removeItem('kayley_daily_tasks');
+        console.log(`✅ [StateService] Removed empty task state from localStorage`);
+      }
+    } catch (error) {
+      console.warn('[StateService] Could not migrate tasks:', error);
     }
   }
   

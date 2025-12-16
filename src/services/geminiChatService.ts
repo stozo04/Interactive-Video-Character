@@ -117,6 +117,8 @@ function normalizeAiResponse(rawJson: any, rawText: string): AIActionResponse {
       game_move: rawJson.game_move, // 0 is valid, so check undefined
       // Selfie/image generation action
       selfie_action: rawJson.selfie_action || null,
+      // Store new character facts
+      store_self_info: rawJson.store_self_info || null,
   };
 }
 

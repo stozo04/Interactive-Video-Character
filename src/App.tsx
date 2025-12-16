@@ -28,6 +28,7 @@ import { generateSpeech } from './services/elevenLabsService'; // Import generat
 import { buildActionKeyMap } from './utils/actionKeyMapper'; // Phase 1 Optimization
 
 import { predictActionFromMessage } from './utils/intentUtils';
+import { processAndStoreCharacterFacts } from './services/characterFactsService';
 
 import ImageUploader from './components/ImageUploader';
 import VideoPlayer from './components/VideoPlayer';
@@ -1791,6 +1792,9 @@ const App: React.FC = () => {
     registerInteraction();
     setErrorMessage(null);
     
+    // Show typing indicator
+    setIsProcessingAction(true);
+    
     const updatedHistory = [...chatHistory, { role: 'user' as const, text: message }];
     setChatHistory(updatedHistory);
     // ... [rest of function] ...
@@ -1969,6 +1973,14 @@ const App: React.FC = () => {
         
         // Debug: Log full response to check structure
         console.log('🔍 Full AI response:', JSON.stringify(response, null, 2));
+        
+        // Detect and store character facts from the response (background, non-blocking)
+        // This captures new facts about Kayley that aren't in the profile
+        if (response.text_response) {
+          processAndStoreCharacterFacts(response.text_response).catch(err => {
+            console.warn('Failed to process character facts:', err);
+          });
+        }
         
         const maybePlayResponseAction = (actionId?: string | null) => {
           if (!actionId) return;

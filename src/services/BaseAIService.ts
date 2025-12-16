@@ -7,8 +7,26 @@ import { detectFullIntentLLMCached, isFunctionalCommand, type FullMessageIntent 
 import { updateEmotionalMomentumWithIntensityAsync } from './moodKnobs';
 import { getOngoingThreadsAsync, selectProactiveThread, markThreadMentionedAsync } from './ongoingThreads';
 import { getTopLoopToSurface, markLoopSurfaced } from './presenceDirector';
+import { storeCharacterFact } from './characterFactsService';
 import type { CharacterProfile, Task } from '../types';
 import type { RelationshipMetrics } from './relationshipService';
+
+/**
+ * Guardrail: Check if text_response is valid for TTS.
+ * Rejects empty strings, "{}", "null", or single-character responses.
+ * This prevents 400 errors from ElevenLabs when AI returns malformed output after tool use.
+ */
+function isValidTextForTTS(text: string | undefined | null): boolean {
+  if (!text || typeof text !== 'string') return false;
+  const trimmed = text.trim();
+  // Reject empty, JSON artifacts, or too-short responses
+  if (trimmed.length < 2) return false;
+  if (trimmed === '{}' || trimmed === 'null' || trimmed === '[]') return false;
+  // Check for mostly punctuation/whitespace (invalid speech)
+  const alphanumericChars = trimmed.replace(/[^a-zA-Z0-9]/g, '').length;
+  if (alphanumericChars < 2) return false;
+  return true;
+}
 
 export abstract class BaseAIService implements IAIChatService {
   abstract model: string;
@@ -141,6 +159,28 @@ export abstract class BaseAIService implements IAIChatService {
       console.log("aiResponse: ", aiResponse);
       console.log("updatedSession: ", updatedSession);
 
+      // ============================================
+      // STORE SELF INFO: Save New Character Facts
+      // ============================================
+      // If the LLM generated new facts about Kayley, save them (fire-and-forget)
+      if (aiResponse.store_self_info) {
+        const { category, key, value } = aiResponse.store_self_info;
+        console.log(`💾 [BaseAIService] AI generated new character fact: ${category}.${key} = "${value}"`);
+        
+        // Fire-and-forget: Don't block the response for database write
+        storeCharacterFact('kayley', category as any, key, value)
+          .then(stored => {
+            if (stored) {
+              console.log(`✅ [BaseAIService] Character fact saved successfully: ${key}`);
+            } else {
+              console.log(`📋 [BaseAIService] Character fact already exists or in profile: ${key}`);
+            }
+          })
+          .catch(err => {
+            console.warn(`⚠️ [BaseAIService] Failed to store character fact:`, err);
+          });
+      }
+
       // Analyze user message for patterns, milestones, and open loops (non-blocking)
       // This powers the Phase 1-5 "magic" systems
       // Phase 1: Now includes conversation context for LLM-based intent detection
@@ -208,17 +248,22 @@ export abstract class BaseAIService implements IAIChatService {
         const t0 = typeof performance !== 'undefined' ? performance.now() : Date.now();
 
         // Fire-and-forget TTS so UI can react immediately (e.g. start drawing).
-        generateSpeech(aiResponse.text_response)
-          .then((audioData) => {
-            if (WB_DEBUG) {
-              const t1 = typeof performance !== 'undefined' ? performance.now() : Date.now();
-              console.log('🔊 [BaseAIService] async TTS done', { dtMs: Math.round(t1 - t0), hasAudio: !!audioData });
-            }
-            if (audioData) options.onAudioData?.(audioData);
-          })
-          .catch((err) => {
-            if (WB_DEBUG) console.warn('🔊 [BaseAIService] async TTS failed', err);
-          });
+        // GUARDRAIL: Skip TTS for empty/malformed text_response (e.g., "{}" after tool calls)
+        if (isValidTextForTTS(aiResponse.text_response)) {
+          generateSpeech(aiResponse.text_response)
+            .then((audioData) => {
+              if (WB_DEBUG) {
+                const t1 = typeof performance !== 'undefined' ? performance.now() : Date.now();
+                console.log('🔊 [BaseAIService] async TTS done', { dtMs: Math.round(t1 - t0), hasAudio: !!audioData });
+              }
+              if (audioData) options.onAudioData?.(audioData);
+            })
+            .catch((err) => {
+              if (WB_DEBUG) console.warn('🔊 [BaseAIService] async TTS failed', err);
+            });
+        } else {
+          console.warn('⚠️ [BaseAIService] Skipped async TTS: text_response was empty or invalid:', aiResponse.text_response);
+        }
 
         return {
           response: aiResponse,
@@ -227,8 +272,15 @@ export abstract class BaseAIService implements IAIChatService {
         };
       }
 
-      const audioData = await generateSpeech(aiResponse.text_response);
-      console.log("audioData: ", audioData);
+      // GUARDRAIL: Skip TTS for empty/malformed text_response (e.g., "{}" after tool calls)
+      let audioData: string | undefined;
+      if (isValidTextForTTS(aiResponse.text_response)) {
+        audioData = await generateSpeech(aiResponse.text_response);
+        console.log("audioData: ", audioData);
+      } else {
+        console.warn('⚠️ [BaseAIService] Skipped TTS: text_response was empty or invalid:', aiResponse.text_response);
+        audioData = undefined;
+      }
 
       return {
         response: aiResponse,
@@ -459,7 +511,14 @@ Your goal: Share this news in your style - make it accessible and interesting!
     );
 
     // Generate audio for the response
-    const audioData = await generateSpeech(response.text_response);
+    // GUARDRAIL: Skip TTS for empty/malformed text_response
+    const audioData = isValidTextForTTS(response.text_response)
+      ? await generateSpeech(response.text_response)
+      : undefined;
+    
+    if (!isValidTextForTTS(response.text_response)) {
+      console.warn('⚠️ [BaseAIService] Skipped idle breaker TTS: text_response was empty or invalid:', response.text_response);
+    }
 
     return {
       response,
