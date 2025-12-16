@@ -302,6 +302,69 @@ function findThreadToSurface(threads: OngoingThread[]): OngoingThread | null {
 }
 
 /**
+ * Select a proactive thread for conversation starters.
+ * 
+ * Selection criteria:
+ * 1. Intensity >= 0.6 (she's thinking about it a lot)
+ * 2. Not mentioned in last 24 hours (or never mentioned)
+ * 3. At least 4 hours old (settling time)
+ * 4. User-related threads get a 0.1 boost
+ * 
+ * @param threads - Array of ongoing threads to select from
+ * @returns Selected thread or null if none eligible
+ */
+export function selectProactiveThread(threads: OngoingThread[]): OngoingThread | null {
+  if (threads.length === 0) {
+    return null;
+  }
+
+  const now = Date.now();
+  const ONE_DAY_MS = 24 * 60 * 60 * 1000;
+  const FOUR_HOURS_MS = 4 * 60 * 60 * 1000;
+  const MIN_INTENSITY = 0.6;
+
+  // Filter eligible threads
+  const candidates = threads.filter(thread => {
+    // Must have minimum intensity
+    if (thread.intensity < MIN_INTENSITY) {
+      return false;
+    }
+
+    // Must not have been mentioned in last 24 hours
+    if (thread.lastMentioned) {
+      const hoursSinceMention = (now - thread.lastMentioned) / (1000 * 60 * 60);
+      if (hoursSinceMention < 24) {
+        return false;
+      }
+    }
+
+    // Must be at least 4 hours old (settling time)
+    const hoursSinceCreation = (now - thread.createdAt) / (1000 * 60 * 60);
+    if (hoursSinceCreation < 4) {
+      return false;
+    }
+
+    return true;
+  });
+
+  if (candidates.length === 0) {
+    return null;
+  }
+
+  // Calculate effective priority (intensity + boost for user-related)
+  const candidatesWithPriority = candidates.map(thread => ({
+    thread,
+    effectiveIntensity: thread.intensity + (thread.userRelated ? 0.1 : 0),
+  }));
+
+  // Sort by effective intensity (highest first)
+  candidatesWithPriority.sort((a, b) => b.effectiveIntensity - a.effectiveIntensity);
+
+  // Return the thread with highest effective intensity
+  return candidatesWithPriority[0].thread;
+}
+
+/**
  * Format threads for prompt (internal logic)
  */
 function formatThreadsInternal(threads: OngoingThread[], topThread: OngoingThread | null): string {

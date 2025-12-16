@@ -1,10 +1,14 @@
 import { IAIChatService, AIChatOptions, UserContent, AIChatSession, AIMessage } from './aiService';
-import { buildSystemPrompt } from './promptUtils';
+import { buildSystemPrompt, buildProactiveThreadPrompt } from './promptUtils';
 import { generateSpeech } from './elevenLabsService';
 import { AIActionResponse } from './aiSchema';
 import { analyzeUserMessageBackground } from './messageAnalyzer';
 import { detectFullIntentLLMCached, isFunctionalCommand, type FullMessageIntent } from './intentService';
 import { updateEmotionalMomentumWithIntensityAsync } from './moodKnobs';
+import { getOngoingThreadsAsync, selectProactiveThread, markThreadMentionedAsync } from './ongoingThreads';
+import { getTopLoopToSurface, markLoopSurfaced } from './presenceDirector';
+import type { CharacterProfile, Task } from '../types';
+import type { RelationshipMetrics } from './relationshipService';
 
 export abstract class BaseAIService implements IAIChatService {
   abstract model: string;
@@ -244,5 +248,224 @@ export abstract class BaseAIService implements IAIChatService {
     relationship: any,
     characterContext?: string
   ): Promise<any>;
+
+  /**
+   * Triggered when the user has been idle (e.g., 5-10 mins).
+   * Decides whether to ask about a user topic (Open Loop) 
+   * or share a thought (Proactive Thread).
+   * 
+   * Fast Router Philosophy: Parallel fetch, structured conflict resolution
+   * 
+   * @param userId - User ID for state retrieval
+   * @param options - Context needed for prompt building (character, relationship, tasks, etc.)
+   * @param session - Current AI session
+   * @returns AI response or null if should skip
+   */
+  async triggerIdleBreaker(
+    userId: string,
+    options: {
+      character?: CharacterProfile;
+      relationship?: RelationshipMetrics | null;
+      tasks?: Task[];
+      chatHistory?: any[];
+      characterContext?: string;
+      upcomingEvents?: any[];
+      proactiveSettings?: {
+        checkins?: boolean;
+        news?: boolean;
+      };
+    },
+    session?: AIChatSession
+  ): Promise<{ response: AIActionResponse, session: AIChatSession, audioData?: string } | null> {
+    console.log(`💤 [BaseAIService] Triggering idle breaker for ${userId}`);
+
+    // STEP A: Fetch Candidates in Parallel (Fast Router optimization)
+    let openLoop: any = null;
+    let threads: any[] = [];
+    let activeThread: any = null;
+
+    try {
+      [openLoop, threads] = await Promise.all([
+        getTopLoopToSurface(userId),      // "How was your interview?"
+        getOngoingThreadsAsync(userId)    // Fetch all threads
+      ]);
+      
+      activeThread = selectProactiveThread(threads);
+    } catch (error) {
+      console.warn('[BaseAIService] Failed to fetch proactive candidates:', error);
+      // Continue with fallback
+    }
+
+    let systemInstruction = "";
+    let logReason = "";
+    let threadIdToMark: string | null = null;
+    let loopIdToMark: string | null = null;
+
+    // STEP B: Conflict Resolution Logic (4-Tier Priority System)
+    // PRIORITY 1: High Salience User Loop (Crisis/Event) > Everything
+    if (openLoop && openLoop.salience >= 0.8) {
+      logReason = `High priority loop: ${openLoop.topic} (salience: ${openLoop.salience})`;
+      systemInstruction = `
+[SYSTEM EVENT: USER_IDLE - HIGH PRIORITY OPEN LOOP]
+The user has been silent for over 5 minutes.
+You have something important to ask about: "${openLoop.topic}"
+${openLoop.triggerContext ? `Context: They said: "${openLoop.triggerContext.slice(0, 100)}..."` : 'From a previous conversation'}
+Suggested ask: "${openLoop.suggestedFollowup || `How did things go with ${openLoop.topic}?`}"
+
+Bring this up naturally. This is about THEM, not you.
+Tone: Caring, curious, not demanding.
+`.trim();
+      loopIdToMark = openLoop.id;
+      
+    // PRIORITY 2: Proactive Thread (Kayley's Mind)
+    } else if (activeThread) {
+      logReason = `Proactive thread: ${activeThread.currentState.slice(0, 50)}...`;
+      systemInstruction = buildProactiveThreadPrompt(activeThread);
+      threadIdToMark = activeThread.id;
+      
+    // PRIORITY 3: Lower Priority Open Loop (still user-focused)
+    } else if (openLoop && openLoop.salience > 0.7) {
+      logReason = `Standard loop: ${openLoop.topic} (salience: ${openLoop.salience})`;
+      systemInstruction = `
+[SYSTEM EVENT: USER_IDLE - OPEN LOOP]
+The user has been silent for over 5 minutes.
+Casual check-in: "${openLoop.topic}"
+${openLoop.triggerContext ? `Context: They mentioned: "${openLoop.triggerContext.slice(0, 100)}..."` : 'From a previous conversation'}
+Suggested ask: "${openLoop.suggestedFollowup || `How did ${openLoop.topic} go?`}"
+
+Bring this up naturally. Keep it light and conversational.
+`.trim();
+      loopIdToMark = openLoop.id;
+      
+    // PRIORITY 4: Generic Fallback
+    } else {
+      logReason = "Generic check-in";
+      
+      const relationshipContext = options.relationship?.relationshipTier
+        ? `Relationship tier with user: ${options.relationship.relationshipTier}.`
+        : "Relationship tier with user is unknown.";
+
+      const highPriorityTasks = (options.tasks || []).filter(t => !t.completed && t.priority === 'high');
+      const taskContext = highPriorityTasks.length > 0
+        ? `User has ${highPriorityTasks.length} high-priority task(s): ${highPriorityTasks[0].text}. Consider gently mentioning it if appropriate.`
+        : "No urgent tasks pending.";
+
+      // Check if check-ins are disabled
+      if (!options.proactiveSettings?.checkins && !options.proactiveSettings?.news) {
+        console.log("💤 [BaseAIService] Check-ins and news disabled, skipping idle breaker");
+        return null;
+      }
+
+      // Fetch tech news if enabled (this could be moved to a service, but keeping it here for now)
+      let newsContext = "";
+      if (options.proactiveSettings?.news) {
+        try {
+          const { fetchTechNews, getUnmentionedStory, markStoryMentioned } = await import('./newsService');
+          const stories = await fetchTechNews();
+          const story = getUnmentionedStory(stories);
+          if (story) {
+            markStoryMentioned(story.id);
+            const hostname = story.url ? new URL(story.url).hostname : '';
+            newsContext = `
+[OPTIONAL NEWS TO DISCUSS]
+There's an interesting tech story trending on Hacker News: "${story.title}"
+${hostname ? `(from: ${hostname})` : ''}
+
+You can mention this if the conversation allows, or use it as a conversation starter.
+Translate it in your style - make it accessible and interesting!
+Don't force it - only bring it up if it feels natural.
+          `.trim();
+          }
+        } catch (e) {
+          console.warn('[BaseAIService] Failed to fetch news for idle breaker', e);
+        }
+      }
+      
+      // If check-ins are off but news is on, only proceed if we have news
+      if (!options.proactiveSettings?.checkins && !newsContext) {
+        console.log("💤 [BaseAIService] Check-ins disabled and no news to share, skipping");
+        return null;
+      }
+
+      // Build prompt based on what's enabled
+      if (options.proactiveSettings?.checkins) {
+        systemInstruction = `
+[SYSTEM EVENT: USER_IDLE]
+The user has been silent for over 5 minutes. 
+${relationshipContext}
+${taskContext}
+${newsContext}
+Your goal: Gently check in or start a conversation.
+- If relationship is 'close_friend', maybe send a random thought or joke.
+- If 'acquaintance', politely ask if they are still there.
+- If there are high-priority tasks and relationship allows, you MAY gently mention them (but don't be pushy).
+- You can mention tech news if it feels natural and interesting.
+- Remember: you translate tech into human terms!
+- Keep it very short (1 sentence).
+- Do NOT repeat yourself if you did this recently.
+        `.trim();
+      } else {
+        // News only mode - just share the news
+        systemInstruction = `
+[SYSTEM EVENT: NEWS_UPDATE]
+Share this interesting tech news with the user naturally.
+${newsContext}
+
+Your goal: Share this news in your style - make it accessible and interesting!
+- Keep it conversational and short (1-2 sentences).
+- Translate tech jargon into human terms.
+        `.trim();
+      }
+    }
+
+    console.log(`🤖 [BaseAIService] Selected strategy: ${logReason}`);
+
+    // STEP C: Mark the winner as surfaced/mentioned (side effects)
+    if (threadIdToMark) {
+      markThreadMentionedAsync(userId, threadIdToMark).catch(err => 
+        console.warn('[BaseAIService] Failed to mark thread as mentioned:', err)
+      );
+    }
+    if (loopIdToMark) {
+      markLoopSurfaced(loopIdToMark).catch(err => 
+        console.warn('[BaseAIService] Failed to mark loop as surfaced:', err)
+      );
+    }
+
+    // STEP D: Generate the system prompt using promptUtils
+    const fullSystemPrompt = await buildSystemPrompt(
+      options.character,
+      options.relationship,
+      options.upcomingEvents || [],
+      options.characterContext,
+      options.tasks,
+      undefined, // relationshipSignals - not needed for idle breaker
+      undefined, // toneIntent - not needed for idle breaker
+      undefined, // fullIntent - not needed for idle breaker
+      userId,
+      undefined // userTimeZone
+    );
+
+    // Combine the idle breaker instruction with the full system prompt
+    const combinedSystemPrompt = `${fullSystemPrompt}\n\n${systemInstruction}`;
+
+    // STEP E: Call the LLM provider and return the response
+    // We pass an empty user message because *SHE* is speaking first
+    const { response, session: updatedSession } = await this.callProvider(
+      combinedSystemPrompt,
+      { type: 'text', text: '' }, // Empty trigger - she's initiating
+      options.chatHistory || [],
+      session
+    );
+
+    // Generate audio for the response
+    const audioData = await generateSpeech(response.text_response);
+
+    return {
+      response,
+      session: updatedSession,
+      audioData: audioData || undefined
+    };
+  }
 }
 

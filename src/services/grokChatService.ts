@@ -140,8 +140,24 @@ export class GrokService extends BaseAIService {
       console.log('[Grok] Could not fetch open loop for greeting');
     }
 
+    // Fetch proactive thread (Priority Router: only use if open loop is low/none)
+    let proactiveThread = null;
+    try {
+      const { getOngoingThreadsAsync, selectProactiveThread } = await import('./ongoingThreads');
+      const threads = await getOngoingThreadsAsync(userId);
+      const activeThread = selectProactiveThread(threads);
+      
+      // Only use thread if no high-priority open loop (Priority Router logic)
+      if (activeThread && (!topOpenLoop || (topOpenLoop && topOpenLoop.salience <= 0.7))) {
+        proactiveThread = activeThread;
+        console.log(`🧵 [Grok] Found proactive thread for greeting: "${activeThread.currentState}"`);
+      }
+    } catch (e) {
+      console.log('[Grok] Could not fetch proactive thread for greeting');
+    }
+
     // Build relationship-aware greeting prompt
-    const greetingPrompt = buildGreetingPrompt(relationship, topOpenLoop !== null, null, topOpenLoop);
+    const greetingPrompt = buildGreetingPrompt(relationship, topOpenLoop !== null, null, topOpenLoop, proactiveThread);
     console.log(`🤖 [Grok] Greeting tier: ${relationship?.relationshipTier || 'new'}, interactions: ${relationship?.totalInteractions || 0}`);
     
     const messages: AIMessage[] = [
@@ -173,6 +189,12 @@ export class GrokService extends BaseAIService {
     if (topOpenLoop) {
       await markLoopSurfaced(topOpenLoop.id);
       console.log(`✅ [Grok] Marked loop as surfaced: "${topOpenLoop.topic}"`);
+    }
+
+    // Mark thread as mentioned if we used it
+    if (proactiveThread) {
+      const { markThreadMentionedAsync } = await import('./ongoingThreads');
+      markThreadMentionedAsync(userId, proactiveThread.id).catch(console.error);
     }
 
     return { 

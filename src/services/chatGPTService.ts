@@ -284,7 +284,29 @@ export const chatGPTService: IAIChatService = {
         console.log('[ChatGPT] Could not fetch open loop for greeting');
       }
 
-      const greetingPrompt = buildGreetingPrompt(relationship, hasUserFacts, userName, topOpenLoop);
+      // Fetch proactive thread (Priority Router: only use if open loop is low/none)
+      let proactiveThread = null;
+      try {
+        const { getOngoingThreadsAsync, selectProactiveThread } = await import('./ongoingThreads');
+        const threads = await getOngoingThreadsAsync(userId);
+        const activeThread = selectProactiveThread(threads);
+        
+        // Only use thread if no high-priority open loop (Priority Router logic)
+        if (activeThread && (!topOpenLoop || (topOpenLoop && topOpenLoop.salience <= 0.7))) {
+          proactiveThread = activeThread;
+          console.log(`🧵 [ChatGPT] Found proactive thread for greeting: "${activeThread.currentState}"`);
+        }
+      } catch (e) {
+        console.log('[ChatGPT] Could not fetch proactive thread for greeting');
+      }
+
+      const greetingPrompt = buildGreetingPrompt(relationship, hasUserFacts, userName, topOpenLoop, proactiveThread);
+      
+      // Mark thread as mentioned if we used it
+      if (proactiveThread) {
+        const { markThreadMentionedAsync } = await import('./ongoingThreads');
+        markThreadMentionedAsync(userId, proactiveThread.id).catch(console.error);
+      }
       console.log(`🤖 [ChatGPT] Greeting tier: ${relationship?.relationshipTier || 'new'}, interactions: ${relationship?.totalInteractions || 0}`);
 
       // Initial greeting request - can use recall_user_info to personalize

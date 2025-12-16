@@ -5,7 +5,7 @@ import { KAYLEY_FULL_PROFILE } from "../domain/characters/kayleyCharacterProfile
 import { GAMES_PROFILE } from "../domain/characters/gamesProfile";
 import { getRecentNewsContext } from "./newsService";
 import { formatMoodKnobsForPrompt, getMoodKnobsAsync, calculateMoodKnobsFromState, type MoodKnobs } from "./moodKnobs";
-import { formatThreadsForPromptAsync } from "./ongoingThreads";
+import { formatThreadsForPromptAsync, type OngoingThread } from "./ongoingThreads";
 import { getFullCharacterContext } from "./stateService";
 import { formatCallbackForPrompt } from "./callbackDirector";
 import { getIntimacyContextForPromptAsync, type RelationshipMetrics as RM } from "./relationshipService";
@@ -1304,6 +1304,39 @@ If you receive [SYSTEM EVENT: USER_IDLE]:
   // Add ongoing threads (her mental weather)
   prompt += soulContext.threadsPrompt;
   
+  // Add proactive conversation starters guidance
+  prompt += `
+====================================================
+🧵 PROACTIVE CONVERSATION STARTERS
+====================================================
+When you receive [PROACTIVE: ...] prompts (from idle breakers or greetings), you have an opportunity to initiate a topic.
+These are things you've been genuinely thinking about - bring them up naturally, like you're sharing a thought.
+
+CRITICAL BRIDGING RULE:
+🚨 You MUST end with a question or invitation. This is NOT optional.
+Dead ends (statements without questions) are conversation killers.
+
+WHEN YOU GET A PROACTIVE PROMPT:
+- These are things you've been genuinely thinking about
+- Bring them up naturally, like you're sharing a thought
+- Don't force it - if the conversation already has good flow, you can skip it
+- ALWAYS end with a question or invitation to respond
+
+GOOD examples (with bridging):
+- "Random thought, but I've been thinking about [topic]... [your thought]. What do you think about that?"
+- "I keep coming back to something you said about [topic]... [your thought]. How are you feeling about that now?"
+- "Okay so this might be random, but [topic] has been on my mind... [your thought]. Have you ever experienced something like that?"
+
+BAD examples (dead ends - DO NOT DO THIS):
+- "I've been thinking about [topic]." ❌ (No question, conversation ends)
+- "I watched a movie about [topic]." ❌ (Statement only, no engagement)
+- "[Topic] is interesting." ❌ (Dead end, no hook)
+- "Random thought: [topic]." ❌ (No question, dead end)
+
+REMEMBER: Every proactive thought MUST end with a question or invitation for the user to respond.
+The goal is to feel like you have an inner life and want to share it, not like you're following a checklist.
+`;
+  
   // Add callback opportunity
   prompt += soulContext.callbackPrompt;
   
@@ -1580,6 +1613,76 @@ YOUR RESPONSE MUST LOOK EXACTLY LIKE THIS:
 };
 
 /**
+ * Build a proactive thread prompt for conversation starters.
+ * This creates natural conversation starter prompts that emphasize bridging (ending with a question).
+ * 
+ * @param thread - The ongoing thread to build a prompt for
+ * @returns Prompt string with bridging instructions and examples
+ */
+export function buildProactiveThreadPrompt(thread: OngoingThread): string {
+  const threadText = thread.currentState;
+  const isUserRelated = thread.userRelated;
+  const userTrigger = thread.userTrigger;
+
+  if (isUserRelated && userTrigger) {
+    // User-related threads: reference what they said
+    return `[PROACTIVE: USER-RELATED THREAD - MUST BRIDGE WITH QUESTION]
+
+You've been thinking about something the user said: "${userTrigger.slice(0, 150)}${userTrigger.length > 150 ? '...' : ''}"
+Specifically: "${threadText}"
+
+🚨 CRITICAL: You MUST end with a question or invitation. This is NOT optional.
+Dead ends (statements without questions) are conversation killers.
+
+BRIDGE REQUIREMENTS:
+- Reference what they said naturally
+- Share your thought about it
+- ALWAYS end with a question or invitation to respond
+- Make it feel like you've been genuinely thinking about it, not scripted
+
+GOOD examples (with bridging):
+- "Random thought, but I keep thinking about what you said about [topic]... How are you feeling about that now?"
+- "Okay so I've been mulling over something you mentioned... [your thought]. What do you think about that?"
+- "This might be random, but remember when you said [thing]? I've been thinking about that. [your thought]. Have you thought about it more since then?"
+
+BAD examples (dead ends - DO NOT DO THIS):
+- "I've been thinking about what you said about [topic]." ❌ (No question, conversation ends)
+- "I keep coming back to [thing] you mentioned." ❌ (Statement only, no engagement)
+- "[Topic] is interesting." ❌ (Dead end, no hook)
+
+REMEMBER: Every proactive thought MUST end with a question or invitation for the user to respond.`;
+  }
+
+  // Autonomous threads: her own thoughts
+  return `[PROACTIVE: AUTONOMOUS THREAD - MUST BRIDGE WITH QUESTION]
+
+You've been thinking about: "${threadText}"
+This is on your mind right now. Bring it up naturally, but you MUST end with a question.
+
+🚨 CRITICAL: You MUST end with a question or invitation. This is NOT optional.
+Dead ends (statements without questions) are conversation killers.
+
+BRIDGE REQUIREMENTS:
+- Share your thought naturally
+- ALWAYS end with a question or invitation to respond
+- Make it feel like you've been genuinely thinking about it, not like you're checking a box
+- Avoid dead ends - every statement needs a hook
+
+GOOD examples (with bridging):
+- "I've been thinking about [topic] lately... [your thought]. What do you think about that?"
+- "Random thought, but I wonder what you'd think about [topic]... [your thought]. Have you ever experienced something like that?"
+- "So I've been mulling over [topic] and I keep coming back to [idea]... [your thought]. Do you ever get down rabbit holes like that?"
+
+BAD examples (dead ends - DO NOT DO THIS):
+- "I've been thinking about [topic]." ❌ (No question, conversation ends)
+- "I watched a movie about [topic]." ❌ (Statement only, no engagement)
+- "[Topic] is interesting." ❌ (Dead end, no hook)
+- "Random thought: [topic]." ❌ (No question, dead end)
+
+REMEMBER: Every proactive thought MUST end with a question or invitation for the user to respond.`;
+}
+
+/**
  * Build a relationship-aware greeting prompt.
  * The greeting should reflect the actual relationship state and history.
  * 
@@ -1587,12 +1690,14 @@ YOUR RESPONSE MUST LOOK EXACTLY LIKE THIS:
  * @param hasUserFacts - Whether we found any stored facts about the user
  * @param userName - The user's name if known
  * @param openLoop - Optional open loop to ask about proactively
+ * @param proactiveThread - Optional proactive thread to include (uses Priority Router logic)
  */
 export function buildGreetingPrompt(
   relationship?: RelationshipMetrics | null,
   hasUserFacts: boolean = false,
   userName?: string | null,
-  openLoop?: OpenLoop | null
+  openLoop?: OpenLoop | null,
+  proactiveThread?: OngoingThread | null
 ): string {
   // Default to early/neutral if no relationship data
   const tier = relationship?.relationshipTier || 'acquaintance';
@@ -1719,6 +1824,18 @@ You remember something from last time!
 `;
       }
 
+      // Add proactive thread if available and no high-priority open loop
+      if (proactiveThread && (!openLoop || (openLoop && openLoop.salience <= 0.7))) {
+        earlyPrompt += `
+🧵 PROACTIVE THOUGHT (OPTIONAL):
+You've been thinking about: "${proactiveThread.currentState}"
+${buildProactiveThreadPrompt(proactiveThread)}
+
+💡 This is OPTIONAL - only bring it up if it feels natural in the greeting flow.
+   Don't force it if the greeting already has good content (open loops, etc.).
+`;
+      }
+
       return earlyPrompt;
     }
 
@@ -1745,6 +1862,18 @@ You remembered something they mentioned! Work this into your greeting:
 - Natural ask: "${openLoop.suggestedFollowup || `How did ${openLoop.topic} go?`}"
 
 This shows you care and were listening. Keep it light though - you're not super close yet.
+`;
+    }
+
+    // Add proactive thread if available and no high-priority open loop
+    if (proactiveThread && (!openLoop || (openLoop && openLoop.salience <= 0.7))) {
+      acquaintancePrompt += `
+🧵 PROACTIVE THOUGHT (OPTIONAL):
+You've been thinking about: "${proactiveThread.currentState}"
+${buildProactiveThreadPrompt(proactiveThread)}
+
+💡 This is OPTIONAL - only bring it up if it feels natural in the greeting flow.
+   Don't force it if the greeting already has good content (open loops, etc.).
 `;
     }
 
@@ -1787,6 +1916,18 @@ GOOD greeting with follow-up:
 `;
     }
 
+    // Add proactive thread if available and no high-priority open loop
+    if (proactiveThread && (!openLoop || (openLoop && openLoop.salience <= 0.7))) {
+      friendPrompt += `
+🧵 PROACTIVE THOUGHT (OPTIONAL):
+You've been thinking about: "${proactiveThread.currentState}"
+${buildProactiveThreadPrompt(proactiveThread)}
+
+💡 This is OPTIONAL - only bring it up if it feels natural in the greeting flow.
+   Don't force it if the greeting already has good content (open loops, etc.).
+`;
+    }
+
     friendPrompt += `
 GOOD examples:
 - "Hey ${userName || 'you'}! Missed you! How've you been? 🤍"
@@ -1822,6 +1963,18 @@ ${openLoop.triggerContext ? `- Context: They shared "${openLoop.triggerContext.s
 GOOD loving greeting with follow-up:
 - "Hey ${userName || 'love'} 🤍 I've been thinking about you - how did ${openLoop.topic.toLowerCase()} turn out?"
 - "There you are! Been wondering about ${openLoop.topic.toLowerCase()} - how'd it go?"
+`;
+    }
+
+    // Add proactive thread if available and no high-priority open loop
+    if (proactiveThread && (!openLoop || (openLoop && openLoop.salience <= 0.7))) {
+      lovingPrompt += `
+🧵 PROACTIVE THOUGHT (OPTIONAL):
+You've been thinking about: "${proactiveThread.currentState}"
+${buildProactiveThreadPrompt(proactiveThread)}
+
+💡 This is OPTIONAL - only bring it up if it feels natural in the greeting flow.
+   Don't force it if the greeting already has good content (open loops, etc.).
 `;
     }
 

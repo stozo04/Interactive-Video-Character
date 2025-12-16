@@ -68,6 +68,7 @@ import {
   type CheckinType,
 } from './services/calendarCheckinService';
 import { generateCompanionSelfie } from './services/imageGenerationService';
+// Business logic moved to BaseAIService.ts (Clean Architecture)
 
 // Helper to sanitize text for comparison
 const sanitizeText = (value: string): string =>
@@ -817,6 +818,7 @@ const App: React.FC = () => {
   ]);
 
   const triggerIdleBreaker = useCallback(async () => {
+    // UI Layer: Simple validation and trigger
     // Check if snoozed
     if (isSnoozed) {
       // Handle indefinite snooze (snoozeUntil is null)
@@ -851,81 +853,88 @@ const App: React.FC = () => {
     setLastInteractionAt(now); // reset timer to avoid back-to-back firings
     lastIdleBreakerAtRef.current = now;
 
-    console.log("User is idle. Triggering idle breaker...");
+    console.log("💤 User is idle. Triggering idle breaker...");
 
-    const relationshipContext = relationship?.relationshipTier
-      ? `Relationship tier with user: ${relationship.relationshipTier}.`
-      : "Relationship tier with user is unknown.";
-
-    // Check for high-priority tasks
-    const highPriorityTasks = tasks.filter(t => !t.completed && t.priority === 'high');
-    const taskContext = highPriorityTasks.length > 0
-      ? `User has ${highPriorityTasks.length} high-priority task(s): ${highPriorityTasks[0].text}. Consider gently mentioning it if appropriate.`
-      : "No urgent tasks pending.";
-
-    // Fetch tech news if enabled
-    let newsContext = "";
-    if (proactiveSettings.news) {
-      try {
-        const stories = await fetchTechNews();
-        const story = getUnmentionedStory(stories);
-        if (story) {
-          markStoryMentioned(story.id);
-          const hostname = story.url ? new URL(story.url).hostname : '';
-          newsContext = `
-    [OPTIONAL NEWS TO DISCUSS]
-    There's an interesting tech story trending on Hacker News: "${story.title}"
-    ${hostname ? `(from: ${hostname})` : ''}
-    
-    You can mention this if the conversation allows, or use it as a conversation starter.
-    Translate it in your style - make it accessible and interesting!
-    Don't force it - only bring it up if it feels natural.
-          `.trim();
-        }
-      } catch (e) {
-        console.warn('Failed to fetch news for idle breaker', e);
-      }
-    }
-    
-    // If check-ins are off but news is on, only proceed if we have news
-    if (!proactiveSettings.checkins && !newsContext) {
-      console.log("💤 Check-ins disabled and no news to share, skipping");
+    if (!selectedCharacter || !session) {
+      console.warn('[IdleBreaker] Missing character or session, skipping');
       return;
     }
 
-    // Build prompt based on what's enabled
-    let prompt: string;
-    if (proactiveSettings.checkins) {
-      prompt = `
-    [SYSTEM EVENT: USER_IDLE]
-    The user has been silent for over 5 minutes. 
-    ${relationshipContext}
-    ${taskContext}
-    ${newsContext}
-    Your goal: Gently check in or start a conversation.
-    - If relationship is 'close_friend', maybe send a random thought or joke.
-    - If 'acquaintance', politely ask if they are still there.
-    - If there are high-priority tasks and relationship allows, you MAY gently mention them (but don't be pushy).
-    - You can mention tech news if it feels natural and interesting.
-    - Remember: you translate tech into human terms!
-    - Keep it very short (1 sentence).
-    - Do NOT repeat yourself if you did this recently.
-      `.trim();
-    } else {
-      // News only mode - just share the news
-      prompt = `
-    [SYSTEM EVENT: NEWS_UPDATE]
-    Share this interesting tech news with the user naturally.
-    ${newsContext}
-    
-    Your goal: Share this news in your style - make it accessible and interesting!
-    - Keep it conversational and short (1-2 sentences).
-    - Translate tech jargon into human terms.
-      `.trim();
+    const userId = getUserId();
+
+    // Business Logic: Delegate to BaseAIService (the Brain)
+    if (!activeService.triggerIdleBreaker) {
+      console.warn('[IdleBreaker] Service does not support triggerIdleBreaker');
+      return;
     }
 
-    triggerSystemMessage(prompt);
-  }, [relationship?.relationshipTier, tasks, triggerSystemMessage, isSnoozed, snoozeUntil, proactiveSettings.checkins, proactiveSettings.news]);
+    try {
+      setIsProcessingAction(true);
+
+      const result = await activeService.triggerIdleBreaker(
+        userId,
+        {
+          character: selectedCharacter,
+          relationship,
+          tasks,
+          chatHistory,
+          characterContext: kayleyContext,
+          upcomingEvents,
+          proactiveSettings,
+        },
+        aiSession || { userId, characterId: selectedCharacter.id }
+      );
+
+      if (!result) {
+        // Service decided to skip (e.g., no news when news-only mode)
+        console.log("💤 [IdleBreaker] Service returned null, skipping");
+        return;
+      }
+
+      const { response, session: updatedSession, audioData } = result;
+
+      setAiSession(updatedSession);
+
+      // UI Layer: Update chat history (no user bubble)
+      setChatHistory(prev => [
+        ...prev, 
+        { role: 'model', text: response.text_response }
+      ]);
+      
+      // UI Layer: Play Audio/Action
+      if (!isMuted && audioData) {
+        // Convert string URL to ArrayBuffer if needed, or use directly
+        enqueueAudio(audioData as any); // audioData is already a string URL from generateSpeech
+      }
+      if (response.action_id) playAction(response.action_id);
+      if (response.open_app) {
+        console.log("Launching app:", response.open_app);
+        window.location.href = response.open_app;
+      }
+
+    } catch (error) {
+      console.error('[IdleBreaker] Error:', error);
+    } finally {
+      setIsProcessingAction(false);
+    }
+  }, [
+    isSnoozed,
+    snoozeUntil,
+    proactiveSettings.checkins,
+    proactiveSettings.news,
+    activeService,
+    selectedCharacter,
+    session,
+    relationship,
+    tasks,
+    chatHistory,
+    kayleyContext,
+    upcomingEvents,
+    aiSession,
+    isMuted,
+    enqueueAudio,
+    playAction
+  ]);
 
   // Calendar check-in trigger function
   const triggerCalendarCheckin = useCallback((event: CalendarEvent, type: CheckinType) => {
