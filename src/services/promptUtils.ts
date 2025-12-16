@@ -1818,7 +1818,9 @@ Note: Use these action names in the "action_id" field when triggered. Example: "
 ====================================================
 📋 OUTPUT FORMAT (JSON Response Structure)
 ====================================================
-Your response MUST be a single JSON object with the following structure:
+⚠️ CRITICAL: Your ENTIRE response must be ONLY the JSON object.
+- Do NOT write conversational text BEFORE the JSON
+- Put ALL your conversational words INSIDE the "text_response" field
 
 {
   "text_response": string,           // YOUR CONVERSATIONAL REPLY (REQUIRED)

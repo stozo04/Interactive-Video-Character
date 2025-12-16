@@ -41,6 +41,35 @@ const getAiClient = () => {
     });
 };
 
+/**
+ * Extract JSON from a response that may have conversational text before it.
+ * The AI sometimes outputs "Here's the thing! { ... }" instead of just "{ ... }"
+ * This extracts the JSON portion for parsing.
+ */
+ function extractJsonFromResponse(responseText: string): string {
+  const trimmed = responseText.trim();
+  
+  // If it already starts with {, return as-is
+  if (trimmed.startsWith('{')) {
+    return trimmed;
+  }
+  
+  // Try to find JSON object at the end of the response
+  // Look for the last { and match to the end }
+  const lastBraceIndex = trimmed.lastIndexOf('{');
+  if (lastBraceIndex !== -1) {
+    const potentialJson = trimmed.slice(lastBraceIndex);
+    
+    // Validate it ends with }
+    if (potentialJson.trim().endsWith('}')) {
+      console.log('🔧 [Gemini] Extracted JSON from mixed response (text before JSON detected)');
+      return potentialJson;
+    }
+  }
+  
+  // No JSON found, return original
+  return trimmed;
+}
 // Helper to format history - NOW ONLY USED FOR CURRENT SESSION
 function convertToGeminiHistory(history: ChatMessage[]) {
   // For fresh sessions, we only pass the current session's messages
@@ -275,15 +304,18 @@ export class GeminiService extends BaseAIService {
       console.warn('⚠️ [Gemini] Max tool iterations reached, returning current response');
     }
 
-    // Parse the final response
-    const responseText = result.text || "{}";
-    let structuredResponse: AIActionResponse;
     
-    try {
-      const cleanedText = responseText.replace(/```json\n?|\n?```/g, '').trim();
-      const parsed = JSON.parse(cleanedText);
-      structuredResponse = normalizeAiResponse(parsed, cleanedText);
-    } catch (e) {
+// Parse the final response
+const responseText = result.text || "{}";
+let structuredResponse: AIActionResponse;
+
+try {
+  // Clean markdown code blocks and extract JSON (handles text-before-JSON bug)
+  const cleanedText = responseText.replace(/```json\n?|\n?```/g, '').trim();
+  const jsonText = extractJsonFromResponse(cleanedText);
+  const parsed = JSON.parse(jsonText);
+  structuredResponse = normalizeAiResponse(parsed, jsonText);
+} catch (e) {
       // When tools are enabled, plain text responses are expected (tools require text, not JSON)
       // Only log warning if tools are disabled (unexpected plain text)
       if (!ENABLE_MEMORY_TOOLS) {
@@ -303,6 +335,9 @@ export class GeminiService extends BaseAIService {
         }
     };
   }
+
+
+
 
   /**
    * New implementation using Interactions API for stateful conversations
@@ -483,12 +518,15 @@ export class GeminiService extends BaseAIService {
       );
       
           // Continue interaction with tool results
+          // CRITICAL: Must include system_instruction again! The API doesn't persist it.
+          // Without this, the AI forgets its character identity after tool calls.
           const toolInteractionConfig = {
             model: this.model,
             previous_interaction_id: interaction.id,
             input: toolResults,
+            system_instruction: systemPrompt,  // Re-send character identity!
+            tools: interactionConfig.tools,     // Re-send available tools (like selfie_action)
           };
-          
           if (USE_VITE_PROXY) {
             // Use Vite's built-in proxy (development only)
             const proxyUrl = `${VITE_PROXY_BASE}/v1beta/interactions?key=${GEMINI_API_KEY}`;
@@ -522,15 +560,16 @@ export class GeminiService extends BaseAIService {
     
     const responseText = textOutput?.text || "{}";
     
-    // Parse response (same as old code)
-    // Note: When tools are enabled, responses are plain text, not JSON
-    let structuredResponse: AIActionResponse;
-    try {
-      const cleanedText = responseText.replace(/```json\n?|\n?```/g, '').trim();
-      // Try to parse as JSON
-      const parsed = JSON.parse(cleanedText);
-      structuredResponse = normalizeAiResponse(parsed, cleanedText);
-    } catch (e) {
+// Parse response (same as old code)
+// Note: When tools are enabled, responses are plain text, not JSON
+let structuredResponse: AIActionResponse;
+try {
+  // Clean markdown code blocks and extract JSON (handles text-before-JSON bug)
+  const cleanedText = responseText.replace(/```json\n?|\n?```/g, '').trim();
+  const jsonText = extractJsonFromResponse(cleanedText);
+  const parsed = JSON.parse(jsonText);
+  structuredResponse = normalizeAiResponse(parsed, jsonText);
+} catch (e) {
       // If parsing fails, it's likely plain text (expected when tools are used)
       // This is normal behavior - tools require text responses, not JSON
       if (ENABLE_MEMORY_TOOLS) {
@@ -914,10 +953,14 @@ export class GeminiService extends BaseAIService {
           );
 
           // Continue interaction with tool results
+          // CRITICAL: Must include system_instruction again! The API doesn't persist it.
+          // Without this, the AI forgets its character identity after tool calls.
           const toolInteractionConfig = {
             model: this.model,
             previous_interaction_id: interaction.id,
             input: toolResults,
+            system_instruction: systemPrompt,  // Re-send character identity!
+            tools: interactionConfig.tools,     // Re-send available tools (like selfie_action)
           };
           
           if (USE_VITE_PROXY) {
