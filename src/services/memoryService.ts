@@ -386,7 +386,7 @@ export const formatFactsForAI = (facts: UserFact[]): string => {
 // Tool Execution Handler
 // ============================================
 
-export type MemoryToolName = 'recall_memory' | 'recall_user_info' | 'store_user_info' | 'task_action' | 'calendar_action';
+export type MemoryToolName = 'recall_memory' | 'recall_user_info' | 'store_user_info' | 'task_action' | 'calendar_action' | 'store_character_info';
 
 /**
  * Optional context passed to tool execution (e.g., access tokens)
@@ -424,6 +424,11 @@ export interface ToolCallArgs {
     event_id?: string;
     event_ids?: string[];
     delete_all?: boolean;
+  };
+  store_character_info: {
+    category: 'quirk' | 'relationship' | 'experience' | 'preference' | 'detail' | 'other';
+    key: string;
+    value: string;
   };
 }
 
@@ -662,6 +667,20 @@ export const executeMemoryTool = async (
         }
       }
 
+      case 'store_character_info': {
+        const { storeCharacterFact } = await import('./characterFactsService');
+        const { category, key, value } = args as ToolCallArgs['store_character_info'];
+        
+        // We pass undefined for characterId to use the default 'kayley'
+        // We pass undefined for sourceMessageId since this comes from a tool call, not a specific message scan (or we could pass the current message ID if we had it?)
+        // Since this is an explicit choice by the AI, we treat it with high confidence (1.0 default).
+        const success = await storeCharacterFact(undefined, category, key, value);
+        
+        return success 
+          ? `✓ Stored character fact: ${key} = "${value}"` 
+          : `Failed to store fact (it might process duplicates automatically).`;
+      }
+      
       default:
         return `Unknown tool: ${toolName}`;
     }
