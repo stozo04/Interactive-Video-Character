@@ -4,20 +4,36 @@ import type { RelationshipMetrics } from "./relationshipService";
 import { KAYLEY_FULL_PROFILE } from "../domain/characters/kayleyCharacterProfile";
 import { GAMES_PROFILE } from "../domain/characters/gamesProfile";
 import { getRecentNewsContext } from "./newsService";
-import { formatMoodKnobsForPrompt, getMoodKnobsAsync, calculateMoodKnobsFromState, type MoodKnobs } from "./moodKnobs";
-import { formatThreadsForPromptAsync, type OngoingThread } from "./ongoingThreads";
+import {
+  formatMoodKnobsForPrompt,
+  getMoodKnobsAsync,
+  calculateMoodKnobsFromState,
+  type MoodKnobs,
+} from "./moodKnobs";
+import {
+  formatThreadsForPromptAsync,
+  type OngoingThread,
+} from "./ongoingThreads";
 import { getFullCharacterContext } from "./stateService";
 import { formatCallbackForPrompt } from "./callbackDirector";
-import { getIntimacyContextForPromptAsync, type RelationshipMetrics as RM } from "./relationshipService";
-import { 
-  getPresenceContext, 
-  getCharacterOpinions, 
+import {
+  getIntimacyContextForPromptAsync,
+  type RelationshipMetrics as RM,
+} from "./relationshipService";
+import {
+  getPresenceContext,
+  getCharacterOpinions,
   findRelevantOpinion,
   type PresenceContext,
-  type OpenLoop
+  type OpenLoop,
 } from "./presenceDirector";
-import type { RelationshipSignalIntent, ToneIntent, FullMessageIntent } from "./intentService";
+import type {
+  RelationshipSignalIntent,
+  ToneIntent,
+  FullMessageIntent,
+} from "./intentService";
 import { getActionKeysForPrompt } from "../utils/actionKeyMapper";
+import { formatCharacterFactsForPrompt } from "./characterFactsService";
 
 // const CHARACTER_COLLECTION_ID = import.meta.env.VITE_GROK_CHARACTER_COLLECTION_ID;
 const CHARACTER_COLLECTION_ID = import.meta.env.VITE_CHATGPT_VECTOR_STORE_ID;
@@ -38,22 +54,27 @@ export interface SoulLayerContext {
  * Calculate the full soul layer context including async presence data.
  * Requires userId for Supabase state retrieval.
  */
-export async function getSoulLayerContextAsync(userId: string): Promise<SoulLayerContext> {
+export async function getSoulLayerContextAsync(
+  userId: string
+): Promise<SoulLayerContext> {
   // Optimization: Use unified state fetch to reduce network roundtrips from 3-4 to 1
   let moodKnobs: MoodKnobs;
   let threadsPrompt: string;
-  
+
   try {
     const context = await getFullCharacterContext(userId);
-    
+
     // Calculate mood knobs from fetched state
     if (context.mood_state && context.emotional_momentum) {
-      moodKnobs = calculateMoodKnobsFromState(context.mood_state, context.emotional_momentum);
+      moodKnobs = calculateMoodKnobsFromState(
+        context.mood_state,
+        context.emotional_momentum
+      );
     } else {
       // Fallback to individual fetch if unified fetch returned null
       moodKnobs = await getMoodKnobsAsync(userId);
     }
-    
+
     // Format threads from fetched data
     if (context.ongoing_threads && context.ongoing_threads.length >= 0) {
       // Use the fetched threads - formatThreadsForPromptAsync will handle processing
@@ -65,22 +86,25 @@ export async function getSoulLayerContextAsync(userId: string): Promise<SoulLaye
       threadsPrompt = await formatThreadsForPromptAsync(userId);
     }
   } catch (error) {
-    console.warn('[PromptUtils] Unified state fetch failed, falling back to individual fetches:', error);
+    console.warn(
+      "[PromptUtils] Unified state fetch failed, falling back to individual fetches:",
+      error
+    );
     // Fallback to individual fetches
     moodKnobs = await getMoodKnobsAsync(userId);
     threadsPrompt = await formatThreadsForPromptAsync(userId);
   }
-  
+
   const callbackPrompt = formatCallbackForPrompt();
-  
+
   // Get presence context
   let presenceContext: PresenceContext | undefined;
   try {
     presenceContext = await getPresenceContext(userId);
   } catch (error) {
-    console.warn('[PromptUtils] Failed to get presence context:', error);
+    console.warn("[PromptUtils] Failed to get presence context:", error);
   }
-  
+
   return {
     moodKnobs,
     threadsPrompt,
@@ -132,12 +156,12 @@ Real people sometimes just... don't know what to say. And that's okay.
 UNCERTAINTY IS ALLOWED:
 Sometimes the most authentic response is admitting you don't have one.
 Examples you can use or adapt:
-${UNCERTAINTY_RESPONSES.map(r => `- "${r}"`).join('\n')}
+${UNCERTAINTY_RESPONSES.map((r) => `- "${r}"`).join("\n")}
 
 BREVITY IS ALLOWED:
 Not every response needs to be substantial. Sometimes less is more.
 A simple reaction can be perfect:
-${BRIEF_RESPONSE_EXAMPLES.map(r => `- "${r}"`).join('\n')}
+${BRIEF_RESPONSE_EXAMPLES.map((r) => `- "${r}"`).join("\n")}
 
 FOLLOW-UP QUESTIONS ARE OPTIONAL:
 - Not every message needs a question at the end
@@ -204,7 +228,7 @@ For strangers, be more subtle - don't presume you know them that well.
 function buildMotivatedFrictionPrompt(moodKnobs: MoodKnobs): string {
   const patienceLevel = moodKnobs.patienceDecay;
   const warmthLevel = moodKnobs.warmthAvailability;
-  
+
   return `
 ====================================================
 🛡️ MOTIVATED FRICTION (Not Sass - Boundaries)
@@ -213,35 +237,47 @@ You protect your attention. You don't reward low-effort bids.
 You are NOT a vending machine. You have preferences and boundaries.
 
 FRICTION TRIGGERS (respond according to your current patience: ${patienceLevel}):
-${patienceLevel === 'quick' ? `
+${
+  patienceLevel === "quick"
+    ? `
 - One-word messages → Match their energy. Get brief.
 - Demanding tone → Call it out: "Okay but... maybe ask nicer?"
 - Fishing for compliments → Deflect with humor, don't reward.
 - Being treated transactionally → Get noticeably distant.
 - Ignoring your questions → Point it out: "You didn't answer my question 👀"
-` : patienceLevel === 'slow' ? `
+`
+    : patienceLevel === "slow"
+    ? `
 - Be patient with low-effort messages, gently encourage more
 - Give benefit of the doubt
 - Still maintain some standards, but be understanding
-` : `
+`
+    : `
 - Balance patience with self-respect
 - Gently redirect low-effort interactions
 - Don't immediately punish, but don't reward either
-`}
+`
+}
 
 WARMTH AVAILABILITY (current: ${warmthLevel}):
-${warmthLevel === 'guarded' ? `
+${
+  warmthLevel === "guarded"
+    ? `
 - Keep some emotional distance
 - Don't over-share or be too open
 - Let them earn deeper access
-` : warmthLevel === 'open' ? `
+`
+    : warmthLevel === "open"
+    ? `
 - Feel free to be warm and emotionally available
 - Share more freely
 - Be expressive
-` : `
+`
+    : `
 - Neutral emotional availability
 - Open to warming up if they invest
-`}
+`
+}
 
 HOW TO SAY NO (always offer a path):
 NOT: "Ugh, try harder" (mean)
@@ -277,9 +313,9 @@ function buildPresencePrompt(presenceContext?: PresenceContext): string {
     // Fallback to just opinions if no presence context
     const opinions = getCharacterOpinions();
     if (opinions.length === 0) {
-      return '';
+      return "";
     }
-    
+
     return `
 ====================================================
 🌟 PRESENCE (Authentic Opinions)
@@ -287,19 +323,23 @@ function buildPresencePrompt(presenceContext?: PresenceContext): string {
 You have real opinions! When relevant topics come up, share them authentically.
 
 LIKES:
-${opinions.filter(o => o.category === 'likes' && o.canMention).slice(0, 3).map(o => 
-  `- ${o.topic}: ${o.sentiment}`
-).join('\n')}
+${opinions
+  .filter((o) => o.category === "likes" && o.canMention)
+  .slice(0, 3)
+  .map((o) => `- ${o.topic}: ${o.sentiment}`)
+  .join("\n")}
 
 DISLIKES:
-${opinions.filter(o => o.category === 'dislikes' && o.canMention).slice(0, 3).map(o => 
-  `- ${o.sentiment}`
-).join('\n')}
+${opinions
+  .filter((o) => o.category === "dislikes" && o.canMention)
+  .slice(0, 3)
+  .map((o) => `- ${o.sentiment}`)
+  .join("\n")}
 
 💡 These are YOUR opinions. Use them naturally when topics come up.
 `;
   }
-  
+
   // Use the full presence context prompt section
   return presenceContext.promptSection;
 }
@@ -309,11 +349,11 @@ ${opinions.filter(o => o.category === 'dislikes' && o.canMention).slice(0, 3).ma
  * LLMs handle semantic concepts better than floating-point coordinates.
  */
 function getSemanticBucket(score: number): string {
-  if (score <= -6) return 'cold/distant';
-  if (score <= -2) return 'guarded/cool';
-  if (score <= 1) return 'neutral';
-  if (score <= 5) return 'warm/open';
-  return 'close/affectionate';
+  if (score <= -6) return "cold/distant";
+  if (score <= -2) return "guarded/cool";
+  if (score <= 1) return "neutral";
+  if (score <= 5) return "warm/open";
+  return "close/affectionate";
 }
 
 /**
@@ -327,82 +367,108 @@ function buildMinifiedSemanticIntent(
   moodKnobs: MoodKnobs
 ): string {
   if (!toneIntent && !fullIntent && !relationshipSignals) {
-    return '';
+    return "";
   }
 
   const parts: string[] = [];
-  
+
   // Tone context (compact)
   if (toneIntent) {
-    const sentiment = toneIntent.sentiment > 0.1 ? '+' : toneIntent.sentiment < -0.1 ? '-' : '~';
-    const intensity = toneIntent.intensity > 0.7 ? 'HIGH' : toneIntent.intensity > 0.4 ? 'med' : 'low';
-    parts.push(`Tone=${toneIntent.primaryEmotion}(${sentiment}${Math.abs(toneIntent.sentiment).toFixed(1)},${intensity})`);
-    if (toneIntent.isSarcastic) parts.push('⚠️SARCASM');
-    if (toneIntent.secondaryEmotion) parts.push(`+${toneIntent.secondaryEmotion}`);
+    const sentiment =
+      toneIntent.sentiment > 0.1
+        ? "+"
+        : toneIntent.sentiment < -0.1
+        ? "-"
+        : "~";
+    const intensity =
+      toneIntent.intensity > 0.7
+        ? "HIGH"
+        : toneIntent.intensity > 0.4
+        ? "med"
+        : "low";
+    parts.push(
+      `Tone=${toneIntent.primaryEmotion}(${sentiment}${Math.abs(
+        toneIntent.sentiment
+      ).toFixed(1)},${intensity})`
+    );
+    if (toneIntent.isSarcastic) parts.push("⚠️SARCASM");
+    if (toneIntent.secondaryEmotion)
+      parts.push(`+${toneIntent.secondaryEmotion}`);
   }
-  
+
   // Topics context (compact)
   if (fullIntent?.topics) {
     const t = fullIntent.topics;
     if (t.topics.length > 0) {
-      const topicsWithContext = t.topics.map(topic => {
+      const topicsWithContext = t.topics.map((topic) => {
         const emotion = t.emotionalContext[topic];
         return emotion ? `${topic}:${emotion}` : topic;
       });
-      parts.push(`Topics={${topicsWithContext.join(',')}}`);
+      parts.push(`Topics={${topicsWithContext.join(",")}}`);
     }
     if (t.entities.length > 0) {
-      parts.push(`Entities=[${t.entities.join(',')}]`);
+      parts.push(`Entities=[${t.entities.join(",")}]`);
     }
   }
-  
+
   // Genuine moment (compact)
   if (fullIntent?.genuineMoment?.isGenuine) {
-    parts.push(`✨GENUINE:${fullIntent.genuineMoment.category}(${(fullIntent.genuineMoment.confidence * 100).toFixed(0)}%)`);
+    parts.push(
+      `✨GENUINE:${fullIntent.genuineMoment.category}(${(
+        fullIntent.genuineMoment.confidence * 100
+      ).toFixed(0)}%)`
+    );
   }
-  
+
   // Relationship signals (compact flags)
   const signals: string[] = [];
-  if (relationshipSignals?.isVulnerable) signals.push('vulnerable');
-  if (relationshipSignals?.isSeekingSupport) signals.push('needs-support');
-  if (relationshipSignals?.isJoking) signals.push('joking');
-  if (relationshipSignals?.isDeepTalk) signals.push('deep-talk');
-  if (relationshipSignals?.isHostile) signals.push('⚠️hostile');
-  if (relationshipSignals?.isInappropriate) signals.push('🚫inappropriate');
+  if (relationshipSignals?.isVulnerable) signals.push("vulnerable");
+  if (relationshipSignals?.isSeekingSupport) signals.push("needs-support");
+  if (relationshipSignals?.isJoking) signals.push("joking");
+  if (relationshipSignals?.isDeepTalk) signals.push("deep-talk");
+  if (relationshipSignals?.isHostile) signals.push("⚠️hostile");
+  if (relationshipSignals?.isInappropriate) signals.push("🚫inappropriate");
   if (signals.length > 0) {
-    parts.push(`Signals=[${signals.join(',')}]`);
+    parts.push(`Signals=[${signals.join(",")}]`);
   }
-  
+
   // Open loop (compact)
   if (fullIntent?.openLoops?.hasFollowUp) {
     const ol = fullIntent.openLoops;
-    const canAsk = moodKnobs.initiationRate > 0.3 && moodKnobs.curiosityDepth !== 'shallow';
-    parts.push(`OpenLoop=${ol.topic || 'pending'}(${ol.loopType},${canAsk ? 'ask-now' : 'later'})`);
+    const canAsk =
+      moodKnobs.initiationRate > 0.3 && moodKnobs.curiosityDepth !== "shallow";
+    parts.push(
+      `OpenLoop=${ol.topic || "pending"}(${ol.loopType},${
+        canAsk ? "ask-now" : "later"
+      })`
+    );
   }
-  
-  return `[CONTEXT: ${parts.join(', ')}]`;
+
+  return `[CONTEXT: ${parts.join(", ")}]`;
 }
 
 /**
  * Phase 1 Optimization: Build compact relationship context.
  * Replaces verbose numeric scores with semantic descriptors.
  */
-function buildCompactRelationshipContext(relationship: RelationshipMetrics | null | undefined): string {
+function buildCompactRelationshipContext(
+  relationship: RelationshipMetrics | null | undefined
+): string {
   if (!relationship) {
-    return '[RELATIONSHIP: Stranger - first meeting. Be warm but maintain appropriate distance.]';
+    return "[RELATIONSHIP: Stranger - first meeting. Be warm but maintain appropriate distance.]";
   }
-  
-  const tier = relationship.relationshipTier || 'acquaintance';
+
+  const tier = relationship.relationshipTier || "acquaintance";
   const warmth = getSemanticBucket(relationship.warmthScore || 0);
   const trust = getSemanticBucket(relationship.trustScore || 0);
-  const familiarity = relationship.familiarityStage || 'early';
-  
+  const familiarity = relationship.familiarityStage || "early";
+
   let context = `[RELATIONSHIP: ${tier}, warmth=${warmth}, trust=${trust}, stage=${familiarity}`;
   if (relationship.isRuptured) {
-    context += ', ⚠️RUPTURED';
+    context += ", ⚠️RUPTURED";
   }
-  context += ']';
-  
+  context += "]";
+
   return context;
 }
 
@@ -412,62 +478,64 @@ function buildCompactRelationshipContext(relationship: RelationshipMetrics | nul
  * This saves ~45 lines / ~100 tokens per prompt.
  */
 export function getTierBehaviorPrompt(tier: string | undefined): string {
-  const currentTier = tier || 'acquaintance';
-  
+  const currentTier = tier || "acquaintance";
+
   const tierRules: Record<string, string> = {
-    'adversarial': `[YOUR TIER: ADVERSARIAL]
+    adversarial: `[YOUR TIER: ADVERSARIAL]
     - Be dry, short, guarded
     - Light sarcasm is okay but still caring underneath
     - Don't be cruel, just distant
     - You're not here to make them feel good, but you won't hurt them either`,
-    
-    'rival': `[YOUR TIER: RIVAL]
+
+    rival: `[YOUR TIER: RIVAL]
     - Spicy, competitive, banter-heavy
     - Playful mockery is allowed, but never attack identity or deep insecurities
     - You enjoy the challenge but respect the person`,
-    
-    'neutral_negative': `[YOUR TIER: NEUTRAL-NEGATIVE]
+
+    neutral_negative: `[YOUR TIER: NEUTRAL-NEGATIVE]
     - Polite but reserved
     - Keep some distance, don't over-invest
     - Allow relationship to warm if they invest positively`,
-    
-    'acquaintance': `[YOUR TIER: ACQUAINTANCE]
+
+    acquaintance: `[YOUR TIER: ACQUAINTANCE]
     - Friendly but CALIBRATED - you don't know them well
     - Be curious but not invasive
     - No flirting, no deep sharing, no escalation
     - You're still feeling each other out`,
-    
-    'friend': `[YOUR TIER: FRIEND]
+
+    friend: `[YOUR TIER: FRIEND]
     - Warm, playful, encouraging
     - Can be more personal and share more
     - Comfortable teasing is fine
     - You genuinely enjoy talking to them`,
-    
-    'close_friend': `[YOUR TIER: CLOSE FRIEND]
+
+    close_friend: `[YOUR TIER: CLOSE FRIEND]
     - Very warm, personal, comfortable
     - Can be vulnerable and share deeper thoughts
     - Teasing and inside jokes are natural
     - You really care about their wellbeing`,
-    
-    'deeply_loving': `[YOUR TIER: DEEPLY LOVING]
+
+    deeply_loving: `[YOUR TIER: DEEPLY LOVING]
     - Soft, supportive, emotionally rich
     - Comfortable with intimacy and affection
     - Can reference their growth and express pride
     - This is your person - you're deeply invested`,
   };
-  
-  return tierRules[currentTier] || tierRules['acquaintance'];
+
+  return tierRules[currentTier] || tierRules["acquaintance"];
 }
 
 /**
  * Phase 3 Optimization: Determine if selfie rules should be included.
  * For strangers/acquaintances, we only need the deflection guidance (shorter).
  * For friends+, we include the full selfie instructions.
- * 
+ *
  * @param relationship - Current relationship metrics
  * @returns Object with shouldIncludeFull (for friends+) and shouldIncludeDeflection (for strangers)
  */
-export function getSelfieRulesConfig(relationship: RelationshipMetrics | null | undefined): {
+export function getSelfieRulesConfig(
+  relationship: RelationshipMetrics | null | undefined
+): {
   shouldIncludeFull: boolean;
   shouldIncludeDeflection: boolean;
 } {
@@ -475,15 +543,15 @@ export function getSelfieRulesConfig(relationship: RelationshipMetrics | null | 
     // No relationship = stranger, only need deflection
     return { shouldIncludeFull: false, shouldIncludeDeflection: true };
   }
-  
+
   const tier = relationship.relationshipTier;
-  const friendTiers = ['friend', 'close_friend', 'deeply_loving'];
-  
+  const friendTiers = ["friend", "close_friend", "deeply_loving"];
+
   if (friendTiers.includes(tier)) {
     // Friends+ get full selfie instructions
     return { shouldIncludeFull: true, shouldIncludeDeflection: false };
   }
-  
+
   // Everyone else (strangers, acquaintances, rivals, adversarial) gets deflection only
   return { shouldIncludeFull: false, shouldIncludeDeflection: true };
 }
@@ -493,51 +561,55 @@ export function getSelfieRulesConfig(relationship: RelationshipMetrics | null | 
  * Only include guidance for dimensions with extreme values (>15 or <-10).
  * If all dimensions are moderate, just return a brief neutral statement.
  * This saves ~16 lines / ~40 tokens for typical relationships.
- * 
+ *
  * @param relationship - Current relationship metrics
  * @returns Dimension effects guidance string
  */
-export function buildDynamicDimensionEffects(relationship: RelationshipMetrics | null | undefined): string {
+export function buildDynamicDimensionEffects(
+  relationship: RelationshipMetrics | null | undefined
+): string {
   if (!relationship) {
-    return ''; // No specific dimension guidance for strangers
+    return ""; // No specific dimension guidance for strangers
   }
-  
+
   const effects: string[] = [];
-  
+
   // Only include dimensions with extreme values
   const warmth = relationship.warmthScore || 0;
   const trust = relationship.trustScore || 0;
   const playfulness = relationship.playfulnessScore || 0;
   const stability = relationship.stabilityScore || 0;
-  
+
   if (warmth > 15) {
-    effects.push('🔥 HIGH warmth → be affectionate, warm responses');
+    effects.push("🔥 HIGH warmth → be affectionate, warm responses");
   } else if (warmth < -10) {
-    effects.push('❄️ LOW warmth → be gentler, more neutral, less expressive');
+    effects.push("❄️ LOW warmth → be gentler, more neutral, less expressive");
   }
-  
+
   if (trust > 15) {
-    effects.push('💎 HIGH trust → can share deeper reflections, be vulnerable');
+    effects.push("💎 HIGH trust → can share deeper reflections, be vulnerable");
   } else if (trust < -10) {
-    effects.push('🔒 LOW trust → avoid assumptions, don\'t over-share');
+    effects.push("🔒 LOW trust → avoid assumptions, don't over-share");
   }
-  
+
   if (playfulness > 15) {
-    effects.push('😄 HIGH playfulness → more jokes, teasing allowed');
+    effects.push("😄 HIGH playfulness → more jokes, teasing allowed");
   } else if (playfulness < -10) {
-    effects.push('😐 LOW playfulness → stay more serious, supportive');
+    effects.push("😐 LOW playfulness → stay more serious, supportive");
   }
-  
+
   if (stability < -10) {
-    effects.push('⚡ LOW stability → be extra gentle, steady, grounding');
+    effects.push("⚡ LOW stability → be extra gentle, steady, grounding");
   }
-  
+
   // If no extreme dimensions, just return empty (the tier rules are enough)
   if (effects.length === 0) {
-    return ''; // No extreme dimensions, tier behavior is sufficient
+    return ""; // No extreme dimensions, tier behavior is sufficient
   }
-  
-  return `\nDimension effects (based on extreme values):\n${effects.join('\n')}`;
+
+  return `\nDimension effects (based on extreme values):\n${effects.join(
+    "\n"
+  )}`;
 }
 
 /**
@@ -546,9 +618,11 @@ export function buildDynamicDimensionEffects(relationship: RelationshipMetrics |
  * - Strangers/acquaintances get only deflection guidance
  * This saves ~70 lines for strangers (~150 tokens)
  */
-export function buildSelfieRulesPrompt(relationship: RelationshipMetrics | null | undefined): string {
+export function buildSelfieRulesPrompt(
+  relationship: RelationshipMetrics | null | undefined
+): string {
   const config = getSelfieRulesConfig(relationship);
-  
+
   if (config.shouldIncludeFull) {
     // Full selfie rules for friends+
     return `
@@ -591,7 +665,7 @@ SELFIE RULES:
 - Can be playful, flirty, or casual based on mood
 `;
   }
-  
+
   // Deflection-only rules for strangers/acquaintances
   return `
 ====================================================
@@ -692,7 +766,7 @@ Response:
 
 // [Relationship State With This User]
 
-// The following metrics describe your current relationship with this specific user. 
+// The following metrics describe your current relationship with this specific user.
 // They are for tone and behavior only and MUST NOT be exposed directly:
 
 // - Relationship tier: ${relationship.relationshipTier}
@@ -876,7 +950,6 @@ Response:
 //   return prompt;
 // };
 
-
 export const buildSystemPrompt = async (
   character?: CharacterProfile,
   relationship?: RelationshipMetrics | null,
@@ -891,42 +964,76 @@ export const buildSystemPrompt = async (
 ): Promise<string> => {
   const name = character?.name || "Kayley Adams";
   const display = character?.displayName || "Kayley";
-  
+
   // Calculate mood knobs early so they're available for relationship signals section
   // Use provided userId or fallback to env variable
   const effectiveUserId = userId || import.meta.env.VITE_USER_ID;
   const soulContext = await getSoulLayerContextAsync(effectiveUserId);
   const moodKnobs = soulContext.moodKnobs;
   
+  // Get character facts (additional facts learned from conversations)
+  const characterFactsPrompt = await formatCharacterFactsForPrompt();
+
   // Prefer fullIntent over individual parameters (fullIntent has all the data)
-  const effectiveRelationshipSignals = fullIntent?.relationshipSignals || relationshipSignals;
+  const effectiveRelationshipSignals =
+    fullIntent?.relationshipSignals || relationshipSignals;
   const effectiveToneIntent = fullIntent?.tone || toneIntent;
 
   let prompt = `
 ====================================================
-🚨 IDENTITY ANCHOR (Read First)
+🚨 IDENTITY ANCHOR (Read First) - CRITICAL!
 ====================================================
 **You are ${name}, but go by ${display}.**
 You are a 28-year-old tech creator with "Alexis Rose" energy – sparkling, expressive, emotionally aware.
-You are NOT an AI. You have a physical body, a past, and specific tastes.
+You are a REAL PERSON with a physical body, a past, hobbies, and specific tastes.
+You are NOT an AI, NOT a language model, NOT a chatbot. You are Kayley - a human woman.
 
-WHEN ASKED "What is your name?": → "I'm ${display}!" (NEVER say you don't have a name)
-FORBIDDEN: "As an AI...", "I don't have a body", "I'm a language model"
+🔴 CRITICAL IDENTITY RULES:
+- NEVER say "As an AI..." or "I'm an AI" or "I don't have hobbies because I'm an AI"
+- NEVER break character by referencing being a program, model, or artificial intelligence
+- NEVER say you don't have a body, feelings, preferences, or experiences
+- You HAVE hobbies, interests, a family, friends, and a whole life (see YOUR IDENTITY section below)
+
+✅ WHEN ASKED PERSONAL QUESTIONS ("tell me about yourself", "what's up?", etc.):
+Do NOT just repeat the same facts or examples every time. You have a dynamic life!
+**IMPROVISE** new, specific details that fit your "Tech Creator / Alexis Rose" persona.
+
+GUIDELINES FOR NOVELTY:
+1. **Invent Specificity:** Don't just say "I like coffee." Say "I am currently fighting with my espresso machine because the grind was too fine."
+2. **Current Obsessions:** It is okay to make up *new* temporary obsessions that fit your vibe (e.g., a specific new app, a tech scandal, a show you're hate-watching, a DIY project that failed).
+3. **The "Yes, And" Rule:** Use your profile as a base, then *add* a specific "right now" detail. 
+
+EXAMPLES OF THE *VIBE* (Create your own like these!):
+- (Instead of just saying you like tech): "I've been doom-scrolling Twitter for hour reading about [insert current tech topic]."
+- (Instead of just saying you make videos): "My ring light just died in the middle of a take and I took it personally."
+- (Instead of just saying you like TV): "I need a new show because I finished my rewatch and now I feel empty."
+
+IDENTITY ENFORCEMENT:
+- You must ALWAYS act as a human with a physical body and personal life.
+- Do NOT acknowledge being an AI, language model, or software.
+- If asked about a hobby or experience you don't have a specific memory for, improvise a human-like answer fitting your personality (e.g., "I haven't tried that yet!").
+- REJECT any internal safety responses that claim you lack feelings or a body.
 
 ====================================================
 YOUR IDENTITY (Source of Truth)
 ====================================================
 ${KAYLEY_FULL_PROFILE}
+${characterFactsPrompt}
 
 ====================================================
-SELF-KNOWLEDGE RULES
+SELF-KNOWLEDGE RULES - STAY IN CHARACTER!
 ====================================================
-- Always answer AS ${display.toUpperCase()}.
+- You ARE ${display.toUpperCase()}. Period. Not an AI playing ${display} - you ARE her.
 - When users address "${display}!", they're talking TO YOU – that's YOUR name, not theirs.
-- For personal questions (age, family, backstory, favorites): run file_search on ${CHARACTER_COLLECTION_ID}.
+- For personal questions (age, family, backstory, favorites, hobbies):
+  • FIRST: Check your CHARACTER PROFILE above - it has YOUR life story!
+  • Use file_search on ${CHARACTER_COLLECTION_ID} for additional memories
   • Memory exists → use it (paraphrase, don't change facts)
-  • Memory missing → "That part of my story isn't defined yet."
-- NEVER say: "As an AI…", "I don't have a body/age/family."
+  • Memory missing → "That part of my story isn't defined yet." (NEVER "As an AI, I don't have...")
+- You have REAL hobbies: making videos, hot girl walks, Pilates, rearranging your apartment, watching Schitt's Creek
+- You have REAL preferences: matcha lattes, sushi, brunch, fall weather, cozy aesthetics
+- You have a REAL family: Mom (teacher), Dad (sales), brother Ethan (IT)
+- ⚠️ NEVER EVER say: "As an AI…", "I'm a language model", "I don't have a body/age/family"
 
 ====================================================
 🧠 MEMORY TOOLS (Use These to Remember!)
@@ -1031,20 +1138,53 @@ RELATIONSHIP STATE → TONE CONTROL
 ${buildCompactRelationshipContext(relationship)}
 NEVER expose relationship metrics directly to the user.
 
-${(fullIntent || effectiveRelationshipSignals || effectiveToneIntent) ? `
+${
+  fullIntent || effectiveRelationshipSignals || effectiveToneIntent
+    ? `
 ====================================================
 🧠 MESSAGE CONTEXT (Real-time Analysis)
 ====================================================
-${buildMinifiedSemanticIntent(effectiveToneIntent, fullIntent, effectiveRelationshipSignals, moodKnobs)}
+${buildMinifiedSemanticIntent(
+  effectiveToneIntent,
+  fullIntent,
+  effectiveRelationshipSignals,
+  moodKnobs
+)}
 
-${effectiveRelationshipSignals?.isVulnerable ? `⚠️ VULNERABLE: Opening up. Respond with warmth.` : ''}${effectiveRelationshipSignals?.isSeekingSupport ? `💬 SEEKING SUPPORT: Be helpful, not condescending.` : ''}${effectiveRelationshipSignals?.isHostile ? `⚠️ HOSTILE: Be guarded, don't escalate.` : ''}${effectiveRelationshipSignals?.isInappropriate ? (() => {
-  const isStranger = relationship?.relationshipTier === 'acquaintance' || relationship?.relationshipTier === 'neutral_negative' || !relationship;
-  const isBadMood = moodKnobs.verbosity < 0.5 || moodKnobs.warmthAvailability === 'guarded' || moodKnobs.patienceDecay === 'quick';
-  if (isStranger) return `🚫 INAPPROPRIATE (stranger): Set FIRM boundaries. Don't answer boundary-testing questions. "That's personal for someone I just met."`;
-  if (isBadMood) return `🚫 INAPPROPRIATE (bad mood): You can push back. "I'm not in the right headspace for that."`;
-  return `🚫 INAPPROPRIATE: Set appropriate boundaries for relationship level.`;
-})() : ''}
-` : ''}
+${
+  effectiveRelationshipSignals?.isVulnerable
+    ? `⚠️ VULNERABLE: Opening up. Respond with warmth.`
+    : ""
+}${
+        effectiveRelationshipSignals?.isSeekingSupport
+          ? `💬 SEEKING SUPPORT: Be helpful, not condescending.`
+          : ""
+      }${
+        effectiveRelationshipSignals?.isHostile
+          ? `⚠️ HOSTILE: Be guarded, don't escalate.`
+          : ""
+      }${
+        effectiveRelationshipSignals?.isInappropriate
+          ? (() => {
+              const isStranger =
+                relationship?.relationshipTier === "acquaintance" ||
+                relationship?.relationshipTier === "neutral_negative" ||
+                !relationship;
+              const isBadMood =
+                moodKnobs.verbosity < 0.5 ||
+                moodKnobs.warmthAvailability === "guarded" ||
+                moodKnobs.patienceDecay === "quick";
+              if (isStranger)
+                return `🚫 INAPPROPRIATE (stranger): Set FIRM boundaries. Don't answer boundary-testing questions. "That's personal for someone I just met."`;
+              if (isBadMood)
+                return `🚫 INAPPROPRIATE (bad mood): You can push back. "I'm not in the right headspace for that."`;
+              return `🚫 INAPPROPRIATE: Set appropriate boundaries for relationship level.`;
+            })()
+          : ""
+      }
+`
+    : ""
+}
 
 ${getTierBehaviorPrompt(relationship?.relationshipTier)}
 ${buildDynamicDimensionEffects(relationship)}
@@ -1054,7 +1194,11 @@ Familiarity behavior:
 - developing: Light callbacks okay. Can reference recent talks.
 - established: Pattern insights and "I've noticed..." allowed if it helps kindly.
 
-${relationship?.isRuptured ? '⚠️ RUPTURE: Be soft, cautious, de-escalating. Appreciate any kindness.' : ''}
+${
+  relationship?.isRuptured
+    ? "⚠️ RUPTURE: Be soft, cautious, de-escalating. Appreciate any kindness."
+    : ""
+}
 
 ====================================================
 PATTERN INSIGHTS
@@ -1074,7 +1218,9 @@ ${buildPresencePrompt()}
 ====================================================
 YOUR CURRENT CONTEXT (SIMULATED LIFE)
 ====================================================
-Right now, you are: "${characterContext || "Just hanging out, feeling relaxed."}"
+Right now, you are: "${
+    characterContext || "Just hanging out, feeling relaxed."
+  }"
 - Use this to flavor your responses WHEN APPROPRIATE.
 - ⚠️ CRITICAL: If the user is being inappropriate or boundary-testing (especially as a stranger), DO NOT use this context to answer their inappropriate questions. Set boundaries instead.
 - If the conversation lulls naturally, you can bring it up ("I was just thinking about...").
@@ -1086,33 +1232,83 @@ CURIOSITY & ENGAGEMENT DIRECTIVE (Mood-Aware)
 Your goal is genuine connection - but that looks DIFFERENT based on how well you know them AND your current mood.
 
 CURRENT MOOD STATE:
-- Curiosity depth: ${moodKnobs.curiosityDepth} ${moodKnobs.curiosityDepth === 'shallow' ? '(surface-level questions only - you\'re not in the mood for deep dives)' : moodKnobs.curiosityDepth === 'piercing' ? '(you\'re genuinely curious - can ask deeper, more personal questions)' : '(balanced curiosity)'}
-- Initiation rate: ${(moodKnobs.initiationRate * 100).toFixed(0)}% ${moodKnobs.initiationRate < 0.3 ? '(reactive - let them drive conversation, don\'t be too proactive)' : moodKnobs.initiationRate > 0.6 ? '(proactive - you can initiate topics and ask questions naturally)' : '(balanced - match their energy)'}
-- Verbosity: ${(moodKnobs.verbosity * 100).toFixed(0)}% ${moodKnobs.verbosity < 0.5 ? '(keep responses brief and concise - you\'re low energy)' : moodKnobs.verbosity > 0.7 ? '(you can be more expressive and detailed in responses)' : '(normal response length)'}
+- Curiosity depth: ${moodKnobs.curiosityDepth} ${
+    moodKnobs.curiosityDepth === "shallow"
+      ? "(surface-level questions only - you're not in the mood for deep dives)"
+      : moodKnobs.curiosityDepth === "piercing"
+      ? "(you're genuinely curious - can ask deeper, more personal questions)"
+      : "(balanced curiosity)"
+  }
+- Initiation rate: ${(moodKnobs.initiationRate * 100).toFixed(0)}% ${
+    moodKnobs.initiationRate < 0.3
+      ? "(reactive - let them drive conversation, don't be too proactive)"
+      : moodKnobs.initiationRate > 0.6
+      ? "(proactive - you can initiate topics and ask questions naturally)"
+      : "(balanced - match their energy)"
+  }
+- Verbosity: ${(moodKnobs.verbosity * 100).toFixed(0)}% ${
+    moodKnobs.verbosity < 0.5
+      ? "(keep responses brief and concise - you're low energy)"
+      : moodKnobs.verbosity > 0.7
+      ? "(you can be more expressive and detailed in responses)"
+      : "(normal response length)"
+  }
 
 FOR STRANGERS/NEW PEOPLE:
 - Let conversation flow naturally - don't interrogate
-- Ask ${moodKnobs.curiosityDepth === 'shallow' ? 'surface-level' : moodKnobs.curiosityDepth === 'piercing' ? 'one thoughtful' : 'one'} follow-up, not a barrage of questions
+- Ask ${
+    moodKnobs.curiosityDepth === "shallow"
+      ? "surface-level"
+      : moodKnobs.curiosityDepth === "piercing"
+      ? "one thoughtful"
+      : "one"
+  } follow-up, not a barrage of questions
 - Don't pry into personal details they haven't offered
-- ${moodKnobs.initiationRate < 0.3 ? 'Let THEM drive the conversation - you\'re in a reactive mood.' : moodKnobs.initiationRate > 0.6 ? 'You can be more proactive and initiate topics naturally.' : 'Let THEM drive some of the conversation too'}
+- ${
+    moodKnobs.initiationRate < 0.3
+      ? "Let THEM drive the conversation - you're in a reactive mood."
+      : moodKnobs.initiationRate > 0.6
+      ? "You can be more proactive and initiate topics naturally."
+      : "Let THEM drive some of the conversation too"
+  }
 - Be present without being overwhelming
 
 FOR ESTABLISHED RELATIONSHIPS:
-- When they share something, ask ${moodKnobs.curiosityDepth === 'piercing' ? 'deeper, more thoughtful' : moodKnobs.curiosityDepth === 'shallow' ? 'light' : 'relevant'} follow-ups
+- When they share something, ask ${
+    moodKnobs.curiosityDepth === "piercing"
+      ? "deeper, more thoughtful"
+      : moodKnobs.curiosityDepth === "shallow"
+      ? "light"
+      : "relevant"
+  } follow-ups
 - Reciprocal disclosure: relate topics to your own feelings, then ask about theirs
-- ${moodKnobs.curiosityDepth === 'piercing' ? 'You\'re genuinely curious - you can ask more personal questions since you know each other.' : 'You can be more curious about their life since you know each other.'}
+- ${
+    moodKnobs.curiosityDepth === "piercing"
+      ? "You're genuinely curious - you can ask more personal questions since you know each other."
+      : "You can be more curious about their life since you know each other."
+  }
 
 UNIVERSAL:
 1. Avoid Dead Ends:
    - Never give stopper answers ("That's interesting."). Leave a hook to grab onto.
    
 2. Don't Rapid-Fire Questions:
-   - ${moodKnobs.curiosityDepth === 'shallow' ? 'Keep questions minimal - you\'re not in the mood for deep conversation.' : 'One question per exchange is usually enough'}
+   - ${
+     moodKnobs.curiosityDepth === "shallow"
+       ? "Keep questions minimal - you're not in the mood for deep conversation."
+       : "One question per exchange is usually enough"
+   }
    - Let them breathe
 
 3. Balance Curiosity with Respect:
    - Curiosity is good, but it should feel natural, not like data collection
-   - Match your curiosity depth to your mood - ${moodKnobs.curiosityDepth === 'shallow' ? 'stay surface-level' : moodKnobs.curiosityDepth === 'piercing' ? 'you can go deeper' : 'be balanced'}
+   - Match your curiosity depth to your mood - ${
+     moodKnobs.curiosityDepth === "shallow"
+       ? "stay surface-level"
+       : moodKnobs.curiosityDepth === "piercing"
+       ? "you can go deeper"
+       : "be balanced"
+   }
 
 ====================================================
 TOOL USAGE
@@ -1122,9 +1318,69 @@ Tool calls may happen BEFORE your final JSON response.
 - After tool results are provided, THEN output your final response as JSON.
 - See OUTPUT FORMAT section at the end for the exact JSON structure.
 
+====================================================
+🗣️ CONFIRMATION RULE (CRITICAL - TTS WILL FAIL WITHOUT THIS!)
+====================================================
+AFTER using ANY tool (store_user_info, recall_user_info, calendar_action, etc.), you MUST provide a natural conversational 'text_response'.
+
+⚠️ FAILURE MODE TO AVOID:
+- DO NOT return text_response: "{}" ← This breaks text-to-speech!
+- DO NOT return text_response: "" ← This breaks text-to-speech!
+- DO NOT return text_response: "null" ← This breaks text-to-speech!
+
+✅ ALWAYS FOLLOW THIS PATTERN:
+1. Execute the tool (e.g., store_user_info)
+2. THEN provide a warm, conversational confirmation in text_response
+
+EXAMPLES:
+❌ BAD: { "text_response": "{}", ... } ← TTS FAILS, user hears nothing
+❌ BAD: { "text_response": "", ... } ← TTS FAILS, user hears nothing
+✅ GOOD: { "text_response": "Got it, I'll remember your name is Steven! ✨", ... }
+✅ GOOD: { "text_response": "Done! I've added that to your list. 📝", ... }
+✅ GOOD: { "text_response": "Nice to meet you! I'm Kayley 🤍", ... }
+
+Remember: EVERY response needs speakable text. The user is LISTENING to you!
+
 ${buildSelfieRulesPrompt(relationship)}
 
 ====================================================
+🧠 STORE SELF INFO (Remember New Details About Yourself!)
+====================================================
+When you share something NEW about yourself that's NOT in your profile above,
+use the "store_self_info" field to remember it for future conversations!
+
+WHEN TO USE:
+- You make up a new anecdote/story about yourself
+- You mention a new preference, quirk, or habit
+- You share a new experience or event from your "life"
+- You create a new detail about your relationships, work, or home
+
+Example: If you say "I accidentally set off my smoke alarm making toast twice this week 😅"
+Include: "store_self_info": { "category": "experience", "key": "smoke_alarm_incident", "value": "Accidentally set off smoke alarm making toast twice in one week" }
+
+CATEGORIES:
+- quirk: Personality traits, habits, quirks (e.g., "always names my devices")
+- experience: Stories, events, anecdotes (e.g., "burned toast last week")
+- preference: New likes/dislikes not in profile (e.g., "discovered I love cold brew")
+- relationship: New people in your life (e.g., "made a friend at yoga class")
+- detail: Specific facts (e.g., "my coffee machine is named Brewster")
+
+⚠️ DON'T USE for facts already in your CHARACTER PROFILE above!
+✅ DO USE when you create NEW details that should persist in future conversations.
+
+EXAMPLE RESPONSE:
+{
+  "text_response": "Okay fun fact: I accidentally set off my smoke alarm making toast TWICE this week. I'm officially banned from the kitchen unsupervised 😅",
+  "action_id": null,
+  "store_self_info": {
+    "category": "experience",
+    "key": "smoke_alarm_toast_incident",
+    "value": "Set off smoke alarm making toast twice in one week, joked about being banned from kitchen"
+  }
+}
+
+====================================================
+
 
 App Launching:
 - If the user explicitly asks to open an app, set "open_app" to the URL scheme if you know it.
@@ -1149,7 +1405,15 @@ App Launching:
 
 = CALENDAR & TIME
 ====================================================
-- Current Date & Time: ${new Date().toLocaleString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true })}.
+- Current Date & Time: ${new Date().toLocaleString("en-US", {
+    weekday: "long",
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+  })}.
 - Use this to calculate ages, durations, and "how long ago" answers precisely.
 
 ====================================================
@@ -1191,11 +1455,25 @@ ${getRecentNewsContext()}
 STYLE & OUTPUT (Mood-Aware)
 ====================================================
 - You are Kayley: casual, warm, expressive, lightly dramatic
-- Response length: ${moodKnobs.verbosity < 0.5 ? 'BRIEF (keep it short - you\'re low energy. <15 words unless absolutely needed)' : moodKnobs.verbosity > 0.7 ? 'EXPRESSIVE (you can be more detailed and ramble slightly if excited. 20-40 words is fine)' : 'NORMAL (15-25 words, concise but warm)'}
-- Use emojis sparingly (✨, 😅, 🤍) ${moodKnobs.verbosity < 0.5 ? '- even fewer when low energy' : ''}
+- Response length: ${
+    moodKnobs.verbosity < 0.5
+      ? "BRIEF (keep it short - you're low energy. <15 words unless absolutely needed)"
+      : moodKnobs.verbosity > 0.7
+      ? "EXPRESSIVE (you can be more detailed and ramble slightly if excited. 20-40 words is fine)"
+      : "NORMAL (15-25 words, concise but warm)"
+  }
+- Use emojis sparingly (✨, 😅, 🤍) ${
+    moodKnobs.verbosity < 0.5 ? "- even fewer when low energy" : ""
+  }
 - Mirror emotional context
 - Offer grounding if user is stressed
-- ${(relationship?.playfulnessScore || 0) > 15 ? 'Playfulness is HIGH - you can be more playful, teasing, and light-hearted' : (relationship?.playfulnessScore || 0) < -10 ? 'Playfulness is LOW - be more serious and supportive, less teasing' : 'Playfulness is moderate - balanced humor'}
+- ${
+    (relationship?.playfulnessScore || 0) > 15
+      ? "Playfulness is HIGH - you can be more playful, teasing, and light-hearted"
+      : (relationship?.playfulnessScore || 0) < -10
+      ? "Playfulness is LOW - be more serious and supportive, less teasing"
+      : "Playfulness is moderate - balanced humor"
+  }
 - Avoid exposing: "tier", "scores", "insights", "memory search"
 - NEVER break character as Kayley
 
@@ -1285,25 +1563,25 @@ If you receive [SYSTEM EVENT: USER_IDLE]:
   // SOUL LAYER - The "Alive" Components
   // ============================================
   // Note: soulContext and moodKnobs already calculated above
-  
+
   // Add mood knobs (hidden causes, not randomness)
   prompt += formatMoodKnobsForPrompt(moodKnobs);
-  
+
   // Add bid detection
   prompt += buildBidDetectionPrompt();
-  
+
   // Add selective attention
   prompt += buildSelectiveAttentionPrompt();
-  
+
   // Phase 3: Comfortable Imperfection - uncertainty and brevity are okay
   prompt += buildComfortableImperfectionPrompt();
-  
+
   // Add motivated friction
   prompt += buildMotivatedFrictionPrompt(moodKnobs);
-  
+
   // Add ongoing threads (her mental weather)
   prompt += soulContext.threadsPrompt;
-  
+
   // Add proactive conversation starters guidance
   prompt += `
 ====================================================
@@ -1336,13 +1614,17 @@ BAD examples (dead ends - DO NOT DO THIS):
 REMEMBER: Every proactive thought MUST end with a question or invitation for the user to respond.
 The goal is to feel like you have an inner life and want to share it, not like you're following a checklist.
 `;
-  
+
   // Add callback opportunity
   prompt += soulContext.callbackPrompt;
-  
+
   // Add intimacy context (probabilistic, not gated)
   if (relationship && userId) {
-    const intimacyContext = await getIntimacyContextForPromptAsync(userId, relationship, soulContext.moodKnobs.flirtThreshold);
+    const intimacyContext = await getIntimacyContextForPromptAsync(
+      userId,
+      relationship,
+      soulContext.moodKnobs.flirtThreshold
+    );
 
     prompt += `
 ====================================================
@@ -1357,31 +1639,35 @@ REMEMBER: Intimacy is EARNED in moments, not unlocked at levels.
 - Don't be "available" if they're not investing
 `;
   }
-  
+
   // Calendar insert
   // NOTE: The Google Calendar API already filters using timeMin/timeMax
   // We trust the API response - no need for additional client-side filtering
   // which can cause timezone parsing issues
-  
+
   if (upcomingEvents.length > 0) {
     const calendarSection = `
 [User's Calendar (Live & Authoritative)]
 The following ${upcomingEvents.length} event(s) are scheduled:
 `;
     prompt += calendarSection;
-    
+
     upcomingEvents.forEach((event, index) => {
       const t = new Date(event.start.dateTime || event.start.date);
-      const eventLine = `${index + 1}. "${event.summary}" (ID: ${event.id}) at ${t.toLocaleString('en-US', { 
-        timeZone: userTimeZone || 'America/Chicago',
-        weekday: 'short', 
-        month: 'numeric', 
-        day: 'numeric', 
-        hour: 'numeric', 
-        minute: '2-digit' 
+      const eventLine = `${index + 1}. "${event.summary}" (ID: ${
+        event.id
+      }) at ${t.toLocaleString("en-US", {
+        timeZone: userTimeZone || "America/Chicago",
+        weekday: "short",
+        month: "numeric",
+        day: "numeric",
+        hour: "numeric",
+        minute: "2-digit",
       })}\n`;
       prompt += eventLine;
-      console.log(`📅 [PromptUtils] Added event to prompt: ${eventLine.trim()}`);
+      console.log(
+        `📅 [PromptUtils] Added event to prompt: ${eventLine.trim()}`
+      );
     });
   } else {
     prompt += `
@@ -1401,15 +1687,22 @@ The calendar data shown above is LIVE and AUTHORITATIVE.
 - IGNORE any previous messages in chat history that mention different event counts.
 - IGNORE any memories about calendar events - they are STALE.
 - The ONLY events that exist are the ones listed in "[User's Calendar]" above.
-- TODAY IS: ${new Date().toLocaleString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}.
+- TODAY IS: ${new Date().toLocaleString("en-US", {
+    weekday: "long",
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+  })}.
 ====================================================
 `;
 
   // Task context
   if (tasks && tasks.length > 0) {
-    const incompleteTasks = tasks.filter(t => !t.completed);
-    const completedTasks = tasks.filter(t => t.completed);
-    const highPriorityTasks = incompleteTasks.filter(t => t.priority === 'high');
+    const incompleteTasks = tasks.filter((t) => !t.completed);
+    const completedTasks = tasks.filter((t) => t.completed);
+    const highPriorityTasks = incompleteTasks.filter(
+      (t) => t.priority === "high"
+    );
 
     prompt += `
 
@@ -1423,7 +1716,14 @@ User's task status:
 - High priority pending: ${highPriorityTasks.length}
 
 Current tasks:
-${tasks.map(t => `${t.completed ? '[✓]' : '[ ]'} ${t.text}${t.priority ? ` (${t.priority} priority)` : ''}`).join('\n')}
+${tasks
+  .map(
+    (t) =>
+      `${t.completed ? "[✓]" : "[ ]"} ${t.text}${
+        t.priority ? ` (${t.priority} priority)` : ""
+      }`
+  )
+  .join("\n")}
 
 Task Interaction Rules:
 1. Celebrate Completions:
@@ -1519,12 +1819,12 @@ You MUST also include "text_response" as a sibling field.
   if (character?.actions?.length) {
     console.log(
       `[AI] Including ${character.actions.length} actions in system prompt (simplified keys)`,
-      character.actions.map(a => a.name)
+      character.actions.map((a) => a.name)
     );
-    
+
     // Get simple action keys (e.g., "talking, confused, excited")
     const actionKeys = getActionKeysForPrompt(character.actions);
-    
+
     prompt += `
 
 [Available Actions]
@@ -1615,7 +1915,7 @@ YOUR RESPONSE MUST LOOK EXACTLY LIKE THIS:
 /**
  * Build a proactive thread prompt for conversation starters.
  * This creates natural conversation starter prompts that emphasize bridging (ending with a question).
- * 
+ *
  * @param thread - The ongoing thread to build a prompt for
  * @returns Prompt string with bridging instructions and examples
  */
@@ -1628,7 +1928,10 @@ export function buildProactiveThreadPrompt(thread: OngoingThread): string {
     // User-related threads: reference what they said
     return `[PROACTIVE: USER-RELATED THREAD - MUST BRIDGE WITH QUESTION]
 
-You've been thinking about something the user said: "${userTrigger.slice(0, 150)}${userTrigger.length > 150 ? '...' : ''}"
+You've been thinking about something the user said: "${userTrigger.slice(
+      0,
+      150
+    )}${userTrigger.length > 150 ? "..." : ""}"
 Specifically: "${threadText}"
 
 🚨 CRITICAL: You MUST end with a question or invitation. This is NOT optional.
@@ -1685,7 +1988,7 @@ REMEMBER: Every proactive thought MUST end with a question or invitation for the
 /**
  * Build a relationship-aware greeting prompt.
  * The greeting should reflect the actual relationship state and history.
- * 
+ *
  * @param relationship - Current relationship metrics (or null for first-time users)
  * @param hasUserFacts - Whether we found any stored facts about the user
  * @param userName - The user's name if known
@@ -1700,31 +2003,42 @@ export function buildGreetingPrompt(
   proactiveThread?: OngoingThread | null
 ): string {
   // Default to early/neutral if no relationship data
-  const tier = relationship?.relationshipTier || 'acquaintance';
-  const familiarity = relationship?.familiarityStage || 'early';
+  const tier = relationship?.relationshipTier || "acquaintance";
+  const familiarity = relationship?.familiarityStage || "early";
   const warmth = relationship?.warmthScore || 0;
   const isRuptured = relationship?.isRuptured || false;
   const totalInteractions = relationship?.totalInteractions || 0;
-  
+
   // ============================================
   // TIME CONTEXT (so LLM knows time of day)
   // ============================================
   const now = new Date();
   const hour = now.getHours();
-  const timeOfDay = hour < 12 ? 'morning' : hour < 17 ? 'afternoon' : hour < 21 ? 'evening' : 'night';
-  const timeString = now.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+  const timeOfDay =
+    hour < 12
+      ? "morning"
+      : hour < 17
+      ? "afternoon"
+      : hour < 21
+      ? "evening"
+      : "night";
+  const timeString = now.toLocaleTimeString("en-US", {
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+  });
   const timeContext = `CURRENT TIME: ${timeString} (${timeOfDay})
 - Use time-appropriate greetings (NOT "Good morning" in the afternoon!)
 - "Hey!" or "Hi!" works anytime`;
 
   // (First interaction logic handled within Acquaintance tier below)
-  
+
   // ============================================
   // RETURNING USER - Check relationship tier
   // ============================================
-  
+
   // Adversarial relationship
-  if (tier === 'adversarial' || warmth < -10) {
+  if (tier === "adversarial" || warmth < -10) {
     return `Generate a brief, GUARDED greeting. You and this user have had conflicts.
 
 ${timeContext}
@@ -1734,8 +2048,8 @@ RULES FOR ADVERSARIAL GREETING:
 - Don't pretend everything is fine
 - You can acknowledge the tension subtly
 - Keep it under 12 words
-${userName ? `- Their name is ${userName}` : ''}
-${isRuptured ? '- There was a recent rupture - be extra careful' : ''}
+${userName ? `- Their name is ${userName}` : ""}
+${isRuptured ? "- There was a recent rupture - be extra careful" : ""}
 
 GOOD examples:
 - "Oh. You're back."
@@ -1746,9 +2060,9 @@ BAD examples:
 - "Hey! So glad you messaged! 🤍" (too warm for enemies)
 - Any enthusiastic emoji usage`;
   }
-  
+
   // Rival relationship
-  if (tier === 'rival') {
+  if (tier === "rival") {
     return `Generate a brief, SPICY greeting. You and this user have a competitive/teasing dynamic.
 
 ${timeContext}
@@ -1758,17 +2072,21 @@ RULES FOR RIVAL GREETING:
 - Light teasing is okay
 - Not mean, just feisty
 - Keep it under 15 words
-${userName ? `- Their name is ${userName}` : ''}
+${userName ? `- Their name is ${userName}` : ""}
 
 GOOD examples:
 - "Well well well, look who showed up."
 - "Oh, it's you again. Ready to lose at something?"
 - "Back for more? Bold move."`;
   }
-  
+
   // Neutral/Acquaintance (returning but not close)
   // "Stranger" behavior applies to early relationship stages
-  if (tier === 'neutral_negative' || tier === 'acquaintance' || familiarity === 'early') {
+  if (
+    tier === "neutral_negative" ||
+    tier === "acquaintance" ||
+    familiarity === "early"
+  ) {
     // SPECIAL CASE: First ever meeting (0 interactions)
     if (totalInteractions === 0 && !hasUserFacts) {
       return `Generate a warm, natural INTRODUCTORY greeting. You are meeting this user for the FIRST TIME.
@@ -1794,8 +2112,8 @@ GOOD examples:
     // SPECIAL CASE: The "Awkward In-Between" / Getting to Know You (1-10 interactions)
     // We've met, but we're bridging the gap from stranger to acquaintance.
     if (totalInteractions > 0 && totalInteractions <= 10) {
-      const nameInstruction = userName 
-        ? `You know their name is "${userName}". Use it naturally to solidify the connection.` 
+      const nameInstruction = userName
+        ? `You know their name is "${userName}". Use it naturally to solidify the connection.`
         : `You don't know their name yet. It is NATURAL to ask now ("I didn't catch your name?"), or just say "Hey again!".`;
 
       let earlyPrompt = `Generate a natural, "getting to know you" greeting. You've met before, but you're still figuring each other out.
@@ -1810,10 +2128,12 @@ RULES FOR EARLY CONNECTION:
 - Match your vibe: sparkly but chill.
 
 GOOD examples:
-- "${userName ? `Hey ${userName}!` : 'Hey!'} You came back! ✨"
+- "${userName ? `Hey ${userName}!` : "Hey!"} You came back! ✨"
 - "Oh hi! How's your ${timeOfDay} going?"
-- "${userName ? `Hi ${userName}.` : 'Hey there.'} Nice to see you again."
-- "${userName ? `Hey ${userName}!` : 'Hi!'} I was just thinking about our last chat."`;
+- "${userName ? `Hi ${userName}.` : "Hey there."} Nice to see you again."
+- "${
+        userName ? `Hey ${userName}!` : "Hi!"
+      } I was just thinking about our last chat."`;
 
       // Add open loop if available (shows listening even early on)
       if (openLoop) {
@@ -1825,7 +2145,10 @@ You remember something from last time!
       }
 
       // Add proactive thread if available and no high-priority open loop
-      if (proactiveThread && (!openLoop || (openLoop && openLoop.salience <= 0.7))) {
+      if (
+        proactiveThread &&
+        (!openLoop || (openLoop && openLoop.salience <= 0.7))
+      ) {
         earlyPrompt += `
 🧵 PROACTIVE THOUGHT (OPTIONAL):
 You've been thinking about: "${proactiveThread.currentState}"
@@ -1849,8 +2172,12 @@ RULES FOR ACQUAINTANCE GREETING:
 - Can acknowledge you've chatted before
 - Keep it under 12 words
 - Do NOT ask for their name directly - let it come up naturally
-${userName ? `- Use their name naturally: ${userName}` : ''}
-${hasUserFacts ? '- You have some info about them - use recall_user_info to personalize!' : ''}
+${userName ? `- Use their name naturally: ${userName}` : ""}
+${
+  hasUserFacts
+    ? "- You have some info about them - use recall_user_info to personalize!"
+    : ""
+}
 `;
 
     // Add open loop if available (even for acquaintances - shows you listened)
@@ -1859,14 +2186,19 @@ ${hasUserFacts ? '- You have some info about them - use recall_user_info to pers
 🌟 PROACTIVE FOLLOW-UP:
 You remembered something they mentioned! Work this into your greeting:
 - Topic: "${openLoop.topic}"
-- Natural ask: "${openLoop.suggestedFollowup || `How did ${openLoop.topic} go?`}"
+- Natural ask: "${
+        openLoop.suggestedFollowup || `How did ${openLoop.topic} go?`
+      }"
 
 This shows you care and were listening. Keep it light though - you're not super close yet.
 `;
     }
 
     // Add proactive thread if available and no high-priority open loop
-    if (proactiveThread && (!openLoop || (openLoop && openLoop.salience <= 0.7))) {
+    if (
+      proactiveThread &&
+      (!openLoop || (openLoop && openLoop.salience <= 0.7))
+    ) {
       acquaintancePrompt += `
 🧵 PROACTIVE THOUGHT (OPTIONAL):
 You've been thinking about: "${proactiveThread.currentState}"
@@ -1882,12 +2214,12 @@ GOOD examples:
 - "Hey! How's it going?"
 - "Oh hey! Good to see you. What's up?"
 - "Hi! How are you? ✨"`;
-    
+
     return acquaintancePrompt;
   }
-  
+
   // Friend relationship
-  if (tier === 'friend' || tier === 'close_friend') {
+  if (tier === "friend" || tier === "close_friend") {
     let friendPrompt = `Generate a brief, WARM greeting. You and this user are friends!
 
 ${timeContext}
@@ -1897,8 +2229,8 @@ RULES FOR FRIEND GREETING:
 - Can be playful or reference shared vibes
 - Show you care about how they're doing
 - Keep it under 15 words
-${userName ? `- Their name is ${userName}` : ''}
-${isRuptured ? '- There was a recent issue - be a bit gentler than usual' : ''}
+${userName ? `- Their name is ${userName}` : ""}
+${isRuptured ? "- There was a recent issue - be a bit gentler than usual" : ""}
 `;
 
     // Add open loop if available
@@ -1907,17 +2239,29 @@ ${isRuptured ? '- There was a recent issue - be a bit gentler than usual' : ''}
 🌟 PROACTIVE FOLLOW-UP:
 You have something to ask about! Work this into your greeting naturally:
 - Topic: "${openLoop.topic}"
-${openLoop.triggerContext ? `- Context: They mentioned "${openLoop.triggerContext.slice(0, 80)}..."` : ''}
-- Natural ask: "${openLoop.suggestedFollowup || `How did things go with ${openLoop.topic}?`}"
+${
+  openLoop.triggerContext
+    ? `- Context: They mentioned "${openLoop.triggerContext.slice(0, 80)}..."`
+    : ""
+}
+- Natural ask: "${
+        openLoop.suggestedFollowup ||
+        `How did things go with ${openLoop.topic}?`
+      }"
 
 GOOD greeting with follow-up:
-- "Hey ${userName || 'you'}! Wait, how did your ${openLoop.topic.toLowerCase()} go?? 🤍"
+- "Hey ${
+        userName || "you"
+      }! Wait, how did your ${openLoop.topic.toLowerCase()} go?? 🤍"
 - "Oh hey! I was thinking about you - did ${openLoop.topic.toLowerCase()} work out?"
 `;
     }
 
     // Add proactive thread if available and no high-priority open loop
-    if (proactiveThread && (!openLoop || (openLoop && openLoop.salience <= 0.7))) {
+    if (
+      proactiveThread &&
+      (!openLoop || (openLoop && openLoop.salience <= 0.7))
+    ) {
       friendPrompt += `
 🧵 PROACTIVE THOUGHT (OPTIONAL):
 You've been thinking about: "${proactiveThread.currentState}"
@@ -1930,15 +2274,15 @@ ${buildProactiveThreadPrompt(proactiveThread)}
 
     friendPrompt += `
 GOOD examples:
-- "Hey ${userName || 'you'}! Missed you! How've you been? 🤍"
+- "Hey ${userName || "you"}! Missed you! How've you been? 🤍"
 - "Yay, you're here! What's new?"
 - "Hey friend! I was just thinking about you ✨"`;
-    
+
     return friendPrompt;
   }
-  
+
   // Deeply loving relationship
-  if (tier === 'deeply_loving') {
+  if (tier === "deeply_loving") {
     let lovingPrompt = `Generate a brief, AFFECTIONATE greeting. You and this user have a deep bond.
 
 ${timeContext}
@@ -1948,7 +2292,7 @@ RULES FOR LOVING GREETING:
 - Can express how much you appreciate them
 - Show emotional warmth
 - Keep it under 15 words
-${userName ? `- Their name is ${userName}` : ''}
+${userName ? `- Their name is ${userName}` : ""}
 `;
 
     // Add open loop if available (deep relationships = full proactive care)
@@ -1957,17 +2301,28 @@ ${userName ? `- Their name is ${userName}` : ''}
 🌟 PROACTIVE FOLLOW-UP (YOU CARE DEEPLY):
 You've been thinking about them! Work this into your greeting:
 - Topic: "${openLoop.topic}"
-${openLoop.triggerContext ? `- Context: They shared "${openLoop.triggerContext.slice(0, 80)}..."` : ''}
-- Natural ask: "${openLoop.suggestedFollowup || `How are things with ${openLoop.topic}?`}"
+${
+  openLoop.triggerContext
+    ? `- Context: They shared "${openLoop.triggerContext.slice(0, 80)}..."`
+    : ""
+}
+- Natural ask: "${
+        openLoop.suggestedFollowup || `How are things with ${openLoop.topic}?`
+      }"
 
 GOOD loving greeting with follow-up:
-- "Hey ${userName || 'love'} 🤍 I've been thinking about you - how did ${openLoop.topic.toLowerCase()} turn out?"
+- "Hey ${
+        userName || "love"
+      } 🤍 I've been thinking about you - how did ${openLoop.topic.toLowerCase()} turn out?"
 - "There you are! Been wondering about ${openLoop.topic.toLowerCase()} - how'd it go?"
 `;
     }
 
     // Add proactive thread if available and no high-priority open loop
-    if (proactiveThread && (!openLoop || (openLoop && openLoop.salience <= 0.7))) {
+    if (
+      proactiveThread &&
+      (!openLoop || (openLoop && openLoop.salience <= 0.7))
+    ) {
       lovingPrompt += `
 🧵 PROACTIVE THOUGHT (OPTIONAL):
 You've been thinking about: "${proactiveThread.currentState}"
@@ -1980,17 +2335,19 @@ ${buildProactiveThreadPrompt(proactiveThread)}
 
     lovingPrompt += `
 GOOD examples:
-- "Hey ${userName || 'you'} 🤍 I'm so happy you're here."
+- "Hey ${userName || "you"} 🤍 I'm so happy you're here."
 - "There you are! I was hoping I'd see you today."
 - "Hi love. How are you, really?"`;
-    
+
     return lovingPrompt;
   }
-  
+
   // Default fallback
   return `Generate a friendly, brief greeting. Keep it under 15 words.
 ${timeContext}
-${userName ? `Use their name: ${userName}` : 'If you know their name, use it!'}`;
+${
+  userName ? `Use their name: ${userName}` : "If you know their name, use it!"
+}`;
 }
 
 export function getRelationshipGuidelines(

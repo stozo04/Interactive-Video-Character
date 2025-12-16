@@ -82,6 +82,8 @@ function normalizeAiResponse(rawJson: any, rawText: string): AIActionResponse {
     calendar_action: rawJson.calendar_action || null,
     news_action: rawJson.news_action || null,
     selfie_action: rawJson.selfie_action || null,
+    // Store new character facts
+    store_self_info: rawJson.store_self_info || null,
   };
 }
 
