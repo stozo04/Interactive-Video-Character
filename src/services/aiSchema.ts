@@ -549,6 +549,31 @@ export const OpenAIMemoryToolDeclarations = [
       },
       required: ["action"]
     }
+  },
+  {
+    type: "function" as const,
+    name: "store_character_info",
+    description: 
+      "Save a new fact about YOURSELF (Kayley). Use this when you decide on a name for an item, a preference, or a relationship detail that should be remembered.",
+    parameters: {
+      type: "object",
+      properties: {
+        category: {
+          type: "string",
+          enum: ["quirk", "relationship", "experience", "preference", "detail", "other"],
+          description: "Category of the fact regarding yourself"
+        },
+        key: {
+          type: "string",
+          description: "Fact type (e.g., 'laptop_name', 'favorite_color')"
+        },
+        value: {
+          type: "string",
+          description: "The value to store"
+        }
+      },
+      required: ["category", "key", "value"]
+    }
   }
 ];
 
@@ -561,7 +586,7 @@ export const OpenAIMemoryToolDeclarations = [
  */
 export interface PendingToolCall {
   id: string;
-  name: 'recall_memory' | 'recall_user_info' | 'store_user_info' | 'task_action' | 'calendar_action';
+  name: 'recall_memory' | 'recall_user_info' | 'store_user_info' | 'task_action' | 'calendar_action' | 'store_character_info';
   arguments: Record<string, any>;
 }
 

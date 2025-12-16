@@ -32,6 +32,11 @@ vi.mock('../taskService', () => ({
   deleteTask: vi.fn().mockResolvedValue(true),
 }));
 
+// Mock characterFactsService
+vi.mock('../characterFactsService', () => ({
+  storeCharacterFact: vi.fn().mockResolvedValue(true),
+}));
+
 describe('memoryService', () => {
   const userId = 'test-user-id';
   const mockAccessToken = 'mock-access-token';
@@ -163,8 +168,6 @@ describe('memoryService', () => {
   });
 
   describe('task_action', () => {
-    // We need to access the mocked functions to assert on them and change their return values
-    // Re-importing inside the test file to get the same mocked instance
     let taskServiceMock: any;
 
     beforeEach(async () => {
@@ -245,5 +248,24 @@ describe('memoryService', () => {
     });
   });
 
+  describe('store_character_info', () => {
+    let charFactsMock: any;
+    
+    beforeEach(async () => {
+       charFactsMock = await import('../characterFactsService');
+    });
 
+    it('should store character fact successfully', async () => {
+      const args: ToolCallArgs['store_character_info'] = {
+        category: 'preference',
+        key: 'laptop_name',
+        value: 'Nova'
+      };
+      
+      const result = await executeMemoryTool('store_character_info', args, userId);
+      
+      expect(charFactsMock.storeCharacterFact).toHaveBeenCalledWith(undefined, 'preference', 'laptop_name', 'Nova');
+      expect(result).toContain('✓ Stored character fact');
+    });
+  });
 });
