@@ -77,7 +77,7 @@ function normalizeAiResponse(rawJson: any, rawText: string): AIActionResponse {
     text_response: rawJson.text_response || rawJson.response || rawText,
     action_id: actionId,
     user_transcription: rawJson.user_transcription || null,
-    task_action: rawJson.task_action || null,
+    // NOTE: task_action is now a function tool, not part of JSON response
     open_app: rawJson.open_app || null,
     calendar_action: rawJson.calendar_action || null,
     news_action: rawJson.news_action || null,
@@ -172,7 +172,10 @@ export const chatGPTService: IAIChatService = {
 
             console.log(`🔧 [ChatGPT] Executing tool: ${toolName} (callId=${callId})`, toolArgs);
             
-            const result = await executeMemoryTool(toolName, toolArgs, userId);
+            const result = await executeMemoryTool(toolName, toolArgs, userId, {
+              googleAccessToken: options.googleAccessToken,
+              currentEvents: options.upcomingEvents
+            });
             
             toolResults.push({
               type: "function_call_output",

@@ -40,27 +40,8 @@ export const AIActionResponseSchema = z.object({
   ),
 
   /**
-   * Task management actions - used when user wants to interact with their daily checklist
-   */
-  task_action: z.object({
-    action: z.enum(['create', 'complete', 'delete', 'list']).nullable().describe(
-      "The task action to perform: 'create' to add a new task, 'complete' to mark done, 'delete' to remove, 'list' to show all tasks, or null for no task action"
-    ),
-    task_text: z.string().optional().describe(
-      "The text of the task to create, or partial text to match for complete/delete actions"
-    ),
-    task_id: z.string().optional().describe(
-      "The specific task ID if known"
-    ),
-    priority: z.enum(['low', 'medium', 'high']).optional().describe(
-      "Priority level for new tasks"
-    )
-  }).nullable().optional().describe(
-    "Task management action if the user wants to interact with their checklist"
-  ),
-
-  /**
    * Calendar management actions - used when user wants to create/delete calendar events
+   * NOTE: task_action has been moved to a function tool (see GeminiMemoryToolDeclarations)
    */
   calendar_action: z.object({
     action: z.enum(['create', 'delete']).describe(
@@ -339,6 +320,82 @@ export const GeminiMemoryToolDeclarations = [
       },
       required: ["category", "key", "value"]
     }
+  },
+  {
+    name: "task_action",
+    description: 
+      "Manage the user's daily checklist/tasks. " +
+      "Use 'create' to add a new task, 'complete' to mark a task done, " +
+      "'delete' to remove a task, 'list' to show all tasks. " +
+      "Examples: 'Add buy milk to my list', 'Mark groceries as done', 'What's on my checklist?'",
+    parameters: {
+      type: "object",
+      properties: {
+        action: {
+          type: "string",
+          enum: ["create", "complete", "delete", "list"],
+          description: "The task action to perform"
+        },
+        task_text: {
+          type: "string",
+          description: "For create: the task description. For complete/delete: partial text to match the task."
+        },
+        priority: {
+          type: "string",
+          enum: ["low", "medium", "high"],
+          description: "Priority level for new tasks (default: low)"
+        }
+      },
+      required: ["action"]
+    }
+  },
+  {
+    name: "calendar_action",
+    description: 
+      "Create or delete Google Calendar events. " +
+      "Use 'create' to add a new event (requires summary, start time, end time). " +
+      "Use 'delete' to remove an event by ID. " +
+      "Examples: 'Add meeting at 2pm to my calendar', 'Delete the dentist appointment'",
+    parameters: {
+      type: "object",
+      properties: {
+        action: {
+          type: "string",
+          enum: ["create", "delete"],
+          description: "The calendar action to perform"
+        },
+        summary: {
+          type: "string",
+          description: "For create: the event title/summary"
+        },
+        start: {
+          type: "string",
+          description: "For create: ISO datetime for event start (e.g., '2025-12-16T14:00:00')"
+        },
+        end: {
+          type: "string",
+          description: "For create: ISO datetime for event end (e.g., '2025-12-16T15:00:00')"
+        },
+        timeZone: {
+          type: "string",
+          description: "Timezone for the event (default: 'America/Chicago')"
+        },
+        event_id: {
+          type: "string",
+          description: "For delete: the event ID from the calendar list"
+        },
+        event_ids: {
+          type: "array",
+          items: { type: "string" },
+          description: "For delete multiple: array of event IDs"
+        },
+        delete_all: {
+          type: "boolean",
+          description: "For delete: set to true to delete ALL events"
+        }
+      },
+      required: ["action"]
+    }
   }
 ];
 
@@ -416,6 +473,82 @@ export const OpenAIMemoryToolDeclarations = [
       },
       required: ["category", "key", "value"]
     }
+  },
+  {
+    type: "function" as const,
+    name: "task_action",
+    description: 
+      "Manage the user's daily checklist/tasks. " +
+      "Use 'create' to add a new task, 'complete' to mark a task done, " +
+      "'delete' to remove a task, 'list' to show all tasks.",
+    parameters: {
+      type: "object",
+      properties: {
+        action: {
+          type: "string",
+          enum: ["create", "complete", "delete", "list"],
+          description: "The task action to perform"
+        },
+        task_text: {
+          type: "string",
+          description: "For create: the task description. For complete/delete: partial text to match the task."
+        },
+        priority: {
+          type: "string",
+          enum: ["low", "medium", "high"],
+          description: "Priority level for new tasks (default: low)"
+        }
+      },
+      required: ["action"]
+    }
+  },
+  {
+    type: "function" as const,
+    name: "calendar_action",
+    description: 
+      "Create or delete Google Calendar events. " +
+      "Use 'create' to add a new event (requires summary, start time, end time). " +
+      "Use 'delete' to remove an event by ID.",
+    parameters: {
+      type: "object",
+      properties: {
+        action: {
+          type: "string",
+          enum: ["create", "delete"],
+          description: "The calendar action to perform"
+        },
+        summary: {
+          type: "string",
+          description: "For create: the event title/summary"
+        },
+        start: {
+          type: "string",
+          description: "For create: ISO datetime for event start (e.g., '2025-12-16T14:00:00')"
+        },
+        end: {
+          type: "string",
+          description: "For create: ISO datetime for event end (e.g., '2025-12-16T15:00:00')"
+        },
+        timeZone: {
+          type: "string",
+          description: "Timezone for the event (default: 'America/Chicago')"
+        },
+        event_id: {
+          type: "string",
+          description: "For delete: the event ID from the calendar list"
+        },
+        event_ids: {
+          type: "array",
+          items: { type: "string" },
+          description: "For delete multiple: array of event IDs"
+        },
+        delete_all: {
+          type: "boolean",
+          description: "For delete: set to true to delete ALL events"
+        }
+      },
+      required: ["action"]
+    }
   }
 ];
 
@@ -428,7 +561,7 @@ export const OpenAIMemoryToolDeclarations = [
  */
 export interface PendingToolCall {
   id: string;
-  name: 'recall_memory' | 'recall_user_info' | 'store_user_info';
+  name: 'recall_memory' | 'recall_user_info' | 'store_user_info' | 'task_action' | 'calendar_action';
   arguments: Record<string, any>;
 }
 
