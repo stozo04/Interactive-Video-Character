@@ -63,9 +63,30 @@ export interface IAIChatService {
     relationship?: RelationshipMetrics | null,
     characterContext?: string
   ): Promise<{ 
-      greeting: AIActionResponse; 
-      session: AIChatSession;
-      audioData?: string; // URL to blob or base64 audio data
-      intent?: FullMessageIntent;
+    greeting: AIActionResponse; 
+    session: AIChatSession;
+    audioData?: string; // URL to blob or base64 audio data
+    intent?: FullMessageIntent;
   }>;
+
+  triggerIdleBreaker?(
+    userId: string,
+    options: {
+      character?: CharacterProfile;
+      relationship?: RelationshipMetrics | null;
+      tasks?: any[];
+      chatHistory?: any[];
+      characterContext?: string;
+      upcomingEvents?: any[];
+      proactiveSettings?: {
+        checkins?: boolean;
+        news?: boolean;
+      };
+    },
+    session?: AIChatSession
+  ): Promise<{ 
+    response: AIActionResponse; 
+    session: AIChatSession; 
+    audioData?: string;
+  } | null>;
 }

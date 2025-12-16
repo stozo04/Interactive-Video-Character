@@ -604,7 +604,23 @@ export class GeminiService extends BaseAIService {
           console.log('[Gemini] Could not fetch open loop for greeting');
         }
 
-        const greetingPrompt = buildGreetingPrompt(relationship, hasUserFacts, userName, topOpenLoop);
+        // Fetch proactive thread (Priority Router: only use if open loop is low/none)
+        let proactiveThread = null;
+        try {
+          const { getOngoingThreadsAsync, selectProactiveThread } = await import('./ongoingThreads');
+          const threads = await getOngoingThreadsAsync(userId);
+          const activeThread = selectProactiveThread(threads);
+          
+          // Only use thread if no high-priority open loop (Priority Router logic)
+          if (activeThread && (!topOpenLoop || (topOpenLoop && topOpenLoop.salience <= 0.7))) {
+            proactiveThread = activeThread;
+            console.log(`🧵 [Gemini] Found proactive thread for greeting: "${activeThread.currentState}"`);
+          }
+        } catch (e) {
+          console.log('[Gemini] Could not fetch proactive thread for greeting');
+        }
+
+        const greetingPrompt = buildGreetingPrompt(relationship, hasUserFacts, userName, topOpenLoop, proactiveThread);
         console.log(`🤖 [Gemini] Greeting tier: ${relationship?.relationshipTier || 'new'}, interactions: ${relationship?.totalInteractions || 0}`);
 
         // Build config - add memory tools for personalized greetings
@@ -683,6 +699,12 @@ export class GeminiService extends BaseAIService {
         if (topOpenLoop) {
           await markLoopSurfaced(topOpenLoop.id);
           console.log(`✅ [Gemini] Marked loop as surfaced: "${topOpenLoop.topic}"`);
+        }
+
+        // Mark thread as mentioned if we used it
+        if (proactiveThread) {
+          const { markThreadMentionedAsync } = await import('./ongoingThreads');
+          markThreadMentionedAsync(userId, proactiveThread.id).catch(console.error);
         }
 
         return { 

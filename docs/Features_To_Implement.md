@@ -6,11 +6,7 @@
 
 ## 🎯 High Priority (Next Up)
 
-### 1. Semantic Intent Detection (In Progress)
-Replace hardcoded keywords with LLM-based detection.
-- **Phase 1**: Genuine moment detection
-- **Phases 2-6**: Tone, mood, topics, open loops, relationship signals
-- **See**: `docs/Semantic_Intent_Detection.md`
+
 
 ### 2. Proactive Conversation Starters
 Kayley initiates topics based on her ongoing threads, not just responds.
