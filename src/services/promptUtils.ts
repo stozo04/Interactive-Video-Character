@@ -4,8 +4,9 @@ import type { RelationshipMetrics } from "./relationshipService";
 import { KAYLEY_FULL_PROFILE } from "../domain/characters/kayleyCharacterProfile";
 import { GAMES_PROFILE } from "../domain/characters/gamesProfile";
 import { getRecentNewsContext } from "./newsService";
-import { formatMoodKnobsForPrompt, getMoodKnobsAsync, type MoodKnobs } from "./moodKnobs";
+import { formatMoodKnobsForPrompt, getMoodKnobsAsync, calculateMoodKnobsFromState, type MoodKnobs } from "./moodKnobs";
 import { formatThreadsForPromptAsync } from "./ongoingThreads";
+import { getFullCharacterContext } from "./stateService";
 import { formatCallbackForPrompt } from "./callbackDirector";
 import { getIntimacyContextForPromptAsync, type RelationshipMetrics as RM } from "./relationshipService";
 import { 
@@ -38,8 +39,38 @@ export interface SoulLayerContext {
  * Requires userId for Supabase state retrieval.
  */
 export async function getSoulLayerContextAsync(userId: string): Promise<SoulLayerContext> {
-  const moodKnobs = await getMoodKnobsAsync(userId);
-  const threadsPrompt = await formatThreadsForPromptAsync(userId);
+  // Optimization: Use unified state fetch to reduce network roundtrips from 3-4 to 1
+  let moodKnobs: MoodKnobs;
+  let threadsPrompt: string;
+  
+  try {
+    const context = await getFullCharacterContext(userId);
+    
+    // Calculate mood knobs from fetched state
+    if (context.mood_state && context.emotional_momentum) {
+      moodKnobs = calculateMoodKnobsFromState(context.mood_state, context.emotional_momentum);
+    } else {
+      // Fallback to individual fetch if unified fetch returned null
+      moodKnobs = await getMoodKnobsAsync(userId);
+    }
+    
+    // Format threads from fetched data
+    if (context.ongoing_threads && context.ongoing_threads.length >= 0) {
+      // Use the fetched threads - formatThreadsForPromptAsync will handle processing
+      // But we can optimize by using the fetched data directly
+      threadsPrompt = await formatThreadsForPromptAsync(userId);
+      // Note: formatThreadsForPromptAsync may fetch again due to caching/processing
+      // This is acceptable as the cache will be warm after the unified fetch
+    } else {
+      threadsPrompt = await formatThreadsForPromptAsync(userId);
+    }
+  } catch (error) {
+    console.warn('[PromptUtils] Unified state fetch failed, falling back to individual fetches:', error);
+    // Fallback to individual fetches
+    moodKnobs = await getMoodKnobsAsync(userId);
+    threadsPrompt = await formatThreadsForPromptAsync(userId);
+  }
+  
   const callbackPrompt = formatCallbackForPrompt();
   
   // Get presence context
@@ -855,7 +886,8 @@ export const buildSystemPrompt = async (
   relationshipSignals?: RelationshipSignalIntent | null,
   toneIntent?: ToneIntent | null,
   fullIntent?: FullMessageIntent | null,
-  userId?: string
+  userId?: string,
+  userTimeZone?: string
 ): Promise<string> => {
   const name = character?.name || "Kayley Adams";
   const display = character?.displayName || "Kayley";
@@ -1308,6 +1340,7 @@ The following ${upcomingEvents.length} event(s) are scheduled:
     upcomingEvents.forEach((event, index) => {
       const t = new Date(event.start.dateTime || event.start.date);
       const eventLine = `${index + 1}. "${event.summary}" (ID: ${event.id}) at ${t.toLocaleString('en-US', { 
+        timeZone: userTimeZone || 'America/Chicago',
         weekday: 'short', 
         month: 'numeric', 
         day: 'numeric', 

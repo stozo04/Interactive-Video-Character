@@ -126,7 +126,7 @@ export class GrokService extends BaseAIService {
 
   async generateGreeting(character: any, session: any, relationship: any, characterContext?: string) {
     const userId = session?.userId || USER_ID;
-    const systemPrompt = buildSystemPrompt(character, relationship, [], characterContext);
+    const systemPrompt = await buildSystemPrompt(character, relationship, [], characterContext, undefined, undefined, undefined, undefined, undefined, undefined);
     
     // Fetch any open loops to ask about proactively
     // Note: Grok CAN use open loops since they're fetched before prompting

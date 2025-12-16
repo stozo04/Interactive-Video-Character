@@ -215,9 +215,29 @@ export async function getEmotionalMomentum(userId: string): Promise<EmotionalMom
 
 /**
  * Save emotional momentum to Supabase
+ * 
+ * NOTE: Race condition risk exists if user sends multiple messages quickly.
+ * For single-user prototype, this is acceptable. For production, consider
+ * implementing optimistic concurrency control using updated_at timestamps.
  */
-export async function saveEmotionalMomentum(userId: string, momentum: EmotionalMomentum): Promise<void> {
+export async function saveEmotionalMomentum(userId: string, momentum: EmotionalMomentum, expectedUpdatedAt?: string): Promise<void> {
   try {
+    // If expectedUpdatedAt is provided, check for race condition (optimistic concurrency)
+    if (expectedUpdatedAt) {
+      const { data: current, error: fetchError } = await supabase
+        .from(EMOTIONAL_MOMENTUM_TABLE)
+        .select('updated_at')
+        .eq('user_id', userId)
+        .single();
+      
+      if (!fetchError && current && current.updated_at !== expectedUpdatedAt) {
+        // Race condition detected: data was modified since fetch
+        console.warn('[StateService] Race condition detected in saveEmotionalMomentum: updated_at mismatch. Data may have been modified by another request.');
+        // For single-user prototype: Log warning but proceed (graceful degradation)
+        // For production: Fetch fresh data, merge changes, and retry
+      }
+    }
+    
     await supabase
       .from(EMOTIONAL_MOMENTUM_TABLE)
       .upsert({
@@ -382,9 +402,154 @@ export async function getIntimacyState(userId: string): Promise<IntimacyState> {
 
 /**
  * Save intimacy state to Supabase
+ * 
+ * NOTE: Race condition risk exists if user sends multiple messages quickly.
+ * For single-user prototype, this is acceptable. For production, consider
+ * implementing optimistic concurrency control using updated_at timestamps.
  */
-export async function saveIntimacyState(userId: string, state: IntimacyState): Promise<void> {
+// ============================================
+// UNIFIED STATE FETCH (Performance Optimization)
+// ============================================
+
+/**
+ * Unified state fetch - gets all character context in a single RPC call
+ * Optimizes network roundtrips from 3-4 calls to 1
+ * 
+ * @param userId - User ID for Supabase lookup
+ * @returns Object containing mood_state, emotional_momentum, ongoing_threads, intimacy_state
+ */
+export async function getFullCharacterContext(userId: string): Promise<{
+  mood_state: MoodState | null;
+  emotional_momentum: EmotionalMomentum | null;
+  ongoing_threads: OngoingThread[];
+  intimacy_state: IntimacyState | null;
+}> {
   try {
+    const { data, error } = await supabase.rpc('get_full_character_context', {
+      user_id: userId
+    });
+    
+    if (error) {
+      console.error('[StateService] Error fetching full character context:', error);
+      // Fallback to individual fetches
+      const [mood, momentum, threads, intimacy] = await Promise.all([
+        getMoodState(userId).catch(() => null),
+        getEmotionalMomentum(userId).catch(() => null),
+        getOngoingThreads(userId).catch(() => []),
+        getIntimacyState(userId).catch(() => null)
+      ]);
+      
+      return {
+        mood_state: mood,
+        emotional_momentum: momentum,
+        ongoing_threads: threads,
+        intimacy_state: intimacy
+      };
+    }
+    
+    // Parse the JSON response
+    const context = data as any;
+    
+    // Transform database rows to TypeScript interfaces
+    const transformMoodState = (row: any): MoodState | null => {
+      if (!row) return null;
+      return {
+        dailyEnergy: row.daily_energy,
+        socialBattery: row.social_battery,
+        internalProcessing: row.internal_processing,
+        calculatedAt: new Date(row.calculated_at).getTime(),
+        dailySeed: row.daily_seed,
+        lastInteractionAt: row.last_interaction_at ? new Date(row.last_interaction_at).getTime() : Date.now(),
+        lastInteractionTone: row.last_interaction_tone ?? 0,
+      };
+    };
+    
+    const transformEmotionalMomentum = (row: any): EmotionalMomentum | null => {
+      if (!row) return null;
+      return {
+        currentMoodLevel: row.current_mood_level,
+        momentumDirection: row.momentum_direction,
+        positiveInteractionStreak: row.positive_interaction_streak,
+        recentInteractionTones: row.recent_interaction_tones || [],
+        genuineMomentDetected: row.genuine_moment_detected,
+        lastGenuineMomentAt: row.last_genuine_moment_at ? new Date(row.last_genuine_moment_at).getTime() : null,
+      };
+    };
+    
+    const transformOngoingThreads = (rows: any[]): OngoingThread[] => {
+      if (!rows || !Array.isArray(rows)) return [];
+      return rows.map(row => ({
+        id: row.id,
+        theme: row.theme as ThreadTheme,
+        currentState: row.current_state,
+        intensity: row.intensity,
+        lastMentioned: row.last_mentioned ? new Date(row.last_mentioned).getTime() : null,
+        userRelated: row.user_related,
+        createdAt: new Date(row.created_at).getTime(),
+        userTrigger: row.user_trigger,
+      }));
+    };
+    
+    const transformIntimacyState = (row: any): IntimacyState | null => {
+      if (!row) return null;
+      return {
+        recentToneModifier: row.recent_tone_modifier,
+        vulnerabilityExchangeActive: row.vulnerability_exchange_active,
+        lastVulnerabilityAt: row.last_vulnerability_at 
+          ? new Date(row.last_vulnerability_at).getTime() 
+          : null,
+        lowEffortStreak: row.low_effort_streak,
+        recentQuality: row.recent_quality,
+      };
+    };
+    
+    return {
+      mood_state: transformMoodState(context.mood_state),
+      emotional_momentum: transformEmotionalMomentum(context.emotional_momentum),
+      ongoing_threads: transformOngoingThreads(context.ongoing_threads || []),
+      intimacy_state: transformIntimacyState(context.intimacy_state)
+    };
+  } catch (error) {
+    console.error('[StateService] Error in getFullCharacterContext:', error);
+    // Fallback to individual fetches
+    const [mood, momentum, threads, intimacy] = await Promise.all([
+      getMoodState(userId).catch(() => null),
+      getEmotionalMomentum(userId).catch(() => null),
+      getOngoingThreads(userId).catch(() => []),
+      getIntimacyState(userId).catch(() => null)
+    ]);
+    
+    return {
+      mood_state: mood,
+      emotional_momentum: momentum,
+      ongoing_threads: threads,
+      intimacy_state: intimacy
+    };
+  }
+}
+
+// ============================================
+// INTIMACY STATE
+// ============================================
+
+export async function saveIntimacyState(userId: string, state: IntimacyState, expectedUpdatedAt?: string): Promise<void> {
+  try {
+    // If expectedUpdatedAt is provided, check for race condition (optimistic concurrency)
+    if (expectedUpdatedAt) {
+      const { data: current, error: fetchError } = await supabase
+        .from(INTIMACY_STATES_TABLE)
+        .select('updated_at')
+        .eq('user_id', userId)
+        .single();
+      
+      if (!fetchError && current && current.updated_at !== expectedUpdatedAt) {
+        // Race condition detected: data was modified since fetch
+        console.warn('[StateService] Race condition detected in saveIntimacyState: updated_at mismatch. Data may have been modified by another request.');
+        // For single-user prototype: Log warning but proceed (graceful degradation)
+        // For production: Fetch fresh data, merge changes, and retry
+      }
+    }
+    
     await supabase
       .from(INTIMACY_STATES_TABLE)
       .upsert({

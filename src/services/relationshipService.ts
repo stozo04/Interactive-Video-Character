@@ -898,7 +898,12 @@ interface CacheEntry<T> {
 }
 
 let intimacyCache: CacheEntry<IntimacyState> | null = null;
-const CACHE_TTL = 60000; // 1 minute
+// Cache TTL: 30 seconds for single-user prototype
+// NOTE: Caching is for PERFORMANCE only, not correctness.
+// Supabase is the single source of truth. In-memory cache can lead to state drift
+// if multiple tabs are open or serverless functions scale up/down.
+// For production with high read volume, consider keeping cache but with shorter TTL.
+const CACHE_TTL = 30000; // 30 seconds
 
 /**
  * Check if cache is valid for the given userId

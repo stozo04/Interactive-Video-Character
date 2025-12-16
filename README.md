@@ -84,13 +84,197 @@ Key developer documentation in the `docs/` folder:
 | [System Prompt Plan](docs/System_Prompt_Plan.md) | Original optimization plan with implementation details and lessons learned. |
 | [Google OAuth Setup](docs/GOOGLE_OAUTH_SETUP.md) | Step-by-step guide for configuring Google authentication. |
 
+## Architecture & State Management
+
+### Fast Router Architecture
+
+The app uses a "Fast Router" pattern that maintains sub-2-second response times despite complex database operations:
+
+```
+User Message
+    ↓
+┌─────────────────────────────────────┐
+│  PARALLEL EXECUTION (Fast Path)     │
+├─────────────────────────────────────┤
+│  • Intent Detection: ~1.9s         │
+│  • Main Chat: ~1.8s                 │
+│  • Database Writes: ~150-300ms      │
+│    (Background, non-blocking)       │
+└─────────────────────────────────────┘
+    ↓
+Response in <2 seconds
+```
+
+**Key Principle:** Database operations happen in parallel or background, never blocking the user's response.
+
+### State Management (Supabase Migration)
+
+All character state is now persisted in Supabase, replacing localStorage for cloud persistence:
+
+**State Tables:**
+- `mood_states` - Daily energy, social battery, internal processing flags
+- `emotional_momentum` - Current mood level, interaction streaks, genuine moment tracking
+- `ongoing_threads` - Kayley's "mental weather" (3-5 things she's thinking about)
+- `intimacy_states` - Vulnerability exchange tracking, recent tone modifiers
+
+**Key Services:**
+- `src/services/stateService.ts` - Core Supabase operations (CRUD for all state)
+- `src/services/moodKnobs.ts` - Calculates behavior parameters from state
+- `src/services/ongoingThreads.ts` - Manages mental threads with decay/cleanup
+- `src/services/relationshipService.ts` - Relationship metrics and intimacy state
+
+**Unified State Fetch Optimization:**
+Instead of 3-4 separate database calls, use the unified RPC function:
+
+```typescript
+// ❌ OLD: Multiple network roundtrips
+const mood = await getMoodState(userId);
+const momentum = await getEmotionalMomentum(userId);
+const threads = await getOngoingThreads(userId);
+const intimacy = await getIntimacyState(userId);
+
+// ✅ NEW: Single RPC call
+const context = await getFullCharacterContext(userId);
+// Returns: { mood_state, emotional_momentum, ongoing_threads, intimacy_state }
+```
+
+**Migration:** Run `supabase/migrations/create_unified_state_fetch.sql` to create the RPC function.
+
+### Caching Strategy
+
+**Important:** Caching is for PERFORMANCE only, not correctness. Supabase is the single source of truth.
+
+- **Cache TTL:** 30 seconds (reduced from 60s for single-user prototype)
+- **Cache Invalidation:** Automatically cleared on writes
+- **State Drift Risk:** Multiple tabs or serverless scaling can cause cache inconsistencies
+- **Best Practice:** Trust Supabase for correctness. Only use cache if read volume is extremely high.
+
+**Cache Locations:**
+- `ongoingThreads.ts` - Threads cache (30s TTL)
+- `moodKnobs.ts` - Mood state & momentum cache (30s TTL)
+- `relationshipService.ts` - Intimacy state cache (30s TTL)
+
+### Race Condition Protection
+
+State updates use optimistic concurrency control to prevent data loss from rapid consecutive messages:
+
+```typescript
+// Optional: Pass expectedUpdatedAt to detect race conditions
+await saveEmotionalMomentum(userId, momentum, expectedUpdatedAt);
+
+// If updated_at changed since fetch, logs warning:
+// "Race condition detected: updated_at mismatch"
+```
+
+**Current Implementation:**
+- ✅ Detection: Logs warnings when race conditions occur
+- ✅ Graceful Degradation: Proceeds with save (acceptable for single-user prototype)
+- 🔄 Future Enhancement: For production, implement retry logic with fresh data fetch
+
+**Affected Functions:**
+- `saveEmotionalMomentum()` - Optional `expectedUpdatedAt` parameter
+- `saveIntimacyState()` - Optional `expectedUpdatedAt` parameter
+
+### Intent Calculation Optimization
+
+The system uses a unified intent detection system to avoid redundant LLM calls:
+
+```typescript
+// BaseAIService.ts calculates intent ONCE
+const preCalculatedIntent = await detectFullIntentLLMCached(message, context);
+
+// Then passes it to messageAnalyzer (no re-calculation)
+analyzeUserMessageBackground(userId, message, count, context, preCalculatedIntent);
+```
+
+**Key Functions:**
+- `detectFullIntentLLMCached()` - Single LLM call returns: tone, topics, genuine moments, open loops, relationship signals
+- `analyzeUserMessageBackground()` - Uses pre-calculated intent if provided, otherwise calculates
+
+**Performance:** Reduces from 5 separate LLM calls to 1 unified call (~2s → ~1.9s).
+
+### Timezone Handling
+
+Calendar events are formatted using the user's timezone (not server timezone):
+
+```typescript
+// buildSystemPrompt accepts optional userTimeZone parameter
+const prompt = await buildSystemPrompt(
+  character,
+  relationship,
+  upcomingEvents,
+  characterContext,
+  tasks,
+  relationshipSignals,
+  toneIntent,
+  fullIntent,
+  userId,
+  userTimeZone // Defaults to 'America/Chicago' if not provided
+);
+```
+
+**Implementation:** All calendar event formatting in `promptUtils.ts` uses `timeZone` option in `toLocaleString()`.
+
+### Working with State: Best Practices
+
+**1. Always use async functions:**
+```typescript
+// ✅ Correct
+const moodKnobs = await getMoodKnobsAsync(userId);
+const threads = await getOngoingThreadsAsync(userId);
+
+// ❌ Avoid (sync fallbacks exist for backwards compatibility only)
+const moodKnobs = getMoodKnobs(userId);
+```
+
+**2. Use unified fetch when possible:**
+```typescript
+// ✅ Best: Single RPC call
+const context = await getFullCharacterContext(userId);
+
+// ✅ Good: Individual calls (if you only need one piece)
+const mood = await getMoodStateAsync(userId);
+```
+
+**3. Cache is automatic:**
+- No need to manually manage cache
+- Cache invalidates on writes
+- Supabase is always source of truth
+
+**4. State updates are non-blocking:**
+- Saves happen in background after response generation
+- User sees response in <2s even with complex state updates
+
+**5. Race conditions:**
+- For single-user: Current implementation is fine (warnings logged)
+- For production: Implement retry logic with `expectedUpdatedAt` parameter
+
 ### Developer Workflow
 
 When working on AI behavior:
 
 1. **Modifying the system prompt?** → Read [System Prompt Guidelines](docs/System_Prompt_Guidelines.md) first
 2. **Adding intent detection?** → See [Semantic Intent Detection](docs/Semantic_Intent_Detection.md)
-3. **Running tests:** `npm test -- --run` (554+ tests should pass)
+3. **Modifying state management?** → See [Architecture & State Management](#architecture--state-management) section above
+4. **Running tests:** `npm test -- --run` (554+ tests should pass)
+
+### Adding New Features
+
+**State Management:**
+- Add new state tables in `supabase/migrations/`
+- Create service functions in `src/services/stateService.ts`
+- Use unified fetch pattern if fetching multiple state slices
+- Add caching only if read volume is extremely high
+
+**AI Behavior:**
+- Modify `src/services/promptUtils.ts` for prompt changes
+- Update `src/services/intentService.ts` for new intent types
+- Test with `npm test -- --run`
+
+**Performance:**
+- Keep database operations parallel or background
+- Use unified RPC functions for multiple fetches
+- Monitor response times (target: <2s)
 
 ## Supabase Schema Setup
 

@@ -69,7 +69,12 @@ export type { ConversationContext, ToneIntent, PrimaryEmotion } from './intentSe
 // ============================================
 
 const MAX_TONE_HISTORY = 10;  // Track last 10 interactions for trend
-const CACHE_TTL = 60000;  // 1 minute cache TTL
+// Cache TTL: 30 seconds for single-user prototype
+// NOTE: Caching is for PERFORMANCE only, not correctness.
+// Supabase is the single source of truth. In-memory cache can lead to state drift
+// if multiple tabs are open or serverless functions scale up/down.
+// For production with high read volume, consider keeping cache but with shorter TTL.
+const CACHE_TTL = 30000;  // 30 seconds cache TTL
 
 // Thresholds for mood shifts (from implementation plan)
 const MOOD_SHIFT_THRESHOLDS = {
@@ -556,8 +561,9 @@ function applyMoodShifts(momentum: EmotionalMomentum, tone: number, avgTone: num
 
 /**
  * Calculate mood knobs from state and momentum
+ * Exported for use with unified state fetch optimization
  */
-function calculateMoodKnobsFromState(state: MoodState, momentum: EmotionalMomentum): MoodKnobs {
+export function calculateMoodKnobsFromState(state: MoodState, momentum: EmotionalMomentum): MoodKnobs {
   const timeEffect = getTimeOfDayModifier();
   const daysSinceEffect = getDaysSinceEffect(state.lastInteractionAt);
   

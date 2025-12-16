@@ -38,7 +38,12 @@ export type OngoingThread = SupabaseOngoingThread;
 
 const MAX_THREADS = 5;
 const MIN_THREADS = 2;
-const CACHE_TTL = 60000; // 1 minute cache TTL
+// Cache TTL: 30 seconds for single-user prototype
+// NOTE: Caching is for PERFORMANCE only, not correctness.
+// Supabase is the single source of truth. In-memory cache can lead to state drift
+// if multiple tabs are open or serverless functions scale up/down.
+// For production with high read volume, consider keeping cache but with shorter TTL.
+const CACHE_TTL = 30000; // 30 seconds cache TTL
 
 // ============================================
 // Local Caching Layer
