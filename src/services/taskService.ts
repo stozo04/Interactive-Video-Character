@@ -95,7 +95,8 @@ export const createTask = async (
     priority: data.priority,
     category: data.category,
     createdAt: new Date(data.created_at).getTime(),
-    completedAt: null
+    completedAt: null,
+    scheduledDate: data.scheduled_date
   };
 };
 

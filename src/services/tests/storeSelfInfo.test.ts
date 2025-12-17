@@ -303,8 +303,8 @@ describe('store_self_info Prompt Instructions', () => {
   it('should include store_self_info instructions in system prompt', async () => {
     const prompt = await buildSystemPrompt(mockCharacter, mockRelationship);
 
-    expect(prompt).toContain('STORE SELF INFO');
-    expect(prompt).toContain('store_self_info');
+    expect(prompt).toContain('CHECK FOR NEW SELF-FACTS');
+    expect(prompt).toContain('store_character_info');
   });
 
   it('should explain all category types', async () => {
@@ -320,23 +320,23 @@ describe('store_self_info Prompt Instructions', () => {
   it('should include usage examples', async () => {
     const prompt = await buildSystemPrompt(mockCharacter, mockRelationship);
 
-    // Check for example JSON structure
-    expect(prompt).toContain('"category"');
-    expect(prompt).toContain('"key"');
-    expect(prompt).toContain('"value"');
+    // Check for tool signature arguments
+    expect(prompt).toContain('category');
+    expect(prompt).toContain('key');
+    expect(prompt).toContain('value');
   });
 
   it('should warn not to use for facts already in profile', async () => {
     const prompt = await buildSystemPrompt(mockCharacter, mockRelationship);
 
-    expect(prompt).toContain("DON'T USE for facts already in your CHARACTER PROFILE");
+    expect(prompt).toContain("Only for NEW details");
   });
 
   it('should explain when to use store_self_info', async () => {
     const prompt = await buildSystemPrompt(mockCharacter, mockRelationship);
 
-    expect(prompt).toContain('WHEN TO USE');
-    expect(prompt).toContain('NEW about yourself');
+    expect(prompt).toContain('When: You make up a new detail about yourself');
+    expect(prompt).toContain('something new about yourself');
   });
 });
 

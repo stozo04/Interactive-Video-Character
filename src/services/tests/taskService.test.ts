@@ -1,9 +1,9 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import * as taskService from './taskService';
-import { supabase } from './supabaseClient';
+import * as taskService from '../taskService';
+import { supabase } from '../supabaseClient';
 
-vi.mock('./supabaseClient', () => ({
+vi.mock('../supabaseClient', () => ({
   supabase: {
     from: vi.fn(() => ({
       select: vi.fn(),
@@ -47,6 +47,7 @@ describe('taskService', () => {
       
       expect(tasks).toHaveLength(1);
       expect(tasks[0].text).toBe('Test task');
+      expect(tasks[0].scheduledDate).toBeDefined();
       expect(selectMock).toHaveBeenCalledWith('*');
     });
   });
@@ -65,7 +66,8 @@ describe('taskService', () => {
       
       expect(task).toEqual(expect.objectContaining({
         text: 'Test task',
-        priority: 'low'
+        priority: 'low',
+        scheduledDate: expect.any(String)
       }));
     });
   });
