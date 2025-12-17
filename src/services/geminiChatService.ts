@@ -10,7 +10,7 @@ import { getTopLoopToSurface, markLoopSurfaced } from './presenceDirector';
 import { resolveActionKey } from '../utils/actionKeyMapper';
 
 // 1. LOAD BOTH MODELS FROM ENV
-const GEMINI_MODEL = import.meta.env.VITE_GEMINI_MODEL; // The Brain (e.g. gemini-2.0-flash-exp)
+const GEMINI_MODEL = import.meta.env.VITE_GEMINI_MODEL; // The Brain (e.g. gemini-3-flash-preview)
 const USER_ID = import.meta.env.VITE_USER_ID;
 const GEMINI_VIDEO_MODEL = import.meta.env.VITE_GEMINI_VIDEO_MODEL;
 const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
@@ -827,13 +827,7 @@ try {
     const ai = getAiClient();
     const userId = session?.userId || USER_ID;
     
-    // Check if Interactions API is available (requires @google/genai v1.33.0+)
-    if (!ai.interactions || typeof ai.interactions.create !== 'function') {
-      console.warn('⚠️ [Gemini Interactions] Interactions API not available for greeting. Falling back to old API.');
-      // Fallback to old implementation
-      return await this.generateGreetingOld(character, session, relationship, characterContext);
-    }
-    
+
     const systemPrompt = await buildSystemPrompt(character, relationship, [], characterContext, undefined, undefined, undefined, undefined, session?.userId, undefined);
 
     try {

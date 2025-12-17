@@ -52,8 +52,6 @@ User Message
 
 ## Technical Details
 
-### Model
-`gemini-2.0-flash` - Fast, cheap, sufficient for intent detection.
 
 ### Intent Service Interface
 
