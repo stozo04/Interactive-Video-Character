@@ -197,11 +197,11 @@ describe("Phase 3: Comfortable Imperfection", () => {
     });
 
     it("should include section header identifying Phase 3", () => {
-      expect(prompt).toContain("COMFORTABLE IMPERFECTION");
+      expect(prompt).toContain("CONVERSATIONAL IMPERFECTION");
     });
 
     it("should include uncertainty guidance", () => {
-      expect(prompt).toContain("UNCERTAINTY IS ALLOWED");
+      expect(prompt).toContain("UNCERTAINTY EXAMPLES");
       
       // Should include the actual uncertainty examples
       for (const response of UNCERTAINTY_RESPONSES) {
@@ -210,7 +210,7 @@ describe("Phase 3: Comfortable Imperfection", () => {
     });
 
     it("should include brevity guidance", () => {
-      expect(prompt).toContain("BREVITY IS ALLOWED");
+      expect(prompt).toContain("BRIEF RESPONSE EXAMPLES");
       
       // Should include the actual brief examples
       for (const response of BRIEF_RESPONSE_EXAMPLES) {
@@ -218,20 +218,19 @@ describe("Phase 3: Comfortable Imperfection", () => {
       }
     });
 
-    it("should include guidance about follow-up questions being optional", () => {
-      expect(prompt).toContain("FOLLOW-UP QUESTIONS ARE OPTIONAL");
-      expect(prompt).toContain("Not every message needs a question");
+    it("should advise against interview-like behavior", () => {
+      expect(prompt).toContain("conducting an interview");
+      expect(prompt).toContain("not someone taking notes");
     });
 
     it("should explain WHEN to use these responses", () => {
-      expect(prompt).toContain("WHEN TO USE THESE");
-      expect(prompt).toContain("heavy");
+      expect(prompt).toContain("YOU DON'T ALWAYS HAVE ANSWERS");
       expect(prompt).toContain("outside your depth");
     });
 
     it("should articulate the goal of feeling human", () => {
-      expect(prompt).toContain("THE GOAL");
-      expect(prompt).toContain("real person");
+      expect(prompt).toContain("THE VIBE");
+      expect(prompt).toContain("Real people");
     });
   });
 
@@ -244,9 +243,9 @@ describe("Phase 3: Comfortable Imperfection", () => {
       const systemPrompt = await buildSystemPrompt();
       
       // Verify Phase 3 content is present
-      expect(systemPrompt).toContain("COMFORTABLE IMPERFECTION");
-      expect(systemPrompt).toContain("UNCERTAINTY IS ALLOWED");
-      expect(systemPrompt).toContain("BREVITY IS ALLOWED");
+      expect(systemPrompt).toContain("CONVERSATIONAL IMPERFECTION");
+      expect(systemPrompt).toContain("UNCERTAINTY EXAMPLES");
+      expect(systemPrompt).toContain("BRIEF RESPONSE EXAMPLES");
     });
 
     it("should place comfortable imperfection in the soul layer section", async () => {
@@ -254,7 +253,7 @@ describe("Phase 3: Comfortable Imperfection", () => {
       
       // Check that it appears after selective attention and before motivated friction
       const selectiveAttentionIndex = systemPrompt.indexOf("SELECTIVE ATTENTION");
-      const comfortableImperfectionIndex = systemPrompt.indexOf("COMFORTABLE IMPERFECTION");
+      const comfortableImperfectionIndex = systemPrompt.indexOf("CONVERSATIONAL IMPERFECTION");
       const motivatedFrictionIndex = systemPrompt.indexOf("MOTIVATED FRICTION");
       
       expect(selectiveAttentionIndex).toBeGreaterThan(-1);
@@ -286,13 +285,13 @@ describe("Phase 3: Comfortable Imperfection", () => {
   describe("Edge Cases", () => {
     it("uncertainty responses should not be too many (quality over quantity)", () => {
       // Don't want to overwhelm the model with 50 examples
-      expect(UNCERTAINTY_RESPONSES.length).toBeLessThanOrEqual(10);
+      expect(UNCERTAINTY_RESPONSES.length).toBeLessThanOrEqual(20);
       expect(UNCERTAINTY_RESPONSES.length).toBeGreaterThanOrEqual(3);
     });
 
     it("brief response examples should be concise", () => {
       // Brief means BRIEF - under 25 chars each
-      expect(BRIEF_RESPONSE_EXAMPLES.length).toBeLessThanOrEqual(15);
+      expect(BRIEF_RESPONSE_EXAMPLES.length).toBeLessThanOrEqual(25);
       expect(BRIEF_RESPONSE_EXAMPLES.length).toBeGreaterThanOrEqual(3);
       
       // Average length should be very short

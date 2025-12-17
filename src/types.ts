@@ -41,6 +41,7 @@ export interface Task {
   completedAt: number | null;
   priority?: 'low' | 'medium' | 'high';
   category?: string;
+  scheduledDate?: string; // YYYY-MM-DD
 }
 
 export interface TaskState {
