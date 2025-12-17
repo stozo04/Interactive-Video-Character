@@ -13,8 +13,7 @@ import { GoogleGenAI } from "@google/genai";
 
 const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
 // Use flash model for intent detection - fast and cheap
-// Switched from gemini-2.5-flash to gemini-2.0-flash-exp for lower latency
-const INTENT_MODEL = 'gemini-2.0-flash-exp';
+const GEMINI_MODEL = import.meta.env.VITE_GEMINI_MODEL;
 
 // ============================================
 // Command Bypass - Fast Path Detection
@@ -305,8 +304,8 @@ ${formattedContext}`;
     
     // Make the LLM call with a simpler approach
     const result = await ai.models.generateContent({
-      model: INTENT_MODEL,
-      contents: prompt,
+      model: GEMINI_MODEL,
+      contents: [{ role: 'user', parts: [{ text: prompt }] }],
       config: {
         temperature: 0.1, // Low temperature for consistent, deterministic results
         maxOutputTokens: 200, // Keep response small
@@ -671,7 +670,7 @@ ${formattedContext}`;
     
     // Make the LLM call
     const result = await ai.models.generateContent({
-      model: INTENT_MODEL,
+      model: GEMINI_MODEL,
       contents: prompt,
       config: {
         temperature: 0.1, // Low temperature for consistent results
@@ -962,7 +961,7 @@ ${formattedContext}`;
     
     // Make the LLM call
     const result = await ai.models.generateContent({
-      model: INTENT_MODEL,
+      model: GEMINI_MODEL,
       contents: prompt,
       config: {
         temperature: 0.1, // Low temperature for consistent results
@@ -1339,7 +1338,7 @@ ${formattedContext}`;
     
     // Make the LLM call
     const result = await ai.models.generateContent({
-      model: INTENT_MODEL,
+      model: GEMINI_MODEL,
       contents: prompt,
       config: {
         temperature: 0.1, // Low temperature for consistent results
@@ -1603,7 +1602,7 @@ ${formattedContext}`;
       .replace('{context}', contextString);
     
     const result = await ai.models.generateContent({
-      model: INTENT_MODEL,
+      model: GEMINI_MODEL,
       contents: prompt,
       config: {
         temperature: 0.1,
@@ -1885,7 +1884,7 @@ export async function detectFullIntentLLM(
 
     // Call LLM
     const result = await ai.models.generateContent({
-      model: INTENT_MODEL, // gemini-2.5-flash
+      model: GEMINI_MODEL, 
       contents: prompt,
       config: {
         temperature: 0.1, // precision is key

@@ -12,7 +12,7 @@ Currently, the system makes parallel LLM calls for:
 5. Open Loops
 6. Relationship Signals
 
-This optimization proposes a single "Master Call" to `gemini-2.0-flash` that returns a nested JSON object containing all these insights.
+This optimization proposes a single "Master Call"  that returns a nested JSON object containing all these insights.
 
 ## Architecture
 

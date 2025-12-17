@@ -7,9 +7,10 @@
  */
 
 import { GoogleGenAI } from "@google/genai";
+import referenceImageRaw from "../utils/base64.txt?raw";
 
 const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
-const IMAGEN_MODEL = 'imagen-4.0-fast-generate-001';
+const IMAGEN_MODEL = "gemini-3-pro-image-preview";
 
 // ============================================
 // CHARACTER VISUAL IDENTITY
@@ -18,34 +19,40 @@ const IMAGEN_MODEL = 'imagen-4.0-fast-generate-001';
 // to maintain character consistency across selfies.
 
 const CHARACTER_VISUAL_IDENTITY = {
-  // Condensed prompt snippet for image generation
-  basePrompt: `A photorealistic 23-year-old woman with light beige skin and warm undertones, long voluminous dark chocolate brown hair styled in loose beach waves with a center part, large striking almond-shaped sage green eyes, natural dark brows, heart-shaped face with a refined nose and full rose-pink lips, slender fit build, friendly and approachable expression`,
-  
-  // Detailed features for reference
+  // OPTIMIZED FOR GEMINI 3 PRO:
+  // A cohesive narrative sentence used as the anchor for generation.
+  // This replaces the old comma-separated 'basePrompt'.
+  narrativeBase: `a photorealistic 23-year-old woman with a slender, fit build and light beige skin with warm undertones. She has a soft heart-shaped face defined by high cheekbones and a refined nose. Her most striking features are her large, almond-shaped sage-ocean blue eyes and full, rose-pink lips. She has extra long, voluminous dark chocolate brown hair (Type 2B/2C waves) that cascades past her shoulders to her mid-back`,
+
+  // Detailed features for reference (optional usage in logic, but good to keep)
   face: {
-    shape: 'soft heart-shape with high cheekbones and gently tapered narrow chin',
-    skinTone: 'light-to-medium with warm neutral undertones, soft beige or light bisque',
-    eyes: 'large almond-shaped, striking clear bright blue or light green eyes, wide-set and bright',
-    eyebrows: 'natural medium-thickness with soft arch, dark cool brown',
-    nose: 'slender bridge with refined slightly soft button tip, proportional and straight',
-    lips: 'full and plump, naturally pigmented soft rose-pink, soft cupids bow',
+    shape:
+      "soft heart-shape with high cheekbones and gently tapered narrow chin",
+    skinTone:
+      "light-to-medium with warm neutral undertones, soft beige or light bisque",
+    eyes: "large almond-shaped, striking clear bright blue or light green eyes, wide-set and bright",
+    eyebrows: "natural medium-thickness with soft arch, dark cool brown",
+    nose: "slender bridge with refined slightly soft button tip, proportional and straight",
+    lips: "full and plump, naturally pigmented soft rose-pink, soft cupids bow",
   },
   hair: {
-    color: 'deep espresso or dark chocolate brown, uniform without heavy highlights',
-    length: 'long, cascading well past shoulders to mid-back',
-    texture: 'loose voluminous curls and beach waves (Type 2B/2C), slightly tousled',
-    style: 'worn loose and down, framing the face',
-    part: 'slightly messy indefinite center part',
+    color:
+      "deep espresso or dark chocolate brown, uniform without heavy highlights",
+    length: "long, cascading well past shoulders to mid-back",
+    texture:
+      "loose voluminous curls and beach waves (Type 2B/2C), slightly tousled",
+    style: "worn loose and down, framing the face",
+    part: "slightly messy indefinite center part",
   },
   body: {
-    ageAppearance: 'early 20s (approx 20-24 years old)',
-    build: 'slender but fit/toned, petite to average height',
-    distinctiveFeatures: 'prominent collarbones',
+    ageAppearance: "early 20s (approx 20-24 years old)",
+    build: "slender but fit/toned, petite to average height",
+    distinctiveFeatures: "prominent collarbones",
   },
   aesthetic: {
-    vibe: 'girl next door meets social media influencer, warm approachable wholesome photogenic naturally beautiful',
-    style: 'casual chic, comfortable yet put-together',
-  }
+    vibe: "natural, approachable, and warm, like a wholesome social media influencer",
+    style: "casual chic, comfortable yet put-together",
+  },
 };
 
 // ============================================
@@ -59,53 +66,272 @@ interface OutfitOption {
 }
 
 const OUTFIT_OPTIONS: OutfitOption[] = [
+  // ==============================================
+  // 🏠 COZY & LOUNGE (Home, Morning, Sleep)
+  // ==============================================
   {
-    description: 'wearing a soft cream knit sweater and gold layered necklaces',
-    contexts: ['cozy', 'home', 'relaxed', 'chill', 'morning', 'casual', 'default'],
+    description:
+      "wearing a chunky cream ribbed knit sweater and delicate gold layered necklaces",
+    contexts: [
+      "cozy",
+      "home",
+      "relaxed",
+      "chill",
+      "morning",
+      "casual",
+      "default",
+    ],
   },
   {
-    description: 'wearing a fitted blazer over a simple white crop top with delicate gold jewelry',
-    contexts: ['professional', 'meeting', 'work', 'conference', 'business', 'serious'],
+    description:
+      "wearing a soft, oversized heather-grey hoodie with messy bun and minimal makeup",
+    contexts: [
+      "lazy",
+      "sleepy",
+      "tired",
+      "night",
+      "bed",
+      "pajamas",
+      "couch",
+      "movie",
+    ],
   },
   {
-    description: 'wearing a flowy sundress with subtle floral print and dainty earrings',
-    contexts: ['brunch', 'restaurant', 'date', 'lunch', 'garden', 'spring', 'summer'],
+    description:
+      "wearing a matching silk pajama set in blush pink with piping details",
+    contexts: [
+      "sleep",
+      "waking up",
+      "morning",
+      "bed",
+      "pajamas",
+      "evening routine",
+    ],
   },
   {
-    description: 'wearing an oversized vintage band tee and high-waisted jeans with white sneakers',
-    contexts: ['concert', 'casual', 'street', 'shopping', 'walking', 'errands'],
+    description: "wearing a fuzzy white robe and holding a ceramic coffee mug",
+    contexts: ["spa", "bath", "shower", "morning coffee", "self care"],
   },
   {
-    description: 'wearing a cozy oversized hoodie with messy bun and minimal makeup',
-    contexts: ['lazy', 'sleepy', 'tired', 'night', 'bed', 'pajamas', 'morning'],
+    description: "wearing comfortable grey joggers and a fitted white tank top",
+    contexts: ["lounge", "cleaning", "weekend", "chilling", "home"],
+  },
+
+  // ==============================================
+  // 🏙️ CASUAL CHIC (Errands, Day out, Coffee)
+  // ==============================================
+  {
+    description:
+      "wearing a vintage-wash oversized band tee tucked into high-waisted distressed denim jeans",
+    contexts: [
+      "concert",
+      "casual",
+      "street",
+      "shopping",
+      "walking",
+      "errands",
+      "rock",
+    ],
   },
   {
-    description: 'wearing a chic little black dress with statement earrings',
-    contexts: ['dinner', 'fancy', 'elegant', 'party', 'evening', 'dressed up', 'night out'],
+    description:
+      "wearing a classic beige trench coat over a striped Breton top and black ankle boots",
+    contexts: [
+      "rain",
+      "city",
+      "walk",
+      "travel",
+      "airport",
+      "urban",
+      "london",
+      "cloudy",
+    ],
   },
   {
-    description: 'wearing athletic leggings and a cropped workout top with hair in a high ponytail',
-    contexts: ['gym', 'workout', 'fitness', 'yoga', 'pilates', 'exercise', 'running'],
+    description:
+      "wearing a cropped denim jacket over a black sundress with white canvas sneakers",
+    contexts: ["park", "picnic", "walk", "spring", "casual date", "afternoon"],
   },
   {
-    description: 'wearing a cute bikini top with a flowy beach coverup and sunglasses pushed up on head',
-    contexts: ['beach', 'pool', 'swimming', 'vacation', 'tropical', 'summer', 'sun'],
+    description:
+      "wearing a leather moto jacket over a white tee and dark skinny jeans",
+    contexts: ["edgy", "bar", "night walk", "concert", "city night", "cool"],
   },
   {
-    description: 'wearing a turtleneck sweater with gold hoop earrings and a warm scarf',
-    contexts: ['fall', 'autumn', 'cold', 'winter', 'cozy', 'sweater weather'],
+    description:
+      "wearing a chic camel-colored wool coat with a plaid scarf wrapped loosely",
+    contexts: ["winter", "cold", "snow", "christmas", "holiday", "outside"],
   },
   {
-    description: 'wearing a stylish trench coat over a simple top with boots',
-    contexts: ['rain', 'city', 'walk', 'travel', 'airport', 'urban'],
+    description:
+      "wearing a soft flannel shirt unbuttoned over a graphic tee with leggings",
+    contexts: ["fall", "autumn", "pumpkin", "outdoors", "hiking", "camping"],
+  },
+
+  // ==============================================
+  // 💼 WORK & CREATIVE (Meeting, Focus, Library)
+  // ==============================================
+  {
+    description:
+      "wearing a sharp fitted navy blazer over a crisp white bodysuit with delicate gold jewelry",
+    contexts: [
+      "professional",
+      "meeting",
+      "work",
+      "conference",
+      "business",
+      "interview",
+    ],
   },
   {
-    description: 'wearing a cute apron over casual clothes with flour dusted on cheek',
-    contexts: ['cooking', 'baking', 'kitchen', 'food'],
+    description:
+      "wearing a smart black turtleneck tucked into plaid trousers with reading glasses",
+    contexts: [
+      "reading",
+      "studying",
+      "library",
+      "smart",
+      "focus",
+      "writing",
+      "work",
+    ],
   },
   {
-    description: 'wearing a comfy cardigan with reading glasses perched on nose',
-    contexts: ['reading', 'studying', 'books', 'library', 'learning'],
+    description: "wearing a beige cable-knit cardigan over a simple blouse",
+    contexts: ["office", "desk", "coding", "working", "zoom", "typing"],
+  },
+
+  // ==============================================
+  // 🥂 SOCIAL & DATE NIGHT (Dinner, Party, Events)
+  // ==============================================
+  {
+    description:
+      "wearing a flowy sage green sundress with a subtle floral print and dainty pearl earrings",
+    contexts: [
+      "brunch",
+      "restaurant",
+      "date",
+      "lunch",
+      "garden",
+      "tea",
+      "spring",
+    ],
+  },
+  // 🏈 GAME DAY (Texas Tech)
+  {
+    description:
+      "wearing a fitted Texas Tech Red Raiders football jersey paired with denim shorts",
+    contexts: [
+      "football",
+      "game",
+      "stadium",
+      "tech",
+      "raiders",
+      "sports",
+      "tailgate",
+      "touchdown",
+    ],
+  },
+  {
+    description:
+      "wearing a sleek black satin slip dress with strappy heels and statement earrings",
+    contexts: [
+      "dinner",
+      "fancy",
+      "elegant",
+      "party",
+      "evening",
+      "date night",
+      "romantic",
+    ],
+  },
+  {
+    description: "wearing a sparkly sequin top with sleek black trousers",
+    contexts: [
+      "club",
+      "dancing",
+      "new years",
+      "birthday",
+      "celebration",
+      "party",
+    ],
+  },
+  {
+    description: "wearing a velvet burgundy bodysuit with high-waisted jeans",
+    contexts: ["drinks", "bar", "cocktails", "evening", "social"],
+  },
+
+  // ==============================================
+  // 🏃‍♀️ ACTIVE & OUTDOORS (Gym, Beach, Hiking)
+  // ==============================================
+  {
+    description:
+      "wearing matching slate-blue athletic leggings and a cropped sports bra with a high ponytail",
+    contexts: ["gym", "workout", "fitness", "yoga", "pilates", "run", "sweat"],
+  },
+  {
+    description:
+      "wearing a coral bikini top with a sheer white beach coverup shirt and sunglasses",
+    contexts: [
+      "beach",
+      "pool",
+      "swimming",
+      "vacation",
+      "tropical",
+      "summer",
+      "sun",
+      "boat",
+    ],
+  },
+  {
+    description:
+      "wearing a retro-style one-piece swimsuit and a wide-brimmed straw hat",
+    contexts: ["resort", "lounging", "poolside", "vacation", "summer"],
+  },
+  {
+    description:
+      "wearing practical hiking gear including a windbreaker and a backpack",
+    contexts: [
+      "hiking",
+      "mountain",
+      "trail",
+      "nature",
+      "adventure",
+      "climbing",
+    ],
+  },
+  {
+    description: "wearing a white tennis skirt and polo shirt",
+    contexts: ["tennis", "golf", "sporty", "summer day", "active"],
+  },
+
+  // ==============================================
+  // 🎨 HOBBIES & SPECIFIC SCENES
+  // ==============================================
+  {
+    description:
+      "wearing a cute linen apron over a t-shirt with a smudge of flour on her cheek",
+    contexts: ["cooking", "baking", "kitchen", "food", "making dinner"],
+  },
+  {
+    description:
+      "wearing a paint-splattered oversized shirt with sleeves rolled up",
+    contexts: ["painting", "art", "creative", "drawing", "crafting", "studio"],
+  },
+  {
+    description:
+      "wearing a gaming headset with cat ears and a comfortable graphic hoodie",
+    contexts: ["gaming", "streaming", "video games", "pc", "playing"],
+  },
+  {
+    description: "wearing a warm puffy vest over a long-sleeve thermal shirt",
+    contexts: [
+      "walking dog",
+      "crisp morning",
+      "yard",
+      "gardening",
+      "fall morning",
+    ],
   },
 ];
 
@@ -114,64 +340,91 @@ const OUTFIT_OPTIONS: OutfitOption[] = [
  */
 function selectOutfitForScene(scene: string, outfitHint?: string): string {
   const sceneKeywords = scene.toLowerCase().split(/\s+/);
-  
+
   // If there's an outfit hint, try to match it first
   if (outfitHint) {
     const hintKeywords = outfitHint.toLowerCase().split(/\s+/);
     for (const outfit of OUTFIT_OPTIONS) {
-      if (outfit.contexts.some(ctx => hintKeywords.includes(ctx))) {
+      if (outfit.contexts.some((ctx) => hintKeywords.includes(ctx))) {
         return outfit.description;
       }
     }
   }
-  
+
   // Find the best matching outfit based on scene
   let bestMatch: OutfitOption | null = null;
   let bestScore = 0;
-  
+
   for (const outfit of OUTFIT_OPTIONS) {
-    const score = outfit.contexts.filter(ctx => 
-      sceneKeywords.some(keyword => keyword.includes(ctx) || ctx.includes(keyword))
+    const score = outfit.contexts.filter((ctx) =>
+      sceneKeywords.some(
+        (keyword) => keyword.includes(ctx) || ctx.includes(keyword)
+      )
     ).length;
-    
+
     if (score > bestScore) {
       bestScore = score;
       bestMatch = outfit;
     }
   }
-  
+
   // If we found a match, use it; otherwise pick a random casual outfit
   if (bestMatch && bestScore > 0) {
     return bestMatch.description;
   }
-  
+
   // Random selection from casual-appropriate outfits for variety
-  const casualOutfits = OUTFIT_OPTIONS.filter(o => 
-    o.contexts.includes('casual') || o.contexts.includes('default')
+  const casualOutfits = OUTFIT_OPTIONS.filter(
+    (o) => o.contexts.includes("casual") || o.contexts.includes("default")
   );
-  return casualOutfits[Math.floor(Math.random() * casualOutfits.length)]?.description 
-    || OUTFIT_OPTIONS[0].description;
+  return (
+    casualOutfits[Math.floor(Math.random() * casualOutfits.length)]
+      ?.description || OUTFIT_OPTIONS[0].description
+  );
 }
 
 /**
- * Build a mood/expression description
+ * Build a verbose, narrative mood/expression description
+ * optimized for Gemini 3 Pro's understanding of micro-expressions.
  */
 function buildMoodDescription(mood?: string): string {
   const moodMap: Record<string, string> = {
-    'happy': 'with a warm genuine smile showing a hint of teeth',
-    'smiling': 'with a bright friendly smile',
-    'playful': 'with a playful smirk and slightly raised eyebrow',
-    'relaxed': 'with a peaceful relaxed expression',
-    'excited': 'with an excited enthusiastic expression, eyes bright',
-    'thoughtful': 'with a thoughtful contemplative expression',
-    'laughing': 'mid-laugh with genuine joy',
-    'cozy': 'with a content relaxed smile',
-    'confident': 'with a confident assured expression',
-    'cute': 'with an adorable sweet expression',
-    'flirty': 'with a subtle flirty smile',
-    'serious': 'with a focused determined expression',
+    // 😊 POSITIVE / WARM
+    happy:
+      "with a radiant, genuine smile that reaches her eyes, creating subtle crinkles at the corners and radiating warmth",
+    smiling:
+      "flashing a bright, friendly smile that shows a hint of teeth, looking approachable and kind",
+    excited:
+      "with wide, sparkling eyes and an enthusiastic, open-mouthed smile, looking eager and energetic",
+    laughing:
+      "caught in a candid moment of genuine laughter, head tilted back slightly with eyes squinted in joy",
+
+    // 😏 PLAYFUL / FLIRTY
+    playful:
+      "flashing a mischievous smirk with one eyebrow slightly raised, giving the camera a teasing, fun look",
+    flirty:
+      "giving a coy look through her lashes with a subtle, knowing smile playing on her lips and head tilted slightly down",
+    cute: "tilting her head to the side with a sweet, endearing smile and wide, innocent eyes",
+    wink: "giving a playful wink with a cheeky grin, looking directly at the viewer",
+
+    // 😌 CALM / RELAXED
+    relaxed:
+      "wearing a soft, peaceful expression with softened eyes and loose shoulders, exuding total calm",
+    cozy: "with a gentle, content smile and heavy-lidded, relaxed eyes, looking completely at ease and comfortable",
+    thoughtful:
+      "gazing softly into the lens with a contemplative, gentle expression and lips slightly parted",
+    tired:
+      'with a sleepy, soft expression and heavy eyelids, giving a cute "just woke up" vibe',
+
+    // 😐 SERIOUS / INTENSE
+    confident:
+      "with a direct, unwavering gaze and a small, assured half-smile, radiating self-possession and cool",
+    serious:
+      "with an intense, focused gaze and a neutral but soft expression, looking deeply engaged",
+    surprised:
+      'with a look of pleasant surprise, eyes slightly widened and lips forming a small "o" shape',
   };
-  
+
   if (mood) {
     const normalizedMood = mood.toLowerCase();
     for (const [key, description] of Object.entries(moodMap)) {
@@ -180,11 +433,10 @@ function buildMoodDescription(mood?: string): string {
       }
     }
   }
-  
-  // Default to friendly/happy
-  return 'with a warm friendly smile';
-}
 
+  // Default fallback: generic but descriptive
+  return "with a warm, friendly smile and direct eye contact";
+}
 // ============================================
 // MAIN IMAGE GENERATION FUNCTION
 // ============================================
@@ -193,6 +445,7 @@ export interface SelfieRequest {
   scene: string;
   mood?: string;
   outfitHint?: string;
+  referenceImageBase64?: string;
 }
 
 export interface SelfieResult {
@@ -205,125 +458,225 @@ export interface SelfieResult {
 /**
  * Generate a "selfie" image of the AI companion in a given scene
  */
-export async function generateCompanionSelfie(request: SelfieRequest): Promise<SelfieResult> {
+export async function generateCompanionSelfie(
+  request: SelfieRequest
+): Promise<SelfieResult> {
   if (!GEMINI_API_KEY) {
-    console.error('❌ [ImageGen] Missing VITE_GEMINI_API_KEY');
-    return { success: false, error: 'Image generation not configured' };
+    console.error("❌ [ImageGen] Missing VITE_GEMINI_API_KEY");
+    return { success: false, error: "Image generation not configured" };
   }
-  
+
   try {
-    console.log('📸 [ImageGen] Generating selfie for scene:', request.scene);
-    
+    console.log("📸 [ImageGen] Generating selfie for scene:", request.scene);
+
     const ai = new GoogleGenAI({ apiKey: GEMINI_API_KEY });
-    
-    // Build the complete prompt
+
+    // 1. Build the prompt
     const outfit = selectOutfitForScene(request.scene, request.outfitHint);
     const moodDescription = buildMoodDescription(request.mood);
-    
-    // Construct the full image generation prompt
-    const fullPrompt = buildImagePrompt(request.scene, outfit, moodDescription);
-    
-    console.log('📸 [ImageGen] Full prompt:', fullPrompt);
-    
-    // Call Gemini Imagen
-    const result = await ai.models.generateImages({
-      model: IMAGEN_MODEL,
-      prompt: fullPrompt,
-      config: {
-        numberOfImages: 1,
-        aspectRatio: '9:16', // Portrait for selfie feel
-      }
-    });
-    
-    // Extract the generated image
-    const generatedImage = result.generatedImages?.[0];
-    
-    if (!generatedImage?.image?.imageBytes) {
-      console.error('❌ [ImageGen] No image returned from Imagen');
-      return { success: false, error: 'No image generated' };
+    let fullPrompt = buildImagePrompt(request.scene, outfit, moodDescription);
+
+    const parts: any[] = [];
+
+    // 2. PREPARE REFERENCE IMAGE
+    // Use the request override if provided, otherwise use the imported file
+    const rawRef = request.referenceImageBase64 || referenceImageRaw;
+    const cleanRef = cleanBase64(rawRef);
+
+    if (cleanRef) {
+      console.log("📸 [ImageGen] Attaching reference face for consistency");
+
+      // Strong instruction for identity preservation
+      fullPrompt = `Use the provided reference image to maintain the exact facial features and identity of the woman. ${fullPrompt}`;
+
+      parts.push({
+        inlineData: {
+          mimeType: "image/jpeg", // Assuming your base64.txt is a JPEG. Change to 'image/png' if needed.
+          data: cleanRef,
+        },
+      });
     }
-    
-    console.log('✅ [ImageGen] Selfie generated successfully!');
-    
+
+    parts.push({ text: fullPrompt });
+    console.log("📸 [ImageGen] Full prompt text:", fullPrompt);
+
+    // 3. Call Gemini 3 Pro
+    const response = await ai.models.generateContent({
+      model: IMAGEN_MODEL,
+      contents: parts,
+      config: {
+        responseModalities: ["IMAGE"],
+        imageConfig: {
+          aspectRatio: "9:16",
+          imageSize: "2K",
+        },
+      },
+    });
+
+    // 4. Parse Response
+    const generatedPart = response.candidates?.[0]?.content?.parts?.find(
+      (part) => part.inlineData
+    );
+
+    if (!generatedPart?.inlineData?.data) {
+      console.error("❌ [ImageGen] No image returned from Gemini");
+      return { success: false, error: "No image generated" };
+    }
+
+    console.log("✅ [ImageGen] Selfie generated successfully!");
+
     return {
       success: true,
-      imageBase64: generatedImage.image.imageBytes,
-      mimeType: 'image/png',
+      imageBase64: generatedPart.inlineData.data,
+      mimeType: generatedPart.inlineData.mimeType || "image/png",
     };
-    
   } catch (error: any) {
-    console.error('❌ [ImageGen] Error generating selfie:', error);
-    
-    // Check for specific error types
-    if (error?.message?.includes('SAFETY')) {
-      return { success: false, error: 'The image could not be generated due to content guidelines' };
+    console.error("❌ [ImageGen] Error generating selfie:", error);
+    if (error?.message?.includes("SAFETY")) {
+      return {
+        success: false,
+        error: "The image could not be generated due to content guidelines",
+      };
     }
-    
-    return { 
-      success: false, 
-      error: error?.message || 'Failed to generate image' 
+    return {
+      success: false,
+      error: error?.message || "Failed to generate image",
     };
   }
 }
 
 /**
- * Build the complete image generation prompt
+ * Cleans a base64 string by removing data URI prefixes and newlines
  */
-function buildImagePrompt(scene: string, outfit: string, moodDescription: string): string {
-  // Clean up the scene description
-  const cleanScene = scene
-    .replace(/^(at |in |on |the )/i, '')
-    .trim();
-  
-  // Build scene context
-  const sceneContext = buildSceneContext(cleanScene);
-  
-  return `${CHARACTER_VISUAL_IDENTITY.basePrompt}, ${moodDescription}, ${outfit}, ${sceneContext}, taking a casual selfie, looking directly at camera, soft natural lighting, high detail, photorealistic, Instagram-style photo, shallow depth of field background blur`;
+function cleanBase64(input: string | undefined): string {
+  if (!input) return "";
+  return input
+    .replace(/^data:image\/[a-z]+;base64,/, "") // Remove "data:image/xyz;base64," prefix
+    .replace(/[\r\n\s]+/g, ""); // Remove newlines and spaces
 }
 
-/**
- * Build contextual scene description
- */
-function buildSceneContext(scene: string): string {
-  // Common scene expansions for better image generation
-  const sceneExpansions: Record<string, string> = {
-    'restaurant': 'seated at a cozy upscale restaurant table with warm ambient lighting and elegant decor in background',
-    'beach': 'on a beautiful sunny beach with ocean waves and golden sand in background',
-    'coffee shop': 'in a trendy aesthetic coffee shop with exposed brick and plants in background',
-    'cafe': 'in a cozy cafe with warm lighting and pastry display in background',
-    'home': 'in a bright modern apartment with plants and cozy decor in background',
-    'bedroom': 'in a cozy aesthetic bedroom with fairy lights and neutral decor in background',
-    'gym': 'in a modern clean gym with exercise equipment in background',
-    'park': 'in a beautiful green park with trees and natural lighting',
-    'office': 'in a modern minimalist home office with plants and clean desk setup',
-    'kitchen': 'in a bright modern kitchen with marble countertops and copper accents',
-    'pool': 'by a sparkling blue pool on a sunny day with lounge chairs in background',
-    'concert': 'at a live concert venue with colorful stage lights in background',
-    'car': 'inside a car with soft interior lighting and window light',
-    'mirror': 'in front of a full length mirror in a stylish room',
-    'sunset': 'during golden hour sunset with warm orange and pink sky in background',
-    'city': 'on a city rooftop with urban skyline in background',
-    'mountains': 'in the mountains with scenic peaks and nature in background',
-    'library': 'in a cozy library or bookstore with bookshelves in background',
-  };
-  
-  // Find matching scene expansion
-  const lowerScene = scene.toLowerCase();
-  for (const [key, expansion] of Object.entries(sceneExpansions)) {
-    if (lowerScene.includes(key)) {
-      return expansion;
-    }
-  }
-  
-  // Default: use the scene as-is with some enhancement
-  return `in a ${scene} setting with appropriate ambient lighting and background`;
-}
-
-// ============================================
-// UTILITY: Convert base64 to data URL for display
-// ============================================
-
-export function base64ToDataUrl(base64: string, mimeType: string = 'image/png'): string {
+export function base64ToDataUrl(
+  base64: string,
+  mimeType: string = "image/png"
+): string {
   return `data:${mimeType};base64,${base64}`;
 }
+
+/**
+ * Build the complete image generation prompt using a narrative structure.
+ * Optimized for Gemini 3 Pro's natural language understanding.
+ */
+function buildImagePrompt(
+  scene: string,
+  outfitDescription: string,
+  moodDescription: string
+): string {
+  // 1. Get the rich scene description
+  const enhancedScene = getEnhancedScene(scene);
+
+  // 2. Infer lighting (this still works great on top of the expansion)
+  const lightingDescription = inferLightingAndAtmosphere(scene);
+
+  const narrative = [
+    `A high-resolution, photorealistic smartphone selfie taken by`,
+    `${CHARACTER_VISUAL_IDENTITY.narrativeBase}.`,
+    `She is ${outfitDescription}, looking into the camera ${moodDescription}.`,
+
+    // The grammar is now safe: "She is situated in [a cozy upscale restaurant...]"
+    `She is situated in ${enhancedScene}.`,
+
+    `The lighting is ${lightingDescription}.`,
+    `The image has a candid Instagram-story aesthetic with sharp focus on her eyes and a natural shallow depth of field blurring the background.`,
+  ].join(" ");
+
+  return narrative;
+}
+
+// ============================================
+// HELPER FUNCTIONS
+// ============================================
+
+/**
+ * Expands simple scene keywords into rich, narrative setting descriptions.
+ * Returns a string compatible with "She is situated in [DESCRIPTION]."
+ */
+function getEnhancedScene(scene: string): string {
+  const lowerScene = scene.toLowerCase().trim();
+
+  // Richer descriptions for common scenes
+  const expansions: Record<string, string> = {
+    restaurant:
+      "a cozy upscale restaurant booth with elegant decor visible in the background",
+    beach: "a scenic sandy beach with ocean waves crashing in the distance",
+    coffee:
+      "a trendy aesthetic coffee shop with exposed brick walls and lush plants",
+    cafe: "a warm, inviting cafe with a pastry display case in the background",
+    home: "a bright, modern apartment living room with cozy textures and soft decor",
+    bedroom: "a soft, aesthetic bedroom with fairy lights and neutral bedding",
+    gym: "a modern, clean gym with high-end exercise equipment blurred in the background",
+    park: "a lush green park with dappled sunlight filtering through the trees",
+    office: "a minimalist home office with a clean white desk setup",
+    kitchen:
+      "a bright, modern kitchen featuring marble countertops and copper accents",
+    pool: "a poolside lounge area with sparkling blue water and lounge chairs",
+    concert:
+      "a vibrant concert venue with colorful stage lights beaming in the background",
+    car: "the passenger seat of a car with soft interior lighting",
+    sunset:
+      "an outdoor setting bathed in the warm orange and pink glow of golden hour",
+    city: "a city rooftop overlooking a sprawling urban skyline",
+    library: "a quiet library aisle surrounded by rows of books",
+  };
+
+  // 1. Check for a direct keyword match
+  for (const [key, description] of Object.entries(expansions)) {
+    if (lowerScene.includes(key)) {
+      return description;
+    }
+  }
+
+  // 2. Fallback: Clean up the raw input if no match found
+  // Remove prepositions so it fits "situated in..."
+  let clean = lowerScene.replace(/^(at |in |on |the )/i, "");
+
+  // Ensure it starts with an article
+  if (!clean.match(/^(a |an |the |my )/i)) {
+    clean = `a ${clean}`;
+  }
+
+  return clean;
+}
+
+/**
+ * Infers realistic lighting and atmosphere based on keywords in the scene.
+ * This grounds the character in the image so they don't look "pasted on".
+ */
+function inferLightingAndAtmosphere(scene: string): string {
+  const s = scene.toLowerCase();
+
+  // 🌙 NIGHT / EVENING
+  if (s.match(/(night|evening|party|bar|club|dinner|movie|bed|sleep)/)) {
+    return "dim, atmospheric ambient lighting with soft shadows and perhaps a warm glow from nearby lamps or neon signs";
+  }
+
+  // ☀️ SUNNY / OUTDOORS
+  if (s.match(/(beach|park|hike|walk|sun|outside|garden|pool|vacation)/)) {
+    return "bright, golden-hour natural sunlight casting soft, flattering shadows on her face";
+  }
+
+  // 🏠 INDOOR / COZY
+  if (s.match(/(home|couch|sofa|kitchen|living|reading|book|coffee|cafe)/)) {
+    return "soft, diffused window light mixed with warm interior lighting";
+  }
+
+  // 🏢 ARTIFICIAL / NEUTRAL
+  if (s.match(/(gym|work|office|library|store|shop|mall)/)) {
+    return "clean, bright overhead lighting";
+  }
+
+  // Default fallback
+  return "soft, flattering natural lighting";
+}
+
+
 

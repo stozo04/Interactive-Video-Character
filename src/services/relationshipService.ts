@@ -27,6 +27,7 @@ const GROK_API_KEY = import.meta.env.VITE_GROK_API_KEY;
 const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
 const CHATGPT_API_KEY = import.meta.env.VITE_CHATGPT_API_KEY;
 const CHATGPT_MODEL = import.meta.env.VITE_CHATGPT_MODEL;
+const GEMINI_MODEL = import.meta.env.VITE_GEMINI_MODEL;
 
 export interface RelationshipMetrics {
   id: string;
@@ -401,7 +402,7 @@ Return ONLY valid JSON (no markdown, no code blocks):
       const genAI = new GoogleGenAI({ apiKey: GEMINI_API_KEY });
 
       const result = await genAI.models.generateContent({
-        model: "gemini-2.0-flash-exp", 
+        model: GEMINI_MODEL, 
         contents: [{ role: 'user', parts: [{ text: analysisPrompt }] }],
         config: { responseMimeType: "application/json" }
       });
