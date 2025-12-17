@@ -46,7 +46,7 @@ const getAiClient = () => {
  * The AI sometimes outputs "Here's the thing! { ... }" instead of just "{ ... }"
  * This extracts the JSON portion for parsing.
  */
- function extractJsonFromResponse(responseText: string): string {
+function extractJsonFromResponse(responseText: string): string {
   const trimmed = responseText.trim();
   
   // If it already starts with {, return as-is
@@ -54,22 +54,60 @@ const getAiClient = () => {
     return trimmed;
   }
   
-  // Try to find JSON object at the end of the response
-  // Look for the last { and match to the end }
+  // Try to find balanced JSON object
+  const firstBrace = trimmed.indexOf('{');
+  if (firstBrace === -1) {
+    return trimmed; // No JSON found
+  }
+  
+  // Find matching closing brace (handles nested braces)
+  let depth = 0;
+  let inString = false;
+  let escape = false;
+  
+  for (let i = firstBrace; i < trimmed.length; i++) {
+    const char = trimmed[i];
+    
+    if (escape) {
+      escape = false;
+      continue;
+    }
+    
+    if (char === '\\' && inString) {
+      escape = true;
+      continue;
+    }
+    
+    if (char === '"') {
+      inString = !inString;
+      continue;
+    }
+    
+    if (!inString) {
+      if (char === '{') depth++;
+      if (char === '}') {
+        depth--;
+        if (depth === 0) {
+          const extracted = trimmed.slice(firstBrace, i + 1);
+          console.log('🔧 [Gemini] Extracted JSON from mixed response');
+          return extracted;
+        }
+      }
+    }
+  }
+  
+  // Fallback: try last brace approach
   const lastBraceIndex = trimmed.lastIndexOf('{');
   if (lastBraceIndex !== -1) {
     const potentialJson = trimmed.slice(lastBraceIndex);
-    
-    // Validate it ends with }
     if (potentialJson.trim().endsWith('}')) {
-      console.log('🔧 [Gemini] Extracted JSON from mixed response (text before JSON detected)');
       return potentialJson;
     }
   }
   
-  // No JSON found, return original
   return trimmed;
 }
+
 // Helper to format history - NOW ONLY USED FOR CURRENT SESSION
 function convertToGeminiHistory(history: ChatMessage[]) {
   // For fresh sessions, we only pass the current session's messages
