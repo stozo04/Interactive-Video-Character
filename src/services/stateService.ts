@@ -14,6 +14,7 @@
 
 import { supabase } from './supabaseClient';
 import { Task } from '../types';
+import { getPresenceContext } from './presenceDirector';
 
 // ============================================
 // Table Names
@@ -174,6 +175,36 @@ export async function saveMoodState(userId: string, state: MoodState): Promise<v
       });
   } catch (error) {
     console.error('[StateService] Error saving mood state:', error);
+  }
+}
+
+/**
+ * Pre-warms the context cache when the app loads.
+ * Call this when the chat component mounts to reduce first-message latency.
+ * 
+ * @param userId - The user's ID
+ */
+export async function warmContextCache(userId: string): Promise<void> {
+  if (!userId) return;
+  
+  console.log('🔥 [StateService] Warming context cache for user:', userId);
+  
+  const startTime = performance.now();
+  
+  try {
+    // Fire all context fetches in parallel (fire-and-forget)
+    await Promise.all([
+      getFullCharacterContext(userId),
+      getPresenceContext(userId),
+      // Add any other commonly-needed context here
+    ]);
+    
+    const duration = performance.now() - startTime;
+    console.log(`✅ [StateService] Cache warmed in ${duration.toFixed(0)}ms`);
+    
+  } catch (error) {
+    // Non-critical - just log and continue
+    console.warn('⚠️ [StateService] Cache warming failed:', error);
   }
 }
 

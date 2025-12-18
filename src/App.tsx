@@ -51,6 +51,7 @@ import {
 import { useGoogleAuth } from './contexts/GoogleAuthContext';
 import { useDebounce } from './hooks/useDebounce';
 import { useMediaQueues } from './hooks/useMediaQueues';
+import { useCacheWarming } from './hooks/useCacheWarming';
 import { useAIService } from './contexts/AIServiceContext';
 import { AIChatSession, UserContent } from './services/aiService';
 import { GAMES_PROFILE } from './domain/characters/gamesProfile';
@@ -232,6 +233,17 @@ const App: React.FC = () => {
   // Media Queues Hook
   const media = useMediaQueues();
   
+  // Optimization 3: Cache Warming (Idle Pre-fetch)
+  // This warms up the stateService and presence caches before the first message
+  const userId = useMemo(() => {
+    try {
+      return getUserId();
+    } catch (e) {
+      return null;
+    }
+  }, []);
+  useCacheWarming(userId);
+
   const [currentActionId, setCurrentActionId] = useState<string | null>(null);
 
   // Derived state - override idle video if speaking
