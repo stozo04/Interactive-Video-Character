@@ -219,6 +219,67 @@ export function findRelevantOpinion(userMessage: string): Opinion | null {
 }
 
 // ============================================
+// Loop Deduplication & Topic Matching
+// ============================================
+
+/**
+ * Check if two topics are similar enough to be considered duplicates.
+ * Uses fuzzy matching to catch variations like "Holiday Parties" vs "Holiday party"
+ */
+function isSimilarTopic(existingTopic: string, newTopic: string): boolean {
+  const normalize = (s: string) => s.toLowerCase().trim()
+    .replace(/[^a-z0-9\s]/g, '')  // Remove punctuation
+    .replace(/\s+/g, ' ')          // Normalize whitespace
+    .replace(/ies\b/g, 'y')        // Normalize "ies" plurals (parties -> party)
+    .replace(/s\b/g, '');          // Remove trailing 's' (meetings -> meeting)
+  
+  const existing = normalize(existingTopic);
+  const incoming = normalize(newTopic);
+  
+  // Exact match after normalization
+  if (existing === incoming) return true;
+  
+  // One contains the other (e.g., "holiday party" vs "holiday parties")
+  if (existing.includes(incoming) || incoming.includes(existing)) return true;
+  
+  // Check word overlap (e.g., "Holiday Parties" vs "party tonight")
+  const existingWords = new Set(existing.split(' ').filter(w => w.length > 2));
+  const incomingWords = new Set(incoming.split(' ').filter(w => w.length > 2));
+  
+  // Skip if either has no meaningful words
+  if (existingWords.size === 0 || incomingWords.size === 0) return false;
+  
+  // If there's significant word overlap, consider them similar
+  const overlap = [...existingWords].filter(w => incomingWords.has(w));
+  const overlapRatio = overlap.length / Math.min(existingWords.size, incomingWords.size);
+  
+  return overlapRatio >= 0.5;  // 50% word overlap = similar
+}
+
+/**
+ * Find an existing loop with a similar topic.
+ */
+async function findSimilarLoop(userId: string, topic: string): Promise<OpenLoop | null> {
+  try {
+    // Get all active and surfaced loops (not resolved/dismissed/expired)
+    const { data, error } = await supabase
+      .from(PRESENCE_CONTEXTS_TABLE)
+      .select('*')
+      .eq('user_id', userId)
+      .in('status', ['active', 'surfaced']);
+    
+    if (error || !data) return null;
+    
+    const loops = data.map(mapRowToLoop);
+    return loops.find(loop => isSimilarTopic(loop.topic, topic)) || null;
+    
+  } catch (error) {
+    console.error('[PresenceDirector] Error finding similar loop:', error);
+    return null;
+  }
+}
+
+// ============================================
 // Open Loop Management (Supabase)
 // ============================================
 
@@ -240,6 +301,33 @@ export async function createOpenLoop(
   } = {}
 ): Promise<OpenLoop | null> {
   try {
+    // ============================================
+    // FIX #1: Check for existing similar loop
+    // ============================================
+    const existingLoop = await findSimilarLoop(userId, topic);
+    
+    if (existingLoop) {
+      console.log(`🔄 [PresenceDirector] Similar loop already exists: "${existingLoop.topic}" ≈ "${topic}"`);
+      
+      // Update salience if new one is higher
+      const newSalience = options.salience ?? 0.5;
+      if (newSalience > existingLoop.salience) {
+        await supabase
+          .from(PRESENCE_CONTEXTS_TABLE)
+          .update({ 
+            salience: newSalience,
+            trigger_context: options.triggerContext || existingLoop.triggerContext
+          })
+          .eq('id', existingLoop.id);
+        
+        console.log(`📈 [PresenceDirector] Updated salience: ${existingLoop.salience} → ${newSalience}`);
+        existingLoop.salience = newSalience;
+      }
+      
+      return existingLoop;  // Return existing instead of creating duplicate
+    }
+    // ============================================
+    
     const now = new Date();
     
     // Default surface time based on loop type
@@ -427,6 +515,54 @@ export async function dismissLoop(loopId: string): Promise<void> {
     
   } catch (error) {
     console.error('[PresenceDirector] Error dismissing loop:', error);
+  }
+}
+
+/**
+ * Dismiss all loops related to a topic.
+ * Call this when user contradicts/denies something.
+ * 
+ * Example: User says "I don't have a party" → dismiss all party-related loops
+ * 
+ * @param userId - The user's ID
+ * @param topic - The topic to dismiss (fuzzy matched)
+ * @returns Number of loops dismissed
+ */
+export async function dismissLoopsByTopic(userId: string, topic: string): Promise<number> {
+  try {
+    // Get all active/surfaced loops
+    const { data, error } = await supabase
+      .from(PRESENCE_CONTEXTS_TABLE)
+      .select('*')
+      .eq('user_id', userId)
+      .in('status', ['active', 'surfaced']);
+    
+    if (error || !data) return 0;
+    
+    const loops = data.map(mapRowToLoop);
+    const matchingLoops = loops.filter(loop => 
+      isSimilarTopic(loop.topic, topic) && 
+      (loop.status === 'active' || loop.status === 'surfaced')
+    );
+    
+    if (matchingLoops.length === 0) {
+      console.log(`[PresenceDirector] No loops found matching topic "${topic}"`);
+      return 0;
+    }
+    
+    // Dismiss all matching loops
+    const ids = matchingLoops.map(l => l.id);
+    await supabase
+      .from(PRESENCE_CONTEXTS_TABLE)
+      .update({ status: 'dismissed' })
+      .in('id', ids);
+    
+    console.log(`🚫 [PresenceDirector] Dismissed ${matchingLoops.length} loops matching "${topic}": ${matchingLoops.map(l => l.topic).join(', ')}`);
+    return matchingLoops.length;
+    
+  } catch (error) {
+    console.error('[PresenceDirector] Error dismissing loops by topic:', error);
+    return 0;
   }
 }
 
@@ -840,6 +976,7 @@ export const presenceDirector = {
   markLoopSurfaced,
   resolveLoop,
   dismissLoop,
+  dismissLoopsByTopic,
   expireOldLoops,
   detectOpenLoops,
   
