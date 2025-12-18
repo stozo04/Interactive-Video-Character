@@ -27,7 +27,8 @@
 
 import { 
   detectOpenLoops, 
-  dismissLoopsByTopic 
+  dismissLoopsByTopic,
+  boostSalienceForMentionedTopics
 } from './presenceDirector';
 import * as relationshipService from './relationshipService';
 import { analyzeMessageForPatterns, detectTopics } from './userPatterns';
@@ -551,6 +552,37 @@ export async function analyzeUserMessage(
     
     if (dismissedCount > 0) {
       console.log(`🚫 [MessageAnalyzer] User contradicted "${intentToCheck.contradiction.topic}" - dismissed ${dismissedCount} loop(s)`);
+    }
+  }
+
+  // ============================================
+  // FIX #4: Boost salience for mentioned topics
+  // ============================================
+  // If user mentions topics related to existing loops, boost their salience
+  // This helps recent mentions compete with older high-salience items
+  if (topicResult.topics.length > 0) {
+    // Extract topic strings and entities for matching
+    const mentionedTopics = [
+      ...topicResult.topics,
+      ...(topicResult.entities || [])
+    ];
+    
+    // Also extract key nouns from the message for better matching
+    const messageWords = message.toLowerCase().split(/\s+/);
+    const contextualTopics = messageWords.filter(word => 
+      word.length > 3 && !['just', 'back', 'from', 'have', 'been', 'this', 'that', 'with'].includes(word)
+    );
+    
+    const allTopics = [...new Set([...mentionedTopics, ...contextualTopics])];
+    
+    const boostedCount = await boostSalienceForMentionedTopics(
+      userId,
+      message,
+      allTopics
+    );
+    
+    if (boostedCount > 0) {
+      console.log(`📈 [MessageAnalyzer] Boosted salience for ${boostedCount} loop(s) based on message topics`);
     }
   }
 

@@ -1161,6 +1161,8 @@ export interface OpenLoopIntent {
   timeframe: FollowUpTimeframe | null;
   /** How personal/important this is (0-1) */
   salience: number;
+  /** If detected from calendar context, the event datetime */
+  eventDateTime?: string;
   // REMOVED: explanation field - not needed, reduces token usage
 }
 
@@ -1758,15 +1760,16 @@ function validateFullIntent(parsed: any): FullMessageIntent {
     entities: Array.isArray(parsed.topics?.entities) ? parsed.topics.entities.map(String) : []
   };
 
-  // Validate Open Loops
-  const openLoops: OpenLoopIntent = {
-    hasFollowUp: Boolean(parsed.openLoops?.hasFollowUp),
-    loopType: validateLoopType(parsed.openLoops?.loopType),
-    topic: parsed.openLoops?.topic ? String(parsed.openLoops.topic) : null,
-    suggestedFollowUp: parsed.openLoops?.suggestedFollowUp ? String(parsed.openLoops.suggestedFollowUp) : null,
-    timeframe: validateTimeframe(parsed.openLoops?.timeframe),
-    salience: normalizeSalience(parsed.openLoops?.salience)
-  };
+    // Validate Open Loops
+    const openLoops: OpenLoopIntent = {
+      hasFollowUp: Boolean(parsed.openLoops?.hasFollowUp),
+      loopType: validateLoopType(parsed.openLoops?.loopType),
+      topic: parsed.openLoops?.topic ? String(parsed.openLoops.topic) : null,
+      suggestedFollowUp: parsed.openLoops?.suggestedFollowUp ? String(parsed.openLoops.suggestedFollowUp) : null,
+      timeframe: validateTimeframe(parsed.openLoops?.timeframe),
+      salience: normalizeSalience(parsed.openLoops?.salience),
+      eventDateTime: parsed.openLoops?.eventDateTime ? String(parsed.openLoops.eventDateTime) : undefined
+    };
 
   // Validate Relationship Signals
   const validMilestones = ['first_vulnerability', 'first_joke', 'first_support', 'first_deep_talk'];
@@ -1845,10 +1848,14 @@ Extract "entities" (names/places) and "emotionalContext" (how they feel about it
 SECTION 4: OPEN LOOPS (Memory)
 Is there something specifically worth following up on later?
 Types: 
-- pending_event (interview tomorrow)
+- pending_event (interview tomorrow, party at 6pm)
 - emotional_followup (feeling stressed about X)
 - commitment_check (I'll try to do X)
 - curiosity_thread (interesting topic to resume)
+
+If the message contains CALENDAR DATA with event times, extract the eventDateTime.
+Example: "[LIVE CALENDAR DATA - 1 EVENTS: 1. "Holiday Party" at 6:00 PM]"
+→ eventDateTime: "2024-12-18T18:00:00" (today at 6pm)
 
 SECTION 5: RELATIONSHIP SIGNALS
 - Milestones: 
@@ -1884,7 +1891,7 @@ Respond with this EXACT JSON structure (do NOT include explanation fields):
   "genuineMoment": { "isGenuine": bool, "category": "string|null", "confidence": 0-1 },
   "tone": { "sentiment": -1to1, "primaryEmotion": "string", "intensity": 0-1, "isSarcastic": bool, "secondaryEmotion": "string|null" },
   "topics": { "topics": ["string"], "primaryTopic": "string|null", "emotionalContext": { "topic": "emotion" }, "entities": ["string"] },
-  "openLoops": { "hasFollowUp": bool, "loopType": "string|null", "topic": "string|null", "suggestedFollowUp": "string|null", "timeframe": "string|null", "salience": 0-1 },
+  "openLoops": { "hasFollowUp": bool, "loopType": "string|null", "topic": "string|null", "suggestedFollowUp": "string|null", "timeframe": "string|null", "salience": 0-1, "eventDateTime": "ISO string|null" },
   "relationshipSignals": { "milestone": "string|null", "milestoneConfidence": 0-1, "isHostile": bool, "hostilityReason": "string|null", "isInappropriate": bool, "inappropriatenessReason": "string|null" },
   "contradiction": { "isContradicting": bool, "topic": "string|null", "confidence": 0-1 }
 }`;
@@ -2024,7 +2031,8 @@ function getDefaultIntent(message: string): FullMessageIntent {
       topic: null,
       suggestedFollowUp: null,
       timeframe: null,
-      salience: 0
+      salience: 0,
+      eventDateTime: undefined
     },
     
     // Relationship signals

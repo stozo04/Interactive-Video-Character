@@ -30,6 +30,7 @@ vi.mock("../supabaseClient", () => {
   // Create chainable query builder
   const createQueryChain = (): any => ({
     eq: vi.fn(() => createQueryChain()),
+    in: vi.fn(() => createQueryChain()),
     lte: vi.fn(() => createQueryChain()),
     lt: vi.fn(() => createQueryChain()),
     or: vi.fn(() => createQueryChain()),
@@ -62,6 +63,12 @@ vi.mock("../supabaseClient", () => {
 
   const createUpdateChain = () => ({
     eq: vi.fn(() => ({
+      in: vi.fn(() => ({
+        then: vi.fn((resolve: any) => Promise.resolve({ error: null }).then(resolve)),
+      })),
+      then: vi.fn((resolve: any) => Promise.resolve({ error: null }).then(resolve)),
+    })),
+    in: vi.fn(() => ({
       then: vi.fn((resolve: any) => Promise.resolve({ error: null }).then(resolve)),
     })),
   });
