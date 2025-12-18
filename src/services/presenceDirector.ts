@@ -664,19 +664,28 @@ function detectSimplePatterns(message: string): DetectedPattern[] {
 /**
  * Get the complete presence context for prompt generation.
  * Call this when building the system prompt or greeting.
+ * 
+ * OPTIMIZED: Parallel reads, background writes
  */
 export async function getPresenceContext(userId: string): Promise<PresenceContext> {
-  // Clean up expired loops first
-  await expireOldLoops(userId);
+  // 🔥 FIRE-AND-FORGET: Expiry is a write operation that doesn't affect this response
+  // Don't block the read path waiting for cleanup
+  expireOldLoops(userId).catch(err => 
+    console.warn('[PresenceDirector] Background expiry failed:', err)
+  );
   
-  // Get active loops
-  const activeLoops = await getActiveLoops(userId);
-  const topLoop = await getTopLoopToSurface(userId);
+  // 🚀 PARALLEL: Run all read operations simultaneously
+  // Note: getTopLoopToSurface internally calls getActiveLoops, so we fetch once
+  // and derive the top loop locally to avoid duplicate DB calls
+  const [activeLoops, opinions] = await Promise.all([
+    getActiveLoops(userId),
+    Promise.resolve(getCharacterOpinions())  // Sync, wrapped for consistency
+  ]);
   
-  // Get cached opinions
-  const opinions = getCharacterOpinions();
+  // Derive top loop from active loops (avoids second DB call)
+  const topLoop = selectTopLoopFromActive(activeLoops);
   
-  // Build the prompt section
+  // Build the prompt section (CPU-only, fast)
   const promptSection = buildPresencePromptSection(activeLoops, topLoop, opinions);
   
   return {
@@ -685,6 +694,36 @@ export async function getPresenceContext(userId: string): Promise<PresenceContex
     opinions,
     promptSection
   };
+}
+
+/**
+ * Select the highest priority loop to surface from pre-fetched active loops.
+ * This is the same logic as getTopLoopToSurface but without the DB call.
+ * 
+ * @param loops - Pre-fetched active loops
+ * @returns The top loop to surface, or null
+ */
+function selectTopLoopFromActive(loops: OpenLoop[]): OpenLoop | null {
+  if (loops.length === 0) {
+    return null;
+  }
+  
+  const now = Date.now();
+  const minSurfaceGap = MIN_HOURS_BETWEEN_SURFACES * 60 * 60 * 1000;
+  
+  // Filter loops that haven't been surfaced too recently
+  const eligibleLoops = loops.filter(loop => {
+    if (loop.surfaceCount >= loop.maxSurfaces) return false;
+    if (loop.lastSurfacedAt && now - loop.lastSurfacedAt.getTime() < minSurfaceGap) return false;
+    return true;
+  });
+  
+  if (eligibleLoops.length === 0) {
+    return null;
+  }
+  
+  // Return highest salience loop
+  return eligibleLoops.sort((a, b) => b.salience - a.salience)[0];
 }
 
 /**

@@ -30,7 +30,6 @@ import * as relationshipService from './relationshipService';
 import { analyzeMessageForPatterns, detectTopics } from './userPatterns';
 import { detectMilestoneInMessage } from './relationshipMilestones';
 import { 
-  recordInteraction,
   recordInteractionAsync,
   detectGenuineMomentWithLLM,
   detectGenuineMoment, // Keyword fallback function
@@ -531,46 +530,46 @@ export async function analyzeUserMessage(
   }
 
   // ============================================
-  // Execution & Side Effects
+  // Execution & Side Effects (🚀 Parallelized)
   // ============================================
 
-  // Phase 5: Create open loops (using the detected intent)
-  // We pass 'openLoopResult' so it doesn't need to call LLM again
-  const createdLoops = await detectOpenLoops(
-    userId, 
-    message, 
-    llmCall, 
-    conversationContext,
-    openLoopResult // Injection!
-  );
-  
-  // Phase 6: Pass intent to milestone detection
-  const recordedMilestone = await detectMilestoneInMessage(userId, message, interactionCount, relationshipSignalResult);
-  
-  // Phase 3: Analyze for cross-session patterns
-  const detectedPatterns = await analyzeMessageForPatterns(userId, message, new Date(), toneResult, topicResult);
+  // Run all background updates in parallel to maximize performance
+  const [createdLoops, recordedMilestone, detectedPatterns] = await Promise.all([
+    // Phase 5: Create open loops
+    detectOpenLoops(
+      userId, 
+      message, 
+      llmCall, 
+      conversationContext,
+      openLoopResult
+    ),
+    
+    // Phase 6: Milestone detection
+    detectMilestoneInMessage(userId, message, interactionCount, relationshipSignalResult),
+    
+    // Phase 3: Cross-session patterns
+    analyzeMessageForPatterns(userId, message, new Date(), toneResult, topicResult),
+    
+    // Phase 7: Emotional momentum update
+    recordInteractionAsync(
+      userId,
+      toneResult, 
+      message,
+      {
+        isGenuine: genuineMomentResult.isGenuine,
+        category: genuineMomentResult.category as any,
+        matchedKeywords: genuineMomentResult.matchedKeywords,
+        isPositiveAffirmation: true
+      }
+    ),
+
+    // Phase 7: Probabilistic intimacy / stats
+    relationshipService.recordMessageQualityAsync(userId, message)
+  ]) as [OpenLoop[], RelationshipMilestone | null, UserPattern[], void, void];
   
   // Use LLM sentiment for message tone
   const messageTone = toneResult.sentiment;
   
-  // Record interaction for emotional momentum (async with Supabase persistence)
-  // Phase 7 Update: We now pass the LLM-derived genuine moment result
-  // This ensures the mood system 'sees' what the LLM detected
-  await recordInteractionAsync(
-    userId,
-    toneResult, 
-    message,
-    {
-      isGenuine: genuineMomentResult.isGenuine,
-      category: genuineMomentResult.category as any, // Cast to avoid tight coupling issues if types drift
-      matchedKeywords: genuineMomentResult.matchedKeywords,
-      isPositiveAffirmation: true // If LLM says genuine, it implies positive affirmation
-    }
-  );
-
-  // Phase 7 Update: Record message quality for probabilistic intimacy / stats
-  await relationshipService.recordMessageQualityAsync(userId, message);
-
   // Log what was detected
   if (createdLoops.length > 0) {
     console.log(`🔄 [MessageAnalyzer] Created ${createdLoops.length} open loop(s)`);

@@ -1,5 +1,6 @@
 import { IAIChatService, AIChatOptions, UserContent, AIChatSession, AIMessage } from './aiService';
-import { buildSystemPrompt, buildProactiveThreadPrompt } from './promptUtils';
+import { buildSystemPrompt, buildProactiveThreadPrompt, getSoulLayerContextAsync } from './promptUtils';
+import { formatCharacterFactsForPrompt } from './characterFactsService';
 import { generateSpeech } from './elevenLabsService';
 import { AIActionResponse } from './aiSchema';
 import { analyzeUserMessageBackground } from './messageAnalyzer';
@@ -8,6 +9,7 @@ import { updateEmotionalMomentumWithIntensityAsync } from './moodKnobs';
 import { getOngoingThreadsAsync, selectProactiveThread, markThreadMentionedAsync } from './ongoingThreads';
 import { getTopLoopToSurface, markLoopSurfaced } from './presenceDirector';
 import { storeCharacterFact } from './characterFactsService';
+import { getPrefetchedContext, prefetchOnIdle } from './prefetchService';
 import type { CharacterProfile, Task } from '../types';
 import type { RelationshipMetrics } from './relationshipService';
 
@@ -26,6 +28,25 @@ function isValidTextForTTS(text: string | undefined | null): boolean {
   const alphanumericChars = trimmed.replace(/[^a-zA-Z0-9]/g, '').length;
   if (alphanumericChars < 2) return false;
   return true;
+}
+
+/**
+ * Pre-fetch context data in parallel with intent detection.
+ * This is an optimization to avoid waiting for intent before starting context fetch.
+ * 
+ * @param userId - The user's ID for fetching their specific context
+ * @returns Promise that resolves to the pre-fetched context
+ */
+async function prefetchContext(userId: string): Promise<{
+  soulContext: Awaited<ReturnType<typeof getSoulLayerContextAsync>>;
+  characterFacts: string;
+}> {
+  const [soulContext, characterFacts] = await Promise.all([
+    getSoulLayerContextAsync(userId),
+    formatCharacterFactsForPrompt()
+  ]);
+  
+  return { soulContext, characterFacts };
 }
 
 export abstract class BaseAIService implements IAIChatService {
@@ -86,6 +107,36 @@ export abstract class BaseAIService implements IAIChatService {
       console.log("isCommand: ", isCommand);
       let intentPromise: Promise<FullMessageIntent> | undefined;
 
+      // ============================================
+      // OPTIMIZATION: Parallel Intent + Context Fetch
+      // ============================================
+      // Start context prefetch IMMEDIATELY alongside intent detection
+      // This saves ~300ms by not waiting for intent before fetching context
+
+      const effectiveUserId = session?.userId || import.meta.env.VITE_USER_ID;
+      let contextPrefetchPromise: Promise<{
+        soulContext: Awaited<ReturnType<typeof getSoulLayerContextAsync>>;
+        characterFacts: string;
+      }> | undefined;
+
+      // 🚀 CHECK GLOBAL PREFETCH CACHE FIRST (Idle optimization)
+      const cachedContext = getPrefetchedContext();
+      let prefetchedContext: {
+        soulContext: Awaited<ReturnType<typeof getSoulLayerContextAsync>>;
+        characterFacts: string;
+      } | undefined = cachedContext ? {
+        soulContext: cachedContext.soulContext,
+        characterFacts: cachedContext.characterFacts
+      } : undefined;
+
+      // 🚀 START CONTEXT PREFETCH EARLY (runs in parallel with intent) if not already cached
+      if (effectiveUserId && !prefetchedContext) {
+        contextPrefetchPromise = prefetchContext(effectiveUserId);
+        console.log('🚀 [BaseAIService] Started context prefetch in parallel');
+      } else if (prefetchedContext) {
+        console.log('✅ [BaseAIService] Using context from idle pre-fetch cache');
+      }
+
       if (trimmedMessage && trimmedMessage.length > 5) {
         // 1. ALWAYS kick off intent detection (for memory, analytics, patterns)
         intentPromise = detectFullIntentLLMCached(trimmedMessage, conversationContext);
@@ -129,6 +180,16 @@ export abstract class BaseAIService implements IAIChatService {
         }
       }
 
+      // 🚀 OPTIMIZATION: Wait for prefetched context (should already be ready!)
+      if (contextPrefetchPromise) {
+        try {
+          prefetchedContext = await contextPrefetchPromise;
+          console.log('✅ [BaseAIService] Context prefetch completed');
+        } catch (e) {
+          console.warn('[BaseAIService] Context prefetch failed, will fetch in buildSystemPrompt:', e);
+        }
+      }
+
       // Shared: Build Prompts (now reflects updated mood if genuine!)
       // Pass the FULL semantic intent to inform response style dynamically
       const systemPrompt = await buildSystemPrompt(
@@ -141,7 +202,8 @@ export abstract class BaseAIService implements IAIChatService {
         preCalculatedIntent?.tone,
         preCalculatedIntent, // Pass the entire FullMessageIntent
         session?.userId || import.meta.env.VITE_USER_ID, // Pass userId for async state retrieval
-        undefined // userTimeZone - defaults to 'America/Chicago'
+        undefined, // userTimeZone - defaults to 'America/Chicago'
+        prefetchedContext // 🚀 PASS PREFETCHED CONTEXT
       );
       console.log("systemPrompt built: ", systemPrompt);
       
@@ -229,7 +291,7 @@ export abstract class BaseAIService implements IAIChatService {
         }
       }
 
-      const audioMode = options.audioMode ?? 'sync';
+      const audioMode = options.audioMode ?? 'async';  // was 'sync'
       console.log("audioMode: ", audioMode);
 
       // Shared: Voice Generation
@@ -282,6 +344,16 @@ export abstract class BaseAIService implements IAIChatService {
       } else {
         console.warn('⚠️ [BaseAIService] Skipped TTS: text_response was empty or invalid:', aiResponse.text_response);
         audioData = undefined;
+      }
+
+      // 🚀 POST-RESPONSE OPTIMIZATION: Warm the cache for the next message
+      // This is fire-and-forget, doesn't block the current response.
+      if (effectiveUserId) {
+        setTimeout(() => {
+          prefetchOnIdle(effectiveUserId).catch(err => {
+            console.warn('⚠️ [BaseAIService] Post-response pre-fetch failed:', err);
+          });
+        }, 500); // Small delay to allow the app to handle the current response first
       }
 
       return {
@@ -487,6 +559,12 @@ Your goal: Share this news in your style - make it accessible and interesting!
     }
 
     // STEP D: Generate the system prompt using promptUtils
+    // Use pre-fetched context if available
+    const [soulResult, factsResult] = await Promise.all([
+      getSoulLayerContextAsync(userId),
+      formatCharacterFactsForPrompt()
+    ]);
+
     const fullSystemPrompt = await buildSystemPrompt(
       options.character,
       options.relationship,
@@ -497,7 +575,8 @@ Your goal: Share this news in your style - make it accessible and interesting!
       undefined, // toneIntent - not needed for idle breaker
       undefined, // fullIntent - not needed for idle breaker
       userId,
-      undefined // userTimeZone
+      undefined, // userTimeZone
+      { soulContext: soulResult, characterFacts: factsResult } // 🚀 OPTIMIZATION
     );
 
     // Combine the idle breaker instruction with the full system prompt

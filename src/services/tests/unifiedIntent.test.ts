@@ -128,7 +128,7 @@ describe("Phase 7: Unified Intent Detection", () => {
       text: createMockResponse({ tone: { primaryEmotion: "excited" } as any })
     });
 
-    const msg = "I'm so excited!";
+    const msg = "I'm so excited about everything happening today!";
     
     // First call
     await detectFullIntentLLMCached(msg);
@@ -139,13 +139,11 @@ describe("Phase 7: Unified Intent Detection", () => {
     expect(mockGenerateContent).toHaveBeenCalledTimes(1);
     
     // Third call WITH context (cache is still used even with context to prevent duplicate calls)
-    // The implementation intentionally uses cache even with context to avoid duplicate calls
-    // in the same message processing flow
     await detectFullIntentLLMCached(msg, { recentMessages: [{role: 'user', text: 'hi'}] });
     expect(mockGenerateContent).toHaveBeenCalledTimes(1);
     
     // Different message should make a new call
-    await detectFullIntentLLMCached("Different message");
+    await detectFullIntentLLMCached("This is a completely different message for testing purposes.");
     expect(mockGenerateContent).toHaveBeenCalledTimes(2);
   });
 

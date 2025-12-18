@@ -38,12 +38,12 @@ export type OngoingThread = SupabaseOngoingThread;
 
 const MAX_THREADS = 5;
 const MIN_THREADS = 2;
-// Cache TTL: 30 seconds for single-user prototype
+// Cache TTL: 60 seconds for single-user prototype
 // NOTE: Caching is for PERFORMANCE only, not correctness.
 // Supabase is the single source of truth. In-memory cache can lead to state drift
 // if multiple tabs are open or serverless functions scale up/down.
 // For production with high read volume, consider keeping cache but with shorter TTL.
-const CACHE_TTL = 30000; // 30 seconds cache TTL
+const CACHE_TTL = 60000; // 60 seconds cache TTL
 
 // ============================================
 // Local Caching Layer
@@ -180,6 +180,8 @@ function decayThreads(threads: OngoingThread[]): OngoingThread[] {
     };
   });
 }
+
+
 
 /**
  * Clean up threads that are too old or too low intensity
@@ -560,6 +562,24 @@ export async function markThreadMentionedAsync(
 export async function getThreadToSurfaceAsync(userId: string): Promise<OngoingThread | null> {
   const threads = await getOngoingThreadsAsync(userId);
   return findThreadToSurface(threads);
+}
+
+/**
+ * Format threads for prompt from pre-fetched data.
+ * OPTIMIZATION: Avoids redundant DB fetch when data already available.
+ * 
+ * @param threads - Pre-fetched ongoing threads array
+ * @returns Formatted prompt string
+ */
+export function formatThreadsFromData(threads: OngoingThread[]): string {
+  // Process threads (decay, cleanup, ensure minimum)
+  const processed = processThreads(threads);
+  
+  // Find top thread to potentially surface
+  const topThread = findThreadToSurface(processed);
+  
+  // Format for prompt (CPU-only, fast)
+  return formatThreadsInternal(processed, topThread);
 }
 
 /**

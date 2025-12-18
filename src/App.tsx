@@ -29,6 +29,7 @@ import { buildActionKeyMap } from './utils/actionKeyMapper'; // Phase 1 Optimiza
 
 import { predictActionFromMessage } from './utils/intentUtils';
 import { processAndStoreCharacterFacts } from './services/characterFactsService';
+import { prefetchOnIdle, clearPrefetchCache } from './services/prefetchService';
 
 import ImageUploader from './components/ImageUploader';
 import VideoPlayer from './components/VideoPlayer';
@@ -1006,6 +1007,37 @@ const App: React.FC = () => {
     const interval = window.setInterval(checkIdle, IDLE_CHECK_INTERVAL);
     return () => window.clearInterval(interval);
   }, [lastInteractionAt, isProcessingAction, isSpeaking, triggerIdleBreaker]);
+
+  // 🚀 OPTIMIZATION: Pre-fetch context on idle (30s)
+  useEffect(() => {
+    if (!selectedCharacter || !session) return;
+
+    const PREFETCH_IDLE_TIMEOUT = 30000; // 30 seconds
+    let prefetchTriggered = false;
+
+    const checkPrefetch = () => {
+      if (prefetchTriggered) return;
+
+      const now = Date.now();
+      const timeSinceInteraction = now - lastInteractionAt;
+
+      if (timeSinceInteraction > PREFETCH_IDLE_TIMEOUT && !isProcessingAction && !isSpeaking) {
+        try {
+          const userId = getUserId();
+          prefetchOnIdle(userId);
+          prefetchTriggered = true;
+        } catch (e) {
+          // Ignore if userId not available
+        }
+      }
+    };
+
+    const interval = window.setInterval(checkPrefetch, 5000);
+    return () => {
+      window.clearInterval(interval);
+      clearPrefetchCache();
+    };
+  }, [lastInteractionAt, isProcessingAction, isSpeaking, selectedCharacter, session]);
 
   // Keyboard Shortcuts
   useEffect(() => {

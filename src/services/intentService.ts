@@ -1934,6 +1934,93 @@ export async function detectFullIntentLLM(
 }
 
 /**
+ * Returns a neutral default intent for simple messages.
+ * Used when we skip full LLM detection for short/simple messages.
+ * 
+ * This saves 5-13 seconds of processing time.
+ */
+function getDefaultIntent(message: string): FullMessageIntent {
+  const trimmed = message.trim().toLowerCase();
+  
+  // Check for common patterns
+  const isGreeting = /^(hey|hi|hello|yo|sup|what'?s up)/i.test(trimmed);
+  const isPositive = /^(yes|yeah|yep|ok|okay|sure|cool|nice|lol|haha|😂|❤️|🥰)/i.test(trimmed);
+  const isNegative = /^(no|nope|nah|ugh|meh)/i.test(trimmed);
+  const isGoodbye = /^(bye|cya|later|gn|good night)/i.test(trimmed);
+  
+  return {
+    // Genuine moment detection
+    genuineMoment: {
+      isGenuine: false,
+      category: null,
+      confidence: 0.1
+    },
+    
+    // Tone analysis
+    tone: {
+      sentiment: isPositive ? 0.5 : isNegative ? -0.3 : 0,
+      primaryEmotion: isGreeting ? 'happy' : isNegative ? 'dismissive' : isPositive ? 'happy' : isGoodbye ? 'neutral' : 'neutral',
+      intensity: 0.3, // Low intensity for simple messages
+      isSarcastic: false
+    },
+    
+    // Topics context
+    topics: {
+      topics: [],
+      primaryTopic: null,
+      emotionalContext: {},
+      entities: []
+    },
+    
+    // Open loop detection
+    openLoops: {
+      hasFollowUp: false,
+      loopType: null,
+      topic: null,
+      suggestedFollowUp: null,
+      timeframe: null,
+      salience: 0
+    },
+    
+    // Relationship signals
+    relationshipSignals: {
+      isVulnerable: false,
+      isSeekingSupport: false,
+      isAcknowledgingSupport: false,
+      isJoking: false,
+      isDeepTalk: false,
+      milestone: null,
+      milestoneConfidence: 0,
+      isHostile: false,
+      hostilityReason: null,
+      isInappropriate: false,
+      inappropriatenessReason: null
+    }
+  };
+}
+
+/**
+ * Checks if a message is "simple" enough for abbreviated processing.
+ * Simple messages are casual/social and don't require deep analysis.
+ */
+function isSimpleMessage(message: string): boolean {
+  const trimmed = message.trim().toLowerCase();
+  
+  // Simple patterns that don't need full analysis
+  const simplePatterns = [
+    /^(hey|hi|hello|yo|sup|what'?s up)[!?.]*$/i,  // Pure greetings
+    /^(yes|no|ok|okay|sure|maybe|idk)[!?.]*$/i,   // Simple responses
+    /^(lol|haha|hehe|😂|🤣|❤️|💕)+[!?.]*$/i,     // Reactions
+    /^(good|great|nice|cool|awesome|sweet)[!?.]*$/i, // Simple positives
+    /^(ugh|meh|eh|hmm|huh)[!?.]*$/i,             // Simple neutrals
+    /^(thanks|thx|ty|thank you)[!?.]*$/i,        // Thanks
+    /^(bye|cya|later|gn|good night)[!?.]*$/i,   // Goodbyes
+  ];
+  
+  return simplePatterns.some(pattern => pattern.test(trimmed));
+}
+
+/**
  * Cached version of unified intent detection
  * 
  * IMPORTANT: When context is provided, we still check cache first to avoid duplicate calls
@@ -1944,10 +2031,26 @@ export async function detectFullIntentLLMCached(
   message: string,
   context?: ConversationContext
 ): Promise<FullMessageIntent> {
-  // Check cache (key based on message only)
-  // Note: We use message-only cache even with context to prevent duplicate calls
-  // within the same processing flow. Context affects interpretation but the primary
-  // intent is usually message-driven.
+  const trimmed = message.trim();
+  const wordCount = trimmed.split(/\s+/).length;
+
+  // ============================================
+  // OPTIMIZATION: Tiered Intent Detection
+  // ============================================
+
+  // TIER 1: Skip entirely for very short messages (< 3 words or < 10 chars)
+  if (wordCount <= 2 || trimmed.length < 10) {
+    console.log(`⚡ [IntentService] SKIP: Very short message: "${trimmed}"`);
+    return getDefaultIntent(trimmed);
+  }
+
+  // TIER 2: Use defaults for simple/casual messages
+  if (isSimpleMessage(trimmed)) {
+    console.log(`⚡ [IntentService] SKIP: Simple message pattern: "${trimmed}"`);
+    return getDefaultIntent(trimmed);
+  }
+
+  // TIER 3: Check cache for more complex messages
   const cacheKey = message.toLowerCase().trim();
   const cached = fullIntentCache.get(cacheKey);
   
