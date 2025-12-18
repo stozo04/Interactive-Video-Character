@@ -25,7 +25,10 @@
  * Now uses LLM-based relationship signal detection (milestones, ruptures).
  */
 
-import { detectOpenLoops } from './presenceDirector';
+import { 
+  detectOpenLoops, 
+  dismissLoopsByTopic 
+} from './presenceDirector';
 import * as relationshipService from './relationshipService';
 import { analyzeMessageForPatterns, detectTopics } from './userPatterns';
 import { detectMilestoneInMessage } from './relationshipMilestones';
@@ -397,10 +400,12 @@ export async function analyzeUserMessage(
   let openLoopResult: OpenLoopIntent | null = null;
   let relationshipSignalResult: RelationshipSignalIntent | null = null;
   
+  let fullIntent: FullMessageIntent | null = null;
+  
   try {
     // 1. The Single Source of Truth
     // Use pre-calculated intent if provided (optimization from BaseAIService)
-    const fullIntent = preCalculatedIntent || await detectFullIntentLLMCached(message, conversationContext);
+    fullIntent = preCalculatedIntent || await detectFullIntentLLMCached(message, conversationContext);
     
     // 2. Distribute results
     // Map Genuine Moment from Intent (minimal) to Result (richer)
@@ -527,6 +532,26 @@ export async function analyzeUserMessage(
       isInappropriate: false,
       inappropriatenessReason: null
     };
+  }
+
+  // ============================================
+  // FIX #2: Handle Contradictions BEFORE creating new loops
+  // ============================================
+  // If user is contradicting something, dismiss related loops first
+  // Use fullIntent if available (from either pre-calculated or just calculated)
+  const intentToCheck = fullIntent || preCalculatedIntent;
+  if (intentToCheck?.contradiction?.isContradicting && 
+      intentToCheck.contradiction.topic &&
+      intentToCheck.contradiction.confidence > 0.6) {
+    
+    const dismissedCount = await dismissLoopsByTopic(
+      userId, 
+      intentToCheck.contradiction.topic
+    );
+    
+    if (dismissedCount > 0) {
+      console.log(`🚫 [MessageAnalyzer] User contradicted "${intentToCheck.contradiction.topic}" - dismissed ${dismissedCount} loop(s)`);
+    }
   }
 
   // ============================================

@@ -1710,6 +1710,12 @@ export interface FullMessageIntent {
   topics: TopicIntent;
   openLoops: OpenLoopIntent;
   relationshipSignals: RelationshipSignalIntent;
+  /** Contradiction detection - when user denies/disputes something */
+  contradiction?: {
+    isContradicting: boolean;
+    topic: string | null;
+    confidence: number;
+  };
   _meta?: {
     skippedFullDetection?: boolean;
     reason?: string;
@@ -1785,7 +1791,21 @@ function validateFullIntent(parsed: any): FullMessageIntent {
      relationshipSignals.milestone = 'first_deep_talk';
   }
 
-  const result: FullMessageIntent = { genuineMoment, tone, topics, openLoops, relationshipSignals };
+  // Validate Contradiction
+  const contradiction = parsed.contradiction ? {
+    isContradicting: Boolean(parsed.contradiction.isContradicting),
+    topic: parsed.contradiction.topic ? String(parsed.contradiction.topic) : null,
+    confidence: normalizeConfidence(parsed.contradiction.confidence)
+  } : undefined;
+
+  const result: FullMessageIntent = { 
+    genuineMoment, 
+    tone, 
+    topics, 
+    openLoops, 
+    relationshipSignals,
+    contradiction
+  };
   
   if (parsed._meta) {
     result._meta = parsed._meta;
@@ -1800,7 +1820,7 @@ function validateFullIntent(parsed: any): FullMessageIntent {
  */
 const UNIFIED_INTENT_PROMPT = `You are the MASTER INTENT DETECTION SYSTEM for an AI companion named Kayley.
 
-Your task is to analyze the user's message for FIVE distinct aspects simultaneously.
+Your task is to analyze the user's message for SIX distinct aspects simultaneously.
 You must be precise, noting sarcasm, hidden emotions, and subtle relationship signals.
 
 ---
@@ -1838,6 +1858,22 @@ SECTION 5: RELATIONSHIP SIGNALS
   - first_deep_talk (philosophical or meta-commentary like "This got deep huh")
 - Hostility: overt insults or aggressive dismissal.
 
+SECTION 6: CONTRADICTION DETECTION
+Detect if the user is CONTRADICTING or DENYING something previously discussed.
+This is important for correcting mistaken assumptions.
+
+Triggers:
+- "I don't have a [X]" / "There is no [X]"
+- "That's not on my calendar" / "I don't see that"
+- "That's wrong" / "That's not right"
+- "I never said that" / "I didn't say that"
+- "No, I meant..." / "Actually, it's..."
+- User correcting a misunderstanding
+
+Examples:
+- "I don't have a party tonight" → topic: "party"
+- "That event isn't on my calendar" → topic: "event" or "calendar"
+- "I never mentioned a meeting" → topic: "meeting"
 ---
 {context}
 
@@ -1849,7 +1885,8 @@ Respond with this EXACT JSON structure (do NOT include explanation fields):
   "tone": { "sentiment": -1to1, "primaryEmotion": "string", "intensity": 0-1, "isSarcastic": bool, "secondaryEmotion": "string|null" },
   "topics": { "topics": ["string"], "primaryTopic": "string|null", "emotionalContext": { "topic": "emotion" }, "entities": ["string"] },
   "openLoops": { "hasFollowUp": bool, "loopType": "string|null", "topic": "string|null", "suggestedFollowUp": "string|null", "timeframe": "string|null", "salience": 0-1 },
-  "relationshipSignals": { "milestone": "string|null", "milestoneConfidence": 0-1, "isHostile": bool, "hostilityReason": "string|null", "isInappropriate": bool, "inappropriatenessReason": "string|null" }
+  "relationshipSignals": { "milestone": "string|null", "milestoneConfidence": 0-1, "isHostile": bool, "hostilityReason": "string|null", "isInappropriate": bool, "inappropriatenessReason": "string|null" },
+  "contradiction": { "isContradicting": bool, "topic": "string|null", "confidence": 0-1 }
 }`;
 
 
@@ -2004,6 +2041,14 @@ function getDefaultIntent(message: string): FullMessageIntent {
       isInappropriate: false,
       inappropriatenessReason: null
     },
+    
+    // Contradiction detection
+    contradiction: {
+      isContradicting: false,
+      topic: null,
+      confidence: 0
+    },
+    
     _meta: {
       skippedFullDetection: true,
       reason: 'tiered_bypass'
