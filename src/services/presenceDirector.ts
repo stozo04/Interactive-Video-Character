@@ -51,6 +51,8 @@ export interface OpenLoop {
   salience: number;
   surfaceCount: number;
   maxSurfaces: number;
+  /** For pending_event: when the actual event occurs */
+  eventDateTime?: Date;
 }
 
 export interface Opinion {
@@ -280,6 +282,181 @@ async function findSimilarLoop(userId: string, topic: string): Promise<OpenLoop 
 }
 
 // ============================================
+// Fix #3: Time-Awareness Helpers
+// ============================================
+
+/** Minimum minutes after event before asking "how was it?" */
+const MIN_MINUTES_AFTER_EVENT = 30;
+
+/**
+ * Check if an event is still in the future.
+ * Returns false if eventDateTime is undefined (backwards compatibility).
+ */
+export function isEventInFuture(eventDateTime: Date | undefined): boolean {
+  if (!eventDateTime) return false;
+  
+  const now = Date.now();
+  const eventTime = eventDateTime.getTime();
+  
+  // Event is in future if it hasn't started yet
+  return eventTime > now;
+}
+
+/**
+ * Determine if we should ask "how did it go?" for this loop.
+ * 
+ * Rules:
+ * - For pending_event with eventDateTime: only after event + buffer time
+ * - For pending_event without eventDateTime: allow (backwards compatibility)
+ * - For other loop types: always allow
+ */
+export function shouldAskHowItWent(loop: OpenLoop): boolean {
+  // Non-event loops can always be asked about
+  if (loop.loopType !== 'pending_event') {
+    return true;
+  }
+  
+  // No event time stored? Allow for backwards compatibility
+  if (!loop.eventDateTime) {
+    return true;
+  }
+  
+  const now = Date.now();
+  const eventTime = loop.eventDateTime.getTime();
+  const bufferMs = MIN_MINUTES_AFTER_EVENT * 60 * 1000;
+  
+  // Only ask "how was it?" after event + buffer time
+  return now > (eventTime + bufferMs);
+}
+
+/**
+ * Get the appropriate follow-up type for a loop.
+ * 
+ * @returns 'reminder' if event is upcoming, 'followup' if event has passed
+ */
+export function getFollowUpType(loop: OpenLoop): 'reminder' | 'followup' {
+  if (loop.loopType !== 'pending_event') {
+    return 'followup';
+  }
+  
+  if (!loop.eventDateTime) {
+    return 'followup';
+  }
+  
+  return isEventInFuture(loop.eventDateTime) ? 'reminder' : 'followup';
+}
+
+// ============================================
+// Fix #4: Salience Boosting
+// ============================================
+
+/** Base boost for mentioning a topic */
+const BASE_SALIENCE_BOOST = 0.1;
+
+/** Maximum salience value */
+const MAX_SALIENCE = 1.0;
+
+/**
+ * Calculate the new salience after boost.
+ * Uses diminishing returns for multiple mentions.
+ * 
+ * @param currentSalience - Current salience value
+ * @param mentionCount - Number of times topic was mentioned (1-based)
+ * @returns New salience value (capped at MAX_SALIENCE)
+ */
+export function calculateSalienceBoost(currentSalience: number, mentionCount: number): number {
+  // Diminishing returns: 0.1, 0.05, 0.025, etc.
+  let totalBoost = 0;
+  for (let i = 0; i < mentionCount; i++) {
+    totalBoost += BASE_SALIENCE_BOOST / Math.pow(2, i);
+  }
+  
+  return Math.min(currentSalience + totalBoost, MAX_SALIENCE);
+}
+
+/**
+ * Find active loops that match any of the given topics.
+ * 
+ * @param userId - The user's ID
+ * @param topics - Array of topics to match against
+ * @returns Array of matching loops
+ */
+export async function findLoopsMatchingTopics(
+  userId: string, 
+  topics: string[]
+): Promise<OpenLoop[]> {
+  if (topics.length === 0) return [];
+  
+  try {
+    const { data, error } = await supabase
+      .from(PRESENCE_CONTEXTS_TABLE)
+      .select('*')
+      .eq('user_id', userId)
+      .in('status', ['active', 'surfaced']);
+    
+    if (error || !data) return [];
+    
+    const loops = data.map(mapRowToLoop);
+    
+    // Find loops where topic matches any of the mentioned topics
+    return loops.filter(loop => 
+      topics.some(topic => isSimilarTopic(loop.topic, topic))
+    );
+    
+  } catch (error) {
+    console.error('[PresenceDirector] Error finding matching loops:', error);
+    return [];
+  }
+}
+
+/**
+ * Boost salience for loops matching mentioned topics.
+ * Call this when user's message mentions topics related to existing loops.
+ * 
+ * @param userId - The user's ID
+ * @param message - The user's message (for logging)
+ * @param topics - Topics detected in the message
+ * @returns Number of loops boosted
+ */
+export async function boostSalienceForMentionedTopics(
+  userId: string,
+  message: string,
+  topics: string[]
+): Promise<number> {
+  if (topics.length === 0) return 0;
+  
+  try {
+    const matchingLoops = await findLoopsMatchingTopics(userId, topics);
+    
+    if (matchingLoops.length === 0) return 0;
+    
+    let boostedCount = 0;
+    
+    for (const loop of matchingLoops) {
+      // Count how many of the mentioned topics match this loop
+      const matchCount = topics.filter(t => isSimilarTopic(loop.topic, t)).length;
+      const newSalience = calculateSalienceBoost(loop.salience, matchCount);
+      
+      if (newSalience > loop.salience) {
+        await supabase
+          .from(PRESENCE_CONTEXTS_TABLE)
+          .update({ salience: newSalience })
+          .eq('id', loop.id);
+        
+        console.log(`📈 [PresenceDirector] Boosted "${loop.topic}" salience: ${loop.salience.toFixed(2)} → ${newSalience.toFixed(2)} (mentioned in: "${message.slice(0, 50)}...")`);
+        boostedCount++;
+      }
+    }
+    
+    return boostedCount;
+    
+  } catch (error) {
+    console.error('[PresenceDirector] Error boosting salience:', error);
+    return 0;
+  }
+}
+
+// ============================================
 // Open Loop Management (Supabase)
 // ============================================
 
@@ -298,6 +475,7 @@ export async function createOpenLoop(
     salience?: number;
     sourceMessageId?: string;
     sourceCalendarEventId?: string;
+    eventDateTime?: Date;
   } = {}
 ): Promise<OpenLoop | null> {
   try {
@@ -375,6 +553,7 @@ export async function createOpenLoop(
         salience: options.salience ?? 0.5,
         source_message_id: options.sourceMessageId || null,
         source_calendar_event_id: options.sourceCalendarEventId || null,
+        event_datetime: options.eventDateTime?.toISOString() || null,
         status: 'active',
         surface_count: 0,
         max_surfaces: loopType === 'pending_event' ? 2 : 3
@@ -653,7 +832,8 @@ export async function detectOpenLoops(
           triggerContext: userMessage.slice(0, 200),
           suggestedFollowup: llmResult.suggestedFollowUp || undefined,
           salience: llmResult.salience,
-          shouldSurfaceAfter: mapTimeframeToSurfaceDate(llmResult.timeframe)
+          shouldSurfaceAfter: mapTimeframeToSurfaceDate(llmResult.timeframe),
+          eventDateTime: llmResult.eventDateTime ? new Date(llmResult.eventDateTime) : undefined
         }
       );
       if (loop) {
@@ -847,10 +1027,21 @@ function selectTopLoopFromActive(loops: OpenLoop[]): OpenLoop | null {
   const now = Date.now();
   const minSurfaceGap = MIN_HOURS_BETWEEN_SURFACES * 60 * 60 * 1000;
   
-  // Filter loops that haven't been surfaced too recently
+  // Filter loops that are eligible to surface
   const eligibleLoops = loops.filter(loop => {
+    // Already surfaced too many times
     if (loop.surfaceCount >= loop.maxSurfaces) return false;
+    
+    // Surfaced too recently
     if (loop.lastSurfacedAt && now - loop.lastSurfacedAt.getTime() < minSurfaceGap) return false;
+    
+    // Time-awareness check for pending_event loops
+    // Don't ask "how was it?" for future events!
+    if (!shouldAskHowItWent(loop)) {
+      console.log(`⏰ [PresenceDirector] Skipping "${loop.topic}" - event hasn't happened yet`);
+      return false;
+    }
+    
     return true;
   });
   
@@ -880,7 +1071,26 @@ This makes you feel REAL. You remember things and ask about them FIRST.
 
   // Open Loops Section
   if (topLoop) {
-    section += `OPEN LOOP TO ASK ABOUT:
+    // Time-aware prompting
+    const followUpType = getFollowUpType(topLoop);
+    
+    if (followUpType === 'reminder') {
+      // Event is upcoming - remind, don't ask how it went
+      section += `UPCOMING EVENT TO MENTION:
+You know they have "${topLoop.topic}" coming up!
+- Context: ${topLoop.triggerContext ? `They mentioned: "${topLoop.triggerContext.slice(0, 100)}..."` : 'From their calendar'}
+
+💡 You can:
+- Wish them luck: "Good luck with ${topLoop.topic}!"
+- Ask if they're ready: "You ready for ${topLoop.topic}?"
+- Offer support: "Let me know how it goes!"
+
+⚠️ DO NOT ask "how did it go?" - it hasn't happened yet!
+
+`;
+    } else {
+      // Event has passed - ask how it went
+      section += `OPEN LOOP TO ASK ABOUT:
 You have something to naturally follow up on! Consider asking:
 - Topic: "${topLoop.topic}"
 - Context: ${topLoop.triggerContext ? `They said: "${topLoop.triggerContext.slice(0, 100)}..."` : 'From a previous conversation'}
@@ -891,6 +1101,7 @@ You have something to naturally follow up on! Consider asking:
    Bad: "I am following up on your previous mention of..."
 
 `;
+    }
   } else if (activeLoops.length > 0) {
     section += `THINGS ON YOUR MIND ABOUT THEM:
 ${activeLoops.slice(0, 2).map(loop => `- ${loop.topic}`).join('\n')}
@@ -955,7 +1166,8 @@ function mapRowToLoop(row: any): OpenLoop {
     status: row.status,
     salience: row.salience,
     surfaceCount: row.surface_count,
-    maxSurfaces: row.max_surfaces
+    maxSurfaces: row.max_surfaces,
+    eventDateTime: row.event_datetime ? new Date(row.event_datetime) : undefined
   };
 }
 
@@ -979,6 +1191,16 @@ export const presenceDirector = {
   dismissLoopsByTopic,
   expireOldLoops,
   detectOpenLoops,
+  
+  // Fix #3: Time-awareness
+  isEventInFuture,
+  shouldAskHowItWent,
+  getFollowUpType,
+  
+  // Fix #4: Salience boosting
+  calculateSalienceBoost,
+  findLoopsMatchingTopics,
+  boostSalienceForMentionedTopics,
   
   // Unified context
   getPresenceContext
