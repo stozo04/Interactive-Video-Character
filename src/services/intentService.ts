@@ -1710,6 +1710,10 @@ export interface FullMessageIntent {
   topics: TopicIntent;
   openLoops: OpenLoopIntent;
   relationshipSignals: RelationshipSignalIntent;
+  _meta?: {
+    skippedFullDetection?: boolean;
+    reason?: string;
+  };
 }
 
 interface FullIntentCacheEntry {
@@ -1777,13 +1781,17 @@ function validateFullIntent(parsed: any): FullMessageIntent {
     inappropriatenessReason: parsed.relationshipSignals?.inappropriatenessReason || null
   };
 
-  // Inference Logic: If isDeepTalk is detected with high confidence but milestone missed, infer it
-  // This matches the logic in detectRelationshipSignalsLLM
   if (!relationshipSignals.milestone && relationshipSignals.isDeepTalk && (relationshipSignals.milestoneConfidence > 0.6)) {
      relationshipSignals.milestone = 'first_deep_talk';
   }
 
-  return { genuineMoment, tone, topics, openLoops, relationshipSignals };
+  const result: FullMessageIntent = { genuineMoment, tone, topics, openLoops, relationshipSignals };
+  
+  if (parsed._meta) {
+    result._meta = parsed._meta;
+  }
+  
+  return result;
 }
 
 /**
@@ -1995,6 +2003,10 @@ function getDefaultIntent(message: string): FullMessageIntent {
       hostilityReason: null,
       isInappropriate: false,
       inappropriatenessReason: null
+    },
+    _meta: {
+      skippedFullDetection: true,
+      reason: 'tiered_bypass'
     }
   };
 }
@@ -2009,10 +2021,11 @@ function isSimpleMessage(message: string): boolean {
   // Simple patterns that don't need full analysis
   const simplePatterns = [
     /^(hey|hi|hello|yo|sup|what'?s up)[!?.]*$/i,  // Pure greetings
-    /^(yes|no|ok|okay|sure|maybe|idk)[!?.]*$/i,   // Simple responses
+    /^(yes|no|ok|okay|sure|maybe|idk|nah|yep|yeah)[!?.]*$/i,   // Simple responses
     /^(lol|haha|hehe|😂|🤣|❤️|💕)+[!?.]*$/i,     // Reactions
-    /^(good|great|nice|cool|awesome|sweet)[!?.]*$/i, // Simple positives
-    /^(ugh|meh|eh|hmm|huh)[!?.]*$/i,             // Simple neutrals
+    /^(lol|haha)\s+that'?(s| is)\s+(funny|hilarious|great)/i, // Conversational reactions
+    /^(good|great|nice|cool|awesome|sweet|wow)[!?.]*$/i, // Simple positives
+    /^(ugh|meh|eh|hmm|huh|oh|ah)[!?.]*$/i,             // Simple neutrals
     /^(thanks|thx|ty|thank you)[!?.]*$/i,        // Thanks
     /^(bye|cya|later|gn|good night)[!?.]*$/i,   // Goodbyes
   ];

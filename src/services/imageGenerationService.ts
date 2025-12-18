@@ -55,333 +55,55 @@ const CHARACTER_VISUAL_IDENTITY = {
   },
 };
 
-// ============================================
-// SCENE-BASED OUTFIT SELECTION
-// ============================================
-// Outfits are chosen based on the scene context to feel natural
 
-interface OutfitOption {
-  description: string;
-  contexts: string[]; // Scene keywords that match this outfit
-}
-
-const OUTFIT_OPTIONS: OutfitOption[] = [
-  // ==============================================
-  // 🏠 COZY & LOUNGE (Home, Morning, Sleep)
-  // ==============================================
-  {
-    description:
-      "wearing a chunky cream ribbed knit sweater and delicate gold layered necklaces",
-    contexts: [
-      "cozy",
-      "home",
-      "relaxed",
-      "chill",
-      "morning",
-      "casual",
-      "default",
-    ],
-  },
-  {
-    description:
-      "wearing a soft, oversized heather-grey hoodie with messy bun and minimal makeup",
-    contexts: [
-      "lazy",
-      "sleepy",
-      "tired",
-      "night",
-      "bed",
-      "pajamas",
-      "couch",
-      "movie",
-    ],
-  },
-  {
-    description:
-      "wearing a matching silk pajama set in blush pink with piping details",
-    contexts: [
-      "sleep",
-      "waking up",
-      "morning",
-      "bed",
-      "pajamas",
-      "evening routine",
-    ],
-  },
-  {
-    description: "wearing a fuzzy white robe and holding a ceramic coffee mug",
-    contexts: ["spa", "bath", "shower", "morning coffee", "self care"],
-  },
-  {
-    description: "wearing comfortable grey joggers and a fitted white tank top",
-    contexts: ["lounge", "cleaning", "weekend", "chilling", "home"],
-  },
-
-  // ==============================================
-  // 🏙️ CASUAL CHIC (Errands, Day out, Coffee)
-  // ==============================================
-  {
-    description:
-      "wearing a vintage-wash oversized band tee tucked into high-waisted distressed denim jeans",
-    contexts: [
-      "concert",
-      "casual",
-      "street",
-      "shopping",
-      "walking",
-      "errands",
-      "rock",
-    ],
-  },
-  {
-    description:
-      "wearing a classic beige trench coat over a striped Breton top and black ankle boots",
-    contexts: [
-      "rain",
-      "city",
-      "walk",
-      "travel",
-      "airport",
-      "urban",
-      "london",
-      "cloudy",
-    ],
-  },
-  {
-    description:
-      "wearing a cropped denim jacket over a black sundress with white canvas sneakers",
-    contexts: ["park", "picnic", "walk", "spring", "casual date", "afternoon"],
-  },
-  {
-    description:
-      "wearing a leather moto jacket over a white tee and dark skinny jeans",
-    contexts: ["edgy", "bar", "night walk", "concert", "city night", "cool"],
-  },
-  {
-    description:
-      "wearing a chic camel-colored wool coat with a plaid scarf wrapped loosely",
-    contexts: ["winter", "cold", "snow", "christmas", "holiday", "outside"],
-  },
-  {
-    description:
-      "wearing a soft flannel shirt unbuttoned over a graphic tee with leggings",
-    contexts: ["fall", "autumn", "pumpkin", "outdoors", "hiking", "camping"],
-  },
-
-  // ==============================================
-  // 💼 WORK & CREATIVE (Meeting, Focus, Library)
-  // ==============================================
-  {
-    description:
-      "wearing a sharp fitted navy blazer over a crisp white bodysuit with delicate gold jewelry",
-    contexts: [
-      "professional",
-      "meeting",
-      "work",
-      "conference",
-      "business",
-      "interview",
-    ],
-  },
-  {
-    description:
-      "wearing a smart black turtleneck tucked into plaid trousers with reading glasses",
-    contexts: [
-      "reading",
-      "studying",
-      "library",
-      "smart",
-      "focus",
-      "writing",
-      "work",
-    ],
-  },
-  {
-    description: "wearing a beige cable-knit cardigan over a simple blouse",
-    contexts: ["office", "desk", "coding", "working", "zoom", "typing"],
-  },
-
-  // ==============================================
-  // 🥂 SOCIAL & DATE NIGHT (Dinner, Party, Events)
-  // ==============================================
-  {
-    description:
-      "wearing a flowy sage green sundress with a subtle floral print and dainty pearl earrings",
-    contexts: [
-      "brunch",
-      "restaurant",
-      "date",
-      "lunch",
-      "garden",
-      "tea",
-      "spring",
-    ],
-  },
-  // 🏈 GAME DAY (Texas Tech)
-  {
-    description:
-      "wearing a fitted Texas Tech Red Raiders football jersey paired with denim shorts",
-    contexts: [
-      "football",
-      "game",
-      "stadium",
-      "tech",
-      "raiders",
-      "sports",
-      "tailgate",
-      "touchdown",
-    ],
-  },
-  {
-    description:
-      "wearing a sleek black satin slip dress with strappy heels and statement earrings",
-    contexts: [
-      "dinner",
-      "fancy",
-      "elegant",
-      "party",
-      "evening",
-      "date night",
-      "romantic",
-    ],
-  },
-  {
-    description: "wearing a sparkly sequin top with sleek black trousers",
-    contexts: [
-      "club",
-      "dancing",
-      "new years",
-      "birthday",
-      "celebration",
-      "party",
-    ],
-  },
-  {
-    description: "wearing a velvet burgundy bodysuit with high-waisted jeans",
-    contexts: ["drinks", "bar", "cocktails", "evening", "social"],
-  },
-
-  // ==============================================
-  // 🏃‍♀️ ACTIVE & OUTDOORS (Gym, Beach, Hiking)
-  // ==============================================
-  {
-    description:
-      "wearing matching slate-blue athletic leggings and a cropped sports bra with a high ponytail",
-    contexts: ["gym", "workout", "fitness", "yoga", "pilates", "run", "sweat"],
-  },
-  {
-    description:
-      "wearing a coral bikini top with a sheer white beach coverup shirt and sunglasses",
-    contexts: [
-      "beach",
-      "pool",
-      "swimming",
-      "vacation",
-      "tropical",
-      "summer",
-      "sun",
-      "boat",
-    ],
-  },
-  {
-    description:
-      "wearing a retro-style one-piece swimsuit and a wide-brimmed straw hat",
-    contexts: ["resort", "lounging", "poolside", "vacation", "summer"],
-  },
-  {
-    description:
-      "wearing practical hiking gear including a windbreaker and a backpack",
-    contexts: [
-      "hiking",
-      "mountain",
-      "trail",
-      "nature",
-      "adventure",
-      "climbing",
-    ],
-  },
-  {
-    description: "wearing a white tennis skirt and polo shirt",
-    contexts: ["tennis", "golf", "sporty", "summer day", "active"],
-  },
-
-  // ==============================================
-  // 🎨 HOBBIES & SPECIFIC SCENES
-  // ==============================================
-  {
-    description:
-      "wearing a cute linen apron over a t-shirt with a smudge of flour on her cheek",
-    contexts: ["cooking", "baking", "kitchen", "food", "making dinner"],
-  },
-  {
-    description:
-      "wearing a paint-splattered oversized shirt with sleeves rolled up",
-    contexts: ["painting", "art", "creative", "drawing", "crafting", "studio"],
-  },
-  {
-    description:
-      "wearing a gaming headset with cat ears and a comfortable graphic hoodie",
-    contexts: ["gaming", "streaming", "video games", "pc", "playing"],
-  },
-  {
-    description: "wearing a warm puffy vest over a long-sleeve thermal shirt",
-    contexts: [
-      "walking dog",
-      "crisp morning",
-      "yard",
-      "gardening",
-      "fall morning",
-    ],
-  },
-];
 
 /**
  * Select an appropriate outfit based on the scene context
  */
-function selectOutfitForScene(scene: string, outfitHint?: string): string {
-  const sceneKeywords = scene.toLowerCase().split(/\s+/);
+// function selectOutfitForScene(scene: string, outfitHint?: string): string {
+//   const sceneKeywords = scene.toLowerCase().split(/\s+/);
 
-  // If there's an outfit hint, try to match it first
-  if (outfitHint) {
-    const hintKeywords = outfitHint.toLowerCase().split(/\s+/);
-    for (const outfit of OUTFIT_OPTIONS) {
-      if (outfit.contexts.some((ctx) => hintKeywords.includes(ctx))) {
-        return outfit.description;
-      }
-    }
-  }
+//   // If there's an outfit hint, try to match it first
+//   if (outfitHint) {
+//     const hintKeywords = outfitHint.toLowerCase().split(/\s+/);
+//     for (const outfit of OUTFIT_OPTIONS) {
+//       if (outfit.contexts.some((ctx) => hintKeywords.includes(ctx))) {
+//         return outfit.description;
+//       }
+//     }
+//   }
 
-  // Find the best matching outfit based on scene
-  let bestMatch: OutfitOption | null = null;
-  let bestScore = 0;
+//   // Find the best matching outfit based on scene
+//   let bestMatch: OutfitOption | null = null;
+//   let bestScore = 0;
 
-  for (const outfit of OUTFIT_OPTIONS) {
-    const score = outfit.contexts.filter((ctx) =>
-      sceneKeywords.some(
-        (keyword) => keyword.includes(ctx) || ctx.includes(keyword)
-      )
-    ).length;
+//   for (const outfit of OUTFIT_OPTIONS) {
+//     const score = outfit.contexts.filter((ctx) =>
+//       sceneKeywords.some(
+//         (keyword) => keyword.includes(ctx) || ctx.includes(keyword)
+//       )
+//     ).length;
 
-    if (score > bestScore) {
-      bestScore = score;
-      bestMatch = outfit;
-    }
-  }
+//     if (score > bestScore) {
+//       bestScore = score;
+//       bestMatch = outfit;
+//     }
+//   }
 
-  // If we found a match, use it; otherwise pick a random casual outfit
-  if (bestMatch && bestScore > 0) {
-    return bestMatch.description;
-  }
+//   // If we found a match, use it; otherwise pick a random casual outfit
+//   if (bestMatch && bestScore > 0) {
+//     return bestMatch.description;
+//   }
 
-  // Random selection from casual-appropriate outfits for variety
-  const casualOutfits = OUTFIT_OPTIONS.filter(
-    (o) => o.contexts.includes("casual") || o.contexts.includes("default")
-  );
-  return (
-    casualOutfits[Math.floor(Math.random() * casualOutfits.length)]
-      ?.description || OUTFIT_OPTIONS[0].description
-  );
-}
+//   // Random selection from casual-appropriate outfits for variety
+//   const casualOutfits = OUTFIT_OPTIONS.filter(
+//     (o) => o.contexts.includes("casual") || o.contexts.includes("default")
+//   );
+//   return (
+//     casualOutfits[Math.floor(Math.random() * casualOutfits.length)]
+//       ?.description || OUTFIT_OPTIONS[0].description
+//   );
+// }
 
 /**
  * Build a verbose, narrative mood/expression description
@@ -472,9 +194,9 @@ export async function generateCompanionSelfie(
     const ai = new GoogleGenAI({ apiKey: GEMINI_API_KEY });
 
     // 1. Build the prompt
-    const outfit = selectOutfitForScene(request.scene, request.outfitHint);
+   // const outfit = selectOutfitForScene(request.scene, request.outfitHint);
     const moodDescription = buildMoodDescription(request.mood);
-    let fullPrompt = buildImagePrompt(request.scene, outfit, moodDescription);
+    let fullPrompt = buildImagePrompt(request.scene, "outfit", moodDescription);
 
     const parts: any[] = [];
 
@@ -580,7 +302,7 @@ function buildImagePrompt(
   const narrative = [
     `A high-resolution, photorealistic smartphone selfie taken by`,
     `${CHARACTER_VISUAL_IDENTITY.narrativeBase}.`,
-    `She is ${outfitDescription}, looking into the camera ${moodDescription}.`,
+    `She is looking into the camera ${moodDescription}.`,
 
     // The grammar is now safe: "She is situated in [a cozy upscale restaurant...]"
     `She is situated in ${enhancedScene}.`,

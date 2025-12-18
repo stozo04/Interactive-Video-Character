@@ -298,6 +298,10 @@ export abstract class BaseAIService implements IAIChatService {
       // Note: Some providers might return user_transcription which we might want to use,
       // but generateSpeech usually takes the AI's text response.
       if (audioMode === 'none') {
+        if (effectiveUserId) {
+          this.triggerPostResponsePrefetch(effectiveUserId);
+        }
+
         return {
           response: aiResponse,
           session: updatedSession,
@@ -329,6 +333,10 @@ export abstract class BaseAIService implements IAIChatService {
           console.warn('⚠️ [BaseAIService] Skipped async TTS: text_response was empty or invalid:', aiResponse.text_response);
         }
 
+        if (effectiveUserId) {
+          this.triggerPostResponsePrefetch(effectiveUserId);
+        }
+
         return {
           response: aiResponse,
           session: updatedSession,
@@ -349,11 +357,7 @@ export abstract class BaseAIService implements IAIChatService {
       // 🚀 POST-RESPONSE OPTIMIZATION: Warm the cache for the next message
       // This is fire-and-forget, doesn't block the current response.
       if (effectiveUserId) {
-        setTimeout(() => {
-          prefetchOnIdle(effectiveUserId).catch(err => {
-            console.warn('⚠️ [BaseAIService] Post-response pre-fetch failed:', err);
-          });
-        }, 500); // Small delay to allow the app to handle the current response first
+        this.triggerPostResponsePrefetch(effectiveUserId);
       }
 
       return {
@@ -606,6 +610,20 @@ Your goal: Share this news in your style - make it accessible and interesting!
       session: updatedSession,
       audioData: audioData || undefined
     };
+  }
+
+  /**
+   * Fire-and-forget pre-fetch trigger after a response is sent.
+   * Keeps the context cache fresh for the next user message.
+   */
+  private triggerPostResponsePrefetch(userId: string): void {
+    // delay slightly to avoid competing with UI updates/audio playback starts
+    setTimeout(() => {
+      console.log(`🧪 [BaseAIService] Triggering post-response pre-fetch for user: ${userId}`);
+      prefetchOnIdle(userId).catch(err => {
+        console.warn('⚠️ [BaseAIService] Post-response pre-fetch failed:', err);
+      });
+    }, 1000); 
   }
 }
 
