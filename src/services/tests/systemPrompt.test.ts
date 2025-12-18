@@ -21,21 +21,38 @@ vi.mock("../supabaseClient", () => ({
   supabase: {
     from: vi.fn(() => ({
       select: vi.fn(() => ({
-        eq: vi.fn(() => ({
-          single: vi.fn(() => Promise.resolve({ data: null, error: null })),
-          then: vi.fn((resolve: any) => Promise.resolve({ data: [], error: null }).then(resolve)),
-        })),
-        then: vi.fn((resolve: any) => Promise.resolve({ data: [], error: null }).then(resolve)),
+        eq: vi.fn(function () {
+          return this;
+        }),
+        order: vi.fn(function () {
+          return this;
+        }),
+        single: vi.fn(() => Promise.resolve({ data: null, error: null })),
+        then: vi.fn((resolve: any) =>
+          Promise.resolve({ data: [], error: null }).then(resolve)
+        ),
       })),
       insert: vi.fn(() => ({
-        then: vi.fn((resolve: any) => Promise.resolve({ data: null, error: null }).then(resolve)),
+        then: vi.fn((resolve: any) =>
+          Promise.resolve({ data: null, error: null }).then(resolve)
+        ),
       })),
       update: vi.fn(() => ({
         eq: vi.fn(() => ({
-          then: vi.fn((resolve: any) => Promise.resolve({ data: null, error: null }).then(resolve)),
+          then: vi.fn((resolve: any) =>
+            Promise.resolve({ data: null, error: null }).then(resolve)
+          ),
+        })),
+      })),
+      delete: vi.fn(() => ({
+        eq: vi.fn(() => ({
+          then: vi.fn((resolve: any) =>
+            Promise.resolve({ data: null, error: null }).then(resolve)
+          ),
         })),
       })),
     })),
+    rpc: vi.fn(() => Promise.resolve({ data: {}, error: null })),
   },
 }));
 
@@ -86,7 +103,7 @@ vi.mock("../moodKnobs", async (importOriginal) => {
 
 // Mock presenceDirector
 vi.mock("../presenceDirector", () => ({
-  getPresenceContext: vi.fn(() => null),
+  getPresenceContext: vi.fn(() => Promise.resolve(null)),
   getCharacterOpinions: vi.fn(() => []),
   findRelevantOpinion: vi.fn(() => null),
 }));

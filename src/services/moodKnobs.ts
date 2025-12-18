@@ -69,12 +69,12 @@ export type { ConversationContext, ToneIntent, PrimaryEmotion } from './intentSe
 // ============================================
 
 const MAX_TONE_HISTORY = 10;  // Track last 10 interactions for trend
-// Cache TTL: 30 seconds for single-user prototype
+// Cache TTL: 60 seconds for single-user prototype
 // NOTE: Caching is for PERFORMANCE only, not correctness.
 // Supabase is the single source of truth. In-memory cache can lead to state drift
 // if multiple tabs are open or serverless functions scale up/down.
 // For production with high read volume, consider keeping cache but with shorter TTL.
-const CACHE_TTL = 30000;  // 30 seconds cache TTL
+const CACHE_TTL = 60000;  // 60 seconds cache TTL
 
 // Thresholds for mood shifts (from implementation plan)
 const MOOD_SHIFT_THRESHOLDS = {

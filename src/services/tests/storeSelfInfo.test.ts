@@ -33,7 +33,7 @@ vi.mock("../supabaseClient", () => ({
         })),
       })),
     })),
-    rpc: vi.fn(() => Promise.resolve({ data: null, error: null })),
+    rpc: vi.fn(() => Promise.resolve({ data: {}, error: null })),
   },
 }));
 
@@ -84,7 +84,7 @@ vi.mock("../moodKnobs", async (importOriginal) => {
 
 // Mock presenceDirector
 vi.mock("../presenceDirector", () => ({
-  getPresenceContext: vi.fn(() => null),
+  getPresenceContext: vi.fn(() => Promise.resolve(null)),
   getCharacterOpinions: vi.fn(() => []),
   findRelevantOpinion: vi.fn(() => null),
 }));

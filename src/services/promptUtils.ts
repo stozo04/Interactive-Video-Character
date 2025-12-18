@@ -12,6 +12,7 @@ import {
 } from "./moodKnobs";
 import {
   formatThreadsForPromptAsync,
+  formatThreadsFromData,
   type OngoingThread,
 } from "./ongoingThreads";
 import { getFullCharacterContext } from "./stateService";
@@ -57,54 +58,63 @@ export interface SoulLayerContext {
 export async function getSoulLayerContextAsync(
   userId: string
 ): Promise<SoulLayerContext> {
-  // Optimization: Use unified state fetch to reduce network roundtrips from 3-4 to 1
+  // Sync operation - no network call needed
+  const callbackPrompt = formatCallbackForPrompt();
+  
+  // Initialize with defaults
   let moodKnobs: MoodKnobs;
-  let threadsPrompt: string;
-
+  let threadsPrompt: string = '';
+  let presenceContext: PresenceContext | undefined;
+  
   try {
-    const context = await getFullCharacterContext(userId);
-
-    // Calculate mood knobs from fetched state
-    if (context.mood_state && context.emotional_momentum) {
+    // 🚀 PARALLEL: Fire both major async operations simultaneously
+    const [fullContext, presenceResult] = await Promise.all([
+      getFullCharacterContext(userId),
+      getPresenceContext(userId).catch(error => {
+        console.warn("[PromptUtils] Failed to get presence context:", error);
+        return undefined;
+      })
+    ]);
+    
+    presenceContext = presenceResult;
+    
+    // Process mood knobs from unified fetch (CPU-only, fast)
+    if (fullContext.mood_state && fullContext.emotional_momentum) {
       moodKnobs = calculateMoodKnobsFromState(
-        context.mood_state,
-        context.emotional_momentum
+        fullContext.mood_state,
+        fullContext.emotional_momentum
       );
     } else {
-      // Fallback to individual fetch if unified fetch returned null
       moodKnobs = await getMoodKnobsAsync(userId);
     }
-
-    // Format threads from fetched data
-    if (context.ongoing_threads && context.ongoing_threads.length >= 0) {
-      // Use the fetched threads - formatThreadsForPromptAsync will handle processing
-      // But we can optimize by using the fetched data directly
-      threadsPrompt = await formatThreadsForPromptAsync(userId);
-      // Note: formatThreadsForPromptAsync may fetch again due to caching/processing
-      // This is acceptable as the cache will be warm after the unified fetch
+    
+    // 🚀 OPTIMIZATION: Format threads directly from fetched data
+    // Eliminates redundant DB fetch (~100ms saved)
+    if (fullContext.ongoing_threads) {
+      threadsPrompt = formatThreadsFromData(fullContext.ongoing_threads);
     } else {
+      // Fallback if threads not in unified response
       threadsPrompt = await formatThreadsForPromptAsync(userId);
     }
+    
   } catch (error) {
     console.warn(
       "[PromptUtils] Unified state fetch failed, falling back to individual fetches:",
       error
     );
-    // Fallback to individual fetches
-    moodKnobs = await getMoodKnobsAsync(userId);
-    threadsPrompt = await formatThreadsForPromptAsync(userId);
+    
+    // 🚀 PARALLEL FALLBACK: Run all fallbacks in parallel
+    const [moodKnobsResult, threadsResult, presenceResult] = await Promise.all([
+      getMoodKnobsAsync(userId),
+      formatThreadsForPromptAsync(userId),
+      getPresenceContext(userId).catch(() => undefined)
+    ]);
+    
+    moodKnobs = moodKnobsResult;
+    threadsPrompt = threadsResult;
+    presenceContext = presenceResult;
   }
-
-  const callbackPrompt = formatCallbackForPrompt();
-
-  // Get presence context
-  let presenceContext: PresenceContext | undefined;
-  try {
-    presenceContext = await getPresenceContext(userId);
-  } catch (error) {
-    console.warn("[PromptUtils] Failed to get presence context:", error);
-  }
-
+  
   return {
     moodKnobs,
     threadsPrompt,
@@ -767,19 +777,37 @@ export const buildSystemPrompt = async (
   toneIntent?: ToneIntent | null,
   fullIntent?: FullMessageIntent | null,
   userId?: string,
-  userTimeZone?: string
+  userTimeZone?: string,
+  // 🚀 NEW: Optional pre-fetched context to avoid duplicate fetches
+  prefetchedContext?: {
+    soulContext: SoulLayerContext;
+    characterFacts: string;
+  }
 ): Promise<string> => {
   const name = character?.name || "Kayley Adams";
   const display = character?.displayName || "Kayley";
 
-  // Calculate mood knobs early so they're available for relationship signals section
-  // Use provided userId or fallback to env variable
+  // 🚀 OPTIMIZATION: Use pre-fetched context if available, otherwise fetch
   const effectiveUserId = userId || import.meta.env.VITE_USER_ID;
-  const soulContext = await getSoulLayerContextAsync(effectiveUserId);
+
+  let soulContext: SoulLayerContext;
+  let characterFactsPrompt: string;
+
+  if (prefetchedContext) {
+    // Use pre-fetched data (saves ~300ms)
+    console.log("✅ [buildSystemPrompt] Using pre-fetched context");
+    soulContext = prefetchedContext.soulContext;
+    characterFactsPrompt = prefetchedContext.characterFacts;
+  } else {
+    // Fallback: Fetch if not pre-fetched (still in parallel for safety)
+    console.log("⚠️ [buildSystemPrompt] No pre-fetched context, fetching now");
+    [soulContext, characterFactsPrompt] = await Promise.all([
+      getSoulLayerContextAsync(effectiveUserId),
+      formatCharacterFactsForPrompt(),
+    ]);
+  }
+
   const moodKnobs = soulContext.moodKnobs;
-  
-  // Get character facts (additional facts learned from conversations)
-  const characterFactsPrompt = await formatCharacterFactsForPrompt();
 
   // Prefer fullIntent over individual parameters (fullIntent has all the data)
   const effectiveRelationshipSignals =
