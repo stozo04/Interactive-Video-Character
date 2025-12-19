@@ -1853,10 +1853,6 @@ Types:
 - commitment_check (I'll try to do X)
 - curiosity_thread (interesting topic to resume)
 
-If the message contains CALENDAR DATA with event times, extract the eventDateTime.
-Example: "[LIVE CALENDAR DATA - 1 EVENTS: 1. "Holiday Party" at 6:00 PM]"
-→ eventDateTime: "2024-12-18T18:00:00" (today at 6pm)
-
 SECTION 5: RELATIONSHIP SIGNALS
 - Milestones: 
   - first_vulnerability (opening up/secrets)

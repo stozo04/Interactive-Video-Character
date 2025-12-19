@@ -54,6 +54,7 @@ import { useMediaQueues } from './hooks/useMediaQueues';
 import { useCacheWarming } from './hooks/useCacheWarming';
 import { useAIService } from './contexts/AIServiceContext';
 import { AIChatSession, UserContent } from './services/aiService';
+import { startCleanupScheduler, stopCleanupScheduler } from './services/loopCleanupService';
 import { GAMES_PROFILE } from './domain/characters/gamesProfile';
 import * as taskService from './services/taskService';
 import { 
@@ -389,6 +390,29 @@ const App: React.FC = () => {
         .catch(err => console.error('❌ [Migration] Failed:', err));
     } catch (e) {
       // Ignore if user ID check fails (e.g. env var missing in dev)
+    }
+  }, []);
+
+  // Loop Cleanup: Initialize scheduled cleanup for stale/duplicate loops
+  useEffect(() => {
+    try {
+      const userId = getUserId();
+      if (userId) {
+        startCleanupScheduler(userId, {
+          onComplete: (result) => {
+            if (result.totalExpired > 0) {
+              console.log(`🧹 Cleaned up ${result.totalExpired} stale loops`);
+            }
+          }
+        });
+        
+        return () => {
+          stopCleanupScheduler();
+        };
+      }
+    } catch (e) {
+      // Ignore if user ID check fails (e.g. env var missing in dev)
+      console.log(`❌ [LoopCleanup] Error starting cleanup scheduler:`, e);
     }
   }, []);
 

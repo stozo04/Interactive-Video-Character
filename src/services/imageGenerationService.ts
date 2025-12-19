@@ -33,7 +33,7 @@ const CHARACTER_VISUAL_IDENTITY = {
     eyes: "large almond-shaped, striking clear bright blue or light green eyes, wide-set and bright",
     eyebrows: "natural medium-thickness with soft arch, dark cool brown",
     nose: "slender bridge with refined slightly soft button tip, proportional and straight",
-    lips: "full and plump, naturally pigmented soft rose-pink, soft cupids bow",
+    lips: "full and attractive, naturally pigmented soft rose-pink, soft cupids bow",
   },
   hair: {
     color:
