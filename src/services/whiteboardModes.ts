@@ -130,7 +130,6 @@ MEMORY TOOL USAGE:
 - If user asks you to draw "my name", "their name", or references personal info → USE recall_user_info FIRST!
 - Example: User says "draw my name" → Call recall_user_info(category: "identity") to get their name BEFORE drawing
 - If you don't know their name after recall, ASK them what it is
-- If they tell you their name → automatically call store_user_info to save it
 - NEVER guess or make up personal information!
 
 Example (Pink line): "draw_shapes": [{"shape": "line", "x": 10, "y": 10, "x2": 20, "y2": 20, "color": "pink"}]

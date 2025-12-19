@@ -22,6 +22,11 @@ export interface CalendarEvent {
     timeZone?: string;
   };
   status?: string;
+  // Add this field to track accept/decline status
+  attendees?: Array<{
+    self?: boolean;
+    responseStatus?: 'needsAction' | 'declined' | 'tentative' | 'accepted';
+  }>;
 }
 
 export interface NewEventPayload {
@@ -42,6 +47,25 @@ export interface NewEventPayload {
  * Event-driven architecture for Calendar service
  */
 class CalendarService extends EventTarget {
+
+  private filterValidEvents(events: CalendarEvent[]): CalendarEvent[] {
+    return events.filter(event => {
+      // 1. Exclude cancelled events
+      if (event.status === 'cancelled') return false;
+  
+      // 2. Exclude events where the user explicitly declined
+      if (event.attendees) {
+        const selfAttendee = event.attendees.find(a => a.self);
+        if (selfAttendee && selfAttendee.responseStatus === 'declined') {
+          return false;
+        }
+      }
+  
+      return true;
+    });
+  }
+
+
   /**
    * Get upcoming events for the next 24 hours
    */
@@ -82,9 +106,10 @@ class CalendarService extends EventTarget {
       }
 
       const data = await response.json();
-      const events: CalendarEvent[] = data.items || [];
-
-      console.log(`📅 Fetched ${events.length} upcoming events`);
+      const rawEvents: CalendarEvent[] = data.items || [];
+      // Apply the filter
+      const events = this.filterValidEvents(rawEvents);
+      console.log(`📅 Fetched ${events.length} valid events (filtered from ${rawEvents.length})`);
       return events;
     } catch (error) {
       console.error('Error fetching calendar events:', error);
@@ -180,9 +205,12 @@ class CalendarService extends EventTarget {
       }
 
       const data = await response.json();
-      const events: CalendarEvent[] = data.items || [];
+      const rawEvents: CalendarEvent[] = data.items || [];
 
-      console.log(`📅 Fetched ${events.length} events for the week (Sun-Sat)`);
+      // Apply the filter
+      const events = this.filterValidEvents(rawEvents);
+
+      console.log(`📅 Fetched ${events.length} valid events (filtered from ${rawEvents.length})`);
       return events;
     } catch (error) {
       console.error('Error fetching week calendar events:', error);
