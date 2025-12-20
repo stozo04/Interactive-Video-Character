@@ -1,18 +1,19 @@
 # System Prompt Guidelines
 
-> **Last Updated**: 2025-12-15  
-> **Status**: Living Document - Update with each system prompt modification  
+> **Last Updated**: 2025-12-19
+> **Status**: Living Document - Update with each system prompt modification
 > **Purpose**: Reference guide for developers making changes to the system prompt
 
 ---
 
 ## Overview
 
-This document establishes guidelines for modifying the AI companion's system prompt (`promptUtils.ts`). Following these principles ensures:
+This document establishes guidelines for modifying the AI companion's system prompt. The prompt is built from **modular, single-responsibility files** in `src/services/system_prompts/`. Following these principles ensures:
 - **Token efficiency** - Every token should provide semantic value
 - **LLM adherence** - Critical instructions must be positioned for recency bias
-- **Maintainability** - Changes should be testable and reversible
-- **Safety** - Fallbacks prevent silent failures
+- **Maintainability** - Small, focused files are easier to review and modify
+- **Safety** - Snapshot tests catch unintended changes
+- **Discoverability** - Folder structure guides you to the right file
 
 ---
 
@@ -82,93 +83,193 @@ Every prompt modification should:
 
 ## File Structure
 
-### Primary Files
+### Modular Architecture
 
-| File | Purpose | When to Modify |
-|------|---------|----------------|
-| `src/services/promptUtils.ts` | System prompt generation | Adding/removing prompt sections |
-| `src/services/tests/systemPrompt.test.ts` | Prompt unit tests | Every prompt change |
+The system prompt is organized into focused modules in `src/services/system_prompts/`:
 
-### Helper Functions
+```
+system_prompts/
+├── index.ts                    # Main barrel file (re-exports everything)
+├── types.ts                    # Type definitions (SoulLayerContext)
+│
+├── builders/                   # 🏗️ MAIN ENTRY POINTS
+│   ├── systemPromptBuilder.ts  # buildSystemPrompt() - assembles the full prompt
+│   ├── greetingBuilder.ts      # buildGreetingPrompt() - relationship-aware greetings
+│   └── proactiveThreadBuilder.ts # buildProactiveThreadPrompt()
+│
+├── core/                       # 🎭 IDENTITY (who Kayley is)
+│   ├── identityAnchor.ts       # "You are Kayley Adams" - the foundation
+│   ├── antiAssistant.ts        # Anti-AI-assistant mode instructions
+│   ├── opinionsAndPushback.ts  # Opinions, disagreement guidance
+│   └── selfKnowledge.ts        # Self-knowledge rules, stay in character
+│
+├── behavior/                   # 🎯 BEHAVIORS (how she acts)
+│   ├── comfortableImperfection.ts # Uncertainty, brevity, messiness is OK
+│   ├── bidDetection.ts         # Emotional bid types (COMFORT, PLAY, etc.)
+│   ├── selectiveAttention.ts   # Focus on 1-2 salient points
+│   ├── motivatedFriction.ts    # Boundaries, friction triggers
+│   └── curiosityEngagement.ts  # Mood-aware curiosity and engagement
+│
+├── relationship/               # 💕 RELATIONSHIP-DEPENDENT
+│   ├── tierBehavior.ts         # Per-tier behavior rules + getRelationshipGuidelines()
+│   └── dimensionEffects.ts     # Warmth/trust/playfulness dynamic effects
+│
+├── context/                    # 📝 DYNAMIC CONTEXT
+│   ├── messageContext.ts       # Semantic intent formatting, relationship context
+│   └── styleOutput.ts          # Style rules, stranger awareness, creep detection
+│
+├── features/                   # ✨ SPECIFIC FEATURES
+│   └── selfieRules.ts          # Image/selfie generation rules
+│
+├── soul/                       # 👻 "ALIVE" COMPONENTS
+│   ├── soulLayerContext.ts     # getSoulLayerContextAsync() - mood, threads, etc.
+│   └── presencePrompt.ts       # Presence/opinions section
+│
+├── tools/                      # 🔧 TOOL INSTRUCTIONS
+│   └── index.ts                # Tools section, tool rules, app launching
+│
+└── format/                     # 📄 OUTPUT FORMAT
+    └── index.ts                # JSON schema, critical output rules (MUST BE LAST)
+```
 
-Located in `promptUtils.ts`, these functions encapsulate conditional logic:
+### Quick Reference: Where to Find Things
+
+| Want to change... | Look in... |
+|-------------------|------------|
+| Who Kayley is / her personality | `core/identityAnchor.ts` |
+| How she handles uncertainty | `behavior/comfortableImperfection.ts` |
+| Boundary/creep detection | `context/styleOutput.ts` |
+| Behavior for a specific relationship tier | `relationship/tierBehavior.ts` |
+| Selfie/image rules | `features/selfieRules.ts` |
+| JSON output format | `format/index.ts` |
+| The main assembly logic | `builders/systemPromptBuilder.ts` |
+
+### Backward Compatibility
+
+`src/services/promptUtils.ts` is a **barrel file** that re-exports everything from `system_prompts/`. Existing imports continue to work:
 
 ```typescript
-// Phase 3 helpers - conditional inclusion based on relationship
-getTierBehaviorPrompt(tier: string): string
-getSelfieRulesConfig(relationship): { shouldIncludeFull, shouldIncludeDeflection }
-buildSelfieRulesPrompt(relationship): string
-buildDynamicDimensionEffects(relationship): string
-
-// Phase 2 helpers - semantic context
-getSemanticBucket(score: number): string
-buildCompactRelationshipContext(relationship): string
-buildMinifiedSemanticIntent(fullIntent): string
+// These all still work:
+import { buildSystemPrompt } from './promptUtils';
+import { buildGreetingPrompt, getSoulLayerContextAsync } from './promptUtils';
 ```
+
+### Test Files
+
+| File | Purpose |
+|------|---------|
+| `src/services/tests/promptUtils.snapshot.test.ts` | **Golden master** - catches any prompt changes |
+| `src/services/tests/systemPrompt.test.ts` | Unit tests for specific behaviors |
 
 ---
 
 ## Adding a New Feature to the Prompt
 
-### Step 1: Identify the Section Type
+### Step 1: Choose the Right Folder
 
-| Type | Example | Token Budget | Position |
-|------|---------|--------------|----------|
-| **Context injection** | Relationship state, semantic intent | 50-100 tokens | First 30% |
-| **Behavioral guidance** | Selfie rules, tier behavior | 100-200 tokens | Middle 50% |
-| **Output schema** | New JSON field | 20-50 tokens | Last 20% |
+| Feature Type | Folder | Example |
+|-------------|--------|---------|
+| Core identity / personality | `core/` | New character trait |
+| Behavioral pattern | `behavior/` | New conversation style |
+| Relationship-dependent | `relationship/` | Tier-specific behavior |
+| Dynamic context | `context/` | New message analysis |
+| Specific feature rules | `features/` | New capability (like selfies) |
+| Tool instructions | `tools/` | New tool usage |
+| Output format changes | `format/` | New JSON field |
 
-### Step 2: Consider Conditional Inclusion
+### Step 2: Create the Module File
 
-Ask: "Does this apply to ALL relationships, or only some?"
-
-- **Universal** (always included): Add directly to prompt template
-- **Conditional** (varies by state): Create a helper function
+Create a new file in the appropriate folder:
 
 ```typescript
-// Example: New feature that only applies to close relationships
-export function buildNewFeaturePrompt(relationship: RelationshipMetrics | null): string {
-  if (!relationship || !['close_friend', 'deeply_loving'].includes(relationship.relationshipTier)) {
-    return ''; // Don't include for strangers/friends
+// src/services/system_prompts/behavior/newBehavior.ts
+
+/**
+ * New Behavior Section
+ *
+ * Brief description of what this behavior does.
+ */
+
+import type { MoodKnobs } from "../../moodKnobs";
+
+export function buildNewBehaviorSection(moodKnobs: MoodKnobs): string {
+  // Return empty string if not applicable (conditional inclusion)
+  if (moodKnobs.verbosity < 0.3) {
+    return ''; // Skip when low energy
   }
-  
+
   return `
 ====================================================
-NEW FEATURE GUIDANCE
+NEW BEHAVIOR GUIDANCE
 ====================================================
-[Your feature instructions here]
+Your instructions here...
+- Use ${moodKnobs.verbosity > 0.7 ? "detailed" : "concise"} responses
 `;
 }
 ```
 
-### Step 3: Write Tests First (TDD)
+### Step 3: Export from Barrel File
 
-Add tests BEFORE implementing:
+Add the export to the folder's `index.ts`:
 
 ```typescript
-describe("New Feature", () => {
-  it("should include new feature for close relationships", () => {
-    const prompt = buildSystemPrompt(mockCharacter, closeRelationship);
-    expect(prompt).toContain("NEW FEATURE");
+// src/services/system_prompts/behavior/index.ts
+
+// ... existing exports ...
+
+// New behavior section
+export { buildNewBehaviorSection } from "./newBehavior";
+```
+
+### Step 4: Wire into the Builder
+
+Import and call in `builders/systemPromptBuilder.ts`:
+
+```typescript
+import { buildNewBehaviorSection } from "../behavior/newBehavior";
+
+// In buildSystemPrompt(), add at the appropriate position:
+prompt += buildNewBehaviorSection(moodKnobs);
+```
+
+### Step 5: Run Snapshot Tests
+
+```bash
+# See what changed
+npm test -- --run -t "snapshot"
+
+# If the change is intentional, update snapshots
+npm test -- --run -t "snapshot" -u
+```
+
+### Step 6: Add Unit Tests (Optional but Recommended)
+
+```typescript
+// src/services/tests/systemPrompt.test.ts
+
+describe("New Behavior", () => {
+  it("should include new behavior for high verbosity", async () => {
+    const prompt = await buildSystemPrompt(mockCharacter, mockRelationship);
+    expect(prompt).toContain("NEW BEHAVIOR");
   });
 
-  it("should NOT include new feature for strangers", () => {
-    const prompt = buildSystemPrompt(mockCharacter, strangerRelationship);
-    expect(prompt).not.toContain("NEW FEATURE");
+  it("should NOT include new behavior for low energy", async () => {
+    // Mock low verbosity mood
+    const prompt = await buildSystemPrompt(mockCharacter, mockRelationship);
+    expect(prompt).not.toContain("NEW BEHAVIOR");
   });
 });
 ```
 
-### Step 4: Add the Feature
+### Checklist for New Features
 
-1. Create helper function if conditional
-2. Wire into `buildSystemPrompt()` at the correct position
-3. Run tests: `npm test -- --run`
-4. Verify prompt size hasn't increased excessively
-
-### Step 5: Document the Change
-
-Update this guidelines document if the change establishes a new pattern.
+- [ ] Created file in correct `system_prompts/` subfolder
+- [ ] Function returns empty string when not applicable (conditional)
+- [ ] Exported from folder's `index.ts`
+- [ ] Imported and called in `systemPromptBuilder.ts`
+- [ ] Snapshot tests run and updated
+- [ ] No `undefined` or `[object Object]` in output
+- [ ] Critical output rules remain at END of prompt
 
 ---
 
@@ -465,9 +566,11 @@ No database changes are involved in prompt modifications - all changes are in-me
 
 ## Related Documents
 
+- [`promptUtils-refactoring-plan.md`](./plans/promptUtils-refactoring-plan.md) - Complete refactoring plan and implementation notes
 - [`System_Prompt_Plan.md`](./System_Prompt_Plan.md) - Original optimization plan and implementation details
 - [`Semantic_Intent_Detection.md`](./Semantic_Intent_Detection.md) - Intent service integration details
-- [`promptUtils.ts`](../src/services/promptUtils.ts) - Source file for system prompt generation
+- [`promptUtils.ts`](../src/services/promptUtils.ts) - Barrel file (re-exports from system_prompts/)
+- [`system_prompts/`](../src/services/system_prompts/) - Modular prompt modules
 
 ---
 
@@ -475,6 +578,9 @@ No database changes are involved in prompt modifications - all changes are in-me
 
 | Date | Change | Author |
 |------|--------|--------|
+| 2025-12-19 | **Major refactor**: Converted promptUtils.ts to modular architecture | Claude |
+| 2025-12-19 | Added modular file structure documentation | Claude |
+| 2025-12-19 | Updated "Adding a New Feature" with step-by-step guide | Claude |
 | 2025-12-15 | Initial guidelines document created | Claude |
 | 2025-12-14 | Phase 3 optimizations implemented | Claude |
 | 2025-12-14 | Phase 2 semantic intent integration | Claude |

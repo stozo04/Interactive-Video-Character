@@ -52,7 +52,8 @@ All providers implement `IAIChatService` interface, allowing seamless switching.
 
 | Service | Purpose |
 |---------|---------|
-| `promptUtils.ts` (~3K lines) | Dynamic system prompt generation with conditional sections |
+| `promptUtils.ts` | Barrel file re-exporting from `system_prompts/` module |
+| `system_prompts/` | **Modular system prompt architecture** (see below) |
 | `intentService.ts` | LLM-based message intent detection (tone, topics, signals) |
 | `presenceDirector.ts` | Determines character availability and actions |
 | `relationshipService.ts` | Relationship tier calculation and metrics |
@@ -86,13 +87,88 @@ This is passed to both main chat and background analysis, avoiding redundant LLM
 
 ## Working with the System Prompt
 
-**Read `docs/System_Prompt_Guidelines.md` before modifying `promptUtils.ts`.**
+**Read `docs/System_Prompt_Guidelines.md` before modifying the system prompt.**
 
-Key principles:
+### System Prompt Architecture
+
+The system prompt is built from modular, single-responsibility files in `src/services/system_prompts/`:
+
+```
+system_prompts/
+├── builders/           # Main prompt assembly functions
+│   ├── systemPromptBuilder.ts    # buildSystemPrompt() - main entry point
+│   ├── greetingBuilder.ts        # buildGreetingPrompt()
+│   └── proactiveThreadBuilder.ts # buildProactiveThreadPrompt()
+├── core/               # Identity & character foundation
+│   ├── identityAnchor.ts         # "You are Kayley Adams"
+│   ├── antiAssistant.ts          # Anti-AI-assistant instructions
+│   ├── opinionsAndPushback.ts    # Opinions, disagreement
+│   └── selfKnowledge.ts          # Self-knowledge rules
+├── behavior/           # How the character behaves
+│   ├── comfortableImperfection.ts # Uncertainty, brevity
+│   ├── bidDetection.ts           # Emotional bid types
+│   ├── selectiveAttention.ts     # Focus on 1-2 points
+│   ├── motivatedFriction.ts      # Boundaries, friction
+│   └── curiosityEngagement.ts    # Mood-aware engagement
+├── relationship/       # Relationship-dependent behavior
+│   ├── tierBehavior.ts           # Per-tier rules + guidelines
+│   └── dimensionEffects.ts       # Warmth/trust/playfulness effects
+├── context/            # Dynamic context injection
+│   ├── messageContext.ts         # Semantic intent formatting
+│   └── styleOutput.ts            # Style rules, boundary detection
+├── features/           # Specific feature rules
+│   └── selfieRules.ts            # Image generation rules
+├── soul/               # "Alive" components
+│   ├── soulLayerContext.ts       # getSoulLayerContextAsync()
+│   └── presencePrompt.ts         # Presence/opinions
+├── tools/              # Tool usage instructions
+│   └── index.ts                  # Tools, tool rules, app launching
+├── format/             # Output formatting
+│   └── index.ts                  # JSON schema, critical rules
+└── types.ts            # Type definitions (SoulLayerContext)
+```
+
+### How to Modify the System Prompt
+
+**Adding a new section:**
+1. Identify which folder it belongs to (behavior, relationship, features, etc.)
+2. Create a new `.ts` file with a `build___Section()` function
+3. Export from the folder's `index.ts`
+4. Import and call in `builders/systemPromptBuilder.ts`
+5. Run snapshot tests: `npm test -- --run -t "snapshot"`
+
+**Modifying an existing section:**
+1. Find the file in `system_prompts/` (use folder names as guide)
+2. Edit the template string in the `build___` function
+3. Run snapshot tests to see the diff
+4. Update snapshots if change is intentional: `npm test -- --run -t "snapshot" -u`
+
+**Example - Adding a new behavior:**
+```typescript
+// src/services/system_prompts/behavior/newBehavior.ts
+export function buildNewBehaviorSection(moodKnobs: MoodKnobs): string {
+  return `
+====================================================
+NEW BEHAVIOR GUIDANCE
+====================================================
+Your instructions here...
+`;
+}
+
+// Then in behavior/index.ts, add:
+export { buildNewBehaviorSection } from "./newBehavior";
+
+// Then in builders/systemPromptBuilder.ts, import and use:
+prompt += buildNewBehaviorSection(moodKnobs);
+```
+
+### Key Principles
+
 1. **Code logic over prompt logic** - Pre-compute applicable rules in code, don't list all options for LLM to pick
 2. **Conditional inclusion** - Use helper functions like `getTierBehaviorPrompt(tier)` to include only relevant sections
 3. **Recency bias** - Critical output rules (JSON schema) must be at the END of the prompt
-4. **Test-driven** - Every prompt change needs tests in `systemPrompt.test.ts`
+4. **Test-driven** - Run snapshot tests after every change
+5. **Single responsibility** - Each file handles ONE aspect of the prompt
 
 Example of conditional inclusion:
 ```typescript

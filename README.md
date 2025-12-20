@@ -64,7 +64,18 @@ See [docs/GOOGLE_OAUTH_SETUP.md](docs/GOOGLE_OAUTH_SETUP.md) for detailed setup 
 │  ├─ App.tsx             # Root application component
 │  ├─ main.tsx            # Vite entry point
 │  ├─ components/         # UI building blocks (chat panel, selectors, media players, etc.)
-│  ├─ services/           # Supabase, Grok, cache, and relationship service layers (+ tests)
+│  ├─ services/           # Business logic (AI providers, state, prompts)
+│  │  ├─ promptUtils.ts   # Barrel file re-exporting from system_prompts/
+│  │  └─ system_prompts/  # 🆕 Modular system prompt architecture
+│  │     ├─ builders/     # Main prompt assembly (buildSystemPrompt, etc.)
+│  │     ├─ core/         # Identity, anti-assistant, opinions
+│  │     ├─ behavior/     # Behavioral patterns (uncertainty, friction, etc.)
+│  │     ├─ relationship/ # Tier behavior, dimension effects
+│  │     ├─ context/      # Dynamic context (message analysis, style)
+│  │     ├─ features/     # Feature rules (selfies, etc.)
+│  │     ├─ soul/         # "Alive" components (mood, threads)
+│  │     ├─ tools/        # Tool instructions
+│  │     └─ format/       # Output format, JSON schema
 │  └─ domain/
 │     ├─ characters/      # Character-specific domain models (e.g., Kayley profile scaffold)
 │     └─ relationships/   # Relationship insight schemas and helpers
@@ -213,7 +224,7 @@ const prompt = await buildSystemPrompt(
 );
 ```
 
-**Implementation:** All calendar event formatting in `promptUtils.ts` uses `timeZone` option in `toLocaleString()`.
+**Implementation:** Calendar event formatting in `system_prompts/builders/systemPromptBuilder.ts` uses `timeZone` option in `toLocaleString()`.
 
 ### Working with State: Best Practices
 
@@ -254,9 +265,11 @@ const mood = await getMoodStateAsync(userId);
 When working on AI behavior:
 
 1. **Modifying the system prompt?** → Read [System Prompt Guidelines](docs/System_Prompt_Guidelines.md) first
+   - Find the right file in `src/services/system_prompts/` (folder names guide you)
+   - Run `npm test -- --run -t "snapshot"` to see what changed
 2. **Adding intent detection?** → See [Semantic Intent Detection](docs/Semantic_Intent_Detection.md)
 3. **Modifying state management?** → See [Architecture & State Management](#architecture--state-management) section above
-4. **Running tests:** `npm test -- --run` (554+ tests should pass)
+4. **Running tests:** `npm test -- --run` (780+ tests should pass)
 
 ### Adding New Features
 
@@ -266,8 +279,16 @@ When working on AI behavior:
 - Use unified fetch pattern if fetching multiple state slices
 - Add caching only if read volume is extremely high
 
-**AI Behavior:**
-- Modify `src/services/promptUtils.ts` for prompt changes
+**AI Behavior (System Prompt):**
+- The system prompt is modular - find the right file in `src/services/system_prompts/`
+- **Identity changes:** `system_prompts/core/`
+- **Behavioral changes:** `system_prompts/behavior/`
+- **Relationship-dependent:** `system_prompts/relationship/`
+- **New features:** Create a new file, export from folder's `index.ts`, wire into `builders/systemPromptBuilder.ts`
+- **Testing:** Run `npm test -- --run -t "snapshot"` to see changes
+- See [System Prompt Guidelines](docs/System_Prompt_Guidelines.md) for detailed guide
+
+**Intent Detection:**
 - Update `src/services/intentService.ts` for new intent types
 - Test with `npm test -- --run`
 
