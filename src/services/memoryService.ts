@@ -376,7 +376,7 @@ export const formatFactsForAI = (facts: UserFact[]): string => {
   }
 
   const lines = facts.map(f => {
-    return `- ${f.fact_key}: ${f.fact_value}`;
+    return `- ${f.fact_key}: ${formatFactValueForDisplay(f.fact_value)}`;
   });
 
   return `Known facts about the user:\n${lines.join('\n')}`;
@@ -703,7 +703,185 @@ interface DetectedInfo {
   value: string;
 }
 
+// ============================================
+// LLM-Based Fact Detection Processing
+// ============================================
+
+export interface LLMDetectedFact {
+  category: 'identity' | 'preference' | 'relationship' | 'context';
+  key: string;
+  value: string;
+  confidence: number;
+}
+
 /**
+ * Fact key classification for storage behavior:
+ *
+ * IMMUTABLE: Once set, should never be overwritten (core identity)
+ * MUTABLE: Can be updated when user provides new info (things that change)
+ * ADDITIVE: Append to array, don't replace (preferences, lists)
+ */
+const IMMUTABLE_KEYS = new Set([
+  'name',
+  'middle_name',
+  'last_name',
+  'birthday',
+  'birth_year',
+  'gender'
+]);
+
+const ADDITIVE_KEY_PATTERNS = [
+  /^favorite_/,      // favorite_lunch_spot, favorite_movie, etc.
+  /^likes$/,         // general likes
+  /^hobbies$/,       // hobbies list
+  /^interests$/,     // interests list
+  /^dislikes$/       // dislikes list
+];
+
+/**
+ * Determines the storage behavior for a fact key.
+ */
+function getFactStorageType(key: string): 'immutable' | 'mutable' | 'additive' {
+  const normalizedKey = key.toLowerCase();
+
+  if (IMMUTABLE_KEYS.has(normalizedKey)) {
+    return 'immutable';
+  }
+
+  if (ADDITIVE_KEY_PATTERNS.some(pattern => pattern.test(normalizedKey))) {
+    return 'additive';
+  }
+
+  return 'mutable';
+}
+
+/**
+ * Parse a fact value that might be a JSON array or a simple string.
+ */
+function parseFactValue(value: string): string[] {
+  try {
+    const parsed = JSON.parse(value);
+    if (Array.isArray(parsed)) {
+      return parsed.map(String);
+    }
+  } catch {
+    // Not JSON, treat as single value
+  }
+  return [value];
+}
+
+/**
+ * Format a fact value for display.
+ * Converts JSON arrays to comma-separated strings.
+ *
+ * @example
+ * formatFactValueForDisplay('["Chipotle","Panera"]') // "Chipotle, Panera"
+ * formatFactValueForDisplay('Chipotle') // "Chipotle"
+ */
+export function formatFactValueForDisplay(value: string): string {
+  const values = parseFactValue(value);
+  return values.join(', ');
+}
+
+/**
+ * Process facts detected by the LLM intent service and store them appropriately.
+ * This replaces the regex-based detectAndStoreUserInfo with LLM intelligence.
+ *
+ * Storage behavior by fact type:
+ * - IMMUTABLE (name, birthday): Only store if NOT already exists
+ * - MUTABLE (location, occupation): Can be updated/overwritten
+ * - ADDITIVE (likes, favorite_*): Append to JSON array
+ *
+ * @param userId - The user's ID
+ * @param detectedFacts - Facts detected by the LLM from intentService
+ * @returns Array of facts that were actually stored/updated
+ */
+export const processDetectedFacts = async (
+  userId: string,
+  detectedFacts: LLMDetectedFact[]
+): Promise<LLMDetectedFact[]> => {
+  if (!detectedFacts || detectedFacts.length === 0) {
+    return [];
+  }
+
+  console.log(`🔍 [Memory] Processing ${detectedFacts.length} LLM-detected fact(s)`);
+
+  try {
+    // Fetch existing facts to check for duplicates and current values
+    const existingFacts = await getUserFacts(userId, 'all');
+
+    // Create a map of existing facts for fast lookup
+    const existingFactsMap = new Map(
+      existingFacts.map(f => [`${f.category}:${f.fact_key}`, f])
+    );
+
+    const storedFacts: LLMDetectedFact[] = [];
+
+    for (const fact of detectedFacts) {
+      const factKey = `${fact.category}:${fact.key}`;
+      const existingFact = existingFactsMap.get(factKey);
+      const storageType = getFactStorageType(fact.key);
+
+      console.log(`📋 [Memory] Fact "${fact.key}" is ${storageType}, exists: ${!!existingFact}`);
+
+      if (storageType === 'immutable') {
+        // IMMUTABLE: Only store if doesn't exist
+        if (existingFact) {
+          console.log(`⏭️ [Memory] Skipping immutable fact (already set): ${fact.category}.${fact.key}`);
+          continue;
+        }
+      } else if (storageType === 'additive') {
+        // ADDITIVE: Append to array if value not already present
+        if (existingFact) {
+          const existingValues = parseFactValue(existingFact.fact_value);
+          const newValue = fact.value.trim();
+
+          // Check if this value already exists in the array (case-insensitive)
+          if (existingValues.some(v => v.toLowerCase() === newValue.toLowerCase())) {
+            console.log(`⏭️ [Memory] Skipping additive fact (value already in array): ${fact.category}.${fact.key} = "${newValue}"`);
+            continue;
+          }
+
+          // Append to array
+          existingValues.push(newValue);
+          fact.value = JSON.stringify(existingValues);
+          console.log(`➕ [Memory] Appending to additive fact: ${fact.category}.${fact.key} = ${fact.value}`);
+        }
+        // If doesn't exist, store as single value (will become array later if more added)
+      }
+      // MUTABLE: Always update (fall through to store)
+
+      const success = await storeUserFact(
+        userId,
+        fact.category,
+        fact.key,
+        fact.value,
+        undefined,
+        fact.confidence
+      );
+
+      if (success) {
+        storedFacts.push(fact);
+        const action = existingFact
+          ? (storageType === 'additive' ? 'appended to' : 'updated')
+          : 'stored NEW';
+        console.log(`💾 [Memory] ${action} fact: ${fact.category}.${fact.key} = "${fact.value}"`);
+      }
+    }
+
+    console.log(`✅ [Memory] Processed ${detectedFacts.length} detected facts, stored/updated ${storedFacts.length} fact(s)`);
+    return storedFacts;
+
+  } catch (error) {
+    console.error('❌ [Memory] Error processing detected facts:', error);
+    return [];
+  }
+};
+
+/**
+ * @deprecated Use processDetectedFacts with LLM-detected facts instead.
+ * This regex-based function is kept for backwards compatibility but should not be used.
+ *
  * Detect important user information from a message and store it.
  * This is a BACKUP to AI tool calling - it runs client-side after each message.
  * 
@@ -936,8 +1114,10 @@ export const memoryService = {
   getRecentContext,
   formatMemoriesForAI,
   formatFactsForAI,
+  formatFactValueForDisplay,
   executeMemoryTool,
-  detectAndStoreUserInfo
+  detectAndStoreUserInfo, // @deprecated - use processDetectedFacts instead
+  processDetectedFacts
 };
 
 export default memoryService;

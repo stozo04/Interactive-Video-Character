@@ -1706,6 +1706,24 @@ export async function detectRelationshipSignalsLLMCached(
 // PHASE 7: UNIFIED INTENT DETECTION (Optimization)
 // ============================================
 
+// ============================================
+// User Fact Detection Types
+// ============================================
+
+export interface DetectedUserFact {
+  category: 'identity' | 'preference' | 'relationship' | 'context';
+  key: string;
+  value: string;
+  confidence: number;
+}
+
+export interface UserFactIntent {
+  /** Whether the LLM detected any storable facts in this message */
+  hasFactsToStore: boolean;
+  /** Array of facts the LLM thinks should be stored */
+  facts: DetectedUserFact[];
+}
+
 export interface FullMessageIntent {
   genuineMoment: GenuineMomentIntent;
   tone: ToneIntent;
@@ -1718,6 +1736,8 @@ export interface FullMessageIntent {
     topic: string | null;
     confidence: number;
   };
+  /** User facts detected by LLM for storage */
+  userFacts?: UserFactIntent;
   _meta?: {
     skippedFullDetection?: boolean;
     reason?: string;
@@ -1801,13 +1821,37 @@ function validateFullIntent(parsed: any): FullMessageIntent {
     confidence: normalizeConfidence(parsed.contradiction.confidence)
   } : undefined;
 
-  const result: FullMessageIntent = { 
-    genuineMoment, 
-    tone, 
-    topics, 
-    openLoops, 
+  // Validate User Facts
+  const validCategories = ['identity', 'preference', 'relationship', 'context'];
+  const userFacts: UserFactIntent | undefined = parsed.userFacts ? {
+    hasFactsToStore: Boolean(parsed.userFacts.hasFactsToStore),
+    facts: Array.isArray(parsed.userFacts.facts)
+      ? parsed.userFacts.facts
+          .filter((f: any) =>
+            f &&
+            validCategories.includes(f.category) &&
+            f.key &&
+            f.value &&
+            typeof f.confidence === 'number' &&
+            f.confidence >= 0.8 // Only accept high-confidence facts
+          )
+          .map((f: any) => ({
+            category: f.category as 'identity' | 'preference' | 'relationship' | 'context',
+            key: String(f.key).toLowerCase().replace(/\s+/g, '_'),
+            value: String(f.value).trim(),
+            confidence: normalizeConfidence(f.confidence)
+          }))
+      : []
+  } : undefined;
+
+  const result: FullMessageIntent = {
+    genuineMoment,
+    tone,
+    topics,
+    openLoops,
     relationshipSignals,
-    contradiction
+    contradiction,
+    userFacts
   };
   
   if (parsed._meta) {
@@ -1823,7 +1867,7 @@ function validateFullIntent(parsed: any): FullMessageIntent {
  */
 const UNIFIED_INTENT_PROMPT = `You are the MASTER INTENT DETECTION SYSTEM for an AI companion named Kayley.
 
-Your task is to analyze the user's message for SIX distinct aspects simultaneously.
+Your task is to analyze the user's message for SEVEN distinct aspects simultaneously.
 You must be precise, noting sarcasm, hidden emotions, and subtle relationship signals.
 
 ---
@@ -1877,6 +1921,36 @@ Examples:
 - "I don't have a party tonight" → topic: "party"
 - "That event isn't on my calendar" → topic: "event" or "calendar"
 - "I never mentioned a meeting" → topic: "meeting"
+
+SECTION 7: USER FACT DETECTION
+Detect if the user is sharing FACTUAL information about themselves that should be stored for future reference.
+BE VERY CONSERVATIVE - only detect facts when user is clearly stating personal information.
+
+Categories:
+- "identity": name, age, gender, location, occupation, birthday
+- "preference": favorites, likes/dislikes, hobbies
+- "relationship": family members (spouse, kids, pets), relationship status
+- "context": current projects, work situations, upcoming events
+
+CRITICAL RULES:
+1. NEVER detect a name from exclamations, sounds, or nonsense words (e.g., "offf!", "hmm", "ahh" are NOT names)
+2. A name must be explicitly introduced: "I'm Steven", "My name is Sarah", "Call me Mike"
+3. Do NOT detect facts from questions or hypotheticals
+4. Must have HIGH confidence (>0.8) to suggest storing
+5. If the user already provided this info before, do NOT re-detect it
+
+Valid Examples:
+- "My name is Steven" → {category: "identity", key: "name", value: "Steven", confidence: 0.95}
+- "I'm a software engineer" → {category: "identity", key: "occupation", value: "software engineer", confidence: 0.9}
+- "I have 2 kids" → {category: "relationship", key: "number_of_kids", value: "2", confidence: 0.9}
+- "My birthday is July 15th" → {category: "identity", key: "birthday", value: "July 15th", confidence: 0.95}
+- "I love coffee" → {category: "preference", key: "likes", value: "coffee", confidence: 0.85}
+
+INVALID Examples (do NOT store):
+- "offf!" → NOT a name (exclamation)
+- "hmm interesting" → NOT a name
+- "I'm tired" → NOT an occupation
+- "Steven is my friend" → NOT user's name (it's someone else)
 ---
 {context}
 
@@ -1889,7 +1963,8 @@ Respond with this EXACT JSON structure (do NOT include explanation fields):
   "topics": { "topics": ["string"], "primaryTopic": "string|null", "emotionalContext": { "topic": "emotion" }, "entities": ["string"] },
   "openLoops": { "hasFollowUp": bool, "loopType": "string|null", "topic": "string|null", "suggestedFollowUp": "string|null", "timeframe": "string|null", "salience": 0-1, "eventDateTime": "ISO string|null" },
   "relationshipSignals": { "milestone": "string|null", "milestoneConfidence": 0-1, "isHostile": bool, "hostilityReason": "string|null", "isInappropriate": bool, "inappropriatenessReason": "string|null" },
-  "contradiction": { "isContradicting": bool, "topic": "string|null", "confidence": 0-1 }
+  "contradiction": { "isContradicting": bool, "topic": "string|null", "confidence": 0-1 },
+  "userFacts": { "hasFactsToStore": bool, "facts": [{ "category": "string", "key": "string", "value": "string", "confidence": 0-1 }] }
 }`;
 
 
@@ -1970,7 +2045,8 @@ export async function detectFullIntentLLM(
       tone: fullIntent.tone.primaryEmotion,
       genuine: fullIntent.genuineMoment.isGenuine,
       topics: fullIntent.topics.topics,
-      loop: fullIntent.openLoops.hasFollowUp
+      loop: fullIntent.openLoops.hasFollowUp,
+      userFacts: fullIntent.userFacts?.facts?.length || 0
     });
 
     return fullIntent;
@@ -2052,7 +2128,13 @@ function getDefaultIntent(message: string): FullMessageIntent {
       topic: null,
       confidence: 0
     },
-    
+
+    // User facts - never detect from simple messages
+    userFacts: {
+      hasFactsToStore: false,
+      facts: []
+    },
+
     _meta: {
       skippedFullDetection: true,
       reason: 'tiered_bypass'

@@ -1939,15 +1939,10 @@ const App: React.FC = () => {
       const userId = getUserId();
 
       // ============================================
-      // CLIENT-SIDE BACKUP: Auto-detect user info
-      // Since AI doesn't always call tools reliably,
-      // we detect and store important info ourselves
+      // LLM-BASED USER FACT DETECTION
+      // Facts are detected by the intent service LLM and processed after response
+      // This replaced the old regex-based detectAndStoreUserInfo
       // ============================================
-      import('./services/memoryService').then(({ detectAndStoreUserInfo }) => {
-        detectAndStoreUserInfo(userId, message).catch(err =>
-          console.warn('Auto-detect failed:', err)
-        );
-      });
 
       const sessionToUse: AIChatSession = aiSession || { userId, characterId: selectedCharacter.id };
       const context = {
@@ -2019,10 +2014,20 @@ const App: React.FC = () => {
         );
 
         setAiSession(updatedSession);
-        
+
         // Debug: Log full response to check structure
         console.log('🔍 Full AI response:', JSON.stringify(response, null, 2));
-        
+
+        // Process LLM-detected user facts (background, non-blocking)
+        // This uses semantic understanding from the intent service instead of regex patterns
+        if (intent?.userFacts?.hasFactsToStore && intent.userFacts.facts.length > 0) {
+          import('./services/memoryService').then(({ processDetectedFacts }) => {
+            processDetectedFacts(userId, intent.userFacts!.facts).catch(err =>
+              console.warn('Failed to process LLM-detected user facts:', err)
+            );
+          });
+        }
+
         // IMPORTANT: Refresh tasks after AI response in case task_action tool was called
         // The tool modifies Supabase directly, so we need to sync UI state
         taskService.fetchTasks(userId).then(freshTasks => {
@@ -2787,9 +2792,10 @@ Let the user know in a friendly way and maybe offer to check back later.
           count: Array.isArray(userFacts) ? userFacts.length : 'n/a',
         });
         if (userFacts.length > 0) {
-          const factsFormatted = userFacts.map(f => `- ${f.fact_key}: ${f.fact_value}`).join('\n');
+          const { formatFactValueForDisplay } = await import('./services/memoryService');
+          const factsFormatted = userFacts.map(f => `- ${f.fact_key}: ${formatFactValueForDisplay(f.fact_value)}`).join('\n');
           userInfoContext = `\n\n[KNOWN USER INFO - USE THIS!]\nYou already know these facts about the user:\n${factsFormatted}\n\nIf they ask you to draw "my name" and you have their name above, USE IT! Don't ask again!\n`;
-          console.log('🧠 [Whiteboard] Pre-loaded user facts:', userFacts.map(f => `${f.fact_key}=${f.fact_value}`));
+          console.log('🧠 [Whiteboard] Pre-loaded user facts:', userFacts.map(f => `${f.fact_key}=${formatFactValueForDisplay(f.fact_value)}`));
         }
       } catch (err) {
         console.warn('Could not pre-fetch user info:', err);
@@ -2848,16 +2854,8 @@ Let the user know in a friendly way and maybe offer to check back later.
         type: (whiteboardAction as any)?.type,
       });
 
-      // ============================================
-      // AUTO-DETECT USER INFO (Backup for AI tools)
-      // Since AI doesn't always call tools reliably,
-      // we detect and store important info ourselves
-      // ============================================
-      import('./services/memoryService').then(({ detectAndStoreUserInfo }) => {
-        detectAndStoreUserInfo(userId, userMessage).catch(err =>
-          console.warn('Auto-detect failed:', err)
-        );
-      });
+      // NOTE: User fact detection is handled by LLM intent service in main chat flow
+      // Whiteboard mode (games/drawing) typically doesn't involve personal fact sharing
 
       return {
         textResponse: response.text_response,
