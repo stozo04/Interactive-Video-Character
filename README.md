@@ -84,6 +84,37 @@ See [docs/GOOGLE_OAUTH_SETUP.md](docs/GOOGLE_OAUTH_SETUP.md) for detailed setup 
 └─ vite.config.ts         # Vite config with @ alias pointing to src/
 ```
 
+## Claude Code Sub-Agents
+
+This project includes **9 specialized sub-agents** for Claude Code that provide domain-specific expertise:
+
+| Agent | Domain | Use For |
+|-------|--------|---------|
+| `prompt-architect` | System prompts | Character behavior, output format, prompt sections |
+| `chat-engine-specialist` | AI providers | Response latency, new providers, tool calling |
+| `intent-analyst` | Intent detection | Tone detection, mood knobs, new intent types |
+| `state-manager` | Supabase/caching | Database tables, cache strategy, queries |
+| `relationship-dynamics` | Relationships | Tier logic, milestones, pattern detection |
+| `presence-proactivity` | Proactive behavior | Idle breaker, open loops, callbacks |
+| `memory-knowledge` | Memory systems | Fact storage, semantic search, embeddings |
+| `external-integrations` | External APIs | OAuth, Gmail, Calendar, TTS |
+| `test-engineer` | Testing | Writing tests, coverage, fixing failures |
+
+**Usage:**
+```bash
+# View available agents
+/agents
+
+# Explicit invocation
+> Use the prompt-architect to add a new behavior section
+
+# Automatic delegation (just ask naturally)
+> I want to optimize response latency
+  → Auto-delegates to chat-engine-specialist
+```
+
+Sub-agents are defined in `.claude/agents/` and can be customized per project.
+
 ## Documentation
 
 Key developer documentation in the `docs/` folder:

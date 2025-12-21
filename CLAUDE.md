@@ -214,3 +214,28 @@ VITE_GOOGLE_CLIENT_ID=...apps.googleusercontent.com
 - Use `getFullCharacterContext()` RPC for unified state fetch
 - Target <2s response times
 - Cache has 30s TTL; trust Supabase for correctness
+
+## Sub-Agents
+
+This project includes specialized sub-agents in `.claude/agents/` for domain-specific tasks:
+
+| Agent | When to Use |
+|-------|-------------|
+| `prompt-architect` | System prompt changes, character behavior, output format |
+| `chat-engine-specialist` | AI provider changes, response optimization, tool calling |
+| `intent-analyst` | Intent detection, mood calculation, tone analysis |
+| `state-manager` | Supabase tables, caching, database queries |
+| `relationship-dynamics` | Relationship tiers, milestones, user patterns |
+| `presence-proactivity` | Idle breaker, open loops, ongoing threads, callbacks |
+| `memory-knowledge` | Memory search, fact storage, conversation history |
+| `external-integrations` | Google OAuth, Gmail, Calendar, ElevenLabs, APIs |
+| `test-engineer` | Writing tests, fixing failures, coverage |
+
+**Usage:** Sub-agents are automatically invoked based on task context, or explicitly via:
+```
+> Use the prompt-architect to add a new behavior section
+```
+
+**Location:** `.claude/agents/*.md` - Each file contains domain expertise and best practices.
+
+**Note:** Restart Claude Code after adding new agents for them to be recognized.
