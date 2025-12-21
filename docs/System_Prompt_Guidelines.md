@@ -8,6 +8,12 @@
 
 ## Overview
 
+> **Pro Tip:** Use the `prompt-architect` sub-agent in Claude Code for guided assistance with prompt modifications:
+> ```
+> > Use the prompt-architect to add a new behavior for handling sarcasm
+> ```
+> The sub-agent has deep knowledge of this architecture and will follow these guidelines automatically.
+
 This document establishes guidelines for modifying the AI companion's system prompt. The prompt is built from **modular, single-responsibility files** in `src/services/system_prompts/`. Following these principles ensures:
 - **Token efficiency** - Every token should provide semantic value
 - **LLM adherence** - Critical instructions must be positioned for recency bias
@@ -571,6 +577,7 @@ No database changes are involved in prompt modifications - all changes are in-me
 - [`Semantic_Intent_Detection.md`](./Semantic_Intent_Detection.md) - Intent service integration details
 - [`promptUtils.ts`](../src/services/promptUtils.ts) - Barrel file (re-exports from system_prompts/)
 - [`system_prompts/`](../src/services/system_prompts/) - Modular prompt modules
+- [`.claude/agents/prompt-architect.md`](../.claude/agents/prompt-architect.md) - Claude Code sub-agent for prompt modifications
 
 ---
 
@@ -578,6 +585,7 @@ No database changes are involved in prompt modifications - all changes are in-me
 
 | Date | Change | Author |
 |------|--------|--------|
+| 2025-12-20 | Added `prompt-architect` sub-agent reference for Claude Code users | Claude |
 | 2025-12-19 | **Major refactor**: Converted promptUtils.ts to modular architecture | Claude |
 | 2025-12-19 | Added modular file structure documentation | Claude |
 | 2025-12-19 | Updated "Adding a New Feature" with step-by-step guide | Claude |
