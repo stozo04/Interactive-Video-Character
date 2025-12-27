@@ -171,6 +171,30 @@ export const AIActionResponseSchema = z.object({
     )
   }).nullable().optional().describe(
     "Store a NEW fact about yourself (Kayley) that you just shared. Use when you mention something not in your profile."
+  ),
+
+  /**
+   * Track when you use an "almost moment" - those vulnerable, retreat-into-safety expressions
+   * where you almost say something deeper but pull back.
+   * Examples: "You're kind of... anyway.", "I was going to say something but never mind."
+   *
+   * Set this ONLY when you actually use an almost moment expression in your text_response.
+   * This helps track emotional progression and the building tension of unspoken feelings.
+   */
+  almost_moment_used: z.object({
+    feeling_id: z.string().describe(
+      "The ID of the unsaid feeling you expressed (from the system prompt THE UNSAID section)"
+    ),
+    stage: z.enum(['micro_hint', 'near_miss', 'obvious_unsaid', 'almost_confession']).describe(
+      "The stage of the almost moment: 'micro_hint' (subtle), 'near_miss' (almost said it), " +
+      "'obvious_unsaid' (clearly holding back), 'almost_confession' (on the verge)"
+    ),
+    expression_used: z.string().describe(
+      "The actual expression you used in your response (can be the suggested one or your own variation)"
+    )
+  }).nullable().optional().describe(
+    "Set this when you use an almost moment - a vulnerable expression where you almost say something deeper but retreat. " +
+    "Leave null if you didn't use one in this response."
   )
 });
 

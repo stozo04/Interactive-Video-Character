@@ -1006,20 +1006,57 @@ buildSystemPrompt()
     |       +--> buildAlmostMomentsPrompt()
     |              |
     |              +--> generateAlmostExpression(seed)
+    |              +--> Adds "THE UNSAID" section with feeling_id
     |
     v
-LLM response
+LLM response (includes almost_moment_used field if used)
     |
     v
 BaseAIService.generateResponse()
     |
     +--> logAlmostMomentIfUsed()
             |
-            +--> getUnsaidFeelings()
-            +--> calculateStage()
-            +--> generateAlmostExpression(seed)
-            +--> recordAlmostMoment()
+            +--> Check aiResponse.almost_moment_used
+            +--> If present: recordAlmostMoment()
                     |
                     +--> kayley_almost_moment_log
                     +--> update kayley_unsaid_feelings (intensity, stage, count)
 ```
+
+## Detection Mechanism (Improved)
+
+**Previous approach (fragile):** Pattern matching response text against suggested expressions.
+
+**Current approach (reliable):** LLM explicitly reports usage via schema field.
+
+### Schema Addition
+
+```typescript
+// src/services/aiSchema.ts
+almost_moment_used: z.object({
+  feeling_id: z.string(),
+  stage: z.enum(['micro_hint', 'near_miss', 'obvious_unsaid', 'almost_confession']),
+  expression_used: z.string()
+}).nullable().optional()
+```
+
+### Prompt Instruction
+
+The prompt tells the LLM to set this field when using an almost moment:
+
+```
+IF YOU USE AN ALMOST MOMENT (suggested above or your own variation):
+Set almost_moment_used to:
+{
+  "feeling_id": "${primaryFeeling.id}",
+  "stage": "${context.currentStage}",
+  "expression_used": "[the actual text you used in your response]"
+}
+```
+
+### Benefits
+
+- **Accurate tracking:** No false positives/negatives from pattern matching
+- **Flexibility:** LLM can adapt expressions to fit conversation naturally
+- **Data capture:** Know exactly what was said, not just what was suggested
+- **Optional:** LLM only sets field when actually using an almost moment

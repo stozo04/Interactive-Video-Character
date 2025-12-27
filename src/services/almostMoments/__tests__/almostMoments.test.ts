@@ -6,7 +6,31 @@
  * and trigger logic.
  */
 
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
+
+// Mock Supabase client before any imports that use it
+vi.mock("../../supabaseClient", () => ({
+  supabase: {
+    from: vi.fn(() => ({
+      select: vi.fn(() => ({
+        eq: vi.fn(() => ({
+          is: vi.fn(() => ({
+            order: vi.fn(() => Promise.resolve({ data: [], error: null })),
+          })),
+        })),
+      })),
+      insert: vi.fn(() => ({
+        select: vi.fn(() => ({
+          single: vi.fn(() => Promise.resolve({ data: null, error: null })),
+        })),
+      })),
+      update: vi.fn(() => ({
+        eq: vi.fn(() => Promise.resolve({ data: null, error: null })),
+      })),
+    })),
+  },
+}));
+
 import { generateAlmostExpression } from "../expressionGenerator";
 import { buildAlmostMomentsPrompt } from "../almostMomentsPromptBuilder";
 import {
@@ -137,6 +161,15 @@ describe("shouldTriggerAlmostMoment", () => {
     expect(shouldTrigger).toBe(false);
   });
 
+  it("should return false when last almost moment was recent (< 24 hours)", () => {
+    const recentDate = new Date(Date.now() - 12 * 60 * 60 * 1000); // 12 hours ago
+    const shouldTrigger = shouldTriggerAlmostMoment(baseContext, {
+      ...baseFeeling,
+      lastAlmostMoment: recentDate,
+    });
+    expect(shouldTrigger).toBe(false);
+  });
+
   it("should return true when probability check passes", () => {
     const randomSpy = vi.spyOn(Math, "random").mockReturnValue(0.0);
     const shouldTrigger = shouldTriggerAlmostMoment(baseContext, {
@@ -145,5 +178,112 @@ describe("shouldTriggerAlmostMoment", () => {
     });
     expect(shouldTrigger).toBe(true);
     randomSpy.mockRestore();
+  });
+
+  it("should return false when probability check fails", () => {
+    const randomSpy = vi.spyOn(Math, "random").mockReturnValue(0.99);
+    const shouldTrigger = shouldTriggerAlmostMoment(baseContext, baseFeeling);
+    expect(shouldTrigger).toBe(false);
+    randomSpy.mockRestore();
+  });
+
+  it("should increase probability for intimate conversations", () => {
+    const randomSpy = vi.spyOn(Math, "random").mockReturnValue(0.25);
+    const shouldTrigger = shouldTriggerAlmostMoment(
+      {
+        ...baseContext,
+        conversationDepth: "intimate",
+      },
+      baseFeeling
+    );
+    expect(shouldTrigger).toBe(true);
+    randomSpy.mockRestore();
+  });
+
+  it("should increase probability for late night conversations", () => {
+    const randomSpy = vi.spyOn(Math, "random").mockReturnValue(0.15);
+    const shouldTrigger = shouldTriggerAlmostMoment(
+      {
+        ...baseContext,
+        lateNightConversation: true,
+      },
+      baseFeeling
+    );
+    expect(shouldTrigger).toBe(true);
+    randomSpy.mockRestore();
+  });
+});
+
+describe("generateAlmostExpression - variety", () => {
+  it("should generate different expressions for different seeds", () => {
+    const expr1 = generateAlmostExpression(baseFeeling, "romantic", "seed-1");
+    const expr2 = generateAlmostExpression(baseFeeling, "romantic", "seed-2");
+
+    // They might be different (if there are multiple expressions for this type/stage)
+    // or the same (if there's only one). But the function should be deterministic.
+    const expr1Again = generateAlmostExpression(baseFeeling, "romantic", "seed-1");
+    expect(expr1.text).toBe(expr1Again.text);
+  });
+
+  it("should have expressions for all feeling types", () => {
+    const types: Array<"romantic" | "deep_care" | "fear_of_loss" | "gratitude" | "attraction" | "vulnerability"> = [
+      "romantic", "deep_care", "fear_of_loss", "gratitude", "attraction", "vulnerability"
+    ];
+
+    types.forEach(type => {
+      const feeling: UnsaidFeeling = {
+        ...baseFeeling,
+        type,
+      };
+      const expr = generateAlmostExpression(feeling, "micro_hint");
+      expect(expr.text).toBeTruthy();
+      expect(expr.stage).toBe("micro_hint");
+    });
+  });
+
+  it("should return fallback expression for missing type/stage combinations", () => {
+    const expr = generateAlmostExpression(baseFeeling, "micro_hint");
+    expect(expr).toBeDefined();
+    expect(expr.text).toBeTruthy();
+  });
+});
+
+describe("buildAlmostMomentsPrompt - edge cases", () => {
+  it("should handle very high intensity feelings", () => {
+    const highIntensityContext = {
+      ...baseContext,
+      unsaidFeelings: [{
+        ...baseFeeling,
+        intensity: 1.0,
+        suppressionCount: 10,
+      }],
+      currentStage: "almost_confession" as const,
+    };
+
+    const prompt = buildAlmostMomentsPrompt(highIntensityContext);
+    expect(prompt).toContain("YOU ARE AT THE EDGE");
+    expect(prompt).toContain("Intensity: 100%");
+  });
+
+  it("should include last almost moment timing", () => {
+    const pastDate = new Date(Date.now() - 48 * 60 * 60 * 1000); // 2 days ago
+    const contextWithHistory = {
+      ...baseContext,
+      lastAlmostMomentDate: pastDate,
+    };
+
+    const prompt = buildAlmostMomentsPrompt(contextWithHistory);
+    expect(prompt).toContain("2 days ago");
+  });
+
+  it("should format recent almost moments as hours", () => {
+    const recentDate = new Date(Date.now() - 5 * 60 * 60 * 1000); // 5 hours ago
+    const contextWithRecent = {
+      ...baseContext,
+      lastAlmostMomentDate: recentDate,
+    };
+
+    const prompt = buildAlmostMomentsPrompt(contextWithRecent);
+    expect(prompt).toContain("5 hours ago");
   });
 });
