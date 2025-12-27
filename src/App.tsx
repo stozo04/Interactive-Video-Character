@@ -16,6 +16,7 @@ import * as relationshipService from './services/relationshipService';
 import type { RelationshipMetrics } from './services/relationshipService';
 import type { FullMessageIntent } from './services/intentService';
 import { recordExchange } from './services/callbackDirector';
+import { getTopLoopToSurface } from './services/presenceDirector';
 import messageAnalyzer from './services/messageAnalyzer';
 import { migrateLocalStorageToSupabase } from './services/stateService';
 import { gmailService, type NewEmailPayload } from './services/gmailService';
@@ -1633,21 +1634,36 @@ const App: React.FC = () => {
       setRelationship(relationshipData);
       
       try {
-        // Start with fresh session - no saved history passed to greeting
-        const session: AIChatSession = { userId, model: activeService.model }; 
-        const { greeting, session: updatedSession } = await activeService.generateGreeting(
-          character, session, relationshipData, kayleyContext
-        );
-        setAiSession(updatedSession);
+        // Check if this is the first login of the day
+        // If so, skip the immediate greeting - the Daily Catch-up will handle it in 5s
+        const today = new Date().toDateString();
+        const lastBriefingDate = localStorage.getItem(`last_briefing_${character.id}`);
+        const isFirstLoginToday = lastBriefingDate !== today;
 
-        // Start with just the greeting - fresh session!
-        const initialHistory = [{ role: 'model' as const, text: greeting.text_response }];
-        setChatHistory(initialHistory);
+        // Start with fresh session
+        const session: AIChatSession = { userId, model: activeService.model };
 
-        if (greeting.action_id && newActionUrls[greeting.action_id]) {
-            setTimeout(() => {
-                playAction(greeting.action_id!);
-            }, 100);
+        if (isFirstLoginToday) {
+          // First login of the day: Skip immediate greeting, let Daily Catch-up handle it
+          console.log('🌅 [App] First login today - skipping immediate greeting, Daily Catch-up will fire in 5s');
+          setAiSession(session);
+          setChatHistory([]); // Empty - catch-up will provide the greeting
+        } else {
+          // Returning user (already had catch-up today): Generate normal greeting
+          const { greeting, session: updatedSession } = await activeService.generateGreeting(
+            character, session, relationshipData, kayleyContext
+          );
+          setAiSession(updatedSession);
+
+          // Start with just the greeting - fresh session!
+          const initialHistory = [{ role: 'model' as const, text: greeting.text_response }];
+          setChatHistory(initialHistory);
+
+          if (greeting.action_id && newActionUrls[greeting.action_id]) {
+              setTimeout(() => {
+                  playAction(greeting.action_id!);
+              }, 100);
+          }
         }
 
         // Reset the last saved index since we're starting fresh
@@ -2689,17 +2705,22 @@ Let the user know in a friendly way and maybe offer to check back later.
         return;
       }
 
-      console.log("🌅 Triggering Morning Briefing...");
+      console.log("🌅 Triggering Daily Catch-up...");
 
-      // 4. Construct the Prompt
+      // 4. Construct the Prompt with DYNAMIC time-of-day
+      const now = new Date();
+      const hour = now.getHours();
+      const timeOfDay = hour < 12 ? "morning" : hour < 17 ? "afternoon" : hour < 21 ? "evening" : "night";
+      const timeString = now.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true });
+
       let eventSummary = "Calendar not connected.";
       let emailSummary = "Gmail not connected.";
 
       if (isGmailConnected) {
-        eventSummary = upcomingEvents.length > 0 
+        eventSummary = upcomingEvents.length > 0
           ? `User has ${upcomingEvents.length} events today. First one: ${upcomingEvents[0].summary} at ${upcomingEvents[0].start.dateTime}`
           : "No events scheduled.";
-        
+
         emailSummary = emailQueue.length > 0
           ? `User has ${emailQueue.length} unread emails.`
           : "No new emails.";
@@ -2710,17 +2731,31 @@ Let the user know in a friendly way and maybe offer to check back later.
       const currentTasks = await taskService.fetchTasks(userId);
       const incompleteTasks = currentTasks.filter(t => !t.completed);
       const taskSummary = incompleteTasks.length > 0
-        ? `User has ${incompleteTasks.length} task(s) from yesterday that need attention: ${incompleteTasks.slice(0, 3).map(t => t.text).join(', ')}`
+        ? `User has ${incompleteTasks.length} task(s) pending: ${incompleteTasks.slice(0, 3).map(t => t.text).join(', ')}`
         : "User's checklist is clear.";
 
+      // Fetch open loop for personal continuity (e.g., "Houston trip")
+      const topLoop = await getTopLoopToSurface(userId);
+      const openLoopContext = topLoop
+        ? `You've been wondering about: "${topLoop.topic}". Ask: "${topLoop.suggestedFollowup || `How did ${topLoop.topic} go?`}"`
+        : "";
+
       const prompt = `
-        [SYSTEM EVENT: MORNING BRIEFING]
-        It is the first login of the day. 
-        Context: ${eventSummary}. ${emailSummary}. ${taskSummary}.
-        Task: Greet the user warmly. Briefly summarize their schedule/emails/tasks if any exist. 
-        If they have tasks from yesterday, gently mention them. 
-        Optionally suggest they add tasks related to their calendar events.
-        Keep it short (2-3 sentences).
+        [SYSTEM EVENT: FIRST LOGIN CATCH-UP]
+        Context: It is the first time the user has logged in today. Current time: ${timeString} (${timeOfDay}).
+
+        ${openLoopContext ? `PAST CONTINUITY (Top Priority):\n${openLoopContext}\n` : ""}
+        DAILY LOGISTICS (Secondary Priority):
+        - ${eventSummary}
+        - ${emailSummary}
+        - ${taskSummary}
+
+        TASK:
+        1. Greet them warmly for the ${timeOfDay}. Use time-appropriate language (NOT "Good morning" if it's ${timeOfDay}!).
+        ${openLoopContext ? `2. Lead with the personal follow-up - it shows you were thinking of them.
+        3. Naturally bridge to their schedule/tasks if relevant.` : `2. Briefly mention their schedule/tasks if any exist.`}
+
+        Keep it short (2-3 sentences). Be natural, not robotic.
       `;
 
       // 5. Fire it off

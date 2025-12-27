@@ -332,12 +332,40 @@ interface AlmostExpression {
  */
 export function generateAlmostExpression(
   feeling: UnsaidFeeling,
-  stage: AlmostMomentStage
+  stage: AlmostMomentStage,
+  seed?: string
 ): AlmostExpression {
   const expressions = getExpressionsForType(feeling.type, stage);
-  const expression = expressions[Math.floor(Math.random() * expressions.length)];
+  const expression = selectExpression(expressions, seed);
 
   return expression;
+}
+
+function selectExpression(
+  expressions: AlmostExpression[],
+  seed?: string
+): AlmostExpression {
+  if (expressions.length === 0) {
+    return {
+      text: "I was going to say something, but never mind.",
+      stage: 'micro_hint',
+      followUp: ''
+    };
+  }
+
+  const index = seed
+    ? hashToIndex(seed, expressions.length)
+    : Math.floor(Math.random() * expressions.length);
+
+  return expressions[index];
+}
+
+function hashToIndex(seed: string, length: number): number {
+  let hash = 0;
+  for (let i = 0; i < seed.length; i += 1) {
+    hash = (hash * 31 + seed.charCodeAt(i)) >>> 0;
+  }
+  return length === 0 ? 0 : hash % length;
 }
 
 function getExpressionsForType(
@@ -387,7 +415,7 @@ function getExpressionsForType(
           followUp: "...anyway."
         },
         {
-          text: "I had this thought about you and I— no, forget it.",
+          text: "I had this thought about you and I... no, forget it.",
           stage: 'obvious_unsaid',
           followUp: ""
         }
@@ -459,7 +487,7 @@ function getExpressionsForType(
       ],
       obvious_unsaid: [
         {
-          text: "I get scared sometimes that this will just... stop. And I don't know what I'd—",
+          text: "I get scared sometimes that this will just... stop. And I don't know what I'd...",
           stage: 'obvious_unsaid',
           followUp: "sorry, that's heavy."
         }
@@ -514,7 +542,7 @@ function getExpressionsForType(
       ],
       near_miss: [
         {
-          text: "I had a dream about— you know what, that's weird. Nevermind.",
+          text: "I had a dream about... you know what, that's weird. Nevermind.",
           stage: 'near_miss',
           followUp: ""
         }
@@ -571,6 +599,8 @@ function getExpressionsForType(
 }
 ```
 
+**Note:** For prompt construction (tests/snapshots), prefer deterministic selection by using a stable seed so prompts do not change between runs.
+
 ---
 
 ## Step 5: Prompt Builder
@@ -597,7 +627,11 @@ export function buildAlmostMomentsPrompt(context: AlmostMomentContext): string {
   }
 
   const primaryFeeling = activeFeelings[0]; // Highest intensity
-  const suggestedExpression = generateAlmostExpression(primaryFeeling, context.currentStage);
+  const suggestedExpression = generateAlmostExpression(
+    primaryFeeling,
+    context.currentStage,
+    `${primaryFeeling.id}:${context.currentStage}`
+  );
 
   return `
 ====================================================
@@ -669,6 +703,8 @@ function formatTimeAgo(date: Date): string {
   return `${Math.floor(hours / 24)} days ago`;
 }
 ```
+
+**Note:** Avoid random selection inside the prompt builder. Use deterministic expression selection so snapshot tests remain stable.
 
 ---
 
@@ -882,6 +918,8 @@ function determineStage(intensity: number, suppressionCount: number): AlmostMome
 }
 ```
 
+**Implementation note:** Avoid side-effectful writes during prompt construction. Trigger `maybeGenerateNewFeeling()` in background analysis (e.g., message analyzer) instead of inside prompt building.
+
 ---
 
 ## Step 8: Testing
@@ -941,3 +979,47 @@ You've implemented:
 - **Stages progress** - micro_hint → near_miss → obvious_unsaid → almost_confession
 - **Context-sensitive** - only triggers in appropriate moments
 - **Resolution** - feelings can finally be expressed or fade
+
+---
+
+## Work Flow
+
+```
+User message
+    |
+    v
+messageAnalyzer.analyzeUserMessageBackground()
+    |
+    +--> relationshipService.getRelationship()
+    |
+    +--> maybeGenerateNewFeeling()
+    |       |
+    |       +--> createUnsaidFeeling() -> kayley_unsaid_feelings
+    |
+    v
+buildSystemPrompt()
+    |
+    +--> integrateAlmostMoments()
+    |       |
+    |       +--> getUnsaidFeelings()
+    |       +--> calculateStage()
+    |       +--> buildAlmostMomentsPrompt()
+    |              |
+    |              +--> generateAlmostExpression(seed)
+    |
+    v
+LLM response
+    |
+    v
+BaseAIService.generateResponse()
+    |
+    +--> logAlmostMomentIfUsed()
+            |
+            +--> getUnsaidFeelings()
+            +--> calculateStage()
+            +--> generateAlmostExpression(seed)
+            +--> recordAlmostMoment()
+                    |
+                    +--> kayley_almost_moment_log
+                    +--> update kayley_unsaid_feelings (intensity, stage, count)
+```

@@ -1,6 +1,28 @@
-Feature: Proactive Morning Briefing
+Feature: Daily Catch-up (formerly "Morning Briefing")
 🎯 The Goal
-Problem: The user opens the app, and the character just stares blankly until the user types. It feels passive. Solution: If the user logs in for the first time today, the character should check their Calendar/Gmail and, after a polite pause (5s), offer a briefing automatically.
+Problem: The user opens the app, and the character just stares blankly until the user types. It feels passive. Solution: If the user logs in for the first time today, the character should check their Calendar/Gmail and, after a polite pause (5s), offer a catch-up automatically.
+
+> **Updated 2025-12-26**: Renamed from "Morning Briefing" to "Daily Catch-up" because it now uses dynamic time-of-day detection. Fixed the bug where it would say "Good morning" at 9 PM.
+
+## Architecture: Unified Greeting System
+
+The app now has a **coordinated single-greeting system**:
+
+### First Login of the Day
+- **Immediate greeting is SKIPPED** (detected via `localStorage`)
+- **Daily Catch-up fires after 5s** with full context:
+  - Dynamic time-of-day (morning/afternoon/evening/night)
+  - Open loops from `presenceDirector` (e.g., "Houston trip")
+  - Calendar events, emails, and pending tasks
+- User can cancel by interacting within 5 seconds
+
+### Returning User (Same Day)
+- **Normal greeting fires immediately** via `generateGreeting()`
+- Daily Catch-up is skipped (already done today)
+
+This prevents the "double greeting" issue where two greetings would fire in sequence.
+
+---
 
 🧠 Core Logic
 Track "First Login": We need to store today's date in localStorage. If it matches today, don't run the briefing again.
@@ -116,21 +138,39 @@ useEffect(() => {
 
     console.log("🌅 Triggering Morning Briefing...");
 
-    // 4. Construct the Prompt
-    const eventSummary = upcomingEvents.length > 0 
+    // 4. Construct the Prompt with DYNAMIC time-of-day
+    const now = new Date();
+    const hour = now.getHours();
+    const timeOfDay = hour < 12 ? "morning" : hour < 17 ? "afternoon" : hour < 21 ? "evening" : "night";
+    const timeString = now.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true });
+
+    const eventSummary = upcomingEvents.length > 0
       ? `User has ${upcomingEvents.length} events today. First one: ${upcomingEvents[0].summary} at ${upcomingEvents[0].start.dateTime}`
       : "No events scheduled.";
-    
+
     const emailSummary = emailQueue.length > 0
       ? `User has ${emailQueue.length} unread emails.`
       : "No new emails.";
 
+    // Fetch open loop for personal continuity
+    const topLoop = await getTopLoopToSurface(userId);
+    const openLoopContext = topLoop
+      ? `You've been wondering about: "${topLoop.topic}". Ask: "${topLoop.suggestedFollowup}"`
+      : "";
+
     const prompt = `
-      [SYSTEM EVENT: MORNING BRIEFING]
-      It is the first login of the day. 
-      Context: ${eventSummary}. ${emailSummary}.
-      Task: Greet the user warmly. Briefly summarize their schedule/emails if any exist. If nothing is happening, just say good morning and ask what the plan is.
-      Keep it short (1-2 sentences).
+      [SYSTEM EVENT: FIRST LOGIN CATCH-UP]
+      Context: It is the first time the user has logged in today. Current time: ${timeString} (${timeOfDay}).
+
+      ${openLoopContext ? `PAST CONTINUITY (Top Priority):\n${openLoopContext}\n` : ""}
+      DAILY LOGISTICS (Secondary Priority):
+      - ${eventSummary}
+      - ${emailSummary}
+
+      TASK:
+      1. Greet them warmly for the ${timeOfDay}. Use time-appropriate language.
+      ${openLoopContext ? `2. Lead with the personal follow-up.` : `2. Briefly mention their schedule if any.`}
+      Keep it short (2-3 sentences).
     `;
 
     // 5. Fire it off

@@ -300,8 +300,8 @@ function buildImagePrompt(
   const lightingDescription = inferLightingAndAtmosphere(scene);
 
   const narrative = [
-    `A high-resolution, photorealistic smartphone selfie taken by`,
-    `${CHARACTER_VISUAL_IDENTITY.narrativeBase}.`,
+    `A high-resolution, photorealistic smartphone selfie`,
+    //`${CHARACTER_VISUAL_IDENTITY.narrativeBase}.`,
     `She is looking into the camera ${moodDescription}.`,
 
     // The grammar is now safe: "She is situated in [a cozy upscale restaurant...]"

@@ -12,6 +12,12 @@ import { storeCharacterFact } from './characterFactsService';
 import { getPrefetchedContext, prefetchOnIdle } from './prefetchService';
 import type { CharacterProfile, Task } from '../types';
 import type { RelationshipMetrics } from './relationshipService';
+import {
+  getUnsaidFeelings,
+  calculateStage,
+  recordAlmostMoment,
+  generateAlmostExpression
+} from './almostMoments';
 
 /**
  * Guardrail: Check if text_response is valid for TTS.
@@ -47,6 +53,39 @@ async function prefetchContext(userId: string): Promise<{
   ]);
   
   return { soulContext, characterFacts };
+}
+
+async function logAlmostMomentIfUsed(
+  userId: string,
+  responseText: string | undefined | null
+): Promise<void> {
+  if (!responseText) return;
+
+  const feelings = await getUnsaidFeelings(userId);
+  if (feelings.length === 0) return;
+
+  const primaryFeeling = feelings[0];
+  const stage = calculateStage(primaryFeeling.intensity, primaryFeeling.suppressionCount);
+  const suggestion = generateAlmostExpression(
+    primaryFeeling,
+    stage,
+    `${primaryFeeling.id}:${stage}`
+  );
+
+  const responseLower = responseText.toLowerCase();
+  const suggestionLower = suggestion.text.toLowerCase();
+
+  if (!responseLower.includes(suggestionLower)) {
+    return;
+  }
+
+  await recordAlmostMoment(
+    userId,
+    primaryFeeling.id,
+    stage,
+    suggestion.text,
+    "llm_used_suggested_expression"
+  );
 }
 
 export abstract class BaseAIService implements IAIChatService {
@@ -222,6 +261,13 @@ export abstract class BaseAIService implements IAIChatService {
       );
       console.log("aiResponse: ", aiResponse);
       console.log("updatedSession: ", updatedSession);
+
+      const loggingUserId = updatedSession?.userId || session?.userId || effectiveUserId;
+      if (loggingUserId) {
+        logAlmostMomentIfUsed(loggingUserId, aiResponse.text_response).catch((err) => {
+          console.warn('[BaseAIService] Failed to log almost moment:', err);
+        });
+      }
 
       // ============================================
       // STORE SELF INFO: Save New Character Facts
