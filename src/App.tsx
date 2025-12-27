@@ -73,6 +73,8 @@ import {
   type CheckinType,
 } from './services/calendarCheckinService';
 import { generateCompanionSelfie } from './services/imageGenerationService';
+import { detectKayleyPresence } from './services/kayleyPresenceDetector';
+import { getKayleyPresenceState, updateKayleyPresenceState, getDefaultExpirationMinutes } from './services/kayleyPresenceService';
 // Business logic moved to BaseAIService.ts (Clean Architecture)
 
 // Helper to sanitize text for comparison
@@ -2060,6 +2062,26 @@ const App: React.FC = () => {
             console.warn('Failed to process character facts:', err);
           });
         }
+
+        // Detect and track Kayley's presence state (what she's wearing/doing) - background, non-blocking
+        if (response.text_response && userId) {
+          detectKayleyPresence(response.text_response, message)
+            .then(async (detected) => {
+              if (detected && detected.confidence > 0.7) {
+                const expirationMinutes = getDefaultExpirationMinutes(detected.activity, detected.outfit);
+                await updateKayleyPresenceState(userId, {
+                  outfit: detected.outfit,
+                  mood: detected.mood,
+                  activity: detected.activity,
+                  location: detected.location,
+                  expirationMinutes,
+                  confidence: detected.confidence,
+                });
+                console.log('[App] Kayley presence detected:', detected);
+              }
+            })
+            .catch(err => console.warn('[App] Presence detection error:', err));
+        }
         
         const maybePlayResponseAction = (actionId?: string | null) => {
           if (!actionId) return;
@@ -2408,11 +2430,42 @@ Let the user know in a friendly way and maybe offer to check back later.
             );
             setLastSavedMessageIndex(updatedHistory.length);
             
-            // Generate the selfie image
+            // Generate the selfie image with multi-reference system
+            // First, get Kayley's current presence state
+            const kayleyState = await getKayleyPresenceState(userId);
+
+            // DEBUG: Log presence state usage
+            console.log('📸 [Selfie Generation] Presence State:', {
+              hasState: !!kayleyState,
+              outfit: kayleyState?.currentOutfit,
+              mood: kayleyState?.currentMood,
+              activity: kayleyState?.currentActivity,
+              location: kayleyState?.currentLocation,
+              expiresAt: kayleyState?.expiresAt,
+            });
+
             const selfieResult = await generateCompanionSelfie({
               scene: selfieAction.scene,
               mood: selfieAction.mood,
               outfitHint: selfieAction.outfit_hint,
+              // Enable multi-reference system
+              userId,
+              userMessage: message,
+              conversationHistory: chatHistory.slice(-10).map(msg => ({
+                role: msg.role === 'user' ? 'user' : 'assistant',
+                content: msg.text,
+              })),
+              // Calendar events integration (already available in state)
+              upcomingEvents: upcomingEvents.map(event => ({
+                title: event.summary,
+                startTime: new Date(event.start.dateTime || event.start.date || ''),
+                isFormal: event.summary.toLowerCase().includes('dinner') ||
+                         event.summary.toLowerCase().includes('meeting') ||
+                         event.summary.toLowerCase().includes('presentation'),
+              })),
+              // Kayley's presence state - tracks what she mentioned wearing/doing
+              presenceOutfit: kayleyState?.currentOutfit,
+              presenceMood: kayleyState?.currentMood,
             });
             
             if (selfieResult.success && selfieResult.imageBase64) {
