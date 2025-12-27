@@ -124,6 +124,7 @@ Key developer documentation in the `docs/` folder:
 | **[System Prompt Guidelines](docs/System_Prompt_Guidelines.md)** | ⭐ **Required reading** before modifying the AI's system prompt. Covers token efficiency, conditional inclusion patterns, and testing requirements. |
 | [Semantic Intent Detection](docs/Semantic_Intent_Detection.md) | LLM-based intent detection system. How messages are analyzed for mood, tone, topics, and relationship signals. |
 | [Spontaneity Integration Guide](docs/Spontaneity_Integration_Guide.md) | Spontaneity system architecture, usage, and integration guide. |
+| [Almost Moments Implementation](docs/implementation/03_Almost_Moments.md) | Guide for Kayley's "unsaid feelings" system and prompt integration. |
 | [Reflection & Idle Thoughts](docs/Reflection_and_Idle_Thoughts.md) | Post-session reflection and idle thought generation during user absence. |
 | [System Prompt Plan](docs/System_Prompt_Plan.md) | Original optimization plan with implementation details and lessons learned. |
 | [Google OAuth Setup](docs/GOOGLE_OAUTH_SETUP.md) | Step-by-step guide for configuring Google authentication. |
@@ -160,12 +161,15 @@ All character state is now persisted in Supabase, replacing localStorage for clo
 - `emotional_momentum` - Current mood level, interaction streaks, genuine moment tracking
 - `ongoing_threads` - Kayley's "mental weather" (3-5 things she's thinking about)
 - `intimacy_states` - Vulnerability exchange tracking, recent tone modifiers
+- `kayley_unsaid_feelings` - Almost moments: Unspoken feelings building over time
+- `kayley_almost_moment_log` - Tracks when almost moments occur in conversation
 
 **Key Services:**
 - `src/services/stateService.ts` - Core Supabase operations (CRUD for all state)
 - `src/services/moodKnobs.ts` - Calculates behavior parameters from state
 - `src/services/ongoingThreads.ts` - Manages mental threads with decay/cleanup
 - `src/services/relationshipService.ts` - Relationship metrics and intimacy state
+- `src/services/almostMoments/` - Almost moments system: Unspoken feelings that build over time
 
 **Unified State Fetch Optimization:**
 Instead of 3-4 separate database calls, use the unified RPC function:
@@ -301,6 +305,33 @@ const spontaneity = await integrateSpontaneity(
 ```
 
 See [Spontaneity Integration Guide](docs/Spontaneity_Integration_Guide.md) for detailed usage.
+
+### Almost Moments System
+
+The Almost Moments System tracks "unsaid feelings" and injects subtle, withheld expressions into the prompt when relationship and warmth allow it.
+
+**Core Components:**
+- `src/services/almostMoments/almostMomentsService.ts` - CRUD + trigger logic for unsaid feelings
+- `src/services/almostMoments/almostMomentsPromptBuilder.ts` - Prompt section builder (deterministic)
+- `src/services/almostMoments/expressionGenerator.ts` - Stage-appropriate expressions
+- `src/services/almostMoments/integrate.ts` - Prompt integration entry point
+
+**Database Tables:**
+- `kayley_unsaid_feelings` - Active unspoken feelings per user
+- `kayley_almost_moment_log` - Log of "almost said it" moments
+
+**Usage (prompt integration):**
+```typescript
+import { integrateAlmostMoments } from "@/services/almostMoments";
+
+const almostMoments = await integrateAlmostMoments(userId, relationship, {
+  conversationDepth: "deep",
+  recentSweetMoment: true,
+  vulnerabilityExchangeActive: false
+});
+
+// Use almostMoments.promptSection in buildSystemPrompt
+```
 
 ### Working with State: Best Practices
 

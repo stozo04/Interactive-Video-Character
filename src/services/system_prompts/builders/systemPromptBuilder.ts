@@ -41,6 +41,7 @@ import { buildAntiAssistantSection } from "../core/antiAssistant";
 import { buildOpinionsAndPushbackSection } from "../core/opinionsAndPushback";
 import { buildIdentityAnchorSection } from "../core/identityAnchor";
 import { buildSelfKnowledgeSection } from "../core/selfKnowledge";
+import { integrateAlmostMoments } from "../../almostMoments";
 import {
   buildToolsSection,
   buildToolRulesSection,
@@ -53,6 +54,34 @@ import {
 
 // const CHARACTER_COLLECTION_ID = import.meta.env.VITE_GROK_CHARACTER_COLLECTION_ID;
 const CHARACTER_COLLECTION_ID = import.meta.env.VITE_CHATGPT_VECTOR_STORE_ID;
+
+function deriveConversationDepth(
+  relationshipSignals?: RelationshipSignalIntent | null,
+  toneIntent?: ToneIntent | null
+): "surface" | "medium" | "deep" | "intimate" {
+  if (relationshipSignals?.isVulnerable) return "intimate";
+  if (relationshipSignals?.isDeepTalk) return "deep";
+  if ((toneIntent?.intensity ?? 0) >= 0.6) return "medium";
+  return "surface";
+}
+
+function deriveRecentSweetMoment(
+  relationshipSignals?: RelationshipSignalIntent | null,
+  toneIntent?: ToneIntent | null
+): boolean {
+  if (relationshipSignals?.isAcknowledgingSupport) return true;
+  const sentiment = toneIntent?.sentiment ?? 0;
+  const intensity = toneIntent?.intensity ?? 0;
+  return sentiment > 0.4 && intensity > 0.4;
+}
+
+function deriveVulnerabilityExchangeActive(
+  relationshipSignals?: RelationshipSignalIntent | null
+): boolean {
+  return Boolean(
+    relationshipSignals?.isVulnerable || relationshipSignals?.isSeekingSupport
+  );
+}
 
 export const buildSystemPrompt = async (
   character?: CharacterProfile,
@@ -100,6 +129,39 @@ export const buildSystemPrompt = async (
   const effectiveRelationshipSignals =
     fullIntent?.relationshipSignals || relationshipSignals;
   const effectiveToneIntent = fullIntent?.tone || toneIntent;
+
+  let almostMomentsPrompt = "";
+  console.log("GATES relationship: ", relationship);
+  console.log("GATES effectiveUserId: ", effectiveUserId);
+  if (relationship && effectiveUserId) {
+    try {
+      const almostMoments = await integrateAlmostMoments(
+        effectiveUserId,
+        relationship,
+        {
+          conversationDepth: deriveConversationDepth(
+            effectiveRelationshipSignals,
+            effectiveToneIntent
+          ),
+          recentSweetMoment: deriveRecentSweetMoment(
+            effectiveRelationshipSignals,
+            effectiveToneIntent
+          ),
+          vulnerabilityExchangeActive: deriveVulnerabilityExchangeActive(
+            effectiveRelationshipSignals
+          ),
+          allowGeneration: false,
+        }
+      );
+      almostMomentsPrompt = almostMoments.promptSection;
+      console.log("almostMoments: ", almostMoments);
+    } catch (error) {
+      console.warn(
+        "[buildSystemPrompt] Almost moments integration failed:",
+        error
+      );
+    }
+  }
 
   let prompt = `
 ${buildIdentityAnchorSection(name, display)}${buildAntiAssistantSection()}
@@ -173,6 +235,7 @@ ${
 ${getTierBehaviorPrompt(relationship?.relationshipTier)}
 ${buildDynamicDimensionEffects(relationship)}
 ${buildSelfieRulesPrompt(relationship)}
+${almostMomentsPrompt}
 
 Familiarity behavior:
 - early: Be naturally curious but don't pretend you know patterns about them yet
@@ -257,7 +320,8 @@ ${buildStyleOutputSection(moodKnobs, relationship)}`;
 
   // Add spontaneity (if available and applicable)
   if (soulContext.spontaneityIntegration) {
-    const { promptSection, humorGuidance, selfiePrompt } = soulContext.spontaneityIntegration;
+    const { promptSection, humorGuidance, selfiePrompt } =
+      soulContext.spontaneityIntegration;
 
     // Main spontaneity section
     if (promptSection) {

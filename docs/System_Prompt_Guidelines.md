@@ -1,6 +1,6 @@
 # System Prompt Guidelines
 
-> **Last Updated**: 2025-12-19
+> **Last Updated**: 2025-12-26
 > **Status**: Living Document - Update with each system prompt modification
 > **Purpose**: Reference guide for developers making changes to the system prompt
 
@@ -58,6 +58,7 @@ Use helper functions to conditionally include prompt sections:
 | Selfie rules | Friend+ vs Stranger | `buildSelfieRulesPrompt(relationship)` |
 | Dimension effects | Only extreme values (>15 or <-10) | `buildDynamicDimensionEffects(relationship)` |
 | Semantic intent | When fullIntent is available | `buildMinifiedSemanticIntent(fullIntent)` |
+| Almost moments | Warmth + tier + active feelings | `integrateAlmostMoments(userId, relationship, options)` |
 
 ### 3. Recency Bias Positioning
 
@@ -306,6 +307,7 @@ describe("New Behavior", () => {
 5. BEHAVIORAL GUIDELINES              (~300-500 tokens)
    - Bid detection
    - Selfie rules (conditional)
+   - Almost moments (conditional)
    - Calendar/task rules
 
 6. OUTPUT FORMAT                      (~150-200 tokens)
@@ -577,6 +579,7 @@ No database changes are involved in prompt modifications - all changes are in-me
 - [`promptUtils-refactoring-plan.md`](./plans/promptUtils-refactoring-plan.md) - Complete refactoring plan and implementation notes
 - [`System_Prompt_Plan.md`](./System_Prompt_Plan.md) - Original optimization plan and implementation details
 - [`Semantic_Intent_Detection.md`](./Semantic_Intent_Detection.md) - Intent service integration details
+- [`implementation/03_Almost_Moments.md`](./implementation/03_Almost_Moments.md) - Almost moments system guide
 - [`promptUtils.ts`](../src/services/promptUtils.ts) - Barrel file (re-exports from system_prompts/)
 - [`system_prompts/`](../src/services/system_prompts/) - Modular prompt modules
 - [`.claude/agents/prompt-architect.md`](../.claude/agents/prompt-architect.md) - Claude Code sub-agent for prompt modifications
@@ -587,6 +590,7 @@ No database changes are involved in prompt modifications - all changes are in-me
 
 | Date | Change | Author |
 |------|--------|--------|
+| 2025-12-26 | Documented Almost Moments prompt integration | Claude |
 | 2025-12-20 | Added `prompt-architect` sub-agent reference for Claude Code users | Claude |
 | 2025-12-19 | **Major refactor**: Converted promptUtils.ts to modular architecture | Claude |
 | 2025-12-19 | Added modular file structure documentation | Claude |

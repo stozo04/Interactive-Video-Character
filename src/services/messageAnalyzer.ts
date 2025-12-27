@@ -33,6 +33,7 @@ import {
 import * as relationshipService from './relationshipService';
 import { analyzeMessageForPatterns, detectTopics } from './userPatterns';
 import { detectMilestoneInMessage } from './relationshipMilestones';
+import { maybeGenerateNewFeeling } from './almostMoments';
 import { 
   recordInteractionAsync,
   detectGenuineMomentWithLLM,
@@ -590,6 +591,10 @@ export async function analyzeUserMessage(
   // Execution & Side Effects (🚀 Parallelized)
   // ============================================
 
+  const relationship = await relationshipService
+    .getRelationship(userId)
+    .catch(() => null);
+
   // Run all background updates in parallel to maximize performance
   const [createdLoops, recordedMilestone, detectedPatterns] = await Promise.all([
     // Phase 5: Create open loops
@@ -621,8 +626,18 @@ export async function analyzeUserMessage(
     ),
 
     // Phase 7: Probabilistic intimacy / stats
-    relationshipService.recordMessageQualityAsync(userId, message)
-  ]) as [OpenLoop[], RelationshipMilestone | null, UserPattern[], void, void];
+    relationshipService.recordMessageQualityAsync(userId, message),
+
+    // Almost Moments: Generate new unsaid feelings (rare)
+    relationship
+      ? maybeGenerateNewFeeling(
+          userId,
+          relationship.warmthScore,
+          relationship.trustScore,
+          relationship.relationshipTier
+        )
+      : Promise.resolve()
+  ]) as [OpenLoop[], RelationshipMilestone | null, UserPattern[], void, void, void];
   
   // Use LLM sentiment for message tone
   const messageTone = toneResult.sentiment;
