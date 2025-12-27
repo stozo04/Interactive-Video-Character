@@ -9,6 +9,7 @@
 import type { SoulLayerContext } from "../types";
 import type { MoodKnobs } from "../../moodKnobs";
 import type { PresenceContext } from "../../presenceDirector";
+import type { ConversationalMood } from "../../spontaneity/types";
 import { formatCallbackForPrompt } from "../../callbackDirector";
 import { getFullCharacterContext } from "../../stateService";
 import { getPresenceContext } from "../../presenceDirector";
@@ -20,6 +21,23 @@ import {
   formatThreadsForPromptAsync,
   formatThreadsFromData,
 } from "../../ongoingThreads";
+import { integrateSpontaneity } from "../../spontaneity/integrateSpontaneity";
+
+/**
+ * Options for spontaneity integration (optional)
+ */
+export interface SpontaneityOptions {
+  conversationalMood: ConversationalMood;
+  relationshipTier: string;
+  currentTopics: string[];
+  userInterests: string[];
+  currentThought?: string | null;
+  recentExperience?: string | null;
+  currentLocation?: string | null;
+  currentOutfit?: string | null;
+  currentMoodForSelfie?: string | null;
+  userHadBadDay?: boolean;
+}
 
 /**
  * Calculate the full soul layer context including async presence data.
@@ -28,13 +46,16 @@ import {
  * This function makes parallel async calls to optimize latency:
  * - Fetches unified character context (mood state, threads) in one call
  * - Fetches presence context in parallel
+ * - Optionally integrates spontaneity (if options provided)
  * - Falls back to individual fetches on failure
  *
  * @param userId - The user ID for Supabase state retrieval
- * @returns Promise<SoulLayerContext> containing moodKnobs, threadsPrompt, callbackPrompt, and presenceContext
+ * @param spontaneityOptions - Optional options for spontaneity integration
+ * @returns Promise<SoulLayerContext> containing moodKnobs, threadsPrompt, callbackPrompt, presenceContext, and optionally spontaneityIntegration
  */
 export async function getSoulLayerContextAsync(
-  userId: string
+  userId: string,
+  spontaneityOptions?: SpontaneityOptions
 ): Promise<SoulLayerContext> {
   // Sync operation - no network call needed
   const callbackPrompt = formatCallbackForPrompt();
@@ -92,10 +113,35 @@ export async function getSoulLayerContextAsync(
     presenceContext = presenceResult;
   }
 
+  // Optionally integrate spontaneity (if options provided)
+  let spontaneityIntegration;
+  if (spontaneityOptions) {
+    try {
+      spontaneityIntegration = await integrateSpontaneity(
+        userId,
+        spontaneityOptions.conversationalMood,
+        moodKnobs,
+        spontaneityOptions.relationshipTier,
+        spontaneityOptions.currentTopics,
+        spontaneityOptions.userInterests,
+        spontaneityOptions.currentThought,
+        spontaneityOptions.recentExperience,
+        spontaneityOptions.currentLocation,
+        spontaneityOptions.currentOutfit,
+        spontaneityOptions.currentMoodForSelfie,
+        spontaneityOptions.userHadBadDay
+      );
+    } catch (error) {
+      console.warn("[SoulLayerContext] Failed to integrate spontaneity:", error);
+      // Continue without spontaneity - it's optional
+    }
+  }
+
   return {
     moodKnobs,
     threadsPrompt,
     callbackPrompt,
     presenceContext,
+    spontaneityIntegration,
   };
 }

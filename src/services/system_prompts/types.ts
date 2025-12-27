@@ -8,6 +8,7 @@
 
 import type { MoodKnobs } from "../moodKnobs";
 import type { PresenceContext } from "../presenceDirector";
+import type { SpontaneityIntegration } from "../spontaneity/types";
 
 /**
  * Soul Layer Context - the "alive" components
@@ -19,9 +20,12 @@ export interface SoulLayerContext {
   callbackPrompt: string;
   /** Presence context including open loops and opinions (async loaded) */
   presenceContext?: PresenceContext;
+  /** Spontaneity integration (spontaneous behaviors, humor, selfies) */
+  spontaneityIntegration?: SpontaneityIntegration;
 }
 
 // Re-export types that are commonly needed by prompt builders
 export type { MoodKnobs } from "../moodKnobs";
 export type { PresenceContext } from "../presenceDirector";
 export type { RelationshipMetrics } from "../relationshipService";
+export type { SpontaneityIntegration } from "../spontaneity/types";

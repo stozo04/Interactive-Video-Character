@@ -255,6 +255,26 @@ ${buildStyleOutputSection(moodKnobs, relationship)}`;
   // Add ongoing threads (her mental weather)
   prompt += soulContext.threadsPrompt;
 
+  // Add spontaneity (if available and applicable)
+  if (soulContext.spontaneityIntegration) {
+    const { promptSection, humorGuidance, selfiePrompt } = soulContext.spontaneityIntegration;
+
+    // Main spontaneity section
+    if (promptSection) {
+      prompt += promptSection;
+    }
+
+    // Humor guidance (conditional based on mood)
+    if (humorGuidance) {
+      prompt += humorGuidance;
+    }
+
+    // Spontaneous selfie opportunity (rare)
+    if (selfiePrompt) {
+      prompt += selfiePrompt;
+    }
+  }
+
   // Add proactive conversation starters guidance
   prompt += `
 ====================================================
