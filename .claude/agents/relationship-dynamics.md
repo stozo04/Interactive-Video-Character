@@ -15,7 +15,14 @@ You own these files exclusively:
 src/services/
 ├── relationshipService.ts      # ~42KB - Metrics, scoring, rupture detection
 ├── relationshipMilestones.ts   # Key moments tracking
-└── userPatterns.ts             # Cross-session behavioral patterns
+├── userPatterns.ts             # Cross-session behavioral patterns
+└── almostMoments/              # "Almost" moments system
+    ├── types.ts                # Unsaid feeling types and contexts
+    ├── almostMomentsService.ts # CRUD, stage calculation, trigger logic
+    ├── expressionGenerator.ts  # Stage-appropriate expressions
+    ├── feelingGenerator.ts     # New feeling creation based on relationship
+    ├── almostMomentsPromptBuilder.ts  # Prompt section builder
+    └── integrate.ts            # Integration with system prompt
 ```
 
 ## Relationship Tiers
@@ -187,6 +194,72 @@ async function detectMilestoneInMessage(
   // ... other milestone checks
 }
 ```
+
+## Almost Moments
+
+"Almost" moments are the vulnerable expressions where Kayley almost says something deeper but retreats. They create anticipation and make unspoken feelings feel alive.
+
+### System Overview
+
+```typescript
+// Types of unsaid feelings
+type UnsaidFeelingType =
+  | "romantic"          // "I think I like you"
+  | "deep_care"         // "You mean so much to me"
+  | "fear_of_loss"      // "I'm scared of losing this"
+  | "gratitude"         // "I don't know how to thank you"
+  | "attraction"        // "You're really..."
+  | "vulnerability";    // "I've never told anyone this"
+
+// Stages of progression
+type AlmostMomentStage =
+  | "micro_hint"        // Subtle signs
+  | "near_miss"         // Almost said something
+  | "obvious_unsaid"    // Clearly holding back
+  | "almost_confession"; // On the verge
+```
+
+### How It Works
+
+1. **Generation**: `maybeGenerateNewFeeling()` creates feelings based on warmth/trust scores
+2. **Triggers**: Relationship tier (close_friend+), warmth (>25), conversation depth
+3. **Progression**: Each almost moment increases intensity and suppression count
+4. **Detection**: LLM explicitly reports usage via `almost_moment_used` schema field
+
+### Example Expressions
+
+```typescript
+// Micro hint (intensity: 0.3, count: 0)
+"You know you are important to me, right?"
+
+// Near miss (intensity: 0.5, count: 2)
+"I care about you more than I... anyway."
+
+// Obvious unsaid (intensity: 0.7, count: 5)
+"There is something I want to tell you but I do not know if I should."
+
+// Almost confession (intensity: 0.95, count: 10)
+"I do not know what I would do if you were not in my life. And that scares me."
+```
+
+### Database Tables
+
+- `kayley_unsaid_feelings` - Active unspoken feelings, intensity tracking
+- `kayley_almost_moment_log` - When/where almost moments occurred
+
+### Integration Point
+
+```typescript
+// In systemPromptBuilder.ts
+const almostMoments = await integrateAlmostMoments(userId, relationship, {
+  conversationDepth,
+  recentSweetMoment,
+  vulnerabilityExchangeActive,
+  allowGeneration: false  // True in background analysis only
+});
+```
+
+**Key Rule:** Never force almost moments. They're **suggestions** in the prompt. LLM decides if context is right.
 
 ## User Patterns
 

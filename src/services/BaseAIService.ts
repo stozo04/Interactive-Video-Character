@@ -55,37 +55,28 @@ async function prefetchContext(userId: string): Promise<{
   return { soulContext, characterFacts };
 }
 
+/**
+ * Log when the LLM uses an almost moment expression.
+ * Now uses explicit schema field instead of pattern matching for accurate tracking.
+ */
 async function logAlmostMomentIfUsed(
   userId: string,
-  responseText: string | undefined | null
+  aiResponse: AIActionResponse
 ): Promise<void> {
-  if (!responseText) return;
+  // Check if LLM explicitly reported using an almost moment
+  if (!aiResponse.almost_moment_used) return;
 
-  const feelings = await getUnsaidFeelings(userId);
-  if (feelings.length === 0) return;
-
-  const primaryFeeling = feelings[0];
-  const stage = calculateStage(primaryFeeling.intensity, primaryFeeling.suppressionCount);
-  const suggestion = generateAlmostExpression(
-    primaryFeeling,
-    stage,
-    `${primaryFeeling.id}:${stage}`
-  );
-
-  const responseLower = responseText.toLowerCase();
-  const suggestionLower = suggestion.text.toLowerCase();
-
-  if (!responseLower.includes(suggestionLower)) {
-    return;
-  }
+  const { feeling_id, stage, expression_used } = aiResponse.almost_moment_used;
 
   await recordAlmostMoment(
     userId,
-    primaryFeeling.id,
+    feeling_id,
     stage,
-    suggestion.text,
-    "llm_used_suggested_expression"
+    expression_used,
+    "llm_confirmed_usage"
   );
+
+  console.log(`[AlmostMoments] Logged: ${stage} - "${expression_used.substring(0, 50)}..."`);
 }
 
 export abstract class BaseAIService implements IAIChatService {
@@ -253,18 +244,16 @@ export abstract class BaseAIService implements IAIChatService {
       
       // Call the specific provider
       const { response: aiResponse, session: updatedSession } = await this.callProvider(
-        systemPrompt, 
-        input, 
+        systemPrompt,
+        input,
         options.chatHistory || [],
         session,
         options
       );
-      console.log("aiResponse: ", aiResponse);
-      console.log("updatedSession: ", updatedSession);
 
       const loggingUserId = updatedSession?.userId || session?.userId || effectiveUserId;
       if (loggingUserId) {
-        logAlmostMomentIfUsed(loggingUserId, aiResponse.text_response).catch((err) => {
+        logAlmostMomentIfUsed(loggingUserId, aiResponse).catch((err) => {
           console.warn('[BaseAIService] Failed to log almost moment:', err);
         });
       }

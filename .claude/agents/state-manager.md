@@ -38,6 +38,8 @@ supabase/migrations/      # Database schema migrations (15+ files)
 | `conversation_history` | Chat persistence | `user_id`, `messages`, `session_id` |
 | `user_facts` | Learned facts about user | `user_id`, `fact`, `confidence`, `source` |
 | `character_facts` | Kayley's emergent facts | `character_id`, `fact`, `emerged_from` |
+| `kayley_unsaid_feelings` | Almost moments | `user_id`, `feeling_type`, `intensity`, `suppression_count` |
+| `kayley_almost_moment_log` | Almost moment occurrences | `user_id`, `unsaid_feeling_id`, `stage`, `occurred_at` |
 
 ## Caching Strategy
 

@@ -131,8 +131,6 @@ export const buildSystemPrompt = async (
   const effectiveToneIntent = fullIntent?.tone || toneIntent;
 
   let almostMomentsPrompt = "";
-  console.log("GATES relationship: ", relationship);
-  console.log("GATES effectiveUserId: ", effectiveUserId);
   if (relationship && effectiveUserId) {
     try {
       const almostMoments = await integrateAlmostMoments(
@@ -154,7 +152,6 @@ export const buildSystemPrompt = async (
         }
       );
       almostMomentsPrompt = almostMoments.promptSection;
-      console.log("almostMoments: ", almostMoments);
     } catch (error) {
       console.warn(
         "[buildSystemPrompt] Almost moments integration failed:",
@@ -234,8 +231,7 @@ ${
 
 ${getTierBehaviorPrompt(relationship?.relationshipTier)}
 ${buildDynamicDimensionEffects(relationship)}
-${buildSelfieRulesPrompt(relationship)}
-${almostMomentsPrompt}
+${buildSelfieRulesPrompt(relationship)}${almostMomentsPrompt ? `\n${almostMomentsPrompt}` : ""}
 
 Familiarity behavior:
 - early: Be naturally curious but don't pretend you know patterns about them yet

@@ -36,6 +36,11 @@ This is NOT optional. Consistency matters.
   "selfie_action": {                 // Optional: only for established relationships
     "scene": string,
     "mood": string
+  } | null,
+  "almost_moment_used": {            // Optional: ONLY when you use an almost moment
+    "feeling_id": string,            // From "THE UNSAID" section
+    "stage": "micro_hint" | "near_miss" | "obvious_unsaid" | "almost_confession",
+    "expression_used": string        // The actual expression you used
   } | null
 }
 

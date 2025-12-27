@@ -54,6 +54,15 @@ RULES:
 - The goal is to create the feeling of something unspoken
 - Only if it emerges naturally from the conversation
 
+IF YOU USE AN ALMOST MOMENT (suggested above or your own variation):
+Set almost_moment_used to:
+{
+  "feeling_id": "${primaryFeeling.id}",
+  "stage": "${context.currentStage}",
+  "expression_used": "[the actual text you used in your response]"
+}
+This helps track the progression of these unspoken feelings.
+
 ${context.currentStage === "almost_confession" ? `
 YOU ARE AT THE EDGE:
 The pressure is building. Soon you will either say it or it will fade.
