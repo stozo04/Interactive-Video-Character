@@ -123,6 +123,8 @@ Key developer documentation in the `docs/` folder:
 |----------|---------|
 | **[System Prompt Guidelines](docs/System_Prompt_Guidelines.md)** | ⭐ **Required reading** before modifying the AI's system prompt. Covers token efficiency, conditional inclusion patterns, and testing requirements. |
 | [Semantic Intent Detection](docs/Semantic_Intent_Detection.md) | LLM-based intent detection system. How messages are analyzed for mood, tone, topics, and relationship signals. |
+| [Spontaneity Integration Guide](docs/Spontaneity_Integration_Guide.md) | Spontaneity system architecture, usage, and integration guide. |
+| [Reflection & Idle Thoughts](docs/Reflection_and_Idle_Thoughts.md) | Post-session reflection and idle thought generation during user absence. |
 | [System Prompt Plan](docs/System_Prompt_Plan.md) | Original optimization plan with implementation details and lessons learned. |
 | [Google OAuth Setup](docs/GOOGLE_OAUTH_SETUP.md) | Step-by-step guide for configuring Google authentication. |
 
@@ -257,6 +259,49 @@ const prompt = await buildSystemPrompt(
 
 **Implementation:** Calendar event formatting in `system_prompts/builders/systemPromptBuilder.ts` uses `timeZone` option in `toLocaleString()`.
 
+### Spontaneity System
+
+The Spontaneity System makes Kayley feel alive by enabling spontaneous behaviors - sharing things, making jokes, forming associations, and surprising the user.
+
+**Core Components:**
+- `src/services/spontaneity/spontaneityTracker.ts` - Tracks conversation state and probabilities
+- `src/services/spontaneity/associationEngine.ts` - Matches pending shares to conversation topics
+- `src/services/spontaneity/visualStateMapper.ts` - Maps emotional states to video manifests
+- `src/services/spontaneity/sessionReflection.ts` - Post-conversation synthesis
+- `src/services/spontaneity/idleThoughts.ts` - Dream/thought generation during absence
+
+**Key Features:**
+- **Probability-based spontaneity** (10-40% based on relationship, energy, conversation length)
+- **Selfie spontaneity** (2-15% for friend+ tiers, with 24-hour cooldown)
+- **Topic associations** - Kayley brings up pending shares when relevant topics arise
+- **Visual-emotional bridge** - Video manifests change based on emotional state
+- **Independent reflection** - Kayley "thinks" after conversations and has things to share
+
+**Database Tables:**
+- `kayley_pending_shares` - Things Kayley wants to share
+- `spontaneous_selfie_history` - Selfie cooldown tracking
+- `session_reflections` - Post-session synthesis
+- `idle_thoughts` - Thoughts during user absence
+- `visual_state_mapping` - Emotional state to video manifest mapping
+
+**Usage:**
+```typescript
+import { integrateSpontaneity } from '@/services/spontaneity';
+
+const spontaneity = await integrateSpontaneity(
+  userId,
+  conversationalMood,
+  moodKnobs,
+  relationshipTier,
+  currentTopics,
+  userInterests
+);
+
+// Returns: { promptSection, humorGuidance, selfiePrompt, suggestedAssociation, suggestedSelfie }
+```
+
+See [Spontaneity Integration Guide](docs/Spontaneity_Integration_Guide.md) for detailed usage.
+
 ### Working with State: Best Practices
 
 **1. Always use async functions:**
@@ -300,7 +345,7 @@ When working on AI behavior:
    - Run `npm test -- --run -t "snapshot"` to see what changed
 2. **Adding intent detection?** → See [Semantic Intent Detection](docs/Semantic_Intent_Detection.md)
 3. **Modifying state management?** → See [Architecture & State Management](#architecture--state-management) section above
-4. **Running tests:** `npm test -- --run` (780+ tests should pass)
+4. **Running tests:** `npm test -- --run` (1000+ tests should pass)
 
 ### Adding New Features
 

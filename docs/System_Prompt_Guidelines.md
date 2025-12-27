@@ -129,7 +129,8 @@ system_prompts/
 │
 ├── soul/                       # 👻 "ALIVE" COMPONENTS
 │   ├── soulLayerContext.ts     # getSoulLayerContextAsync() - mood, threads, etc.
-│   └── presencePrompt.ts       # Presence/opinions section
+│   ├── presencePrompt.ts       # Presence/opinions section
+│   └── spontaneityPrompt.ts    # Spontaneity guidance (humor, selfies, associations)
 │
 ├── tools/                      # 🔧 TOOL INSTRUCTIONS
 │   └── index.ts                # Tools section, tool rules, app launching
@@ -147,6 +148,7 @@ system_prompts/
 | Boundary/creep detection | `context/styleOutput.ts` |
 | Behavior for a specific relationship tier | `relationship/tierBehavior.ts` |
 | Selfie/image rules | `features/selfieRules.ts` |
+| Spontaneity (humor, associations, selfies) | `soul/spontaneityPrompt.ts` |
 | JSON output format | `format/index.ts` |
 | The main assembly logic | `builders/systemPromptBuilder.ts` |
 
