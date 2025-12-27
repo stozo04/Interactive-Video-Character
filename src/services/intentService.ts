@@ -2005,18 +2005,27 @@ export async function detectFullIntentLLM(
       .replace('{message}', message.replace(/[{}]/g, ''))
       .replace('{context}', contextString);
 
+    // 📊 DIAGNOSTIC: Log prompt size
+    console.log('📊 [IntentService] Prompt length:', prompt.length, 'characters');
+    console.log('📊 [IntentService] Estimated input tokens:', Math.ceil(prompt.length / 4));
+
     // Call LLM
     const result = await ai.models.generateContent({
-      model: GEMINI_MODEL, 
+      model: GEMINI_MODEL,
       contents: prompt,
       config: {
         temperature: 0.1, // precision is key
-        maxOutputTokens: 2000, // Increased from 1000 to handle full nested JSON response (all 5 sections)
+        maxOutputTokens: 5000, // Increased to 5000 to handle full nested JSON response (all 7 sections)
         responseMimeType: "application/json"
       }
     });
 
+    // 📊 DIAGNOSTIC: Log response details
     const responseText = result.text || '{}';
+    console.log('📊 [IntentService] Response length:', responseText.length, 'characters');
+    console.log('📊 [IntentService] Finish reason:', result.finishReason);
+    console.log('📊 [IntentService] Usage metadata:', result.usageMetadata);
+    console.log('📊 [IntentService] Full response:', responseText);
     const cleanedText = responseText.replace(/```json\n?|\n?```/g, '').trim();
     
     // Check if response was truncated (common when maxOutputTokens is too low)

@@ -8,7 +8,7 @@
 
 ## Overview
 
-This project includes **9 specialized sub-agents** that provide domain-specific expertise. Each agent has deep knowledge of its domain and access to specific tools. This guide explains when and how to use each agent effectively.
+This project includes **10 specialized sub-agents** that provide domain-specific expertise. Each agent has deep knowledge of its domain and access to specific tools. This guide explains when and how to use each agent effectively.
 
 ---
 
@@ -268,6 +268,44 @@ Use the memory-knowledge agent to improve fact retrieval for the prompt
 
 ---
 
+### 10. `image-generation-specialist`
+
+**Domain**: AI image generation, reference image selection, visual consistency
+
+**When to Use**:
+- Adding new reference images for selfies
+- Modifying image selection scoring logic
+- Implementing LLM-based context detection for images
+- Optimizing selfie generation performance
+- Debugging why certain references are selected
+
+**Example Invocation**:
+```
+Use the image-generation-specialist to add a new reference image for athletic outfit
+```
+
+**Key Skills**:
+- Multi-reference image system (6 references)
+- LLM-based temporal detection (old vs current photo)
+- Multi-factor scoring algorithm (8+ factors)
+- Current look locking for consistency
+- Anti-repetition with contextual exceptions
+- Performance optimization via caching
+
+**Files It Knows**:
+- `src/services/imageGenerationService.ts`
+- `src/services/imageGeneration/` (temporalDetection, contextEnhancer, referenceSelector, currentLookService)
+- `src/utils/base64ReferenceImages/` (registry and base64 files)
+- Database tables: `current_look_state`, `selfie_generation_history`
+
+**Key Patterns**:
+- **Never use regex for temporal detection** - Use LLM (Gemini Flash) instead
+- **Lock current look for 24h** - Hairstyle stays consistent within a day
+- **Allow same reference for same scene** - Don't penalize repetition if user is in the same location
+- **Log full selection reasoning** - All scoring factors are logged for debugging
+
+---
+
 ## Best Practices
 
 ### 1. Use Multiple Agents in Parallel
@@ -351,6 +389,14 @@ Resume agent ae76e47 to add error handling to the prompt builder
 3. **State-manager**: Update RPC functions if needed
 4. **Test-engineer**: Write integration tests
 
+### Adding Reference Images
+
+1. **Image-generation-specialist**: Add base64 file to `src/utils/base64ReferenceImages/`
+2. **Image-generation-specialist**: Update registry with metadata (scenes, moods, frequency)
+3. **Image-generation-specialist**: Adjust scoring weights if needed
+4. **Test-engineer**: Write tests for reference selection
+5. **Test actual generation**: Verify visual consistency
+
 ---
 
 ## Agent Limitations
@@ -393,6 +439,7 @@ Resume agent ae76e47 to add error handling to the prompt builder
 | Topic analysis | intent-analyst | "Create topic matching for X" |
 | External APIs | external-integrations | "Integrate X API" |
 | Memory/facts | memory-knowledge | "Improve fact retrieval" |
+| Image generation | image-generation-specialist | "Add new reference image for X" |
 
 ---
 

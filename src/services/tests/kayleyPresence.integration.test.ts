@@ -1,0 +1,304 @@
+// kayleyPresence.integration.test.ts
+// Integration test for presence tracking feature
+
+import { describe, it, expect, beforeEach, vi } from "vitest";
+import { detectKayleyPresence, detectKayleyPresenceHeuristic } from "../kayleyPresenceDetector";
+import {
+  getKayleyPresenceState,
+  updateKayleyPresenceState,
+  clearKayleyPresenceState,
+  getDefaultExpirationMinutes,
+} from "../kayleyPresenceService";
+import { selectReferenceImage } from "../imageGeneration/referenceSelector";
+import type { ReferenceSelectionContext } from "../imageGeneration/types";
+
+// Mock Supabase for service tests
+const { globalMocks } = vi.hoisted(() => {
+  const mocks: any = {
+    select: vi.fn(),
+    upsert: vi.fn(),
+    update: vi.fn(),
+    eq: vi.fn(),
+    maybeSingle: vi.fn(),
+    from: vi.fn(),
+  };
+  return { globalMocks: mocks };
+});
+
+vi.mock("../supabaseClient", () => {
+  const mocks = globalMocks;
+
+  const createSelectChain = () => ({
+    eq: vi.fn((column: string, value: any) => {
+      mocks.eq(column, value);
+      return {
+        maybeSingle: mocks.maybeSingle,
+      };
+    }),
+  });
+
+  const createUpsertChain = () => ({
+    then: vi.fn((resolve: any) => Promise.resolve({ data: null, error: null }).then(resolve)),
+  });
+
+  const mockSupabase = {
+    from: vi.fn((table: string) => {
+      mocks.from(table);
+      return {
+        select: vi.fn((columns?: string) => {
+          mocks.select(columns);
+          return createSelectChain();
+        }),
+        upsert: vi.fn((data: any, options?: any) => {
+          mocks.upsert(data, options);
+          return createUpsertChain();
+        }),
+      };
+    }),
+  };
+
+  return { supabase: mockSupabase };
+});
+
+describe("Kayley Presence Tracking - Integration Tests", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  describe("End-to-End: Gym Context Flow", () => {
+    it("should detect gym mention, store state, and boost messy_bun selection", async () => {
+      // STEP 1: Kayley mentions gym
+      const kayleyResponse = "Just got back from the gym! Feeling energized 💪";
+      const detected = detectKayleyPresenceHeuristic(kayleyResponse);
+
+      expect(detected).not.toBeNull();
+      expect(detected?.outfit).toBe("just got back from the gym");
+      expect(detected?.confidence).toBe(0.6);
+
+      // STEP 2: State is stored with correct expiration
+      const expirationMinutes = getDefaultExpirationMinutes(
+        detected?.activity,
+        detected?.outfit
+      );
+      expect(expirationMinutes).toBe(120); // 2 hours for gym
+
+      // Mock successful state storage
+      globalMocks.maybeSingle.mockResolvedValue({ data: null, error: null });
+
+      await updateKayleyPresenceState("test-user", {
+        outfit: detected?.outfit,
+        activity: detected?.activity,
+        mood: detected?.mood,
+        location: detected?.location,
+        expirationMinutes,
+        confidence: detected?.confidence,
+      });
+
+      expect(globalMocks.upsert).toHaveBeenCalled();
+
+      // STEP 3: Selfie generation retrieves state
+      const futureDate = new Date(Date.now() + 1000 * 60 * 120); // 2 hours from now
+      globalMocks.maybeSingle.mockResolvedValue({
+        data: {
+          user_id: "test-user",
+          current_outfit: "just got back from the gym",
+          current_mood: null,
+          current_activity: null,
+          current_location: null,
+          last_mentioned_at: new Date().toISOString(),
+          expires_at: futureDate.toISOString(),
+          confidence: 0.6,
+        },
+        error: null,
+      });
+
+      const presenceState = await getKayleyPresenceState("test-user");
+      expect(presenceState).not.toBeNull();
+      expect(presenceState?.currentOutfit).toBe("just got back from the gym");
+
+      // STEP 4: Reference selection uses presence state
+      const context: ReferenceSelectionContext = {
+        scene: "at home",
+        mood: undefined,
+        outfitHint: undefined,
+        presenceOutfit: presenceState?.currentOutfit,
+        presenceMood: presenceState?.currentMood,
+        upcomingEvents: [],
+        currentSeason: "summer",
+        timeOfDay: "afternoon",
+        currentLocation: "home",
+        temporalContext: {
+          isOldPhoto: false,
+          temporalPhrases: [],
+        },
+        currentLookState: null,
+        recentReferenceHistory: [],
+      };
+
+      const result = selectReferenceImage(context);
+
+      // Should select messy_bun due to +30 gym boost
+      expect(result.referenceId).toContain("messy_bun");
+      expect(result.reasoning.some(r => r.includes("presence match (gym → messy bun)"))).toBe(true);
+    });
+  });
+
+  describe("End-to-End: Getting Ready Flow", () => {
+    it("should detect getting ready, store state, and boost dressed_up selection", async () => {
+      // STEP 1: Kayley mentions getting ready
+      const kayleyResponse = "Just getting ready for dinner! Trying to look presentable 😊";
+      const detected = detectKayleyPresenceHeuristic(kayleyResponse);
+
+      expect(detected).not.toBeNull();
+      expect(detected?.activity).toBe("getting ready");
+
+      // STEP 2: State expires quickly (15 min for quick activity)
+      const expirationMinutes = getDefaultExpirationMinutes(
+        detected?.activity,
+        detected?.outfit
+      );
+      expect(expirationMinutes).toBe(15);
+
+      // STEP 3: Mock state retrieval
+      const futureDate = new Date(Date.now() + 1000 * 60 * 15);
+      globalMocks.maybeSingle.mockResolvedValue({
+        data: {
+          user_id: "test-user",
+          current_outfit: null,
+          current_mood: null,
+          current_activity: "getting ready",
+          current_location: null,
+          last_mentioned_at: new Date().toISOString(),
+          expires_at: futureDate.toISOString(),
+          confidence: 0.6,
+        },
+        error: null,
+      });
+
+      const presenceState = await getKayleyPresenceState("test-user");
+      expect(presenceState?.currentActivity).toBe("getting ready");
+
+      // STEP 4: Reference selection with "getting ready" in outfit field (detected as outfit)
+      const context: ReferenceSelectionContext = {
+        scene: "getting ready",
+        mood: undefined,
+        outfitHint: undefined,
+        presenceOutfit: "getting ready for dinner",
+        presenceMood: presenceState?.currentMood,
+        upcomingEvents: [],
+        currentSeason: "summer",
+        timeOfDay: "evening",
+        currentLocation: "home",
+        temporalContext: {
+          isOldPhoto: false,
+          temporalPhrases: [],
+        },
+        currentLookState: null,
+        recentReferenceHistory: [],
+      };
+
+      const result = selectReferenceImage(context);
+
+      // Should select dressed_up due to +25 getting ready boost
+      expect(result.referenceId).toContain("dressed_up");
+      expect(result.reasoning.some(r => r.includes("presence match (getting ready → dressed up)"))).toBe(true);
+    });
+  });
+
+  describe("End-to-End: No Presence State", () => {
+    it("should work normally when no presence state exists", async () => {
+      // STEP 1: No presence state in DB
+      globalMocks.maybeSingle.mockResolvedValue({ data: null, error: null });
+
+      const presenceState = await getKayleyPresenceState("test-user");
+      expect(presenceState).toBeNull();
+
+      // STEP 2: Reference selection without presence context
+      const context: ReferenceSelectionContext = {
+        scene: "sitting on my couch",
+        mood: "relaxed",
+        outfitHint: undefined,
+        presenceOutfit: undefined,
+        presenceMood: undefined,
+        upcomingEvents: [],
+        currentSeason: "summer",
+        timeOfDay: "afternoon",
+        currentLocation: "home",
+        temporalContext: {
+          isOldPhoto: false,
+          temporalPhrases: [],
+        },
+        currentLookState: null,
+        recentReferenceHistory: [],
+      };
+
+      const result = selectReferenceImage(context);
+
+      // Should select based on other factors (scene, season, time)
+      expect(result.referenceId).toBeTruthy();
+      expect(result.reasoning.length).toBeGreaterThan(0);
+      // Should NOT have presence boost
+      expect(result.reasoning.some(r => r.includes("presence match"))).toBe(false);
+    });
+  });
+
+  describe("End-to-End: State Expiration", () => {
+    it("should return null for expired state", async () => {
+      // Mock expired state
+      const pastDate = new Date(Date.now() - 1000 * 60 * 60); // 1 hour ago
+
+      globalMocks.maybeSingle.mockResolvedValue({
+        data: {
+          user_id: "test-user",
+          current_outfit: "just got back from the gym",
+          current_mood: null,
+          current_activity: null,
+          current_location: null,
+          last_mentioned_at: pastDate.toISOString(),
+          expires_at: pastDate.toISOString(),
+          confidence: 0.9,
+        },
+        error: null,
+      });
+
+      const presenceState = await getKayleyPresenceState("test-user");
+      expect(presenceState).toBeNull();
+    });
+  });
+
+  describe("Real-World Scenarios", () => {
+    it("should handle pickle jar battle scenario", () => {
+      const kayleyResponse = "I'm actually in the middle of a battle with a pickle jar right now and losing badly, but let me snap a quick one for you... 📸✨";
+
+      // Heuristic won't detect this (needs LLM)
+      const heuristicResult = detectKayleyPresenceHeuristic(kayleyResponse);
+      expect(heuristicResult).toBeNull();
+
+      // This would be detected by LLM in production:
+      // Expected: { activity: "battling a pickle jar", location: "in the kitchen", confidence: 0.85 }
+    });
+
+    it("should handle post-workout energized state", () => {
+      const kayleyResponse = "Just got back from the gym! Feeling energized and ready to tackle the day 💪";
+
+      const detected = detectKayleyPresenceHeuristic(kayleyResponse);
+      expect(detected?.outfit).toBe("just got back from the gym");
+
+      // Expiration should be 2 hours
+      const expiration = getDefaultExpirationMinutes(detected?.activity, detected?.outfit);
+      expect(expiration).toBe(120);
+    });
+
+    it("should handle casual hoodie relaxing state", () => {
+      const kayleyResponse = "I'm in my hoodie, just relaxing on the couch";
+
+      const detected = detectKayleyPresenceHeuristic(kayleyResponse);
+      expect(detected?.outfit).toBe("in a hoodie");
+      expect(detected?.activity).toBe("relaxing");
+
+      // Activity "relaxing" doesn't have special expiration, should be default 120 min
+      const expiration = getDefaultExpirationMinutes(detected?.activity, detected?.outfit);
+      expect(expiration).toBe(120);
+    });
+  });
+});

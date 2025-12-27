@@ -1,13 +1,23 @@
 // src/services/imageGenerationService.ts
 /**
  * AI Image Generation Service for Companion "Selfies"
- * 
+ *
  * Uses Gemini Imagen to generate contextual images of the AI companion
  * with character consistency via detailed prompts.
+ *
+ * MULTI-REFERENCE SYSTEM:
+ * Dynamically selects reference images based on context (scene, mood, time, season)
+ * with current look locking for 24h consistency and anti-repetition tracking.
  */
 
 import { GoogleGenAI } from "@google/genai";
 import referenceImageRaw from "../utils/base64.txt?raw";
+import { getCurrentLookState, lockCurrentLook, getRecentSelfieHistory, recordSelfieGeneration } from './imageGeneration/currentLookService';
+import { detectTemporalContextLLMCached } from './imageGeneration/temporalDetection';
+import { enhanceSelfieContextWithLLM } from './imageGeneration/contextEnhancer';
+import { selectReferenceImage, getCurrentSeason, getTimeOfDay } from './imageGeneration/referenceSelector';
+import { getReferenceMetadata } from '../utils/base64ReferencedImages';
+import type { ReferenceSelectionContext } from './imageGeneration/types';
 
 const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
 const IMAGEN_MODEL = "gemini-3-pro-image-preview";
@@ -55,55 +65,6 @@ const CHARACTER_VISUAL_IDENTITY = {
   },
 };
 
-
-
-/**
- * Select an appropriate outfit based on the scene context
- */
-// function selectOutfitForScene(scene: string, outfitHint?: string): string {
-//   const sceneKeywords = scene.toLowerCase().split(/\s+/);
-
-//   // If there's an outfit hint, try to match it first
-//   if (outfitHint) {
-//     const hintKeywords = outfitHint.toLowerCase().split(/\s+/);
-//     for (const outfit of OUTFIT_OPTIONS) {
-//       if (outfit.contexts.some((ctx) => hintKeywords.includes(ctx))) {
-//         return outfit.description;
-//       }
-//     }
-//   }
-
-//   // Find the best matching outfit based on scene
-//   let bestMatch: OutfitOption | null = null;
-//   let bestScore = 0;
-
-//   for (const outfit of OUTFIT_OPTIONS) {
-//     const score = outfit.contexts.filter((ctx) =>
-//       sceneKeywords.some(
-//         (keyword) => keyword.includes(ctx) || ctx.includes(keyword)
-//       )
-//     ).length;
-
-//     if (score > bestScore) {
-//       bestScore = score;
-//       bestMatch = outfit;
-//     }
-//   }
-
-//   // If we found a match, use it; otherwise pick a random casual outfit
-//   if (bestMatch && bestScore > 0) {
-//     return bestMatch.description;
-//   }
-
-//   // Random selection from casual-appropriate outfits for variety
-//   const casualOutfits = OUTFIT_OPTIONS.filter(
-//     (o) => o.contexts.includes("casual") || o.contexts.includes("default")
-//   );
-//   return (
-//     casualOutfits[Math.floor(Math.random() * casualOutfits.length)]
-//       ?.description || OUTFIT_OPTIONS[0].description
-//   );
-// }
 
 /**
  * Build a verbose, narrative mood/expression description
@@ -167,7 +128,15 @@ export interface SelfieRequest {
   scene: string;
   mood?: string;
   outfitHint?: string;
-  referenceImageBase64?: string;
+  referenceImageBase64?: string; // Manual override (for backward compatibility)
+
+  // MULTI-REFERENCE SYSTEM (optional - enables dynamic selection)
+  userId?: string;
+  userMessage?: string; // User's message that triggered selfie
+  conversationHistory?: Array<{ role: string; content: string }>; // Recent messages
+  presenceOutfit?: string; // From presence_contexts table
+  presenceMood?: string; // From presence_contexts table
+  upcomingEvents?: Array<{ title: string; startTime: Date; isFormal: boolean }>; // From calendar
 }
 
 export interface SelfieResult {
@@ -179,6 +148,14 @@ export interface SelfieResult {
 
 /**
  * Generate a "selfie" image of the AI companion in a given scene
+ *
+ * If userId is provided, uses the multi-reference system with:
+ * - Current look locking for 24h consistency
+ * - LLM-based temporal detection (old photo vs current)
+ * - Multi-factor scoring (scene, mood, time, season, calendar, etc.)
+ * - Anti-repetition tracking with same-scene exception
+ *
+ * If userId is NOT provided, uses legacy single reference for backward compatibility.
  */
 export async function generateCompanionSelfie(
   request: SelfieRequest
@@ -193,17 +170,102 @@ export async function generateCompanionSelfie(
 
     const ai = new GoogleGenAI({ apiKey: GEMINI_API_KEY });
 
+    // ====================================
+    // MULTI-REFERENCE SYSTEM
+    // ====================================
+    let selectedReferenceBase64: string;
+    let selectionReasoning: string[] = [];
+    let selectedHairstyle: string = 'unknown';
+    let selectedOutfitStyle: string = 'unknown';
+    let selectedReferenceId: string = 'legacy';
+    let temporalContext: { isOldPhoto: boolean; referenceDate?: Date; temporalPhrases: string[] } = {
+      isOldPhoto: false,
+      temporalPhrases: [],
+    };
+
+    if (request.userId && request.userMessage && request.conversationHistory) {
+      console.log("📸 [ImageGen] Using multi-reference system with dynamic selection");
+
+      try {
+        // STEP 1: Get current look state
+        const currentLookState = await getCurrentLookState(request.userId);
+        console.log("📸 [ImageGen] Current look state:", currentLookState);
+
+        // STEP 2: Detect temporal context (old photo vs current)
+        temporalContext = await detectTemporalContextLLMCached(
+          request.scene,
+          request.userMessage,
+          request.conversationHistory
+        );
+        console.log("📸 [ImageGen] Temporal context:", temporalContext);
+
+        // STEP 3: Get recent selfie history for anti-repetition
+        const recentHistory = await getRecentSelfieHistory(request.userId, 10);
+
+        // STEP 4: Build reference selection context
+        const selectionContext: ReferenceSelectionContext = {
+          scene: request.scene,
+          mood: request.mood,
+          outfitHint: request.outfitHint,
+          presenceOutfit: request.presenceOutfit,
+          presenceMood: request.presenceMood,
+          upcomingEvents: request.upcomingEvents || [],
+          currentSeason: getCurrentSeason(),
+          timeOfDay: getTimeOfDay(),
+          currentLocation: null, // TODO: Add location tracking if available
+          currentLookState,
+          temporalContext,
+          recentReferenceHistory: recentHistory,
+        };
+
+        // STEP 5: Select reference image using multi-factor scoring
+        const selection = selectReferenceImage(selectionContext);
+        selectedReferenceBase64 = selection.base64Content;
+        selectedReferenceId = selection.referenceId;
+        selectionReasoning = selection.reasoning;
+
+        // Extract hairstyle and outfit from metadata (need to parse from registry)
+        const refMetadata = getRefMetadataFromId(selectedReferenceId);
+        selectedHairstyle = refMetadata.hairstyle;
+        selectedOutfitStyle = refMetadata.outfitStyle;
+
+        console.log("📸 [ImageGen] Selected reference:", selectedReferenceId);
+        console.log("📸 [ImageGen] Selection reasoning:", selectionReasoning);
+
+        // STEP 6: Lock current look if this is a "now" photo and no lock exists or expired
+        if (!temporalContext.isOldPhoto && (!currentLookState || new Date() > currentLookState.expiresAt)) {
+          await lockCurrentLook(
+            request.userId,
+            selectedReferenceId,
+            selectedHairstyle,
+            'explicit_now_selfie',
+            24 // Lock for 24 hours
+          );
+          console.log("📸 [ImageGen] Locked current look for 24h");
+        }
+      } catch (error) {
+        console.error("❌ [ImageGen] Error in multi-reference system, falling back to legacy:", error);
+        // Fallback to legacy behavior
+        selectedReferenceBase64 = request.referenceImageBase64 || referenceImageRaw;
+      }
+    } else {
+      // Legacy behavior: use manual override or default reference
+      console.log("📸 [ImageGen] Using legacy single reference (no userId provided)");
+      selectedReferenceBase64 = request.referenceImageBase64 || referenceImageRaw;
+    }
+
+    // ====================================
+    // IMAGE GENERATION
+    // ====================================
+
     // 1. Build the prompt
-   // const outfit = selectOutfitForScene(request.scene, request.outfitHint);
     const moodDescription = buildMoodDescription(request.mood);
     let fullPrompt = buildImagePrompt(request.scene, "outfit", moodDescription);
 
     const parts: any[] = [];
 
     // 2. PREPARE REFERENCE IMAGE
-    // Use the request override if provided, otherwise use the imported file
-    const rawRef = request.referenceImageBase64 || referenceImageRaw;
-    const cleanRef = cleanBase64(rawRef);
+    const cleanRef = cleanBase64(selectedReferenceBase64);
 
     if (cleanRef) {
       console.log("📸 [ImageGen] Attaching reference face for consistency");
@@ -213,7 +275,7 @@ export async function generateCompanionSelfie(
 
       parts.push({
         inlineData: {
-          mimeType: "image/jpeg", // Assuming your base64.txt is a JPEG. Change to 'image/png' if needed.
+          mimeType: "image/jpeg",
           data: cleanRef,
         },
       });
@@ -247,6 +309,33 @@ export async function generateCompanionSelfie(
 
     console.log("✅ [ImageGen] Selfie generated successfully!");
 
+    // ====================================
+    // RECORD GENERATION IN HISTORY
+    // ====================================
+    if (request.userId) {
+      try {
+        await recordSelfieGeneration(
+          request.userId,
+          selectedReferenceId,
+          selectedHairstyle,
+          selectedOutfitStyle,
+          request.scene,
+          request.mood,
+          temporalContext.isOldPhoto,
+          temporalContext.referenceDate,
+          {
+            reasoning: selectionReasoning,
+            season: getCurrentSeason(),
+            timeOfDay: getTimeOfDay(),
+          }
+        );
+        console.log("📸 [ImageGen] Recorded generation in history");
+      } catch (error) {
+        console.error("❌ [ImageGen] Error recording generation:", error);
+        // Non-fatal, continue
+      }
+    }
+
     return {
       success: true,
       imageBase64: generatedPart.inlineData.data,
@@ -265,6 +354,39 @@ export async function generateCompanionSelfie(
       error: error?.message || "Failed to generate image",
     };
   }
+}
+
+/**
+ * Get reference metadata from ID (for recording hairstyle/outfit)
+ */
+function getRefMetadataFromId(referenceId: string): { hairstyle: string; outfitStyle: string } {
+  const metadata = getReferenceMetadata(referenceId);
+
+  if (metadata) {
+    return {
+      hairstyle: metadata.hairstyle,
+      outfitStyle: metadata.outfitStyle,
+    };
+  }
+
+  // Fallback: parse from reference ID (e.g., "curly_casual" -> hairstyle: "curly")
+  const parts = referenceId.split('_');
+  if (parts.length >= 2) {
+    const hairstyle = parts[0]; // "curly", "straight", "messy"
+    const outfit = parts[parts.length - 1]; // "casual", "dressed"
+
+    return {
+      hairstyle: hairstyle === 'messy' ? 'messy_bun' : hairstyle,
+      outfitStyle: outfit === 'up' ? 'dressed_up' : outfit,
+    };
+  }
+
+  // Last resort fallback - use curly casual as default
+  console.warn(`[ImageGen] Could not determine metadata for ${referenceId}, using defaults`);
+  return {
+    hairstyle: 'curly',
+    outfitStyle: 'casual',
+  };
 }
 
 /**

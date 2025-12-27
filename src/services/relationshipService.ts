@@ -598,15 +598,20 @@ function fallbackSentimentAnalysis(
 
 /**
  * Calculate score changes based on sentiment, intensity, and message content.
- * 
- * TUNING NOTES (v2 - slower progression):
- * - Relationships should take TIME to build. Not 15 messages.
- * - Positive messages: +0.3 to +1.0 relationship score
+ *
+ * TUNING NOTES (v3 - realistic 6-12 month progression):
+ * - Relationships should take MONTHS to build, not weeks
+ * - Positive messages: +0.15 to +0.5 relationship score (halved from v2)
  * - Negative messages: -0.5 to -3.0 relationship score (destruction is faster than building)
- * - Warmth/Trust/etc: +0.1 to +0.5 per interaction
- * 
- * With these values, reaching "deeply_loving" (75+ score) would take ~100+ positive interactions
- * This feels more like real relationship building.
+ * - Warmth/Trust/etc: +0.05 to +0.25 per interaction (halved from v2)
+ *
+ * TARGET PROGRESSION:
+ * - Acquaintance (0-10): First 15-30 interactions (~1-2 weeks)
+ * - Friend (10-50): 100-150 interactions (~1-3 months of regular use)
+ * - Close Friend (50-100): 250-350 interactions (~3-6 months of regular use)
+ * - Deeply Loving (100+): 400+ interactions (~6-12 months of deep connection)
+ *
+ * This matches the user's 12-month curve expectation.
  */
 export function calculateScoreChanges(
   sentiment: 'positive' | 'neutral' | 'negative',
@@ -621,7 +626,7 @@ export function calculateScoreChanges(
   stabilityChange: number;
 } {
   const baseMultiplier = intensity / 10; // Scale by intensity (0.1 to 1.0)
-  
+
   // Detect interaction type for nuanced dimension updates
   const isCompliment = /(amazing|great|wonderful|love|awesome|fantastic|perfect|excellent|brilliant|beautiful)/i.test(message);
   const isApology = /(sorry|apologize|my\s+bad|my\s+fault|forgive)/i.test(message);
@@ -632,42 +637,42 @@ export function calculateScoreChanges(
   const isDismissive = /(whatever|just|only|don'?t\s+care|doesn'?t\s+matter)/i.test(message);
 
   if (sentiment === 'positive') {
-    // BASE: +0.3 to +1.0 points (was +2 to +5)
-    let scoreChange = Math.round((0.3 + 0.7 * baseMultiplier) * 10) / 10;
-    let warmthChange = Math.round((0.1 + 0.3 * baseMultiplier) * 10) / 10; // +0.1 to +0.4
-    let trustChange = Math.round(0.1 * baseMultiplier * 10) / 10; // +0 to +0.1
+    // BASE: +0.15 to +0.5 points (HALVED from v2 for realistic progression)
+    let scoreChange = Math.round((0.15 + 0.35 * baseMultiplier) * 10) / 10;
+    let warmthChange = Math.round((0.05 + 0.15 * baseMultiplier) * 10) / 10; // +0.05 to +0.2
+    let trustChange = Math.round(0.05 * baseMultiplier * 10) / 10; // +0 to +0.05
     let playfulnessChange = 0;
-    let stabilityChange = Math.round(0.1 * baseMultiplier * 10) / 10; // +0 to +0.1
+    let stabilityChange = Math.round(0.05 * baseMultiplier * 10) / 10; // +0 to +0.05
 
     // Compliments boost warmth (but still modest)
     if (isCompliment) {
-      warmthChange += Math.round(0.2 * baseMultiplier * 10) / 10; 
-      trustChange += Math.round(0.05 * baseMultiplier * 10) / 10; 
+      warmthChange += Math.round(0.1 * baseMultiplier * 10) / 10;
+      trustChange += Math.round(0.03 * baseMultiplier * 10) / 10;
     }
 
     // Apologies build trust and stability (meaningful gesture)
     if (isApology) {
-      trustChange += Math.round(0.3 * baseMultiplier * 10) / 10; 
-      stabilityChange += Math.round(0.2 * baseMultiplier * 10) / 10; 
-      warmthChange += Math.round(0.1 * baseMultiplier * 10) / 10;
+      trustChange += Math.round(0.15 * baseMultiplier * 10) / 10;
+      stabilityChange += Math.round(0.1 * baseMultiplier * 10) / 10;
+      warmthChange += Math.round(0.05 * baseMultiplier * 10) / 10;
     }
 
     // Jokes/banter boost playfulness
     if (isJokeOrBanter) {
-      playfulnessChange = Math.round((0.1 + 0.2 * baseMultiplier) * 10) / 10; 
-      warmthChange += Math.round(0.1 * baseMultiplier * 10) / 10; 
+      playfulnessChange = Math.round((0.05 + 0.1 * baseMultiplier) * 10) / 10;
+      warmthChange += Math.round(0.05 * baseMultiplier * 10) / 10;
     }
 
     // Personal sharing builds trust (vulnerability = trust)
     if (isPersonalShare) {
-      trustChange += Math.round(0.2 * baseMultiplier * 10) / 10; 
-      warmthChange += Math.round(0.1 * baseMultiplier * 10) / 10; 
+      trustChange += Math.round(0.1 * baseMultiplier * 10) / 10;
+      warmthChange += Math.round(0.05 * baseMultiplier * 10) / 10;
     }
 
     // Engagement builds stability
     if (isEngagement) {
-      stabilityChange += Math.round(0.1 * baseMultiplier * 10) / 10;
-      trustChange += Math.round(0.05 * baseMultiplier * 10) / 10;
+      stabilityChange += Math.round(0.05 * baseMultiplier * 10) / 10;
+      trustChange += Math.round(0.03 * baseMultiplier * 10) / 10;
     }
 
     return {
@@ -679,22 +684,22 @@ export function calculateScoreChanges(
     };
   } else if (sentiment === 'negative') {
     // Negative is 2-3x stronger than positive (easier to destroy than build)
-    // BASE: -0.5 to -3.0 points (was -5 to -15)
-    let scoreChange = Math.round(-(0.5 + 2.5 * baseMultiplier) * 10) / 10; 
-    let warmthChange = Math.round(-(0.2 + 0.5 * baseMultiplier) * 10) / 10; 
-    let trustChange = Math.round(-(0.1 + 0.4 * baseMultiplier) * 10) / 10; 
+    // BASE: -0.5 to -3.0 points (unchanged - destruction should be faster)
+    let scoreChange = Math.round(-(0.5 + 2.5 * baseMultiplier) * 10) / 10;
+    let warmthChange = Math.round(-(0.2 + 0.5 * baseMultiplier) * 10) / 10;
+    let trustChange = Math.round(-(0.1 + 0.4 * baseMultiplier) * 10) / 10;
     let playfulnessChange = Math.round(-0.2 * 10) / 10;
-    let stabilityChange = Math.round(-(0.1 + 0.2 * baseMultiplier) * 10) / 10; 
+    let stabilityChange = Math.round(-(0.1 + 0.2 * baseMultiplier) * 10) / 10;
 
     if (isDismissive) {
-      trustChange += Math.round(-0.2 * baseMultiplier * 10) / 10; 
-      stabilityChange += Math.round(-0.1 * baseMultiplier * 10) / 10; 
-      warmthChange += Math.round(-0.1 * baseMultiplier * 10) / 10; 
+      trustChange += Math.round(-0.2 * baseMultiplier * 10) / 10;
+      stabilityChange += Math.round(-0.1 * baseMultiplier * 10) / 10;
+      warmthChange += Math.round(-0.1 * baseMultiplier * 10) / 10;
     }
 
     if (/(stupid|dumb|hate|useless|worthless|annoying)/i.test(message)) {
-      warmthChange += Math.round(-0.3 * baseMultiplier * 10) / 10; 
-      trustChange += Math.round(-0.2 * baseMultiplier * 10) / 10; 
+      warmthChange += Math.round(-0.3 * baseMultiplier * 10) / 10;
+      trustChange += Math.round(-0.2 * baseMultiplier * 10) / 10;
     }
 
     return {
@@ -709,11 +714,11 @@ export function calculateScoreChanges(
   // Neutral - very small positive influence for engagement
   if (isEngagement || isQuestion) {
     return {
-      scoreChange: 0.1, // Tiny bump for showing up
-      warmthChange: 0.05,
+      scoreChange: 0.05, // Tiny bump for showing up (halved)
+      warmthChange: 0.03,
       trustChange: 0,
       playfulnessChange: 0,
-      stabilityChange: 0.05,
+      stabilityChange: 0.03,
     };
   }
 
@@ -728,12 +733,26 @@ export function calculateScoreChanges(
 
 
 
+/**
+ * Calculate relationship tier from score.
+ *
+ * THRESHOLDS (v3 - realistic 6-12 month progression):
+ * - adversarial: <= -50 (hostile relationship)
+ * - neutral_negative: -49 to -10 (tense, strained)
+ * - acquaintance: -9 to 10 (polite, surface-level) ~15-30 interactions
+ * - friend: 11 to 50 (friendly, comfortable) ~100-150 interactions
+ * - close_friend: 51 to 100 (deep trust, vulnerability) ~250-350 interactions
+ * - deeply_loving: 100+ (intimate connection) ~400+ interactions over 6-12 months
+ *
+ * These thresholds are designed to make reaching "deeply_loving" feel earned
+ * and meaningful, requiring sustained positive interaction over months.
+ */
 function getRelationshipTier(score: number): string {
   if (score <= -50) return 'adversarial';
   if (score <= -10) return 'neutral_negative';
   if (score < 10) return 'acquaintance';
   if (score < 50) return 'friend';
-  if (score < 75) return 'close_friend';
+  if (score < 100) return 'close_friend';
   return 'deeply_loving';
 }
 

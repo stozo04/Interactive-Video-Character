@@ -617,7 +617,7 @@ describe("relationshipService", () => {
         { score: 0, expectedTier: "acquaintance" },
         { score: 20, expectedTier: "friend" },
         { score: 60, expectedTier: "close_friend" },
-        { score: 80, expectedTier: "deeply_loving" },
+        { score: 110, expectedTier: "deeply_loving" }, // v3: 100+ for deeply_loving
       ];
 
       for (const testCase of testCases) {
@@ -1287,15 +1287,17 @@ describe("relationshipService", () => {
 
       it("should apply general positive changes scaled by intensity (mid-range)", () => {
         const changes = getChanges('positive', 5, "Hello!");
-        // Score: (2 + 3 * 0.5) = 3.5
-        // Warmth: (1 + 2 * 0.5) = 2.0
-        // Trust: (0.5 * 0.5) = 0.25
-        // Stability: (0.5 * 0.5) = 0.25
-        expect(changes.scoreChange).toBeCloseTo(0.6);
-        expect(changes.warmthChange).toBeCloseTo(0.3);
-        expect(changes.trustChange).toBeCloseTo(0.1);
+        // v3 values (HALVED from v2 for realistic 6-12 month progression)
+        // Base multiplier: 0.5
+        // Score: 0.15 + 0.35 * 0.5 = 0.325 -> 0.3
+        // Warmth: 0.05 + 0.15 * 0.5 = 0.125 -> 0.1
+        // Trust: 0.05 * 0.5 = 0.025 -> 0.0
+        // Stability: 0.05 * 0.5 = 0.025 -> 0.0
+        expect(changes.scoreChange).toBeCloseTo(0.3);
+        expect(changes.warmthChange).toBeCloseTo(0.1);
+        expect(changes.trustChange).toBeCloseTo(0.0);
         expect(changes.playfulnessChange).toBeCloseTo(0);
-        expect(changes.stabilityChange).toBeCloseTo(0.1);
+        expect(changes.stabilityChange).toBeCloseTo(0.0);
       });
 
       it("should apply general negative changes scaled by intensity (high-range)", () => {
@@ -1313,35 +1315,45 @@ describe("relationshipService", () => {
 
       it("should significantly boost Warmth and Trust for a positive Compliment", () => {
         const changes = getChanges('positive', 8, "You are amazing and wonderful!");
+        // v3 values (HALVED from v2)
         // Base Multiplier: 0.8
-        // Base Score: 0.3 + 0.7 * 0.8 = 0.86 -> 0.9
-        // Base Warmth: 0.1 + 0.3 * 0.8 = 0.34
-        // Compliment Warmth Boost: 0.2 * 0.8 = 0.16 (Total: 0.5)
-        // Compliment Trust Boost: 0.05 * 0.8 = 0.04 (Total Base 0.08 + 0.04 = 0.12 -> 0.1)
-        expect(changes.warmthChange).toBeCloseTo(0.5);
-        expect(changes.trustChange).toBeCloseTo(0.1);
-        expect(changes.scoreChange).toBeCloseTo(0.9);
+        // Base Score: Math.round((0.15 + 0.35 * 0.8) * 10) / 10 = Math.round(4.3) / 10 = 0.4
+        // Base Warmth: Math.round((0.05 + 0.15 * 0.8) * 10) / 10 = Math.round(1.7) / 10 = 0.2
+        // Compliment Warmth Boost: Math.round(0.1 * 0.8 * 10) / 10 = Math.round(0.8) / 10 = 0.1
+        // Total Warmth: 0.2 + 0.1 = 0.3 (after final rounding)
+        // Base Trust: Math.round(0.05 * 0.8 * 10) / 10 = Math.round(0.4) / 10 = 0.0
+        // Compliment Trust Boost: Math.round(0.03 * 0.8 * 10) / 10 = Math.round(0.24) / 10 = 0.0
+        // Total Trust: 0.0 + 0.0 = 0.0 (rounding loses precision)
+        expect(changes.warmthChange).toBeCloseTo(0.3);
+        expect(changes.trustChange).toBeCloseTo(0.0); // Due to rounding
+        expect(changes.scoreChange).toBeCloseTo(0.4);
         expect(changes.playfulnessChange).toBeCloseTo(0);
       });
 
       it("should prioritize Trust and Stability for a positive Apology", () => {
         const changes = getChanges('positive', 7, "I apologize, my bad!");
+        // v3 values (HALVED from v2)
         // Base Multiplier: 0.7
-        // Apology Trust Boost: 0.3 * 0.7 = 0.21
-        // Total Trust: (0.1 * 0.7) + 0.21 = 0.28 -> 0.3
-        // Apology Stability Boost: 0.2 * 0.7 = 0.14
-        // Total Stability: (0.1 * 0.7) + 0.14 = 0.21 -> 0.2
-        expect(changes.trustChange).toBeCloseTo(0.3);
-        expect(changes.stabilityChange).toBeCloseTo(0.2);
+        // Base Trust: 0.05 * 0.7 = 0.035
+        // Apology Trust Boost: 0.15 * 0.7 = 0.105
+        // Total Trust: 0.035 + 0.105 = 0.14 -> 0.1
+        // Base Stability: 0.05 * 0.7 = 0.035
+        // Apology Stability Boost: 0.1 * 0.7 = 0.07
+        // Total Stability: 0.035 + 0.07 = 0.105 -> 0.1
+        expect(changes.trustChange).toBeCloseTo(0.1);
+        expect(changes.stabilityChange).toBeCloseTo(0.1);
       });
       
       it("should boost Playfulness for positive Banter/Joke", () => {
         const changes = getChanges('positive', 6, "That was funny! haha lol 😂");
+        // v3 values (HALVED from v2)
         // Base Multiplier: 0.6
-        // Playfulness: (0.1 + 0.2 * 0.6) = 0.22 -> 0.2
-        // Warmth: (0.1 + 0.3 * 0.6) + 0.1 * 0.6 = 0.28 + 0.06 = 0.34 -> 0.3
-        expect(changes.playfulnessChange).toBeCloseTo(0.2);
-        expect(changes.warmthChange).toBeCloseTo(0.4);
+        // Playfulness: Math.round((0.05 + 0.1 * 0.6) * 10) / 10 = Math.round(1.1) / 10 = 0.1
+        // Base Warmth: Math.round((0.05 + 0.15 * 0.6) * 10) / 10 = Math.round(1.4) / 10 = 0.1
+        // Joke Warmth Boost: Math.round(0.05 * 0.6 * 10) / 10 = Math.round(0.3) / 10 = 0.0
+        // Total Warmth: 0.1 + 0.0 = 0.1 (after final rounding)
+        expect(changes.playfulnessChange).toBeCloseTo(0.1);
+        expect(changes.warmthChange).toBeCloseTo(0.1); // Due to rounding
       });
 
       it("should severely hurt Trust and Stability for a negative Dismissive message", () => {
@@ -1357,13 +1369,14 @@ describe("relationshipService", () => {
 
       it("should return small positive changes for neutral Engagement (long message/question)", () => {
         const changes = getChanges('neutral', 5, "What do you think about my day, should I go for a walk or stay in bed all day long?");
+        // v3 values (HALVED from v2)
         // Should trigger isEngagement and isQuestion logic
-        // Score change should be 0.1
-        expect(changes.scoreChange).toBeCloseTo(0.1);
-        expect(changes.warmthChange).toBeCloseTo(0.05);
+        // Score change should be 0.05 (halved from 0.1)
+        expect(changes.scoreChange).toBeCloseTo(0.05);
+        expect(changes.warmthChange).toBeCloseTo(0.03);
         expect(changes.trustChange).toBeCloseTo(0);
         expect(changes.playfulnessChange).toBeCloseTo(0);
-        expect(changes.stabilityChange).toBeCloseTo(0.05);
+        expect(changes.stabilityChange).toBeCloseTo(0.03);
       });
 
       it("should return zero changes for non-engaging neutral sentiment", () => {
