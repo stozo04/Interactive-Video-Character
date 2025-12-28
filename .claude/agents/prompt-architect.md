@@ -143,12 +143,15 @@ npm test -- --run
 - `RelationshipState` from `relationshipService.ts` - Tier and dimensions
 - `SoulLayerContext` from `soulLayerContext.ts` - Ongoing threads, mental weather
 - `FullMessageIntent` from `intentService.ts` - User's detected intent
+- `formatArcsForPrompt()` from `narrativeArcsService.ts` - Kayley's ongoing life events
 
 ## Reference Documentation
 
 ### Domain-Specific Documentation
 - `src/services/docs/Soul_and_Utility.md` - Comprehensive overview of secondary utility services and the soul layer
 - `docs/System_Prompt_Guidelines.md` - System prompt modification guidelines
+- `src/services/docs/NarrativeArcsService.md` - Narrative arcs prompt integration
+- `docs/NARRATIVE_ARCS_IMPLEMENTATION_SUMMARY.md` - Narrative arcs system overview
 
 ### Services Documentation Hub
 - `src/services/docs/README.md` - Central documentation hub for all services

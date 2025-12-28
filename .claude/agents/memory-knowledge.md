@@ -15,6 +15,7 @@ You own these files exclusively:
 src/services/
 ├── memoryService.ts              # ~39KB - Semantic search, user facts, tool execution
 ├── characterFactsService.ts      # Kayley's emergent facts about herself
+├── narrativeArcsService.ts       # Kayley's ongoing life events (projects, goals)
 └── conversationHistoryService.ts # Chat persistence and retrieval
 ```
 
@@ -266,6 +267,72 @@ ${facts.map(f => `- ${f.fact}`).join("\n")}
 }
 ```
 
+## Narrative Arcs (Kayley's Dynamic Life)
+
+Track Kayley's ongoing life events and projects separate from her static backstory:
+
+```typescript
+interface NarrativeArc {
+  id: string;
+  arc_key: string;              // Unique ID: "collab_sarah_dec2024"
+  arc_title: string;             // "Collab Video with Sarah"
+  arc_type: 'ongoing' | 'resolved' | 'paused' | 'abandoned';
+  started_at: string;
+  resolved_at: string | null;
+  resolution_summary: string | null;
+  events: ArcEvent[];            // Progress updates
+  mentioned_to_users: string[];  // User IDs who know about this
+}
+
+interface ArcEvent {
+  date: string;
+  event: string;  // "Filming complete, editing in progress"
+}
+
+// Create a new arc when Kayley starts something
+async function createNarrativeArc(params: {
+  arcKey: string;
+  arcTitle: string;
+  initialEvent: string;
+  userId: string;
+}): Promise<NarrativeArc | null>;
+
+// Add progress to an existing arc
+async function addArcEvent(arcKey: string, params: {
+  event: string;
+}): Promise<boolean>;
+
+// Complete an arc
+async function resolveArc(arcKey: string, params: {
+  resolutionSummary: string;
+}): Promise<boolean>;
+
+// Give up on an arc
+async function abandonArc(arcKey: string, reason: string): Promise<boolean>;
+
+// Format for injection into prompt
+async function formatArcsForPrompt(userId?: string): Promise<string> {
+  const arcs = await getOngoingArcs(userId);
+  if (arcs.length === 0) return "";
+
+  return `
+## Your Current Life (Ongoing Projects & Events)
+
+${arcs.map(arc => `
+### ${arc.arc_title}
+- **Started:** ${timeAgo(arc.started_at)}
+- **Progress:**
+${arc.events.map(e => `  - ${timeAgo(e.date)}: ${e.event}`).join("\n")}
+`).join("\n")}
+`;
+}
+```
+
+**Key Distinction:**
+- **Character Facts**: Static emergent details ("I named my plant Fernando")
+- **Narrative Arcs**: Evolving stories with beginning, middle, end ("Working on collab video" → progress → "Video published!")
+
+
 ## Conversation History
 
 Persistence and retrieval of chat sessions:
@@ -353,12 +420,16 @@ npm test -- --run
 | Add memory tool | `memoryService.ts` - executeMemoryTool |
 | Change embedding model | `memoryService.ts` - generateEmbedding |
 | Modify history pagination | `conversationHistoryService.ts` |
+| Manage narrative arcs | `narrativeArcsService.ts` - Arc lifecycle functions |
+| Add arc types | `narrativeArcsService.ts` - ArcType type |
 
 ## Reference Documentation
 
 ### Domain-Specific Documentation
 - `src/services/docs/Memory_and_Callbacks.md` - Long-term RAG memory and session "inside jokes"
 - `src/services/docs/KayleyPresence.md` - Real-time tracking of what she's wearing/doing/feeling
+- `src/services/docs/NarrativeArcsService.md` - Comprehensive narrative arcs service documentation
+- `docs/NARRATIVE_ARCS_IMPLEMENTATION_SUMMARY.md` - Implementation guide and deployment checklist
 
 ### Services Documentation Hub
 - `src/services/docs/README.md` - Central documentation hub for all services
