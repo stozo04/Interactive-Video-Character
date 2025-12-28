@@ -38,6 +38,7 @@ supabase/migrations/      # Database schema migrations (15+ files)
 | `conversation_history` | Chat persistence | `user_id`, `messages`, `session_id` |
 | `user_facts` | Learned facts about user | `user_id`, `fact`, `confidence`, `source` |
 | `character_facts` | Kayley's emergent facts | `character_id`, `fact`, `emerged_from` |
+| `kayley_narrative_arcs` | Kayley's ongoing life events | `arc_key`, `arc_title`, `arc_type`, `events`, `mentioned_to_users` |
 | `kayley_unsaid_feelings` | Almost moments | `user_id`, `feeling_type`, `intensity`, `suppression_count` |
 | `kayley_almost_moment_log` | Almost moment occurrences | `user_id`, `unsaid_feeling_id`, `stage`, `occurred_at` |
 
@@ -279,6 +280,8 @@ npm test -- --run
 ### Domain-Specific Documentation
 - `src/services/docs/StateService.md` - Central database interaction layers (Supabase)
 - `src/services/docs/Performance_and_Assets.md` - Caching strategy and performance optimization
+- `src/services/docs/NarrativeArcsService.md` - Narrative arcs service and database schema
+- `docs/NARRATIVE_ARCS_IMPLEMENTATION_SUMMARY.md` - Narrative arcs implementation guide
 
 ### Services Documentation Hub
 - `src/services/docs/README.md` - Central documentation hub for all services

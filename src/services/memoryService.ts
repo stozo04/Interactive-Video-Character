@@ -386,7 +386,7 @@ export const formatFactsForAI = (facts: UserFact[]): string => {
 // Tool Execution Handler
 // ============================================
 
-export type MemoryToolName = 'recall_memory' | 'recall_user_info' | 'store_user_info' | 'task_action' | 'calendar_action' | 'store_character_info';
+export type MemoryToolName = 'recall_memory' | 'recall_user_info' | 'store_user_info' | 'task_action' | 'calendar_action' | 'store_character_info' | 'manage_narrative_arc';
 
 /**
  * Optional context passed to tool execution (e.g., access tokens)
@@ -429,6 +429,15 @@ export interface ToolCallArgs {
     category: 'quirk' | 'relationship' | 'experience' | 'preference' | 'detail' | 'other';
     key: string;
     value: string;
+  };
+  manage_narrative_arc: {
+    action: 'create' | 'update' | 'resolve' | 'abandon';
+    arc_key: string;
+    arc_title?: string;
+    initial_event?: string;
+    event?: string;
+    resolution?: string;
+    reason?: string;
   };
 }
 
@@ -670,17 +679,73 @@ export const executeMemoryTool = async (
       case 'store_character_info': {
         const { storeCharacterFact } = await import('./characterFactsService');
         const { category, key, value } = args as ToolCallArgs['store_character_info'];
-        
+
         // We pass undefined for characterId to use the default 'kayley'
         // We pass undefined for sourceMessageId since this comes from a tool call, not a specific message scan (or we could pass the current message ID if we had it?)
         // Since this is an explicit choice by the AI, we treat it with high confidence (1.0 default).
         const success = await storeCharacterFact(undefined, category, key, value);
-        
-        return success 
-          ? `✓ Stored character fact: ${key} = "${value}"` 
+
+        return success
+          ? `✓ Stored character fact: ${key} = "${value}"`
           : `Failed to store fact (it might process duplicates automatically).`;
       }
-      
+
+      case 'manage_narrative_arc': {
+        const narrativeArcsService = await import('./narrativeArcsService');
+        const arcArgs = args as ToolCallArgs['manage_narrative_arc'];
+        const { action, arc_key, arc_title, initial_event, event, resolution, reason } = arcArgs;
+
+        switch (action) {
+          case 'create': {
+            if (!arc_title) {
+              return 'Error: arc_title is required for creating a narrative arc.';
+            }
+            const arc = await narrativeArcsService.createNarrativeArc({
+              arcKey: arc_key,
+              arcTitle: arc_title,
+              initialEvent: initial_event,
+              userId: userId
+            });
+            return arc
+              ? `✓ Created narrative arc: "${arc_title}" (${arc_key})`
+              : `Failed to create narrative arc.`;
+          }
+
+          case 'update': {
+            if (!event) {
+              return 'Error: event is required for updating a narrative arc.';
+            }
+            const success = await narrativeArcsService.addArcEvent(arc_key, { event });
+            return success
+              ? `✓ Updated arc "${arc_key}": ${event}`
+              : `Failed to update arc. Arc might not exist.`;
+          }
+
+          case 'resolve': {
+            if (!resolution) {
+              return 'Error: resolution is required for resolving a narrative arc.';
+            }
+            const success = await narrativeArcsService.resolveArc(arc_key, { resolutionSummary: resolution });
+            return success
+              ? `✓ Resolved arc "${arc_key}": ${resolution}`
+              : `Failed to resolve arc. Arc might not exist.`;
+          }
+
+          case 'abandon': {
+            if (!reason) {
+              return 'Error: reason is required for abandoning a narrative arc.';
+            }
+            const success = await narrativeArcsService.abandonArc(arc_key, reason);
+            return success
+              ? `✓ Abandoned arc "${arc_key}": ${reason}`
+              : `Failed to abandon arc. Arc might not exist.`;
+          }
+
+          default:
+            return `Unknown narrative arc action: ${action}`;
+        }
+      }
+
       default:
         return `Unknown tool: ${toolName}`;
     }

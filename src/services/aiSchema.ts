@@ -346,6 +346,78 @@ export const GeminiMemoryToolDeclarations = [
     }
   },
   {
+    name: "store_character_info",
+    description:
+      "Save NEW facts about yourself (Kayley) that emerge in conversation. " +
+      "Use this when you make up a new detail about your life (plant name, new hobby, etc.). " +
+      "Categories: quirk (habits), experience (new stories), preference (new likes/dislikes), " +
+      "relationship (new people in your life), detail (specific facts). " +
+      "Only for details NOT in your core character profile!",
+    parameters: {
+      type: "object",
+      properties: {
+        category: {
+          type: "string",
+          enum: ["quirk", "relationship", "experience", "preference", "detail", "other"],
+          description: "Category of the character fact"
+        },
+        key: {
+          type: "string",
+          description: "Fact key (e.g., 'plant_name', 'morning_ritual')"
+        },
+        value: {
+          type: "string",
+          description: "The value to store (e.g., 'Fernando the cactus')"
+        }
+      },
+      required: ["category", "key", "value"]
+    }
+  },
+  {
+    name: "manage_narrative_arc",
+    description:
+      "Manage YOUR (Kayley's) ongoing life events and projects. " +
+      "Use this to create, update, resolve, or abandon arcs in your life. " +
+      "This makes you feel ALIVE - users can ask about your projects weeks later! " +
+      "Examples: starting a collab video, dealing with a client, training for something, " +
+      "or any ongoing project/challenge in your life.",
+    parameters: {
+      type: "object",
+      properties: {
+        action: {
+          type: "string",
+          enum: ["create", "update", "resolve", "abandon"],
+          description: "create: start new arc, update: add progress, resolve: finish successfully, abandon: gave up"
+        },
+        arc_key: {
+          type: "string",
+          description: "Unique identifier for the arc (e.g., 'collab_sarah_dec2024', 'client_project_nov'). Include topic/person/timeframe for uniqueness."
+        },
+        arc_title: {
+          type: "string",
+          description: "Human-readable title (only for 'create'). E.g., 'Collab Video with Sarah'"
+        },
+        initial_event: {
+          type: "string",
+          description: "What started this arc (only for 'create'). E.g., 'Met Sarah at meetup, planning AI ethics video'"
+        },
+        event: {
+          type: "string",
+          description: "Progress update (only for 'update'). E.g., 'Filming complete, editing in progress'"
+        },
+        resolution: {
+          type: "string",
+          description: "How it ended (only for 'resolve'). E.g., 'Video published, got great response'"
+        },
+        reason: {
+          type: "string",
+          description: "Why abandoned (only for 'abandon'). E.g., 'Lost funding, couldn't continue'"
+        }
+      },
+      required: ["action", "arc_key"]
+    }
+  },
+  {
     name: "task_action",
     description: 
       "Manage the user's daily checklist/tasks. " +

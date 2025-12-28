@@ -242,13 +242,14 @@ Use the external-integrations agent to add calendar event integration
 
 ### 9. `memory-knowledge`
 
-**Domain**: Memory systems, semantic search, user facts, embeddings
+**Domain**: Memory systems, semantic search, user facts, character facts, narrative arcs
 
 **When to Use**:
-- Storing/retrieving user facts
+- Storing/retrieving user facts or character facts
 - Implementing semantic search
 - Managing conversation history
 - Working with embeddings
+- Tracking Kayley's ongoing life events (narrative arcs)
 
 **Example Invocation**:
 ```
@@ -256,14 +257,18 @@ Use the memory-knowledge agent to improve fact retrieval for the prompt
 ```
 
 **Key Skills**:
-- Fact storage patterns
+- Fact storage patterns (user_facts, character_facts, narrative arcs)
 - Embedding-based search
 - Memory consolidation
 - Contradiction detection
+- Narrative arc lifecycle management
 
 **Files It Knows**:
 - `src/services/memoryService.ts`
+- `src/services/narrativeArcsService.ts`
+- `src/services/characterFactsService.ts`
 - Fact-related database tables
+- `kayley_narrative_arcs` table
 - Embedding patterns
 
 ---
@@ -448,4 +453,6 @@ Resume agent ae76e47 to add error handling to the prompt builder
 - [System Prompt Guidelines](./System_Prompt_Guidelines.md)
 - [README - Sub-Agents Section](../README.md#claude-code-sub-agents)
 - [Spontaneity Integration Guide](./Spontaneity_Integration_Guide.md)
+- [Narrative Arcs Implementation Summary](./NARRATIVE_ARCS_IMPLEMENTATION_SUMMARY.md)
+- [Narrative Arcs Service Documentation](../src/services/docs/NarrativeArcsService.md)
 - Agent definitions: `.claude/agents/*.md`
