@@ -272,3 +272,16 @@ npm test -- --run
 | Change mood thresholds | `moodKnobs.ts` - threshold constants |
 | Add fast-path pattern | `intentService.ts` - `isFunctionalCommand()` |
 | Modify momentum decay | `moodKnobs.ts` - momentum update logic |
+
+## Reference Documentation
+
+### Domain-Specific Documentation
+- `src/services/docs/IntentService.md` - Front-line semantic analysis (Tone, Sarcasm)
+- `src/services/docs/MessageAnalyzer.md` - Background processing and systems integration
+- `src/services/docs/MoodKnobs.md` - Energy, social battery, and emotional momentum math
+
+### Services Documentation Hub
+- `src/services/docs/README.md` - Central documentation hub for all services
+  - See "🧠 The Brain & Logic" section for Intent Service details
+  - See "❤️ Personality & The Soul" section for Mood Knobs
+  - See workflow diagram for understanding how intent flows through the system

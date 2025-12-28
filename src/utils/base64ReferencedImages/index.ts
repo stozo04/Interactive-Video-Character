@@ -48,7 +48,7 @@ export const REFERENCE_IMAGE_REGISTRY: ReferenceImageMetadata[] = [
     baseFrequency: 0.15, // Less common, special occasions
 
     suitableScenes: ['restaurant', 'concert', 'sunset', 'city'],
-    unsuitableScenes: ['gym', 'home', 'bedroom', 'kitchen', 'pool'],
+    unsuitableScenes: ['gym', 'bedroom', 'kitchen', 'pool'],
     suitableSeasons: ['fall', 'winter', 'spring', 'summer'],
 
     moodAffinity: {
@@ -156,7 +156,7 @@ export const REFERENCE_IMAGE_REGISTRY: ReferenceImageMetadata[] = [
     baseFrequency: 0.1, // Special occasions, made an effort
 
     suitableScenes: ['restaurant', 'concert', 'sunset', 'city'],
-    unsuitableScenes: ['gym', 'home', 'bedroom', 'kitchen', 'pool'],
+    unsuitableScenes: ['gym', 'bedroom', 'kitchen', 'pool'],
     suitableSeasons: ['fall', 'winter', 'spring', 'summer'],
 
     moodAffinity: {

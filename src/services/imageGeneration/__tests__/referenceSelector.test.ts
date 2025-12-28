@@ -26,7 +26,7 @@ vi.mock('../../../utils/base64ReferencedImages', () => ({
       outfitStyle: 'dressed_up',
       baseFrequency: 0.1,
       suitableScenes: ['restaurant', 'concert', 'sunset'],
-      unsuitableScenes: ['gym', 'home', 'bedroom'],
+      unsuitableScenes: ['gym', 'bedroom'],
       suitableSeasons: ['fall', 'winter', 'spring', 'summer'],
       moodAffinity: { playful: 0.4, confident: 0.95, relaxed: 0.3, excited: 0.9, flirty: 0.95 },
       timeOfDay: { morning: 0.1, afternoon: 0.4, evening: 0.95, night: 0.95 },
@@ -190,8 +190,8 @@ describe('referenceSelector', () => {
       const result = selectReferenceImage(context);
 
       // Should NOT use locked look, should select based on scene/mood
-      expect(result.reasoning).toContain('OLD PHOTO DETECTED');
-      expect(result.reasoning).toContain('Allowing different hairstyle from current look');
+      expect(result.reasoning.some(r => r.includes('OLD PHOTO DETECTED'))).toBe(true);
+      expect(result.reasoning.some(r => r.includes('Allowing different hairstyle'))).toBe(true);
     });
 
     it('should prefer suitable scenes (+30 points)', () => {
@@ -361,7 +361,7 @@ describe('referenceSelector', () => {
       const result = selectReferenceImage(context);
 
       expect(result.referenceId).toBe('straight_dressed_up');
-      expect(result.reasoning.some(r => r.includes('nearby formal event'))).toBe(true);
+      expect(result.reasoning.some(r => r.includes('+60 nearby formal event'))).toBe(true);
     });
 
     it('should apply anti-repetition penalty for recent use', () => {
@@ -438,7 +438,7 @@ describe('referenceSelector', () => {
       // - winter season: +10
       // Total: 73.25+ base frequency (10)
       expect(result.referenceId).toBe('straight_dressed_up');
-      expect(result.reasoning).toContain('🎯 SELECTED: straight_dressed_up');
+      expect(result.reasoning.some(r => r.includes('SELECTED: straight_dressed_up'))).toBe(true);
     });
 
     it('should return base64 content with selection', () => {

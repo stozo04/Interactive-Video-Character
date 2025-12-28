@@ -146,7 +146,13 @@ npm test -- --run
 
 ## Reference Documentation
 
-Always consult: `docs/System_Prompt_Guidelines.md`
+### Domain-Specific Documentation
+- `src/services/docs/Soul_and_Utility.md` - Comprehensive overview of secondary utility services and the soul layer
+- `docs/System_Prompt_Guidelines.md` - System prompt modification guidelines
+
+### Services Documentation Hub
+- `src/services/docs/README.md` - Central documentation hub for all services
+  - See "❤️ Personality & The Soul" section for related services (Mood Knobs, Relationship Service, Ongoing Threads)
 
 ## Common Tasks
 

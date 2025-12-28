@@ -353,3 +353,14 @@ npm test -- --run
 | Add memory tool | `memoryService.ts` - executeMemoryTool |
 | Change embedding model | `memoryService.ts` - generateEmbedding |
 | Modify history pagination | `conversationHistoryService.ts` |
+
+## Reference Documentation
+
+### Domain-Specific Documentation
+- `src/services/docs/Memory_and_Callbacks.md` - Long-term RAG memory and session "inside jokes"
+- `src/services/docs/KayleyPresence.md` - Real-time tracking of what she's wearing/doing/feeling
+
+### Services Documentation Hub
+- `src/services/docs/README.md` - Central documentation hub for all services
+  - See "📅 Proactive & Memory" section for memory architecture
+  - See "❤️ Personality & The Soul" section for how memory integrates with character facts

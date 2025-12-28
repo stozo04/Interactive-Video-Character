@@ -367,3 +367,15 @@ npm test -- --run
 | Add pattern type | `userPatterns.ts` - type + observation logic |
 | Modify dimension effects | `relationshipService.ts` - dimension handlers |
 | Tune rupture sensitivity | `relationshipService.ts` - detection thresholds |
+
+## Reference Documentation
+
+### Domain-Specific Documentation
+- `src/services/docs/RelationshipService.md` - Trust, warmth, and long-term bond progression
+- `src/services/docs/UserPatterns.md` - Cross-session behavioral trend detection
+- `src/services/docs/OngoingThreads.md` - Her internal "mental weather" related to relationship state
+
+### Services Documentation Hub
+- `src/services/docs/README.md` - Central documentation hub for all services
+  - See "❤️ Personality & The Soul" section for relationship dynamics architecture
+  - See workflow diagram for understanding how relationship signals flow through the system
