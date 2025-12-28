@@ -171,8 +171,8 @@ function scoreReference(
     e.isFormal && Math.abs(e.startTime.getTime() - Date.now()) < 2 * 60 * 60 * 1000
   );
   if (nearbyFormalEvents.length > 0 && ref.outfitStyle === 'dressed_up') {
-    score += 20;
-    factors.push(`+20 nearby formal event (${nearbyFormalEvents[0].title})`);
+    score += 60; // Strong boost to override base frequency and scene mismatch
+    factors.push(`+60 nearby formal event (${nearbyFormalEvents[0].title})`);
   }
 
   reasoning.push(`  ${ref.id}: ${score.toFixed(1)} (${factors.join(', ')})`);

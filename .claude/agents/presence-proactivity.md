@@ -340,3 +340,16 @@ npm test -- --run
 | Adjust decay rates | `ongoingThreads.ts` - decay constants |
 | Change cleanup rules | `loopCleanupService.ts` - expiration logic |
 | Add callback type | `callbackDirector.ts` - type + selection |
+
+## Reference Documentation
+
+### Domain-Specific Documentation
+- `src/services/docs/PresenceDirector.md` - Decides what's most important to mention now
+- `src/services/docs/OngoingThreads.md` - Her internal "mental weather" and hobby projects
+- `src/services/docs/Proactive_Systems.md` - Overview of Calendar and News systems
+- `src/services/docs/LoopCleanup.md` - The "janitor" that keeps her memory uncluttered
+
+### Services Documentation Hub
+- `src/services/docs/README.md` - Central documentation hub for all services
+  - See "📅 Proactive & Memory" section for comprehensive proactivity architecture
+  - See 4-tier idle breaker priority system documentation

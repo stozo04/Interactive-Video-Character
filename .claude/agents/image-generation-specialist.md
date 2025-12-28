@@ -242,3 +242,15 @@ When working on image generation features, you are the primary expert. Use your 
 - Performance optimization via caching and parallelization
 
 Always prioritize **visual consistency** (locked looks) and **contextual appropriateness** (scene/mood/calendar matching) over pure randomness.
+
+## Reference Documentation
+
+### Domain-Specific Documentation
+- `src/services/docs/Performance_and_Assets.md` - Caching, pre-fetching, and high-performance image delivery
+- `src/services/docs/KayleyPresence.md` - Real-time tracking of current outfit/location for image context
+
+### Services Documentation Hub
+- `src/services/docs/README.md` - Central documentation hub for all services
+  - See "🧠 The Brain & Logic" section for Performance & Assets architecture
+  - See "📅 Proactive & Memory" section for Kayley Presence integration
+  - See "🎮 Features & Interaction" section for Interactive Features that use image generation

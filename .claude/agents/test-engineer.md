@@ -419,3 +419,13 @@ export const mockRelationship = {
   playfulness: 0.5,
 };
 ```
+
+## Reference Documentation
+
+### Services Documentation Hub
+- `src/services/docs/README.md` - Central documentation hub for all services
+  - Understand service architecture to write appropriate tests for each domain
+  - See workflow diagrams to understand integration points between services
+  - Reference when writing integration tests that span multiple services
+
+**Note:** While test-engineer doesn't own specific service documentation, understanding the service architecture from the docs hub is critical for writing comprehensive tests that cover all integration points and edge cases.

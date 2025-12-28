@@ -273,3 +273,15 @@ npm test -- --run
 | Add RPC function | Create migration with `CREATE FUNCTION` |
 | Fix query performance | Add indexes, check RLS policies |
 | Debug cache issues | Check `cache.delete()` calls after writes |
+
+## Reference Documentation
+
+### Domain-Specific Documentation
+- `src/services/docs/StateService.md` - Central database interaction layers (Supabase)
+- `src/services/docs/Performance_and_Assets.md` - Caching strategy and performance optimization
+
+### Services Documentation Hub
+- `src/services/docs/README.md` - Central documentation hub for all services
+  - See "🧠 The Brain & Logic" section for State Service architecture
+  - See workflow diagram for understanding how state flows through the system
+  - Reference for understanding which services depend on state persistence

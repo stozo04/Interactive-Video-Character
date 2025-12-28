@@ -8,7 +8,35 @@
  * For full coverage, run integration tests against a test database.
  */
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
+
+// Mock Supabase client with proper method chaining
+vi.mock('../../supabaseClient', () => {
+  const createChain = () => ({
+    eq: vi.fn(function(this: any) {
+      return this;
+    }),
+    order: vi.fn(function(this: any) {
+      return this;
+    }),
+    limit: vi.fn(function(this: any) {
+      return this;
+    }),
+    maybeSingle: vi.fn(() => Promise.resolve({ data: null, error: null })),
+    then: vi.fn((resolve: any) => Promise.resolve({ data: null, error: null }).then(resolve)),
+  });
+
+  return {
+    supabase: {
+      from: vi.fn(() => ({
+        select: vi.fn(() => createChain()),
+        insert: vi.fn(() => createChain()),
+        upsert: vi.fn(() => createChain()),
+        update: vi.fn(() => createChain()),
+      })),
+    },
+  };
+});
 
 describe('currentLookService', () => {
   it('should have proper exports', async () => {

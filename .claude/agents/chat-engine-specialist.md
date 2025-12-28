@@ -283,3 +283,14 @@ const AIActionResponseSchema = z.object({
 ```
 
 Always validate before returning to ensure consistency across providers.
+
+## Reference Documentation
+
+### Domain-Specific Documentation
+- `src/services/docs/AI_Services.md` - Multi-model support (Gemini, ChatGPT) and JSON schemas
+- `src/services/docs/Performance_and_Assets.md` - Caching, pre-fetching, and performance optimization
+
+### Services Documentation Hub
+- `src/services/docs/README.md` - Central documentation hub for all services
+  - See "🧠 The Brain & Logic" section for the full AI services architecture
+  - See architecture map for understanding the "Perception -> Processing -> Action" pipeline

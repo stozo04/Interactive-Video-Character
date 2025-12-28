@@ -431,3 +431,14 @@ VITE_ELEVENLABS_API_KEY=xxx
 | Change check-in timing | `calendarCheckinService.ts` - hour ranges |
 | Modify voice settings | `elevenLabsService.ts` - voice_settings |
 | Add news source | `newsService.ts` - new fetch function |
+
+## Reference Documentation
+
+### Domain-Specific Documentation
+- `src/services/docs/Proactive_Systems.md` - Overview of Calendar and News systems integration
+- `src/services/docs/Performance_and_Assets.md` - Caching and high-performance delivery for external APIs
+
+### Services Documentation Hub
+- `src/services/docs/README.md` - Central documentation hub for all services
+  - See "📅 Proactive & Memory" section for Calendar and News integration details
+  - See "🧠 The Brain & Logic" section for AI Services integration with ElevenLabs TTS
