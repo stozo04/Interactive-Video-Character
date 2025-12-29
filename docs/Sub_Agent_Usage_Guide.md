@@ -242,7 +242,7 @@ Use the external-integrations agent to add calendar event integration
 
 ### 9. `memory-knowledge`
 
-**Domain**: Memory systems, semantic search, user facts, character facts, narrative arcs
+**Domain**: Memory systems, semantic search, user facts, character facts, narrative arcs, dynamic relationships
 
 **When to Use**:
 - Storing/retrieving user facts or character facts
@@ -250,6 +250,7 @@ Use the external-integrations agent to add calendar event integration
 - Managing conversation history
 - Working with embeddings
 - Tracking Kayley's ongoing life events (narrative arcs)
+- Managing Kayley's relationships with people in her life (dynamic relationships)
 
 **Example Invocation**:
 ```
@@ -257,18 +258,21 @@ Use the memory-knowledge agent to improve fact retrieval for the prompt
 ```
 
 **Key Skills**:
-- Fact storage patterns (user_facts, character_facts, narrative arcs)
+- Fact storage patterns (user_facts, character_facts, narrative arcs, dynamic relationships)
 - Embedding-based search
 - Memory consolidation
 - Contradiction detection
 - Narrative arc lifecycle management
+- Dual-perspective relationship tracking (Kayley's view + user's view)
 
 **Files It Knows**:
 - `src/services/memoryService.ts`
 - `src/services/narrativeArcsService.ts`
 - `src/services/characterFactsService.ts`
+- `src/services/dynamicRelationshipsService.ts`
 - Fact-related database tables
 - `kayley_narrative_arcs` table
+- `kayley_people` + `user_person_relationships` tables
 - Embedding patterns
 
 ---
@@ -451,8 +455,10 @@ Resume agent ae76e47 to add error handling to the prompt builder
 ## Related Documents
 
 - [System Prompt Guidelines](./System_Prompt_Guidelines.md)
+- [Tool Integration Checklist](./Tool_Integration_Checklist.md) - **NEW**: 8-step checklist for adding LLM tools
 - [README - Sub-Agents Section](../README.md#claude-code-sub-agents)
 - [Spontaneity Integration Guide](./Spontaneity_Integration_Guide.md)
 - [Narrative Arcs Implementation Summary](./NARRATIVE_ARCS_IMPLEMENTATION_SUMMARY.md)
 - [Narrative Arcs Service Documentation](../src/services/docs/NarrativeArcsService.md)
+- [Dynamic Relationships Service Documentation](../src/services/docs/DynamicRelationshipsService.md)
 - Agent definitions: `.claude/agents/*.md`

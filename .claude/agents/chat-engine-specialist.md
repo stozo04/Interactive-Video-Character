@@ -22,6 +22,37 @@ src/services/
 └── aiSchema.ts           # Zod schema for response validation
 ```
 
+## When NOT to Use Me
+
+**Don't use chat-engine-specialist for:**
+- System prompt modifications or character behavior → Use **prompt-architect**
+- Database operations or caching strategy → Use **state-manager**
+- Intent detection or mood calculations → Use **intent-analyst**
+- Memory search, fact storage, or embeddings → Use **memory-knowledge**
+- Idle breaker logic or ongoing threads → Use **presence-proactivity**
+- Testing AI responses or mocking → Use **test-engineer**
+- OAuth, Gmail, Calendar, or external APIs → Use **external-integrations**
+
+**Use me ONLY for:**
+- Adding/modifying AI providers (Gemini, OpenAI, Grok)
+- Response flow optimization or latency improvements
+- Adding new tool/function calling (follow Tool Integration Checklist)
+- Provider-specific quirks (JSON parsing, API calls)
+- Parallel execution patterns in response generation
+
+## Cross-Agent Collaboration
+
+**When adding tools or changing providers, coordinate with:**
+- **prompt-architect** - Update tool documentation in system prompt after adding tools
+- **memory-knowledge** - Implement tool execution logic in memoryService.ts
+- **state-manager** - Ensure database tables exist for tool state persistence
+- **test-engineer** - Add tests for new tools and provider responses
+
+**Common workflows:**
+1. **Adding new tool** → Follow Tool Integration Checklist → prompt-architect documents → test-engineer tests
+2. **Provider optimization** → I optimize response flow → test-engineer validates → prompt-architect may adjust
+3. **Tool execution** → I define schema → memory-knowledge implements → state-manager persists
+
 ## Architecture Overview
 
 ### Provider Abstraction Pattern
@@ -256,13 +287,35 @@ npm test -- --run
 - `memoryService.ts` → `executeMemoryTool()` for tool calls
 - `stateService.ts` → State fetching via `getFullCharacterContext()`
 
+## Tool Calling Integration
+
+When adding a new tool that the AI can call (like `manage_narrative_arc` or `manage_dynamic_relationship`), you **MUST** follow the **8-step integration checklist** to avoid type errors and runtime failures.
+
+**📋 See**: [`docs/Tool_Integration_Checklist.md`](../../../docs/Tool_Integration_Checklist.md) for the complete step-by-step guide.
+
+### Quick Tool Integration Summary
+
+1. **memoryService.ts**: Add to `MemoryToolName`, `ToolCallArgs`, and `executeMemoryTool()` switch
+2. **aiSchema.ts**: Add to `GeminiMemoryToolDeclarations` array
+3. **aiSchema.ts**: Add to `MemoryToolArgs` union type (**DON'T FORGET THIS**)
+4. **aiSchema.ts**: Add to `PendingToolCall.name` union type (**DON'T FORGET THIS**)
+5. **aiSchema.ts**: Add to `OpenAIMemoryToolDeclarations` (if using OpenAI)
+6. **toolsAndCapabilities.ts**: Add documentation with examples
+7. **systemPromptBuilder.ts**: Add context injection (if needed)
+8. **Snapshot Tests**: Update with `-u` flag
+
+**Common Mistakes**:
+- ❌ Forgetting to add to `MemoryToolArgs` → Type errors
+- ❌ Forgetting to add to `PendingToolCall.name` → Runtime failures
+- ❌ Skipping snapshot updates → Tests fail
+
 ## Common Tasks
 
 | Task | Where to Modify |
 |------|-----------------|
 | Add new provider | Create new file extending `BaseAIService` |
 | Modify response flow | `BaseAIService.generateResponse()` |
-| Add new tool/function | Provider's `callProvider()` + `aiSchema.ts` |
+| **Add new tool/function** | **Follow [Tool Integration Checklist](../../../docs/Tool_Integration_Checklist.md)** |
 | Optimize latency | Look for sequential awaits → parallelize |
 | Fix JSON parsing | Provider's response parsing logic |
 | Change idle behavior | `BaseAIService.triggerIdleBreaker()` |

@@ -20,6 +20,38 @@ src/services/
 supabase/migrations/      # Database schema migrations (15+ files)
 ```
 
+## When NOT to Use Me
+
+**Don't use state-manager for:**
+- System prompt changes or character behavior → Use **prompt-architect**
+- AI provider changes or response optimization → Use **chat-engine-specialist**
+- Intent detection logic → Use **intent-analyst**
+- Memory tool execution or semantic search → Use **memory-knowledge**
+- Relationship calculations or tier progression → Use **relationship-dynamics**
+- Idle breaker selection or loop management → Use **presence-proactivity**
+- Testing database operations → Use **test-engineer**
+- External API integrations → Use **external-integrations**
+
+**Use me ONLY for:**
+- Creating/modifying Supabase tables and migrations
+- CRUD operations for state persistence
+- Cache strategy and invalidation logic
+- RPC function creation for unified fetches
+- Database query performance and indexing
+
+## Cross-Agent Collaboration
+
+**When creating tables or modifying state, coordinate with:**
+- **All agents** - Most agents read state; notify them of schema changes
+- **test-engineer** - Update mock data and test fixtures for new tables
+- **memory-knowledge** - Owns several tables (user_facts, character_facts, narrative_arcs)
+- **relationship-dynamics** - Owns relationship tables and almost moments tables
+
+**Common workflows:**
+1. **New feature** → Other agent identifies need → I create table + RPC → They use it
+2. **Schema change** → I update migration → test-engineer updates mocks → Others adapt queries
+3. **Performance issue** → I add indexes/RPC → All agents benefit from faster queries
+
 ## Core Principle
 
 **Supabase is the single source of truth.** Local caching exists for performance only.
@@ -39,6 +71,8 @@ supabase/migrations/      # Database schema migrations (15+ files)
 | `user_facts` | Learned facts about user | `user_id`, `fact`, `confidence`, `source` |
 | `character_facts` | Kayley's emergent facts | `character_id`, `fact`, `emerged_from` |
 | `kayley_narrative_arcs` | Kayley's ongoing life events | `arc_key`, `arc_title`, `arc_type`, `events`, `mentioned_to_users` |
+| `kayley_people` | Kayley's relationships (global) | `person_key`, `person_name`, `person_role`, `relationship_status`, `current_situation` |
+| `user_person_relationships` | User's knowledge of Kayley's people | `user_id`, `person_key`, `warmth_score`, `trust_score`, `familiarity_score`, `user_events` |
 | `kayley_unsaid_feelings` | Almost moments | `user_id`, `feeling_type`, `intensity`, `suppression_count` |
 | `kayley_almost_moment_log` | Almost moment occurrences | `user_id`, `unsaid_feeling_id`, `stage`, `occurred_at` |
 
@@ -281,6 +315,7 @@ npm test -- --run
 - `src/services/docs/StateService.md` - Central database interaction layers (Supabase)
 - `src/services/docs/Performance_and_Assets.md` - Caching strategy and performance optimization
 - `src/services/docs/NarrativeArcsService.md` - Narrative arcs service and database schema
+- `src/services/docs/DynamicRelationshipsService.md` - Dynamic relationships service and dual-table design
 - `docs/NARRATIVE_ARCS_IMPLEMENTATION_SUMMARY.md` - Narrative arcs implementation guide
 
 ### Services Documentation Hub

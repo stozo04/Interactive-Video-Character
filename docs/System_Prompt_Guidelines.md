@@ -582,6 +582,7 @@ No database changes are involved in prompt modifications - all changes are in-me
 - [`implementation/03_Almost_Moments.md`](./implementation/03_Almost_Moments.md) - Almost moments system guide
 - [`NARRATIVE_ARCS_IMPLEMENTATION_SUMMARY.md`](./NARRATIVE_ARCS_IMPLEMENTATION_SUMMARY.md) - Narrative arcs implementation guide and deployment checklist
 - [`src/services/docs/NarrativeArcsService.md`](../src/services/docs/NarrativeArcsService.md) - Narrative arcs service documentation
+- [`src/services/docs/DynamicRelationshipsService.md`](../src/services/docs/DynamicRelationshipsService.md) - Dynamic relationships service documentation (dual-perspective tracking)
 - [`promptUtils.ts`](../src/services/promptUtils.ts) - Barrel file (re-exports from system_prompts/)
 - [`system_prompts/`](../src/services/system_prompts/) - Modular prompt modules
 - [`.claude/agents/prompt-architect.md`](../.claude/agents/prompt-architect.md) - Claude Code sub-agent for prompt modifications
@@ -592,6 +593,7 @@ No database changes are involved in prompt modifications - all changes are in-me
 
 | Date | Change | Author |
 |------|--------|--------|
+| 2025-12-27 | Implemented Dynamic Relationships system (dual-perspective tracking) | Claude |
 | 2025-12-27 | Implemented Narrative Arcs system (Kayley's dynamic life tracking) | Claude |
 | 2025-12-26 | Documented Almost Moments prompt integration | Claude |
 | 2025-12-20 | Added `prompt-architect` sub-agent reference for Claude Code users | Claude |

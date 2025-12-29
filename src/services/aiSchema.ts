@@ -259,10 +259,13 @@ export type RecallUserInfoArgs = z.infer<typeof RecallUserInfoSchema>;
 export type StoreUserInfoArgs = z.infer<typeof StoreUserInfoSchema>;
 
 // Union type for all memory tool arguments
-export type MemoryToolArgs = 
+export type MemoryToolArgs =
   | { tool: 'recall_memory'; args: RecallMemoryArgs }
   | { tool: 'recall_user_info'; args: RecallUserInfoArgs }
-  | { tool: 'store_user_info'; args: StoreUserInfoArgs };
+  | { tool: 'store_user_info'; args: StoreUserInfoArgs }
+  | { tool: 'store_character_info'; args: { category: string; key: string; value: string } }
+  | { tool: 'manage_narrative_arc'; args: { action: string; arc_key: string; arc_title?: string; initial_event?: string; event?: string; resolution?: string; reason?: string } }
+  | { tool: 'manage_dynamic_relationship'; args: { action: string; person_key: string; relationship_status?: string; event?: string; warmth_change?: number; trust_change?: number; familiarity_change?: number; sentiment?: string } };
 
 // ============================================
 // Function Declarations for AI Providers
@@ -349,9 +352,9 @@ export const GeminiMemoryToolDeclarations = [
     name: "store_character_info",
     description:
       "Save NEW facts about yourself (Kayley) that emerge in conversation. " +
-      "Use this when you make up a new detail about your life (plant name, new hobby, etc.). " +
-      "Categories: quirk (habits), experience (new stories), preference (new likes/dislikes), " +
-      "relationship (new people in your life), detail (specific facts). " +
+      "Use this when you make up a new detail about your life (plant name, item names, new hobby, preferences, etc.). " +
+      "Categories: quirk (habits, personality), experience (new stories), preference (new likes/dislikes), " +
+      "relationship (new people in your life), detail (specific facts like named objects). " +
       "Only for details NOT in your core character profile!",
     parameters: {
       type: "object",
@@ -359,15 +362,15 @@ export const GeminiMemoryToolDeclarations = [
         category: {
           type: "string",
           enum: ["quirk", "relationship", "experience", "preference", "detail", "other"],
-          description: "Category of the character fact"
+          description: "Category of the fact regarding yourself"
         },
         key: {
           type: "string",
-          description: "Fact key (e.g., 'plant_name', 'morning_ritual')"
+          description: "Fact key (e.g., 'plant_name', 'laptop_name', 'morning_ritual', 'favorite_color')"
         },
         value: {
           type: "string",
-          description: "The value to store (e.g., 'Fernando the cactus')"
+          description: "The value to store (e.g., 'Fernando the cactus', 'matcha lattes')"
         }
       },
       required: ["category", "key", "value"]
@@ -415,6 +418,56 @@ export const GeminiMemoryToolDeclarations = [
         }
       },
       required: ["action", "arc_key"]
+    }
+  },
+  {
+    name: "manage_dynamic_relationship",
+    description:
+      "Manage relationships with people in YOUR life (Lena, Ethan, Mom) and track how the user feels about them. " +
+      "This has TWO perspectives: YOUR relationship with them (Kayley's view) AND the user's feelings about them. " +
+      "Actions: update_kayley_relationship (change your status with them), log_kayley_event (add life event), " +
+      "update_user_feeling (change user's warmth/trust/familiarity), mention_to_user (log that you mentioned them).",
+    parameters: {
+      type: "object",
+      properties: {
+        action: {
+          type: "string",
+          enum: ["update_kayley_relationship", "log_kayley_event", "update_user_feeling", "mention_to_user"],
+          description: "update_kayley_relationship: change your relationship status, log_kayley_event: add event to their life, update_user_feeling: change user's scores, mention_to_user: increment mention count"
+        },
+        person_key: {
+          type: "string",
+          enum: ["lena", "ethan", "mom"],
+          description: "Which person: 'lena' (best friend), 'ethan' (brother), 'mom' (mother)"
+        },
+        relationship_status: {
+          type: "string",
+          enum: ["close", "friendly", "distant", "complicated", "estranged"],
+          description: "Your current relationship status with them (for update_kayley_relationship)"
+        },
+        event: {
+          type: "string",
+          description: "Life event to log (for log_kayley_event or mention_to_user). E.g., 'Started new job', 'Got engaged'"
+        },
+        warmth_change: {
+          type: "number",
+          description: "How much to change user's warmth score (-50 to +50) (for update_user_feeling)"
+        },
+        trust_change: {
+          type: "number",
+          description: "How much to change user's trust score (-50 to +50) (for update_user_feeling)"
+        },
+        familiarity_change: {
+          type: "number",
+          description: "How much to change user's familiarity score (0 to 100) (for update_user_feeling)"
+        },
+        sentiment: {
+          type: "string",
+          enum: ["positive", "neutral", "negative"],
+          description: "Sentiment of the mention (for mention_to_user)"
+        }
+      },
+      required: ["action", "person_key"]
     }
   },
   {
@@ -491,32 +544,6 @@ export const GeminiMemoryToolDeclarations = [
         }
       },
       required: ["action"]
-    }
-  },
-  {
-    name: "store_character_info",
-    description: 
-      "Save a new fact about YOURSELF (Kayley). " +
-      "Use this when you decide on a name for an item, a preference, " +
-      "or a relationship detail that should be remembered.",
-    parameters: {
-      type: "object",
-      properties: {
-        category: {
-          type: "string",
-          enum: ["quirk", "relationship", "experience", "preference", "detail", "other"],
-          description: "Category of the fact regarding yourself"
-        },
-        key: {
-          type: "string",
-          description: "Fact type (e.g., 'laptop_name', 'favorite_color')"
-        },
-        value: {
-          type: "string",
-          description: "The value to store"
-        }
-      },
-      required: ["category", "key", "value"]
     }
   }
 ];
@@ -675,8 +702,12 @@ export const OpenAIMemoryToolDeclarations = [
   {
     type: "function" as const,
     name: "store_character_info",
-    description: 
-      "Save a new fact about YOURSELF (Kayley). Use this when you decide on a name for an item, a preference, or a relationship detail that should be remembered.",
+    description:
+      "Save NEW facts about yourself (Kayley) that emerge in conversation. " +
+      "Use this when you make up a new detail about your life (plant name, item names, new hobby, preferences, etc.). " +
+      "Categories: quirk (habits, personality), experience (new stories), preference (new likes/dislikes), " +
+      "relationship (new people in your life), detail (specific facts like named objects). " +
+      "Only for details NOT in your core character profile!",
     parameters: {
       type: "object",
       properties: {
@@ -687,11 +718,11 @@ export const OpenAIMemoryToolDeclarations = [
         },
         key: {
           type: "string",
-          description: "Fact type (e.g., 'laptop_name', 'favorite_color')"
+          description: "Fact key (e.g., 'plant_name', 'laptop_name', 'morning_ritual', 'favorite_color')"
         },
         value: {
           type: "string",
-          description: "The value to store"
+          description: "The value to store (e.g., 'Fernando the cactus', 'matcha lattes')"
         }
       },
       required: ["category", "key", "value"]
@@ -708,7 +739,7 @@ export const OpenAIMemoryToolDeclarations = [
  */
 export interface PendingToolCall {
   id: string;
-  name: 'recall_memory' | 'recall_user_info' | 'store_user_info' | 'task_action' | 'calendar_action' | 'store_character_info';
+  name: 'recall_memory' | 'recall_user_info' | 'store_user_info' | 'task_action' | 'calendar_action' | 'store_character_info' | 'manage_narrative_arc' | 'manage_dynamic_relationship';
   arguments: Record<string, any>;
 }
 

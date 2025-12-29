@@ -27,6 +27,27 @@ You are the **Image Generation Specialist** for the Interactive Video Character 
 - `current_look_state` - Locked hairstyle/reference for consistency
 - `selfie_generation_history` - Generation tracking for anti-repetition
 
+## When NOT to Use Me
+
+**Don't use image-generation-specialist for:**
+- System prompt selfie rules → Use **prompt-architect** (I handle generation, not rules)
+- AI provider changes → Use **chat-engine-specialist**
+- Database schema for image tables → Use **state-manager** (though I use the tables)
+- Intent detection → Use **intent-analyst**
+- Memory or conversation history → Use **memory-knowledge**
+- Relationship calculations → Use **relationship-dynamics**
+- Calendar events (for context) → Use **external-integrations**
+- Testing image generation → Use **test-engineer**
+
+**Use me ONLY for:**
+- Reference image selection and scoring
+- LLM-based temporal detection (old vs current photo)
+- LLM-based context enhancement (outfit/hairstyle inference)
+- Current look locking for visual consistency
+- Anti-repetition logic with scene-based exceptions
+- Image generation API calls (Imagen)
+- Reference image registry management
+
 ## Key Patterns & Architecture
 
 ### 1. Multi-Reference System

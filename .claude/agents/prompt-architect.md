@@ -48,6 +48,37 @@ src/services/system_prompts/
 src/services/promptUtils.ts       # Barrel file re-exporting module
 ```
 
+## When NOT to Use Me
+
+**Don't use prompt-architect for:**
+- AI provider changes or response optimization → Use **chat-engine-specialist**
+- Database schema or state persistence → Use **state-manager**
+- Intent detection logic or mood calculations → Use **intent-analyst**
+- Relationship tier calculations or milestones → Use **relationship-dynamics**
+- Memory tools, fact storage, or semantic search → Use **memory-knowledge**
+- Testing prompt output → Use **test-engineer**
+- External API integrations → Use **external-integrations**
+
+**Use me ONLY for:**
+- Modifying character behavior, personality, or dialogue style
+- Changing output format or JSON schema requirements
+- Adding/removing sections from the system prompt
+- Adjusting tier-specific behavior rules
+- Modifying selfie generation rules or mood-based engagement
+
+## Cross-Agent Collaboration
+
+**When modifying prompts, coordinate with:**
+- **chat-engine-specialist** - If adding new tool calls, ensure they're in aiSchema.ts first
+- **test-engineer** - Always run snapshot tests after prompt changes
+- **state-manager** - If prompt references new state, ensure tables exist
+- **memory-knowledge** - If prompt includes narrative arcs/relationships, verify format functions
+
+**Common workflows:**
+1. **Adding tool to prompt** → chat-engine-specialist adds to aiSchema → I add documentation
+2. **New behavior section** → I add to prompt → test-engineer updates snapshots
+3. **State-dependent rules** → state-manager creates table → I add conditional prompt section
+
 ## Architecture Principles
 
 ### 1. Single Responsibility
@@ -144,6 +175,7 @@ npm test -- --run
 - `SoulLayerContext` from `soulLayerContext.ts` - Ongoing threads, mental weather
 - `FullMessageIntent` from `intentService.ts` - User's detected intent
 - `formatArcsForPrompt()` from `narrativeArcsService.ts` - Kayley's ongoing life events
+- `formatDynamicRelationshipsForPrompt()` from `dynamicRelationshipsService.ts` - Kayley's relationships with people
 
 ## Reference Documentation
 
@@ -151,6 +183,7 @@ npm test -- --run
 - `src/services/docs/Soul_and_Utility.md` - Comprehensive overview of secondary utility services and the soul layer
 - `docs/System_Prompt_Guidelines.md` - System prompt modification guidelines
 - `src/services/docs/NarrativeArcsService.md` - Narrative arcs prompt integration
+- `src/services/docs/DynamicRelationshipsService.md` - Dynamic relationships prompt integration (dual-perspective design)
 - `docs/NARRATIVE_ARCS_IMPLEMENTATION_SUMMARY.md` - Narrative arcs system overview
 
 ### Services Documentation Hub
