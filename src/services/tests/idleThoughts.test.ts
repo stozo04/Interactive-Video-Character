@@ -90,7 +90,7 @@ describe('Idle Thoughts Service', () => {
     });
 
     it('should throw error if absence is too short', async () => {
-      const absenceDurationHours = 2; // Less than MIN (4)
+      const absenceDurationHours = 0.05; // 3 minutes - Less than MIN (10 minutes = 0.167 hours)
       const kayleyMood = 'playful';
 
       await expect(

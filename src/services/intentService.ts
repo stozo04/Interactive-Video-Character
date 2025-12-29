@@ -1987,27 +1987,38 @@ export async function detectFullIntentLLM(
 
   try {
     const ai = getIntentClient();
-    
+
     // Build Context String
-    let contextString = '';
+    let contextString = "";
     if (context?.recentMessages?.length) {
       const recentContext = context.recentMessages.slice(-5);
-      const formattedContext = recentContext.map(msg => {
-        const role = msg.role === 'user' ? 'User' : 'Kayley';
-        const text = msg.text.length > 150 ? msg.text.slice(0, 150) + '...' : msg.text;
-        return `${role}: ${text.replace(/[{}]/g, '')}`;
-      }).join('\n');
+      const formattedContext = recentContext
+        .map((msg) => {
+          const role = msg.role === "user" ? "User" : "Kayley";
+          const text =
+            msg.text.length > 150 ? msg.text.slice(0, 150) + "..." : msg.text;
+          return `${role}: ${text.replace(/[{}]/g, "")}`;
+        })
+        .join("\n");
       contextString = `CONVERSATION CONTEXT:\n${formattedContext}`;
     }
 
     // Build Prompt
-    const prompt = UNIFIED_INTENT_PROMPT
-      .replace('{message}', message.replace(/[{}]/g, ''))
-      .replace('{context}', contextString);
+    const prompt = UNIFIED_INTENT_PROMPT.replace(
+      "{message}",
+      message.replace(/[{}]/g, "")
+    ).replace("{context}", contextString);
 
     // 📊 DIAGNOSTIC: Log prompt size
-    console.log('📊 [IntentService] Prompt length:', prompt.length, 'characters');
-    console.log('📊 [IntentService] Estimated input tokens:', Math.ceil(prompt.length / 4));
+    console.log(
+      "📊 [IntentService] Prompt length:",
+      prompt.length,
+      "characters"
+    );
+    console.log(
+      "📊 [IntentService] Estimated input tokens:",
+      Math.ceil(prompt.length / 4)
+    );
 
     // Call LLM
     const result = await ai.models.generateContent({
@@ -2016,50 +2027,58 @@ export async function detectFullIntentLLM(
       config: {
         temperature: 0.1, // precision is key
         maxOutputTokens: 5000, // Increased to 5000 to handle full nested JSON response (all 7 sections)
-        responseMimeType: "application/json"
-      }
+        responseMimeType: "application/json",
+      },
     });
 
     // 📊 DIAGNOSTIC: Log response details
-    const responseText = result.text || '{}';
-    console.log('📊 [IntentService] Response length:', responseText.length, 'characters');
-    console.log('📊 [IntentService] Finish reason:', result.finishReason);
-    console.log('📊 [IntentService] Usage metadata:', result.usageMetadata);
-    console.log('📊 [IntentService] Full response:', responseText);
-    const cleanedText = responseText.replace(/```json\n?|\n?```/g, '').trim();
-    
+    const responseText = result.text || "{}";
+    // console.log('📊 [IntentService] Response length:', responseText.length, 'characters');
+    // console.log('📊 [IntentService] Finish reason:', result.candidates?.[0]?.finishReason);
+    // console.log('📊 [IntentService] Usage metadata:', result.usageMetadata);
+
+    const cleanedText = responseText.replace(/```json\n?|\n?```/g, "").trim();
+
     // Check if response was truncated (common when maxOutputTokens is too low)
     if (!cleanedText || cleanedText.length < 50) {
-      throw new Error('Response too short - likely truncated. Increase maxOutputTokens.');
+      throw new Error(
+        "Response too short - likely truncated. Increase maxOutputTokens."
+      );
     }
-    
+
     // Check for incomplete JSON (truncated response)
-    if (!cleanedText.endsWith('}') && !cleanedText.match(/}\s*$/)) {
-      console.warn('⚠️ [IntentService] Response may be truncated - JSON appears incomplete');
+    if (!cleanedText.endsWith("}") && !cleanedText.match(/}\s*$/)) {
+      console.warn(
+        "⚠️ [IntentService] Response may be truncated - JSON appears incomplete"
+      );
       // Try to parse anyway, but log warning
     }
-    
+
     let parsed;
     try {
       parsed = JSON.parse(cleanedText);
     } catch (parseError) {
-      console.error('❌ [IntentService] Failed to parse JSON response. Response text:', cleanedText.substring(0, 200));
-      throw new Error(`JSON parse failed - response may be truncated. Original error: ${parseError}`);
+      console.error(
+        "❌ [IntentService] Failed to parse JSON response. Response text:",
+        cleanedText.substring(0, 200)
+      );
+      throw new Error(
+        `JSON parse failed - response may be truncated. Original error: ${parseError}`
+      );
     }
 
     const fullIntent = validateFullIntent(parsed);
-    
+
     // Log success
     console.log(`🧠 [IntentService] UNIFIED INTENT DETECTED`, {
       tone: fullIntent.tone.primaryEmotion,
       genuine: fullIntent.genuineMoment.isGenuine,
       topics: fullIntent.topics.topics,
       loop: fullIntent.openLoops.hasFollowUp,
-      userFacts: fullIntent.userFacts?.facts?.length || 0
+      userFacts: fullIntent.userFacts?.facts?.length || 0,
     });
 
     return fullIntent;
-
   } catch (error) {
     console.error('❌ [IntentService] Unified detection failed:', error);
     throw error;

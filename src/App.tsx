@@ -56,6 +56,7 @@ import { useCacheWarming } from './hooks/useCacheWarming';
 import { useAIService } from './contexts/AIServiceContext';
 import { AIChatSession, UserContent } from './services/aiService';
 import { startCleanupScheduler, stopCleanupScheduler } from './services/loopCleanupService';
+import { startIdleThoughtsScheduler, stopIdleThoughtsScheduler } from './services/idleThoughtsScheduler';
 import { GAMES_PROFILE } from './domain/characters/gamesProfile';
 import * as taskService from './services/taskService';
 import { 
@@ -416,6 +417,23 @@ const App: React.FC = () => {
     } catch (e) {
       // Ignore if user ID check fails (e.g. env var missing in dev)
       console.log(`❌ [LoopCleanup] Error starting cleanup scheduler:`, e);
+    }
+  }, []);
+
+  // Idle Thoughts: Initialize scheduler to generate thoughts during user absence
+  useEffect(() => {
+    try {
+      const userId = getUserId();
+      if (userId) {
+        startIdleThoughtsScheduler(userId);
+
+        return () => {
+          stopIdleThoughtsScheduler();
+        };
+      }
+    } catch (e) {
+      // Ignore if user ID check fails (e.g. env var missing in dev)
+      console.log(`❌ [IdleThoughts] Error starting idle thoughts scheduler:`, e);
     }
   }, []);
 

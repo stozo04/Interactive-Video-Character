@@ -10,6 +10,7 @@ import { getOngoingThreadsAsync, selectProactiveThread, markThreadMentionedAsync
 import { getTopLoopToSurface, markLoopSurfaced } from './presenceDirector';
 import { storeCharacterFact } from './characterFactsService';
 import { getPrefetchedContext, prefetchOnIdle } from './prefetchService';
+import { detectAndMarkSharedThoughts } from './spontaneity/idleThoughts';
 import type { CharacterProfile, Task } from '../types';
 import type { RelationshipMetrics } from './relationshipService';
 import {
@@ -132,7 +133,6 @@ export abstract class BaseAIService implements IAIChatService {
       // This cuts latency from ~3.8s to ~1.8s for commands.
 
       const trimmedMessage = userMessageText?.trim() || "";
-      console.log("trimmedMessage: ", trimmedMessage);
       const isCommand = trimmedMessage && isFunctionalCommand(trimmedMessage);
       console.log("isCommand: ", isCommand);
       let intentPromise: Promise<FullMessageIntent> | undefined;
@@ -284,7 +284,7 @@ export abstract class BaseAIService implements IAIChatService {
       // This powers the Phase 1-5 "magic" systems
       // Phase 1: Now includes conversation context for LLM-based intent detection
       // Context is already built above
-      
+
       const finalUserId = updatedSession?.userId || session?.userId || import.meta.env.VITE_USER_ID;
       console.log("finalUserId: ", finalUserId);
       
@@ -324,6 +324,23 @@ export abstract class BaseAIService implements IAIChatService {
             );
           });
         }
+      }
+
+      // ============================================
+      // DETECT IDLE THOUGHTS: Mark Thoughts as Shared
+      // ============================================
+      // If Kayley mentioned any unshared idle thoughts in her response, mark them as shared
+      // This is fire-and-forget to avoid blocking the response
+      if (finalUserId && aiResponse.text_response) {
+        detectAndMarkSharedThoughts(finalUserId, aiResponse.text_response)
+          .then(markedIds => {
+            if (markedIds.length > 0) {
+              console.log(`💭 [BaseAIService] Marked ${markedIds.length} idle thought(s) as shared`);
+            }
+          })
+          .catch(err => {
+            console.warn('[BaseAIService] Failed to detect/mark shared thoughts:', err);
+          });
       }
 
       const audioMode = options.audioMode ?? 'async';  // was 'sync'

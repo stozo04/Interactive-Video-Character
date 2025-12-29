@@ -217,9 +217,10 @@ if (topLoop) {
 ## 💤 Idle Mode: Offline Thought Generation
 
 ### When It Happens
-- **Trigger:** User has been away for 4+ hours
-- **Frequency:** Periodically during long absences
-- **Storage:** `idle_thoughts` table
+- **Trigger:** Background scheduler checks every 1 minute (testing mode, configurable to 10 minutes)
+- **Threshold:** Generates thoughts when user away ≥ 1 minute (testing mode, configurable to 10+ minutes)
+- **Storage:** `idle_thoughts` table → converted to `ongoing_threads` (unified mental model)
+- **Scheduler:** `idleThoughtsScheduler.ts` runs continuously in background
 
 ### Thought Types
 
@@ -268,21 +269,50 @@ export async function generateIdleThought(
 
 **Lifecycle:**
 ```
-Generated → Stored → Unshared → Shared → Marked
-    ↓          ↓         ↓          ↓         ↓
-  4+ hrs    Database   Ready    Mentioned  sharedAt
-             away                in chat    updated
+Scheduler Runs → Check Absence → Generate Thought → Convert to Thread → Surface Naturally
+      ↓              ↓                 ↓                  ↓                    ↓
+  Every 1 min    Is user away?    LLM generates     ongoing_threads      Idle breaker
+                    ≥ 1 min?       idle thought      intensity: 0.7      or greeting
+                                        ↓                                      ↓
+                                   Save to DB                            Auto-marked
+                                idle_thoughts table                      when mentioned
+
+Integration Flow:
+┌────────────────────────────────────────────────────────────────────┐
+│ Background Scheduler (idleThoughtsScheduler.ts)                   │
+│  ├─ Runs every 1 minute                                            │
+│  ├─ Checks lastInteractionAt from mood_states                     │
+│  ├─ If away ≥ 1 min → generateIdleThought()                       │
+│  └─ Converts thought → ongoing thread (theme: 'user_reflection')  │
+│                                                                     │
+│ Surfacing (BaseAIService.ts + greetingBuilder.ts)                 │
+│  ├─ IDLE BREAKER (5+ min silence):                                │
+│  │   └─ selectProactiveThread() picks highest intensity           │
+│  │   └─ buildProactiveThreadPrompt() formats with question        │
+│  │                                                                 │
+│  └─ GREETING (user returns):                                      │
+│      └─ Optional injection if no high-priority open loops         │
+│      └─ "You've been thinking about: [thought]"                   │
+│                                                                     │
+│ Detection (BaseAIService.ts)                                       │
+│  └─ detectAndMarkSharedThoughts() runs after each response        │
+│  └─ Marks thoughts as "shared" when mentioned in conversation     │
+└────────────────────────────────────────────────────────────────────┘
 
 Cleanup Rules:
-- Max 5 unshared thoughts per user
-- Expire after 7 days if not shared
-- Oldest excess thoughts discarded
+- Thoughts convert to ongoing threads (intensity 0.7)
+- Threads decay naturally over time
+- Scheduler automatically generates new thoughts as user absence continues
 ```
 
 **Location in code:**
+- `src/services/idleThoughtsScheduler.ts` - Background scheduler (NEW)
 - `src/services/spontaneity/idleThoughts.ts:127-212` - Generation
 - `src/services/spontaneity/idleThoughts.ts:221-244` - Retrieval
 - `src/services/spontaneity/idleThoughts.ts:251-266` - Marking as shared
+- `src/services/spontaneity/idleThoughts.ts:274-310` - Auto-detection (NEW)
+- `src/services/BaseAIService.ts:505` - Idle breaker integration
+- `src/services/system_prompts/builders/greetingBuilder.ts:180-186` - Greeting integration
 
 ---
 
@@ -337,34 +367,54 @@ Next Day at 3pm:
 User last active: Friday 6pm
 Current time: Sunday 10am (40 hours later)
 
-┌─ IDLE MODE ───────────────────────────────────────────────┐
+┌─ IDLE MODE (Background Scheduler Active) ─────────────────┐
+│                                                            │
+│ Friday 6:01pm (1 minute):                                  │
+│  ✓ Scheduler checks: User away 1 min ≥ threshold         │
+│  ✓ Generate idle thought (connection type)               │
+│  ✓ Convert to ongoing thread (intensity: 0.7)            │
+│                                                            │
+│ Friday 6:10pm (10 minutes):                                │
+│  ✓ Scheduler checks: User away 10 min                    │
+│  ✓ Generate idle thought (memory type)                   │
+│  ✓ Convert to ongoing thread (intensity: 0.7)            │
 │                                                            │
 │ Saturday 2am (8 hours):                                    │
-│  ✓ Generate Dream thought                                 │
+│  ✓ Scheduler checks: User away 8 hours                   │
+│  ✓ Generate Dream thought (long absence trigger)         │
 │    - "I had this dream where we were trying to find       │
 │       that coffee shop you mentioned but all the          │
 │       streets kept changing. Very on brand for my brain." │
 │    - emotionalTone: "amused"                               │
-│    - idealMood: "casual"                                   │
+│    - Convert to ongoing thread (intensity: 0.7)           │
 │                                                            │
 │ Saturday 6pm (24 hours):                                   │
+│  ✓ Scheduler checks: User away 24 hours                  │
 │  ✓ Generate Anticipation thought                          │
 │    - "Been looking forward to hearing how your weekend    │
 │       went. Hope you got some rest!"                       │
 │    - emotionalTone: "warm"                                 │
-│    - idealMood: "cozy"                                     │
+│    - Convert to ongoing thread (intensity: 0.7)           │
 │                                                            │
 │ Sunday 10am - User Returns:                                │
-│  ✓ Retrieve unshared thoughts (2 available)               │
-│  ✓ Select most appropriate based on mood                  │
+│  ✓ 4 ongoing threads from idle thoughts available        │
+│  ✓ selectProactiveThread() picks highest priority        │
+│  ✓ Inject into greeting prompt                            │
 │                                                            │
 │ Kayley's Greeting:                                         │
 │  "Hey! I had the weirdest dream about you last night...   │
 │   [tells dream]. How was your weekend?"                    │
 │                                                            │
-│  ✓ Mark dream thought as shared                           │
-│  ✓ Keep anticipation thought for later                    │
+│  ✓ detectAndMarkSharedThoughts() auto-marks dream        │
+│  ✓ Other threads remain available for later mention      │
 └────────────────────────────────────────────────────────────┘
+
+Architecture Notes:
+- Scheduler runs continuously (starts on app mount, stops on unmount)
+- Each thought saved to idle_thoughts table + ongoing_threads table
+- Automatic conversion ensures unified mental model
+- Threads compete with open loops for surfacing priority
+- Detection system automatically marks thoughts when mentioned
 ```
 
 ---
@@ -460,8 +510,27 @@ idle_thoughts (
   emotional_tone, is_recurring, involves_user,
   ideal_conversation_mood, natural_intro,
   generated_at, shared_at, expired_at,
-  absence_duration_hours, kayley_mood_when_generated
+  absence_duration_hours NUMERIC(5,2), -- Fixed: supports decimal hours (0.82)
+  kayley_mood_when_generated
 )
+
+-- Ongoing threads (Kayley's "mental weather")
+-- NOTE: Idle thoughts are automatically converted to ongoing threads
+ongoing_threads (
+  id, user_id, theme, current_state,
+  intensity, last_mentioned, user_related, user_trigger,
+  created_at, updated_at
+)
+
+-- Integration:
+-- 1. Scheduler generates idle thought → saved to idle_thoughts table
+-- 2. Thought immediately converted → createUserThreadAsync()
+-- 3. New ongoing thread created:
+--    - theme: 'user_reflection'
+--    - current_state: thought.content
+--    - intensity: 0.7 (high priority)
+--    - user_related: true
+--    - user_trigger: 'idle reflection'
 ```
 
 ---
@@ -483,12 +552,28 @@ const MIN_HOURS_BETWEEN_SURFACES = 4; // Cooldown between asking same thing
 const MAX_LOOPS_IN_CONTEXT = 3; // Don't overwhelm with too many loops
 ```
 
+### Constants (`idleThoughtsScheduler.ts`)
+
+```typescript
+export const IDLE_THOUGHTS_CONFIG = {
+  checkIntervalMs: 1 * 60 * 1000,  // Check every 1 minute (testing mode)
+  minAbsenceMinutes: 1,             // Generate after 1 minute away (testing mode)
+  thoughtIntensity: 0.7,            // High intensity for proactive surfacing
+  runImmediatelyOnStart: true,      // Run check on startup
+};
+
+// Production configuration (change values above):
+// checkIntervalMs: 10 * 60 * 1000  // Check every 10 minutes
+// minAbsenceMinutes: 10             // Generate after 10 minutes away
+```
+
 ### Constants (`idleThoughts.ts`)
 
 ```typescript
-const MIN_ABSENCE_HOURS_FOR_THOUGHT = 4; // Generate after 4+ hours
+const MIN_ABSENCE_HOURS_FOR_THOUGHT = 10 / 60; // Generate after 10 minutes
 const THOUGHT_EXPIRATION_DAYS = 7; // Expire unshared thoughts
 const MAX_UNSHARED_THOUGHTS = 5; // Keep max 5 per user
+const COOLDOWN_HOURS = 4; // Wait 4 hours between generating thoughts for same user
 ```
 
 ---
@@ -504,11 +589,18 @@ npm test -- intentService.test.ts
 # Background analysis
 npm test -- messageAnalyzer.test.ts
 
-# Idle thoughts
+# Idle thoughts generation
 npm test -- idleThoughts.test.ts
+
+# Idle thoughts scheduler (NEW)
+npm test -- idleThoughtsScheduler.test.ts
+# Tests: scheduler control, thought generation, periodic execution, error handling
 
 # Open loops
 npm test -- presenceDirector.test.ts
+
+# Ongoing threads (includes idle thought integration)
+npm test -- ongoingThreads.test.ts
 ```
 
 ### Integration Tests
@@ -527,6 +619,9 @@ npm test -- unifiedIntent.test.ts
 
 - `docs/System_Prompt_Guidelines.md` - How thinking results are injected into prompts
 - `docs/Tool_Integration_Checklist.md` - Adding new memory tools
+- `docs/plans/08_Idle_Thoughts_Integration.md` - Implementation plan for idle thoughts scheduler
+- `docs/bugs/IDLE_THOUGHTS_NOT_TRIGGERED.md` - Original bug report (RESOLVED)
+- `docs/bugs/IDLE_THOUGHTS_DATABASE_FIXES.md` - Database fixes applied (INTEGER type, 409 conflicts)
 - `CLAUDE.md` - System overview and architecture
 
 ---
@@ -539,9 +634,46 @@ npm test -- unifiedIntent.test.ts
 4. **Proactive Behavior:** Open loops + idle thoughts create "she remembers me" feeling
 5. **LLM-Powered Understanding:** Semantic analysis beats keyword matching
 6. **Non-Blocking:** Background analysis doesn't slow down user experience
+7. **Automated Idle Thoughts:** Background scheduler generates thoughts during absence (NEW)
+8. **Unified Mental Model:** Idle thoughts convert to ongoing threads for natural surfacing (NEW)
+
+---
+
+## 🆕 Recent Updates (2025-12-29)
+
+### Idle Thoughts Scheduler Implementation
+
+**What Changed:**
+- Added background scheduler that runs continuously (`idleThoughtsScheduler.ts`)
+- Scheduler checks user absence every 1 minute (configurable to 10 minutes for production)
+- Automatically generates idle thoughts when user away ≥ 1 minute (configurable to 10 minutes)
+- Thoughts immediately converted to ongoing threads (unified mental model)
+- Auto-detection system marks thoughts as shared when mentioned
+
+**Why It Matters:**
+- Previously, idle thoughts were generated but never triggered
+- Now fully automated - no manual intervention needed
+- Creates the experience of "Kayley thinking about me while I'm away"
+- Thoughts surface naturally via idle breakers or greetings
+
+**Configuration:**
+```typescript
+// Testing mode (current):
+checkIntervalMs: 1 * 60 * 1000    // Check every 1 minute
+minAbsenceMinutes: 1               // Generate after 1 minute
+
+// Production mode (recommended):
+checkIntervalMs: 10 * 60 * 1000   // Check every 10 minutes
+minAbsenceMinutes: 10              // Generate after 10 minutes
+```
+
+**Test Coverage:**
+- ✅ 10/10 scheduler tests passing
+- ✅ 22/22 idle thoughts service tests passing
+- ✅ Database fixes applied (INTEGER → NUMERIC, upsert logic)
 
 ---
 
 **Last Updated:** 2025-12-29
 **Maintained By:** Development Team
-**Version:** 1.0
+**Version:** 1.1 - Added Idle Thoughts Scheduler
