@@ -8,7 +8,9 @@
       "Bash(npm run build:*)",
       "Bash(test:*)",
       "Bash(npx vitest:*)",
-      "Bash(grep:*)"
+      "Bash(grep:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)"
     ]
   }
 }

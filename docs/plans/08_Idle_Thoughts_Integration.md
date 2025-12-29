@@ -599,6 +599,24 @@ test('idle thoughts surface in greeting prompt', async () => {
    - Learn what types of thoughts get shared most
    - Tune templates based on engagement
 
+6. **Conversation History Integration** (High Priority)
+   - **Current State:** Templates use hardcoded placeholders (`{topic}` → "that thing you mentioned", `{interest}` → "what you're working on")
+   - **Target:** Pull actual topics/interests from conversation history and user facts
+   - **Implementation:**
+     - Integrate with semantic memory search to find relevant past conversations
+     - Use `user_facts` table to personalize interests and locations
+     - Replace generic placeholders with actual user context
+   - **Example Transformation:**
+     - Current: "Been thinking about what you said about that thing you mentioned"
+     - Enhanced: "Been thinking about what you said about your Python project and the authentication bug"
+   - **Code References:**
+     - `idleThoughts.ts:413-425` - Placeholder replacement logic (marked with `// later: pull from user's actual topics/interests`)
+     - `idleThoughts.ts:431-434` - `associatedMemory` field (currently hardcoded, ready for actual memory linking)
+   - **Benefits:**
+     - Thoughts feel personalized and specific to actual conversations
+     - Stronger sense of continuity and memory
+     - More natural and less repetitive thought content
+
 ---
 
 ## Appendix: Configuration Constants
