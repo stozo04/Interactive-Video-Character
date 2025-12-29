@@ -205,6 +205,206 @@ function normalizeAiResponse(rawJson: any, rawText: string): AIActionResponse {
 export class GeminiService extends BaseAIService {
   model = GEMINI_MODEL;
 
+  // ============================================
+  // HELPER METHODS (Refactored for reusability)
+  // ============================================
+
+  /**
+   * Check if an error is a connection/CORS error
+   */
+  private isConnectionError(error: any): boolean {
+    const errorMessage = String(error?.message || "");
+    const errorName = String(error?.name || error?.constructor?.name || "");
+    const errorCode = String(error?.code || "");
+    const errorString = String(error || "");
+
+    return (
+      errorMessage.includes("CORS") ||
+      errorMessage.includes("Failed to fetch") ||
+      errorMessage.includes("Connection error") ||
+      errorMessage.includes("APIConnectionError") ||
+      errorCode === "APIConnectionError" ||
+      errorName === "APIConnectionError" ||
+      errorString.includes("CORS") ||
+      errorString.includes("Failed to fetch")
+    );
+  }
+
+  /**
+   * Log connection/CORS error with helpful guidance
+   */
+  private logConnectionError(context: string = ""): void {
+    console.warn(
+      `⚠️ [Gemini Interactions${context}] CORS error detected (expected).`
+    );
+    console.warn(
+      "⚠️ [Gemini Interactions] Google blocks browser calls for security."
+    );
+    console.warn("⚠️ [Gemini Interactions] Solutions:");
+    console.warn("   1. Set VITE_GEMINI_PROXY_URL to use a server proxy");
+    console.warn(
+      "   2. Keep VITE_USE_GEMINI_INTERACTIONS_API=false (use old API)"
+    );
+    console.warn(
+      "⚠️ [Gemini Interactions] Falling back to old Chat API (works reliably from browser)."
+    );
+  }
+
+  /**
+   * Build memory tools array for Interactions API
+   */
+  private buildMemoryTools(): any[] {
+    return GeminiMemoryToolDeclarations.map((func) => ({
+      type: "function",
+      name: func.name,
+      description: func.description,
+      parameters: func.parameters,
+    }));
+  }
+
+  /**
+   * Create an interaction via API/proxy with error handling
+   */
+  private async createInteraction(config: any): Promise<any> {
+    try {
+      console.log("🔄 [Gemini Interactions] Using Vite proxy (development)");
+      const proxyUrl = `${VITE_PROXY_BASE}/v1beta/interactions?key=${GEMINI_API_KEY}`;
+      const response = await fetch(proxyUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(config),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Proxy error: ${response.statusText} - ${errorText}`);
+      }
+
+      return await response.json();
+    } catch (error: any) {
+      if (this.isConnectionError(error)) {
+        this.logConnectionError();
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * Handle tool calling loop - execute tools and continue interaction
+   */
+  private async continueInteractionWithTools(
+    interaction: any,
+    interactionConfig: any,
+    systemPrompt: string,
+    userId: string,
+    options?: AIChatOptions,
+    maxIterations: number = 3
+  ): Promise<any> {
+    let iterations = 0;
+
+    while (interaction.outputs && iterations < maxIterations) {
+      const functionCalls = interaction.outputs.filter(
+        (output: any) => output.type === "function_call"
+      );
+
+      if (functionCalls.length === 0) break;
+
+      iterations++;
+      console.log(
+        `🔧 [Gemini Interactions] Tool call iteration ${iterations}:`,
+        functionCalls.map((fc: any) => fc.name)
+      );
+
+      // Execute all tool calls
+      const toolResults = await Promise.all(
+        functionCalls.map(async (functionCall: any) => {
+          const toolName = functionCall.name as MemoryToolName;
+          const toolArgs = functionCall.arguments || {};
+
+          console.log(
+            `🔧 [Gemini Interactions] Executing tool: ${toolName}`,
+            toolArgs
+          );
+
+          const toolResult = await executeMemoryTool(
+            toolName,
+            toolArgs,
+            userId,
+            {
+              googleAccessToken: options?.googleAccessToken,
+              currentEvents: options?.upcomingEvents,
+            }
+          );
+
+          return {
+            type: "function_result",
+            name: toolName,
+            call_id: functionCall.id,
+            result: toolResult,
+          };
+        })
+      );
+
+      // Continue interaction with tool results
+      // CRITICAL: Must include system_instruction again! The API doesn't persist it.
+      const toolInteractionConfig = {
+        model: this.model,
+        previous_interaction_id: interaction.id,
+        input: toolResults,
+        system_instruction: systemPrompt,
+        tools: interactionConfig.tools,
+      };
+
+      // Make continuation call
+      interaction = await this.createInteraction(toolInteractionConfig);
+    }
+
+    if (iterations >= maxIterations) {
+      console.warn("⚠️ [Gemini Interactions] Max tool iterations reached");
+    }
+
+    return interaction;
+  }
+
+  /**
+   * Parse interaction response - extract and parse text output
+   */
+  private parseInteractionResponse(interaction: any): AIActionResponse {
+    const textOutput = interaction.outputs?.find(
+      (output: any) => output.type === "text"
+    );
+
+    const responseText = textOutput?.text || "{}";
+
+    try {
+      const cleanedText = responseText.replace(/```json\n?|\n?```/g, "").trim();
+      const jsonText = extractJsonFromResponse(cleanedText);
+      const parsed = JSON.parse(jsonText);
+      return normalizeAiResponse(parsed, jsonText);
+    } catch (e) {
+      // When tools are enabled, plain text is expected
+      if (ENABLE_MEMORY_TOOLS) {
+        return {
+          text_response: responseText,
+          action_id: null,
+        };
+      } else {
+        console.warn(
+          "Failed to parse Gemini JSON (tools disabled but got plain text):",
+          responseText
+        );
+        return {
+          text_response: responseText,
+          action_id: null,
+        };
+      }
+    }
+  }
+
+  // ============================================
+  // PUBLIC METHODS
+  // ============================================
+
   protected async callProvider(
     systemPrompt: string,
     userMessage: UserContent,
@@ -278,204 +478,34 @@ export class GeminiService extends BaseAIService {
 
     // Add memory tools if enabled
     // Interactions API requires each function to have type: 'function' directly in tools array
-    interactionConfig.tools = GeminiMemoryToolDeclarations.map((func) => ({
-      type: "function", // Required by Interactions API
-      name: func.name,
-      description: func.description,
-      parameters: func.parameters,
-    }));
+    interactionConfig.tools = this.buildMemoryTools();
     console.log("🧠 [Gemini Interactions] Memory tools enabled");
 
     // Create interaction
-    let interaction;
-    try {
-      // Use Vite's built-in proxy (development only)
-      console.log("🔄 [Gemini Interactions] Using Vite proxy (development)");
-      const proxyUrl = `${VITE_PROXY_BASE}/v1beta/interactions?key=${GEMINI_API_KEY}`;
-      const response = await fetch(proxyUrl, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(interactionConfig),
-      });
+    let interaction = await this.createInteraction(interactionConfig);
 
-      if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`Proxy error: ${response.statusText} - ${errorText}`);
-      }
-
-      interaction = await response.json();
-    } catch (error: any) {
-      // Check for CORS or connection errors
-      // CORS is expected - Google intentionally blocks browser calls for security
-      const errorMessage = String(error?.message || "");
-      const errorName = String(error?.name || error?.constructor?.name || "");
-      const errorCode = String(error?.code || "");
-      const errorString = String(error || "");
-
-      // Check for various CORS/connection error indicators
-      const isConnectionError =
-        errorMessage.includes("CORS") ||
-        errorMessage.includes("Failed to fetch") ||
-        errorMessage.includes("Connection error") ||
-        errorMessage.includes("APIConnectionError") ||
-        errorCode === "APIConnectionError" ||
-        errorName === "APIConnectionError" ||
-        errorString.includes("CORS") ||
-        errorString.includes("Failed to fetch");
-
-      if (isConnectionError) {
-        console.warn(
-          "⚠️ [Gemini Interactions] CORS error detected (expected)."
-        );
-        console.warn(
-          "⚠️ [Gemini Interactions] Google blocks browser calls for security."
-        );
-        console.warn("⚠️ [Gemini Interactions] Solutions:");
-        console.warn("   1. Set VITE_GEMINI_PROXY_URL to use a server proxy");
-        console.warn(
-          "   2. Keep VITE_USE_GEMINI_INTERACTIONS_API=false (use old API)"
-        );
-        console.warn(
-          "⚠️ [Gemini Interactions] Falling back to old Chat API (works reliably from browser)."
-        );
-      }
-      // Re-throw other errors
-      throw error;
-    }
-
-    // Handle tool calling loop (similar to old code but with Interactions API)
-    const MAX_TOOL_ITERATIONS = 3;
-    let iterations = 0;
-
-    while (interaction.outputs && iterations < MAX_TOOL_ITERATIONS) {
-      // Find function calls in outputs
-      const functionCalls = interaction.outputs.filter(
-        (output: any) => output.type === "function_call"
-      );
-
-      if (functionCalls.length === 0) break;
-
-      iterations++;
-      console.log(
-        `🔧 [Gemini Interactions] Tool call iteration ${iterations}:`,
-        functionCalls.map((fc: any) => fc.name)
-      );
-
-      // Execute all tool calls
-      const toolResults = await Promise.all(
-        functionCalls.map(async (functionCall: any) => {
-          const toolName = functionCall.name as MemoryToolName;
-          const toolArgs = functionCall.arguments || {};
-
-          console.log(
-            `🔧 [Gemini Interactions] Executing tool: ${toolName}`,
-            toolArgs
-          );
-
-          const toolResult = await executeMemoryTool(
-            toolName,
-            toolArgs,
-            userId,
-            {
-              googleAccessToken: options?.googleAccessToken,
-              currentEvents: options?.upcomingEvents,
-            }
-          );
-
-          return {
-            type: "function_result",
-            name: toolName,
-            call_id: functionCall.id,
-            result: toolResult,
-          };
-        })
-      );
-
-      // Continue interaction with tool results
-      // CRITICAL: Must include system_instruction again! The API doesn't persist it.
-      // Without this, the AI forgets its character identity after tool calls.
-      const toolInteractionConfig = {
-        model: this.model,
-        previous_interaction_id: interaction.id,
-        input: toolResults,
-        system_instruction: systemPrompt, // Re-send character identity!
-        // safety_settings: safetySettings,
-        tools: interactionConfig.tools, // Re-send available tools (like selfie_action)
-      };
-      if (USE_VITE_PROXY) {
-        // Use Vite's built-in proxy (development only)
-        const proxyUrl = `${VITE_PROXY_BASE}/v1beta/interactions?key=${GEMINI_API_KEY}`;
-        const response = await fetch(proxyUrl, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(toolInteractionConfig),
-        });
-        interaction = await response.json();
-      } else if (GEMINI_PROXY_URL) {
-        // Use external server proxy (if configured)
-        const response = await fetch(GEMINI_PROXY_URL, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(toolInteractionConfig),
-        });
-        interaction = await response.json();
-      } else {
-        console.log("GATES interactions.create 22222 ");
-        interaction = await ai.interactions.create(toolInteractionConfig);
-      }
-    }
-
-    if (iterations >= MAX_TOOL_ITERATIONS) {
-      console.warn("⚠️ [Gemini Interactions] Max tool iterations reached");
-    }
-
-    // Extract text response from outputs
-    const textOutput = interaction.outputs?.find(
-      (output: any) => output.type === "text"
+    // Handle tool calling loop
+    const finalInteraction = await this.continueInteractionWithTools(
+      interaction,
+      interactionConfig,
+      systemPrompt,
+      userId,
+      options,
+      3 // MAX_TOOL_ITERATIONS
     );
 
-    const responseText = textOutput?.text || "{}";
-
-    // Parse response (same as old code)
-    // Note: When tools are enabled, responses are plain text, not JSON
-    let structuredResponse: AIActionResponse;
-    try {
-      // Clean markdown code blocks and extract JSON (handles text-before-JSON bug)
-      const cleanedText = responseText.replace(/```json\n?|\n?```/g, "").trim();
-      const jsonText = extractJsonFromResponse(cleanedText);
-      const parsed = JSON.parse(jsonText);
-      structuredResponse = normalizeAiResponse(parsed, jsonText);
-    } catch (e) {
-      // If parsing fails, it's likely plain text (expected when tools are used)
-      // This is normal behavior - tools require text responses, not JSON
-      if (ENABLE_MEMORY_TOOLS) {
-        // Tools were used, plain text is expected
-        structuredResponse = {
-          text_response: responseText,
-          action_id: null,
-        };
-      } else {
-        // Tools not used but still got plain text - log warning
-        console.warn(
-          "Failed to parse Gemini JSON (tools disabled but got plain text):",
-          responseText
-        );
-        structuredResponse = {
-          text_response: responseText,
-          action_id: null,
-        };
-      }
-    }
+    // Parse response
+    const structuredResponse = this.parseInteractionResponse(finalInteraction);
 
     // Update session with interaction ID (critical for stateful conversations!)
     console.log("🔗 [Gemini Interactions] RESPONSE DEBUG:");
-    console.log("   - API returned interaction.id:", interaction.id);
+    console.log("   - API returned interaction.id:", finalInteraction.id);
     console.log("   - Storing this ID for next message");
 
     const updatedSession: AIChatSession = {
       userId: userId,
       model: this.model,
-      interactionId: interaction.id, // Store for next message!
+      interactionId: finalInteraction.id, // Store for next message!
     };
 
     return {
@@ -574,153 +604,23 @@ export class GeminiService extends BaseAIService {
       };
 
       // Add memory tools to personalize greeting (e.g., look up user's name)
-      // Interactions API requires each function to have type: 'function' directly in tools array
-
-      interactionConfig.tools = GeminiMemoryToolDeclarations.map((func) => ({
-        type: "function", // Required by Interactions API
-        name: func.name,
-        description: func.description,
-        parameters: func.parameters,
-      }));
+      interactionConfig.tools = this.buildMemoryTools();
 
       // Create interaction
-      let interaction;
-      try {
-        // Use Vite's built-in proxy (development only)
-        console.log(
-          "🔄 [Gemini Interactions Greeting] Using Vite proxy (development)"
-        );
-        const proxyUrl = `${VITE_PROXY_BASE}/v1beta/interactions?key=${GEMINI_API_KEY}`;
-        const response = await fetch(proxyUrl, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(interactionConfig),
-        });
-
-        if (!response.ok) {
-          const errorText = await response.text();
-          throw new Error(`Proxy error: ${response.statusText} - ${errorText}`);
-        }
-
-        interaction = await response.json();
-      } catch (error: any) {
-        // Check for CORS or connection errors (Interactions API may not support browser calls)
-        // The Interactions API endpoint may not support direct browser calls due to CORS
-        const errorMessage = String(error?.message || "");
-        const errorName = String(error?.name || error?.constructor?.name || "");
-        const errorCode = String(error?.code || "");
-        const errorString = String(error || "");
-
-        // Check for various CORS/connection error indicators
-        const isConnectionError =
-          errorMessage.includes("CORS") ||
-          errorMessage.includes("Failed to fetch") ||
-          errorMessage.includes("Connection error") ||
-          errorMessage.includes("APIConnectionError") ||
-          errorCode === "APIConnectionError" ||
-          errorName === "APIConnectionError" ||
-          errorString.includes("CORS") ||
-          errorString.includes("Failed to fetch");
-
-        if (isConnectionError) {
-          console.warn(
-            "⚠️ [Gemini Interactions] CORS/Connection error in greeting."
-          );
-          console.warn(
-            "⚠️ [Gemini Interactions] Falling back to old Chat API."
-          );
-        }
-        // Re-throw other errors
-        throw error;
-      }
+      let interaction = await this.createInteraction(interactionConfig);
 
       // Handle tool calls for greeting (e.g., looking up user's name)
-      const MAX_TOOL_ITERATIONS = 2;
-      let iterations = 0;
-
-      while (interaction.outputs && iterations < MAX_TOOL_ITERATIONS) {
-        const functionCalls = interaction.outputs.filter(
-          (output: any) => output.type === "function_call"
-        );
-
-        if (functionCalls.length === 0) break;
-
-        iterations++;
-        console.log(
-          `🔧 [Gemini Interactions Greeting] Tool call iteration ${iterations}`
-        );
-
-        const toolResults = await Promise.all(
-          functionCalls.map(async (functionCall: any) => {
-            const toolName = functionCall.name as MemoryToolName;
-            const toolArgs = functionCall.arguments || {};
-
-            console.log(
-              `🔧 [Gemini Interactions Greeting] Executing tool: ${toolName}`,
-              toolArgs
-            );
-            const toolResult = await executeMemoryTool(
-              toolName,
-              toolArgs,
-              userId
-            );
-
-            return {
-              type: "function_result",
-              name: toolName,
-              call_id: functionCall.id,
-              result: toolResult,
-            };
-          })
-        );
-
-        // Continue interaction with tool results
-        // CRITICAL: Must include system_instruction again! The API doesn't persist it.
-        // Without this, the AI forgets its character identity after tool calls.
-        const toolInteractionConfig = {
-          model: this.model,
-          previous_interaction_id: interaction.id,
-          input: toolResults,
-          // safety_settings: safetySettings,
-          system_instruction: systemPrompt, // Re-send character identity!
-          tools: interactionConfig.tools, // Re-send available tools (like selfie_action)
-        };
-
-        // Use Vite's built-in proxy (development only)
-        const proxyUrl = `${VITE_PROXY_BASE}/v1beta/interactions?key=${GEMINI_API_KEY}`;
-        const response = await fetch(proxyUrl, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(toolInteractionConfig),
-        });
-        interaction = await response.json();
-      }
-
-      // Extract text response from outputs
-      const textOutput = interaction.outputs?.find(
-        (output: any) => output.type === "text"
+      interaction = await this.continueInteractionWithTools(
+        interaction,
+        interactionConfig,
+        systemPrompt,
+        userId,
+        undefined, // No options for greeting
+        2 // MAX_TOOL_ITERATIONS for greeting
       );
 
-      const responseText = textOutput?.text || "{}";
-      let structuredResponse: AIActionResponse;
-
-      try {
-        const cleanedText = responseText
-          .replace(/```json\n?|\n?```/g, "")
-          .trim();
-        const parsed = JSON.parse(cleanedText);
-        structuredResponse = normalizeAiResponse(parsed, cleanedText);
-      } catch (e) {
-        // When tools are enabled, plain text responses are expected (tools require text, not JSON)
-        // Only log warning if tools are disabled (unexpected plain text)
-        if (!ENABLE_MEMORY_TOOLS) {
-          console.warn(
-            "Failed to parse Gemini JSON (tools disabled but got plain text):",
-            responseText
-          );
-        }
-        structuredResponse = { text_response: responseText, action_id: null };
-      }
+      // Parse response
+      const structuredResponse = this.parseInteractionResponse(interaction);
 
       // Generate audio for greeting
       const audioData = await generateSpeech(structuredResponse.text_response);
