@@ -35,6 +35,9 @@ The system follows a "Perception -> processing -> Action" pipeline:
 *   [Kayley Presence](./KayleyPresence.md): Real-time tracking of what she's wearing/doing/feeling.
 *   [Proactive Systems](./Proactive_Systems.md): Overview of Calendar and News systems.
 *   [Loop Cleanup](./LoopCleanup.md): The "janitor" that keeps her memory from getting cluttered.
+*   [Narrative Arcs Service](./NarrativeArcsService.md): Track Kayley's ongoing life events and projects.
+*   [Dynamic Relationships Service](./DynamicRelationshipsService.md): Manage relationships with people in Kayley's life.
+*   [Story Retelling Service](./StoryRetellingService.md): Ensure consistent storytelling across conversations.
 
 ### 🎮 Features & Interaction
 *   [Interactive Features](./Interactive_Features.md): Whiteboard, games, drawing, and "Almost Moments".

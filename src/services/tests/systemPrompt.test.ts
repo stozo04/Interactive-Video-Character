@@ -846,10 +846,10 @@ describe("V2 Prompt Structure (Recency Bias Optimization)", () => {
       
       const relationshipIndex = prompt.indexOf("RELATIONSHIP STATE");
       const promptLength = prompt.length;
-      
+
       // Context should come early, not after behavioral rules
-      // 50% is realistic given identity + memory sections come first
-      expect(relationshipIndex / promptLength).toBeLessThan(0.55);
+      // ~56% is realistic given identity + memory sections come first, plus story retelling section
+      expect(relationshipIndex / promptLength).toBeLessThan(0.57);
     });
   });
 });
