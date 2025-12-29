@@ -20,6 +20,7 @@ import type {
 import { getActionKeysForPrompt } from "../../../utils/actionKeyMapper";
 import { formatCharacterFactsForPrompt } from "../../characterFactsService";
 import { formatArcsForPrompt } from "../../narrativeArcsService";
+import { formatDynamicRelationshipsForPrompt } from "../../dynamicRelationshipsService";
 
 import type { SoulLayerContext } from "../types";
 
@@ -111,6 +112,7 @@ export const buildSystemPrompt = async (
   let soulContext: SoulLayerContext;
   let characterFactsPrompt: string;
   let narrativeArcsPrompt: string;
+  let dynamicRelationshipsPrompt: string;
 
   if (prefetchedContext) {
     // Use pre-fetched data (saves ~300ms)
@@ -118,13 +120,15 @@ export const buildSystemPrompt = async (
     soulContext = prefetchedContext.soulContext;
     characterFactsPrompt = prefetchedContext.characterFacts;
     narrativeArcsPrompt = prefetchedContext.narrativeArcs;
+    dynamicRelationshipsPrompt = prefetchedContext.dynamicRelationships || "";
   } else {
     // Fallback: Fetch if not pre-fetched (still in parallel for safety)
     console.log("⚠️ [buildSystemPrompt] No pre-fetched context, fetching now");
-    [soulContext, characterFactsPrompt, narrativeArcsPrompt] = await Promise.all([
+    [soulContext, characterFactsPrompt, narrativeArcsPrompt, dynamicRelationshipsPrompt] = await Promise.all([
       getSoulLayerContextAsync(effectiveUserId),
       formatCharacterFactsForPrompt(),
       formatArcsForPrompt(effectiveUserId),
+      formatDynamicRelationshipsForPrompt(effectiveUserId),
     ]);
   }
 
@@ -174,6 +178,7 @@ YOUR IDENTITY (Source of Truth)
 ${KAYLEY_FULL_PROFILE}
 ${characterFactsPrompt}
 ${narrativeArcsPrompt}
+${dynamicRelationshipsPrompt}
 
 ${buildSelfKnowledgeSection(display, CHARACTER_COLLECTION_ID)}
 ${buildToolsSection()}

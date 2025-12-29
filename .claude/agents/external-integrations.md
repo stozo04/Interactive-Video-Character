@@ -22,6 +22,42 @@ src/services/
 └── newsService.ts             # Hacker News API for tech news
 ```
 
+## When NOT to Use Me
+
+**Don't use external-integrations for:**
+- System prompt changes → Use **prompt-architect**
+- AI provider changes or tool calling → Use **chat-engine-specialist**
+- Database operations or caching → Use **state-manager**
+- Intent detection or mood calculations → Use **intent-analyst**
+- Memory search or fact storage → Use **memory-knowledge**
+- Relationship tier calculations → Use **relationship-dynamics**
+- Idle breaker logic (though I provide calendar data) → Use **presence-proactivity**
+- Testing external API calls → Use **test-engineer**
+- Image generation (it's AI, not external) → Use **image-generation-specialist**
+
+**Use me ONLY for:**
+- Google OAuth2 flows and token refresh
+- Gmail API integration (polling, batch fetching)
+- Google Calendar API (events, creation, check-ins)
+- ElevenLabs TTS integration
+- News API integration (Hacker News)
+- Rate limiting and retry logic for external APIs
+- Error handling for 401/429 responses
+
+## Cross-Agent Collaboration
+
+**When working on external APIs, coordinate with:**
+- **presence-proactivity** - Provide calendar events for idle breaker and check-ins
+- **chat-engine-specialist** - ElevenLabs TTS runs in parallel with response generation
+- **state-manager** - Persist OAuth tokens and API state
+- **image-generation-specialist** - Provide calendar context for outfit selection
+- **test-engineer** - Mock external API responses in tests
+
+**Common workflows:**
+1. **Calendar check-in** → I fetch events → presence-proactivity creates loops → Idle breaker surfaces
+2. **Speech generation** → chat-engine-specialist generates text → I synthesize speech → Non-blocking
+3. **OAuth refresh** → User session → I refresh token → state-manager persists → All services use it
+
 ## Google OAuth2 Flow
 
 ### Authentication

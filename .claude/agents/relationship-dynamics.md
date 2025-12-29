@@ -25,6 +25,27 @@ src/services/
     └── integrate.ts            # Integration with system prompt
 ```
 
+## When NOT to Use Me
+
+**Don't use relationship-dynamics for:**
+- System prompt tier behavior rules → Use **prompt-architect**
+- AI provider changes → Use **chat-engine-specialist**
+- Database schema for relationship tables → Use **state-manager**
+- Intent detection for relationship signals → Use **intent-analyst**
+- User facts or memory search → Use **memory-knowledge**
+- Idle breaker selection → Use **presence-proactivity**
+- Testing relationship calculations → Use **test-engineer**
+- External APIs → Use **external-integrations**
+
+**Use me ONLY for:**
+- Relationship tier calculation and progression
+- Warmth/trust/playfulness dimension tracking
+- Rupture detection and response strategies
+- Milestone detection and recording
+- User pattern detection and surfacing rules
+- Almost moments system (unsaid feelings)
+- Relationship event recording and metrics
+
 ## Relationship Tiers
 
 6 tiers define what Kayley can do/say:

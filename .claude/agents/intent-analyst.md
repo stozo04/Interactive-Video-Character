@@ -18,6 +18,40 @@ src/services/
 └── moodKnobs.ts          # ~37KB - Mood → behavior parameters
 ```
 
+## When NOT to Use Me
+
+**Don't use intent-analyst for:**
+- System prompt modifications → Use **prompt-architect**
+- AI provider changes or response flow → Use **chat-engine-specialist**
+- Database operations or state persistence → Use **state-manager**
+- Memory search or fact storage → Use **memory-knowledge**
+- Relationship tier calculations → Use **relationship-dynamics**
+- Open loop management or idle breakers → Use **presence-proactivity**
+- Testing intent detection → Use **test-engineer**
+- External APIs → Use **external-integrations**
+
+**Use me ONLY for:**
+- Intent detection logic and LLM prompts
+- Tone, sentiment, and emotion analysis
+- Mood knobs calculation and thresholds
+- Emotional momentum tracking
+- Genuine moment detection
+- Fast-path bypass patterns for functional commands
+
+## Cross-Agent Collaboration
+
+**When working on intent detection, coordinate with:**
+- **chat-engine-specialist** - Intent is passed to response generation; optimize together
+- **prompt-architect** - Intent informs system prompt context (mood, vulnerability level)
+- **relationship-dynamics** - Provide relationship signals for tier/rupture calculations
+- **presence-proactivity** - Provide open loop signals for loop detection
+- **test-engineer** - For mocking intent detection in tests
+
+**Common workflows:**
+1. **New intent signal** → I detect it → relationship-dynamics uses it → prompt-architect includes context
+2. **Mood changes** → I calculate knobs → prompt-architect applies to prompt → Behavior changes
+3. **Performance issue** → chat-engine-specialist optimizes parallel calls → I ensure intent caching works
+
 ## Core Concepts
 
 ### FullMessageIntent Structure

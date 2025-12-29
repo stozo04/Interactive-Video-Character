@@ -20,6 +20,41 @@ src/services/
 └── prefetchService.ts      # Idle prefetching for fast responses
 ```
 
+## When NOT to Use Me
+
+**Don't use presence-proactivity for:**
+- System prompt modifications → Use **prompt-architect**
+- AI provider changes → Use **chat-engine-specialist**
+- Database schema or state tables → Use **state-manager**
+- Intent detection or mood calculations → Use **intent-analyst**
+- User facts or memory search → Use **memory-knowledge**
+- Relationship tier progression → Use **relationship-dynamics**
+- Testing idle breaker logic → Use **test-engineer**
+- Calendar or Gmail integration → Use **external-integrations**
+
+**Use me ONLY for:**
+- Open loop detection and management
+- Ongoing threads (mental weather) creation and decay
+- Idle breaker topic selection (4-tier priority)
+- Callback director (micro-memory references)
+- Loop cleanup service (expiration, deduplication)
+- Prefetch service for performance optimization
+
+## Cross-Agent Collaboration
+
+**When working on proactivity, coordinate with:**
+- **intent-analyst** - Consumes open loop signals from intent detection
+- **chat-engine-specialist** - Idle breaker selection feeds into response generation
+- **memory-knowledge** - Ongoing threads reference narrative arcs and character facts
+- **external-integrations** - Calendar check-ins use calendar events for context
+- **relationship-dynamics** - Loop salience affected by relationship tier
+- **test-engineer** - For testing loop cleanup and idle breaker logic
+
+**Common workflows:**
+1. **Open loop** → intent-analyst detects → I store and track → Surfaces in idle breaker
+2. **Calendar event** → external-integrations provides → I create loop → Idle breaker reminds user
+3. **Thread decay** → I manage salience → prompt-architect includes active threads → Feels alive
+
 ## Core Concepts
 
 ### Open Loops

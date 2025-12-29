@@ -185,6 +185,26 @@ Run all tests before merging prompt changes:
 npm test -- --run
 ```
 
+## Adding New LLM Tools
+
+When adding a new tool that the AI can call (like `manage_narrative_arc` or `manage_dynamic_relationship`), you **MUST** follow the **8-step integration checklist**:
+
+**📋 See**: [`docs/Tool_Integration_Checklist.md`](docs/Tool_Integration_Checklist.md) for the complete step-by-step guide.
+
+**The 8 Critical Integration Points**:
+1. `memoryService.ts` - Add to MemoryToolName, ToolCallArgs, executeMemoryTool()
+2. `aiSchema.ts` - Add to GeminiMemoryToolDeclarations
+3. `aiSchema.ts` - Add to MemoryToolArgs union (**DON'T FORGET**)
+4. `aiSchema.ts` - Add to PendingToolCall.name union (**DON'T FORGET**)
+5. `aiSchema.ts` - Add to OpenAIMemoryToolDeclarations (if using OpenAI)
+6. `toolsAndCapabilities.ts` - Add documentation with examples
+7. `systemPromptBuilder.ts` - Add context injection (if needed)
+8. Snapshot tests - Update with `-u` flag
+
+**Common Mistakes**:
+- ❌ Forgetting steps 3 or 4 → Type errors and runtime failures
+- ❌ Skipping snapshot updates → Tests fail
+
 ## File Organization
 
 ```

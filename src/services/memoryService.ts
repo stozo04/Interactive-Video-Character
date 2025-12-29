@@ -47,6 +47,29 @@ const DEFAULT_MEMORY_LIMIT = 5;
 const DEFAULT_RECENT_CONTEXT_COUNT = 6; // Last 3 exchanges (user + model)
 
 // ============================================
+// Utility Functions
+// ============================================
+
+/**
+ * Sanitizes text to ensure it's safe for Gemini Interactions API.
+ * Removes complex emojis (especially those with skin tone modifiers)
+ * that cause UTF-8 encoding issues.
+ */
+function sanitizeForGemini(text: string): string {
+  // Remove emojis with skin tone modifiers (they cause UTF-8 issues)
+  // Skin tone modifiers are in the range U+1F3FB to U+1F3FF
+  let sanitized = text.replace(/[\u{1F3FB}-\u{1F3FF}]/gu, '');
+
+  // Optionally, you can also remove all emojis entirely:
+  // sanitized = sanitized.replace(/[\u{1F300}-\u{1F9FF}]/gu, '');
+
+  // Ensure the result is valid UTF-8 by removing any remaining problematic characters
+  sanitized = sanitized.replace(/[\uD800-\uDFFF]/g, '');
+
+  return sanitized;
+}
+
+// ============================================
 // Memory Search Functions
 // ============================================
 
@@ -386,7 +409,7 @@ export const formatFactsForAI = (facts: UserFact[]): string => {
 // Tool Execution Handler
 // ============================================
 
-export type MemoryToolName = 'recall_memory' | 'recall_user_info' | 'store_user_info' | 'task_action' | 'calendar_action' | 'store_character_info' | 'manage_narrative_arc';
+export type MemoryToolName = 'recall_memory' | 'recall_user_info' | 'store_user_info' | 'task_action' | 'calendar_action' | 'store_character_info' | 'manage_narrative_arc' | 'manage_dynamic_relationship';
 
 /**
  * Optional context passed to tool execution (e.g., access tokens)
@@ -438,6 +461,16 @@ export interface ToolCallArgs {
     event?: string;
     resolution?: string;
     reason?: string;
+  };
+  manage_dynamic_relationship: {
+    action: 'update_kayley_relationship' | 'log_kayley_event' | 'update_user_feeling' | 'mention_to_user';
+    person_key: 'lena' | 'ethan' | 'mom';
+    relationship_status?: string;
+    event?: string;
+    warmth_change?: number;
+    trust_change?: number;
+    familiarity_change?: number;
+    sentiment?: 'positive' | 'neutral' | 'negative';
   };
 }
 
@@ -570,9 +603,9 @@ export const executeMemoryTool = async (
             );
             if (taskToDelete) {
               await deleteTask(taskToDelete.id);
-              return `✓ Deleted task: "${taskToDelete.text}"`;
+              return sanitizeForGemini(`✓ Deleted task: "${taskToDelete.text}"`);
             }
-            return `Could not find a task matching "${task_text}".`;
+            return sanitizeForGemini(`Could not find a task matching "${task_text}"`);
           }
           
           case 'list': {
@@ -628,7 +661,7 @@ export const executeMemoryTool = async (
               });
               
               console.log('📅 Created calendar event:', newEvent);
-              return `✓ Created calendar event: "${summary}"`;
+              return sanitizeForGemini(`✓ Created calendar event: "${summary}"`);
             } catch (error) {
               console.error('Calendar create error:', error);
               return `Error creating calendar event: ${error instanceof Error ? error.message : 'Unknown error'}`;
@@ -743,6 +776,61 @@ export const executeMemoryTool = async (
 
           default:
             return `Unknown narrative arc action: ${action}`;
+        }
+      }
+
+      case 'manage_dynamic_relationship': {
+        const dynamicRelService = await import('./dynamicRelationshipsService');
+        const relArgs = args as ToolCallArgs['manage_dynamic_relationship'];
+        const { action, person_key, relationship_status, event, warmth_change, trust_change, familiarity_change, sentiment } = relArgs;
+
+        switch (action) {
+          case 'update_kayley_relationship': {
+            if (!relationship_status) {
+              return 'Error: relationship_status is required for updating Kayley\'s relationship.';
+            }
+            const success = await dynamicRelService.updatePersonStatus(person_key, relationship_status);
+            return success
+              ? `✓ Updated Kayley's relationship with ${person_key}: ${relationship_status}`
+              : `Failed to update Kayley's relationship with ${person_key}.`;
+          }
+
+          case 'log_kayley_event': {
+            if (!event) {
+              return 'Error: event is required for logging a life event.';
+            }
+            const success = await dynamicRelService.updatePersonSituation(person_key, event);
+            return success
+              ? `✓ Logged event for ${person_key}: ${event}`
+              : `Failed to log event for ${person_key}.`;
+          }
+
+          case 'update_user_feeling': {
+            if (warmth_change === undefined && trust_change === undefined && familiarity_change === undefined) {
+              return 'Error: At least one score change is required.';
+            }
+            const updated = await dynamicRelService.updateUserPersonScores(userId, person_key, {
+              warmthChange: warmth_change,
+              trustChange: trust_change,
+              familiarityChange: familiarity_change
+            });
+            return updated
+              ? `✓ Updated user's feelings about ${person_key} (warmth: ${updated.warmthScore}, trust: ${updated.trustScore}, familiarity: ${updated.familiarityScore})`
+              : `Failed to update user's feelings about ${person_key}.`;
+          }
+
+          case 'mention_to_user': {
+            if (!event) {
+              return 'Error: event is required for mentioning to user.';
+            }
+            const success = await dynamicRelService.logUserPersonEvent(userId, person_key, event, sentiment);
+            return success
+              ? `✓ Logged mention of ${person_key} to user: ${event}`
+              : `Failed to log mention of ${person_key}.`;
+          }
+
+          default:
+            return `Unknown dynamic relationship action: ${action}`;
         }
       }
 
