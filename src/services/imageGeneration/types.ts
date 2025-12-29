@@ -77,6 +77,9 @@ export interface ReferenceSelectionContext {
   mood?: string;
   outfitHint?: string;
 
+  // User's original message for hairstyle detection
+  userMessage?: string;
+
   // Temporal context
   temporalContext: SelfieTemporalContext;
   currentLookState: CurrentLookState | null;
