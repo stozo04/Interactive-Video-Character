@@ -483,5 +483,156 @@ describe('referenceSelector', () => {
       // Should include final selection
       expect(result.reasoning.some(r => r.includes('🎯 SELECTED'))).toBe(true);
     });
+
+    it('should boost straight hair when explicitly requested in scene', () => {
+      const context: ReferenceSelectionContext = {
+        scene: 'with straight hair at home',
+        currentSeason: 'winter',
+        timeOfDay: 'afternoon',
+        currentLocation: null,
+        upcomingEvents: [],
+        recentReferenceHistory: [],
+        currentLookState: null,
+        temporalContext: { isOldPhoto: false, temporalPhrases: [] },
+      };
+
+      const result = selectReferenceImage(context);
+
+      // straight_dressed_up should win due to massive boost
+      expect(result.referenceId).toBe('straight_dressed_up');
+      expect(result.reasoning.some(r => r.includes('+100 explicit straight hair request'))).toBe(true);
+    });
+
+    it('should boost straight hair when explicitly requested in user message', () => {
+      const context: ReferenceSelectionContext = {
+        scene: 'at home',
+        userMessage: 'Show me a pic! I would love to see you with straight hair',
+        currentSeason: 'winter',
+        timeOfDay: 'afternoon',
+        currentLocation: null,
+        upcomingEvents: [],
+        recentReferenceHistory: [],
+        currentLookState: null,
+        temporalContext: { isOldPhoto: false, temporalPhrases: [] },
+      };
+
+      const result = selectReferenceImage(context);
+
+      // straight_dressed_up should win due to massive boost from user message
+      expect(result.referenceId).toBe('straight_dressed_up');
+      expect(result.reasoning.some(r => r.includes('+100 explicit straight hair request'))).toBe(true);
+    });
+
+    it('should penalize curly hair when straight hair is requested', () => {
+      const context: ReferenceSelectionContext = {
+        scene: 'at cafe',
+        userMessage: 'I want to see you with straight hair',
+        currentSeason: 'winter',
+        timeOfDay: 'morning',
+        currentLocation: null,
+        upcomingEvents: [],
+        recentReferenceHistory: [],
+        currentLookState: null,
+        temporalContext: { isOldPhoto: false, temporalPhrases: [] },
+      };
+
+      const result = selectReferenceImage(context);
+
+      expect(result.referenceId).toBe('straight_dressed_up');
+      // Check that curly options got penalized
+      expect(result.reasoning.some(r => r.includes('-80 curly hair (user wants straight)'))).toBe(true);
+    });
+
+    it('should boost curly hair when explicitly requested', () => {
+      const context: ReferenceSelectionContext = {
+        scene: 'at home with natural hair',
+        currentSeason: 'winter',
+        timeOfDay: 'afternoon',
+        currentLocation: null,
+        upcomingEvents: [],
+        recentReferenceHistory: [],
+        currentLookState: null,
+        temporalContext: { isOldPhoto: false, temporalPhrases: [] },
+      };
+
+      const result = selectReferenceImage(context);
+
+      // curly_casual should win due to massive boost
+      expect(result.referenceId).toBe('curly_casual');
+      expect(result.reasoning.some(r => r.includes('+100 explicit curly hair request'))).toBe(true);
+    });
+
+    it('should boost messy_bun when bun is requested', () => {
+      const context: ReferenceSelectionContext = {
+        scene: 'at home with hair up',
+        currentSeason: 'summer',
+        timeOfDay: 'morning',
+        currentLocation: null,
+        upcomingEvents: [],
+        recentReferenceHistory: [],
+        currentLookState: null,
+        temporalContext: { isOldPhoto: false, temporalPhrases: [] },
+      };
+
+      const result = selectReferenceImage(context);
+
+      expect(result.referenceId).toBe('messy_bun_casual');
+      expect(result.reasoning.some(r => r.includes('+80 explicit bun/updo request'))).toBe(true);
+    });
+
+    it('should bypass locked look when explicit hairstyle request differs', () => {
+      const context: ReferenceSelectionContext = {
+        scene: 'at home',
+        userMessage: 'Show me a pic with straight hair',
+        currentSeason: 'winter',
+        timeOfDay: 'afternoon',
+        currentLocation: null,
+        upcomingEvents: [],
+        recentReferenceHistory: [],
+        currentLookState: {
+          hairstyle: 'curly',
+          referenceImageId: 'curly_casual',
+          lockedAt: new Date(Date.now() - 60 * 60 * 1000), // 1 hour ago
+          expiresAt: new Date(Date.now() + 23 * 60 * 60 * 1000), // 23 hours from now
+          lockReason: 'explicit_now_selfie',
+          isCurrentLook: true,
+        },
+        temporalContext: { isOldPhoto: false, temporalPhrases: [] },
+      };
+
+      const result = selectReferenceImage(context);
+
+      // Should bypass locked curly look and select straight hair
+      expect(result.referenceId).toBe('straight_dressed_up');
+      expect(result.reasoning.some(r => r.includes('🔓 EXPLICIT HAIRSTYLE REQUEST'))).toBe(true);
+      expect(result.reasoning.some(r => r.includes('bypassing locked look'))).toBe(true);
+    });
+
+    it('should keep locked look when explicit request matches locked hairstyle', () => {
+      const context: ReferenceSelectionContext = {
+        scene: 'at home',
+        userMessage: 'Show me another pic with curly hair',
+        currentSeason: 'winter',
+        timeOfDay: 'afternoon',
+        currentLocation: null,
+        upcomingEvents: [],
+        recentReferenceHistory: [],
+        currentLookState: {
+          hairstyle: 'curly',
+          referenceImageId: 'curly_casual',
+          lockedAt: new Date(Date.now() - 60 * 60 * 1000),
+          expiresAt: new Date(Date.now() + 23 * 60 * 60 * 1000),
+          lockReason: 'explicit_now_selfie',
+          isCurrentLook: true,
+        },
+        temporalContext: { isOldPhoto: false, temporalPhrases: [] },
+      };
+
+      const result = selectReferenceImage(context);
+
+      // Should use locked look since request matches
+      expect(result.referenceId).toBe('curly_casual');
+      expect(result.reasoning.some(r => r.includes('Using locked current look'))).toBe(true);
+    });
   });
 });

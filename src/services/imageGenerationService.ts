@@ -223,6 +223,7 @@ export async function generateCompanionSelfie(
           scene: request.scene,
           mood: request.mood,
           outfitHint: request.outfitHint,
+          userMessage: request.userMessage,
           presenceOutfit: request.presenceOutfit,
           presenceMood: request.presenceMood,
           upcomingEvents: request.upcomingEvents || [],
@@ -284,9 +285,15 @@ export async function generateCompanionSelfie(
     // IMAGE GENERATION
     // ====================================
 
-    // 1. Build the prompt
+    // 1. Clean scene description - remove hairstyle TYPE mentions only (keep style variations like "in a bun")
+    const cleanedScene = request.scene
+      .replace(/with (perfectly |super |really )?(straight|curly|wavy) hair(?! (up|down|in a bun|in a ponytail))/gi, '')
+      .replace(/(straight|curly|wavy)[\s-]haired?/gi, '')
+      .trim();
+
+    // 2. Build the prompt
     const moodDescription = buildMoodDescription(request.mood);
-    let fullPrompt = buildImagePrompt(request.scene, "outfit", moodDescription);
+    let fullPrompt = buildImagePrompt(cleanedScene, "outfit", moodDescription);
 
     const parts: any[] = [];
 
@@ -294,10 +301,10 @@ export async function generateCompanionSelfie(
     const cleanRef = cleanBase64(selectedReferenceBase64);
 
     if (cleanRef) {
-      console.log("📸 [ImageGen] Attaching reference face for consistency");
+      console.log("📸 [ImageGen] Attaching reference for style consistency");
 
-      // Strong instruction for identity preservation
-      fullPrompt = `Use the provided reference image to maintain the exact facial features and identity of the woman. ${fullPrompt}`;
+      // Reference guidance: maintain face/hair from reference, vary outfit/pose/scene
+      fullPrompt = `Use the provided reference image to match the woman's face, hairstyle, and overall look as closely as possible. Allow for different outfits, poses, and scenes as described in the prompt. ${fullPrompt}`;
 
       parts.push({
         inlineData: {
@@ -460,9 +467,9 @@ function buildImagePrompt(
   );
 
   // A. PERSPECTIVE: Mirror selfie vs. Direct selfie
-  // Example (download (4).jpg) looks like a mirror shot
+  // Note: Phone is implied by the arm position, not shown in frame
   const perspective = isCasualScene
-    ? "A casual mirror selfie taken in a bedroom mirror, with the phone and camera interface partially visible in the reflection."
+    ? "A casual mirror selfie taken in a bedroom mirror."
     : "A handheld smartphone selfie with a slight hand-held tilt.";
 
   // B. TEXTURE: Force Gemini to stop the "AI airbrushing"
@@ -482,7 +489,7 @@ function buildImagePrompt(
     `The lighting is ${lightingDescription}.`,
     skinAndHair,
     cameraVibe,
-    "Her arm is visible at the edge of the frame to anchor the selfie perspective.",
+    "One arm is extended out of frame holding the phone (taking the selfie), visible only at the edge of the frame. The other hand is free and naturally posed - touching her hair, making a peace sign, resting on her hip, giving a thumbs up, or in a playful gesture. CRITICAL: No phone is visible in the image because the phone is being held by the extended arm outside the frame.",
   ].join(" ");
 }
 

@@ -9,6 +9,31 @@ import { REFERENCE_IMAGE_REGISTRY, getReferenceImageContent } from '../../utils/
 import { shouldUnlockCurrentLook } from './temporalDetection';
 
 /**
+ * Detect explicit hairstyle request from context
+ */
+function detectExplicitHairstyleRequest(context: ReferenceSelectionContext): {
+  requested: boolean;
+  hairstyle: 'straight' | 'curly' | 'messy_bun' | null;
+  source: string;
+} {
+  const sceneLower = context.scene.toLowerCase();
+  const userMessageLower = (context.userMessage || '').toLowerCase();
+  const combinedContext = `${sceneLower} ${userMessageLower}`;
+
+  if (combinedContext.includes('straight hair') || combinedContext.includes('straighten')) {
+    return { requested: true, hairstyle: 'straight', source: combinedContext };
+  }
+  if (combinedContext.includes('curly hair') || combinedContext.includes('natural hair') || combinedContext.includes('with curls')) {
+    return { requested: true, hairstyle: 'curly', source: combinedContext };
+  }
+  if (combinedContext.includes('bun') || combinedContext.includes('hair up')) {
+    return { requested: true, hairstyle: 'messy_bun', source: combinedContext };
+  }
+
+  return { requested: false, hairstyle: null, source: '' };
+}
+
+/**
  * Select the best reference image for the given context
  */
 export function selectReferenceImage(
@@ -24,11 +49,28 @@ export function selectReferenceImage(
     });
   }
 
-  // STEP 1: Check if we should use locked current look
-  const useLocked = !shouldUnlockCurrentLook(
-    context.temporalContext,
-    context.currentLookState
-  );
+  // STEP 0: Check for explicit hairstyle request (takes priority over locked look)
+  const hairstyleRequest = detectExplicitHairstyleRequest(context);
+  if (hairstyleRequest.requested && context.currentLookState) {
+    // Check if user is requesting a DIFFERENT hairstyle than what's locked
+    const lockedHairstyle = context.currentLookState.hairstyle;
+    if (hairstyleRequest.hairstyle !== lockedHairstyle) {
+      reasoning.push(`🔓 EXPLICIT HAIRSTYLE REQUEST: User wants ${hairstyleRequest.hairstyle}, bypassing locked look (${lockedHairstyle})`);
+      reasoning.push(`Request detected in: "${hairstyleRequest.source.substring(0, 50)}..."`);
+      // Skip locked look check - fall through to normal selection
+    }
+  }
+
+  // STEP 1: Check if we should use locked current look (unless explicit hairstyle request overrides)
+  const shouldBypassLock = hairstyleRequest.requested &&
+                           context.currentLookState &&
+                           hairstyleRequest.hairstyle !== context.currentLookState.hairstyle;
+
+  const useLocked = !shouldBypassLock &&
+                    !shouldUnlockCurrentLook(
+                      context.temporalContext,
+                      context.currentLookState
+                    );
 
   if (useLocked && context.currentLookState) {
     reasoning.push(`Using locked current look: ${context.currentLookState.hairstyle}`);
@@ -173,6 +215,57 @@ function scoreReference(
   if (nearbyFormalEvents.length > 0 && ref.outfitStyle === 'dressed_up') {
     score += 60; // Strong boost to override base frequency and scene mismatch
     factors.push(`+60 nearby formal event (${nearbyFormalEvents[0].title})`);
+  }
+
+  // FACTOR 8: Explicit hairstyle request from scene/context OR user message
+  const sceneLowerForHair = context.scene.toLowerCase();
+  const userMessageLower = (context.userMessage || '').toLowerCase();
+  const combinedContext = `${sceneLowerForHair} ${userMessageLower}`;
+
+  // Check for combined requests (e.g., "straight hair in a bun")
+  const hasStraightRequest = combinedContext.includes('straight hair') || combinedContext.includes('straighten');
+  const hasCurlyRequest = combinedContext.includes('curly hair') || combinedContext.includes('natural hair') || combinedContext.includes('with curls');
+  const hasBunRequest = combinedContext.includes('bun') || combinedContext.includes('hair up') || combinedContext.includes('in a ponytail');
+
+  // Handle "straight hair in a bun" - boost straight_bun_casual
+  if (hasStraightRequest && hasBunRequest) {
+    if (ref.id.includes('straight') && ref.id.includes('bun')) {
+      score += 120; // Extra boost for matching both criteria
+      factors.push('+120 straight hair in bun (combined match)');
+    } else if (ref.hairstyle === 'straight') {
+      score += 50; // Partial boost for straight hair down
+      factors.push('+50 straight hair (partial match, wants bun)');
+    } else if (ref.hairstyle === 'curly') {
+      score -= 80;
+      factors.push('-80 curly hair (user wants straight in bun)');
+    }
+  }
+  // Handle regular straight hair request
+  else if (hasStraightRequest) {
+    if (ref.hairstyle === 'straight') {
+      score += 100;
+      factors.push('+100 explicit straight hair request');
+    } else if (ref.hairstyle === 'curly') {
+      score -= 80;
+      factors.push('-80 curly hair (user wants straight)');
+    }
+  }
+  // Handle curly hair request
+  else if (hasCurlyRequest) {
+    if (ref.hairstyle === 'curly') {
+      score += 100;
+      factors.push('+100 explicit curly hair request');
+    } else if (ref.hairstyle === 'straight') {
+      score -= 80;
+      factors.push('-80 straight hair (user wants curly)');
+    }
+  }
+  // Handle bun/updo request alone
+  else if (hasBunRequest) {
+    if (ref.hairstyle === 'messy_bun') {
+      score += 80;
+      factors.push('+80 explicit bun/updo request');
+    }
   }
 
   reasoning.push(`  ${ref.id}: ${score.toFixed(1)} (${factors.join(', ')})`);
