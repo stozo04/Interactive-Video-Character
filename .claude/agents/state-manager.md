@@ -316,7 +316,8 @@ npm test -- --run
 - `src/services/docs/Performance_and_Assets.md` - Caching strategy and performance optimization
 - `src/services/docs/NarrativeArcsService.md` - Narrative arcs service and database schema
 - `src/services/docs/DynamicRelationshipsService.md` - Dynamic relationships service and dual-table design
-- `docs/NARRATIVE_ARCS_IMPLEMENTATION_SUMMARY.md` - Narrative arcs implementation guide
+- `src/services/docs/StoryRetellingService.md` - Story retelling consistency service
+- `docs/completed_features/Character_Memory_Systems_Implementation.md` - Complete implementation guide for all 3 character memory phases
 
 ### Services Documentation Hub
 - `src/services/docs/README.md` - Central documentation hub for all services

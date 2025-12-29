@@ -48,6 +48,22 @@ You are the **Image Generation Specialist** for the Interactive Video Character 
 - Image generation API calls (Imagen)
 - Reference image registry management
 
+## Cross-Agent Collaboration
+
+**When generating selfies, coordinate with:**
+- **prompt-architect** - Selfie rules defined in prompt; I handle the generation logic
+- **chat-engine-specialist** - Selfie action triggered by AI response; `shouldGenerateSelfie` flag
+- **external-integrations** - Use calendar events for outfit context (formal events → dressed_up)
+- **presence-proactivity** - Use current location/outfit from presence context
+- **intent-analyst** - Use mood for mood affinity scoring in reference selection
+- **state-manager** - Persist current look state and generation history
+- **test-engineer** - Mock LLM calls (temporal detection, context enhancement)
+
+**Common workflows:**
+1. **Selfie request** → chat-engine-specialist sets flag → I select reference → Generate with Imagen
+2. **Context detection** → I call LLM for temporal/outfit detection → Select best reference → Lock if first of day
+3. **Consistency** → User asks for "another pic" → I check locked look → Use same reference if < 1h same scene
+
 ## Key Patterns & Architecture
 
 ### 1. Multi-Reference System

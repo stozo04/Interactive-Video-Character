@@ -580,9 +580,10 @@ No database changes are involved in prompt modifications - all changes are in-me
 - [`System_Prompt_Plan.md`](./System_Prompt_Plan.md) - Original optimization plan and implementation details
 - [`Semantic_Intent_Detection.md`](./Semantic_Intent_Detection.md) - Intent service integration details
 - [`implementation/03_Almost_Moments.md`](./implementation/03_Almost_Moments.md) - Almost moments system guide
-- [`NARRATIVE_ARCS_IMPLEMENTATION_SUMMARY.md`](./NARRATIVE_ARCS_IMPLEMENTATION_SUMMARY.md) - Narrative arcs implementation guide and deployment checklist
+- [`Character_Memory_Systems_Implementation.md`](./completed_features/Character_Memory_Systems_Implementation.md) - Complete implementation guide for all 3 character memory phases (Narrative Arcs, Dynamic Relationships, Story Retelling)
 - [`src/services/docs/NarrativeArcsService.md`](../src/services/docs/NarrativeArcsService.md) - Narrative arcs service documentation
 - [`src/services/docs/DynamicRelationshipsService.md`](../src/services/docs/DynamicRelationshipsService.md) - Dynamic relationships service documentation (dual-perspective tracking)
+- [`src/services/docs/StoryRetellingService.md`](../src/services/docs/StoryRetellingService.md) - Story retelling consistency service documentation
 - [`promptUtils.ts`](../src/services/promptUtils.ts) - Barrel file (re-exports from system_prompts/)
 - [`system_prompts/`](../src/services/system_prompts/) - Modular prompt modules
 - [`.claude/agents/prompt-architect.md`](../.claude/agents/prompt-architect.md) - Claude Code sub-agent for prompt modifications

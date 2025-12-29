@@ -184,7 +184,8 @@ npm test -- --run
 - `docs/System_Prompt_Guidelines.md` - System prompt modification guidelines
 - `src/services/docs/NarrativeArcsService.md` - Narrative arcs prompt integration
 - `src/services/docs/DynamicRelationshipsService.md` - Dynamic relationships prompt integration (dual-perspective design)
-- `docs/NARRATIVE_ARCS_IMPLEMENTATION_SUMMARY.md` - Narrative arcs system overview
+- `src/services/docs/StoryRetellingService.md` - Story retelling consistency prompt integration
+- `docs/completed_features/Character_Memory_Systems_Implementation.md` - Complete implementation guide for all 3 character memory phases
 
 ### Services Documentation Hub
 - `src/services/docs/README.md` - Central documentation hub for all services

@@ -409,7 +409,7 @@ export const formatFactsForAI = (facts: UserFact[]): string => {
 // Tool Execution Handler
 // ============================================
 
-export type MemoryToolName = 'recall_memory' | 'recall_user_info' | 'store_user_info' | 'task_action' | 'calendar_action' | 'store_character_info' | 'manage_narrative_arc' | 'manage_dynamic_relationship';
+export type MemoryToolName = 'recall_memory' | 'recall_user_info' | 'store_user_info' | 'task_action' | 'calendar_action' | 'store_character_info' | 'manage_narrative_arc' | 'manage_dynamic_relationship' | 'recall_story' | 'manage_story_retelling';
 
 /**
  * Optional context passed to tool execution (e.g., access tokens)
@@ -471,6 +471,16 @@ export interface ToolCallArgs {
     trust_change?: number;
     familiarity_change?: number;
     sentiment?: 'positive' | 'neutral' | 'negative';
+  };
+  recall_story: {
+    story_key: string;
+  };
+  manage_story_retelling: {
+    action: 'mark_told' | 'create_story';
+    story_key: string;
+    story_title?: string;
+    summary?: string;
+    key_details?: Array<{ detail: string; value: string }>;
   };
 }
 
@@ -831,6 +841,71 @@ export const executeMemoryTool = async (
 
           default:
             return `Unknown dynamic relationship action: ${action}`;
+        }
+      }
+
+      case 'recall_story': {
+        const storyService = await import('./storyRetellingService');
+        const { story_key } = args as ToolCallArgs['recall_story'];
+
+        const check = await storyService.checkIfTold(userId, story_key);
+
+        if (!check.story) {
+          return `Story "${story_key}" not found in your catalog.`;
+        }
+
+        if (!check.hasTold) {
+          // Story exists but not told to this user
+          const details = check.story.keyDetails
+            .map(d => `${d.detail}: ${d.value}`)
+            .join(', ');
+          return `✓ You have NOT told "${check.story.storyTitle}" to this user yet.\n` +
+                 `Key details to include: ${details}`;
+        } else {
+          // Already told
+          const days = check.daysSinceLastTold ?? 0;
+          if (check.canRetell) {
+            return `⚠️ You told "${check.story.storyTitle}" to this user ${days} days ago. ` +
+                   `You CAN retell it if relevant, but consider if it's appropriate.`;
+          } else {
+            return `⚠️ You told "${check.story.storyTitle}" to this user only ${days} days ago. ` +
+                   `Too soon to retell - find a different story or topic.`;
+          }
+        }
+      }
+
+      case 'manage_story_retelling': {
+        const storyService = await import('./storyRetellingService');
+        const storyArgs = args as ToolCallArgs['manage_story_retelling'];
+        const { action, story_key, story_title, summary, key_details } = storyArgs;
+
+        switch (action) {
+          case 'mark_told': {
+            const success = await storyService.markAsTold(userId, story_key);
+            return success
+              ? `✓ Marked "${story_key}" as told to this user.`
+              : `Failed to mark "${story_key}" as told.`;
+          }
+
+          case 'create_story': {
+            if (!story_title || !summary || !key_details) {
+              return 'Error: create_story requires story_title, summary, and key_details.';
+            }
+
+            const created = await storyService.createDynamicStory({
+              storyKey: story_key,
+              storyTitle: story_title,
+              summary,
+              keyDetails: key_details
+            });
+
+            return created
+              ? `✓ Created new story: "${story_title}" (${story_key})`
+              : `Failed to create story "${story_key}".`;
+          }
+
+          default:
+            return `Unknown story action: ${action}`;
         }
       }
 

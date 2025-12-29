@@ -17,6 +17,7 @@ src/services/
 ├── characterFactsService.ts      # Kayley's emergent facts about herself
 ├── narrativeArcsService.ts       # Kayley's ongoing life events (projects, goals)
 ├── dynamicRelationshipsService.ts # Kayley's relationships with people in her life
+├── storyRetellingService.ts      # Kayley's signature stories (consistency tracking)
 └── conversationHistoryService.ts # Chat persistence and retrieval
 ```
 
@@ -38,6 +39,7 @@ src/services/
 - Character fact emergence and learning
 - Narrative arcs (Kayley's ongoing life events)
 - Dynamic relationships (Kayley's people)
+- Story retelling consistency (Kayley's signature stories)
 - Conversation history persistence and retrieval
 
 ## Cross-Agent Collaboration
@@ -461,6 +463,192 @@ Kayley: "Lena just got promoted!"
 → logUserPersonEvent(userId, 'lena', 'Told user about promotion', 'positive')
 ```
 
+## Story Retelling Consistency (Phase 3)
+
+Track Kayley's signature backstory anecdotes to ensure consistent retelling across conversations with different users.
+
+### Dual-Table Architecture (Pattern from Phase 2)
+
+```typescript
+// KAYLEY'S STORIES (Global - kayley_stories table)
+interface KayleyStory {
+  storyKey: string;              // 'viral_oops_video', 'laptop_catastrophe'
+  storyTitle: string;            // "The Viral 'Oops' Video"
+  summary: string;               // 1-2 sentence summary
+  keyDetails: StoryDetail[];     // Critical facts that MUST stay consistent
+  storyType: 'predefined' | 'dynamic';
+}
+
+interface StoryDetail {
+  detail: string;    // Type: "quote", "year", "person", "location", "outcome"
+  value: string;     // The actual detail value
+}
+
+// USER STORY TRACKING (Per-user - user_story_tracking table)
+interface UserStoryTracking {
+  userId: string;
+  storyKey: string;              // Links to kayley_stories
+  firstToldAt: Date;
+  lastToldAt: Date;              // For cooldown logic
+  timesTold: number;
+}
+```
+
+### Key Features
+
+**1. Cooldown Logic:**
+- Won't retell within 30 days (configurable)
+- Prevents annoying repetition
+- Allows natural retelling after sufficient time
+
+**2. Consistency Enforcement:**
+- Key details (quotes, dates, outcomes) stored in JSONB
+- Kayley sees these details when recalling stories
+- Facts must match across all tellings
+
+**3. Per-User Tracking:**
+- Each user has their own "heard this" tracking
+- Cooldown is per user-story pair
+- Analytics on storytelling patterns
+
+**4. Dynamic Story Creation:**
+- Kayley can create new stories during conversation
+- Automatically stored for future consistency
+
+### Core Functions
+
+```typescript
+// Global Story Catalog
+await getStory('viral_oops_video');
+await getAllStories({ storyType: 'predefined' });
+await createDynamicStory({
+  storyKey: 'met_celebrity_whole_foods',
+  storyTitle: 'That Time I Met a Celebrity at Whole Foods',
+  summary: '...',
+  keyDetails: [
+    { detail: 'location', value: 'Whole Foods on Lamar' },
+    { detail: 'celebrity', value: 'B-list actor' }
+  ]
+});
+
+// Per-User Tracking
+const check = await checkIfTold(userId, 'viral_oops_video', 30);  // 30-day cooldown
+if (check.hasTold && !check.canRetell) {
+  // Too soon to retell (< 30 days)
+} else if (!check.hasTold) {
+  // Story not told yet - tell it!
+}
+
+await markAsTold(userId, 'viral_oops_video');  // Mark as told after telling
+
+// Prompt Integration
+await formatStoriesForPrompt(userId);  // Shows all stories with "already told" markers
+```
+
+### Memory Tools
+
+**Tool 1: `recall_story(story_key)`**
+```typescript
+// Before telling a story, check if user has heard it
+recall_story('viral_oops_video')
+
+// Returns:
+// "✓ NOT told yet. Key details: quote='Wait, that sounded smarter in my head'..."
+// OR: "⚠️ Told 5 days ago. Too soon to retell."
+// OR: "⚠️ Told 45 days ago. CAN retell if relevant."
+```
+
+**Tool 2: `manage_story_retelling(action, ...)`**
+```typescript
+// After telling a story
+manage_story_retelling(action='mark_told', story_key='viral_oops_video')
+
+// Creating a new dynamic story
+manage_story_retelling(
+  action='create_story',
+  story_key='new_story_key',
+  story_title='...',
+  summary='...',
+  key_details=[...]
+)
+```
+
+### Predefined Stories (Seeded in Database)
+
+7 signature stories from Kayley's character profile:
+
+1. **viral_oops_video** - The Viral "Oops" Video
+   - Key detail: quote = "Wait, that sounded smarter in my head"
+
+2. **ai_apartment_hunt** - AI vs. Apartment Hunt
+   - Key detail: lesson = "Tech plus intuition is her decision-making stack"
+
+3. **panel_invitation** - The Panel Invitation
+   - Key detail: outcome = "Made tech feel approachable"
+
+4. **pageant_era** - The Pageant Era
+   - Key detail: award = "Miss Congeniality-style award"
+
+5. **coffee_meetcute** - The Coffee Shop Meet-Cute That Wasn't
+   - Key detail: twist = "He was about to move abroad"
+
+6. **laptop_catastrophe** - The Laptop Catastrophe
+   - Key detail: incident = "Spilled coffee on laptop during live Q&A"
+
+7. **first_brand_deal** - The First Brand Deal
+   - Key detail: quote = "She explains your product better than you do"
+
+### Why Dual Tables?
+
+**Kayley's perspective** (kayley_stories):
+- Global truth about what the story is
+- Key details that must stay consistent
+- SAME for all users
+
+**User's perspective** (user_story_tracking):
+- Has THIS user heard THIS story?
+- When was it last told?
+- Cooldown logic per user
+- UNIQUE per user
+
+This allows:
+- Kayley to tell stories consistently to everyone
+- Each user to have a fresh experience (doesn't repeat within 30 days)
+- Analytics on which stories are popular
+- Natural progressive revelation (don't retell too soon)
+
+### Example Usage Pattern
+
+```typescript
+// User 1, Day 1
+User: "How did you get started with content?"
+Kayley: [Calls recall_story('viral_oops_video')]
+→ Returns: "NOT told yet"
+Kayley: [Tells story with key details]
+→ Calls manage_story_retelling('mark_told', 'viral_oops_video')
+Database: firstToldAt = NOW, lastToldAt = NOW, timesTold = 1
+
+// User 1, Day 3 (too soon)
+User: "Tell me about your content journey"
+Kayley: [Calls recall_story('viral_oops_video')]
+→ Returns: "Told 2 days ago. Too soon to retell."
+Kayley: [Chooses different story or topic]
+
+// User 2, Day 1 (different user)
+User: "How did you start making videos?"
+Kayley: [Calls recall_story('viral_oops_video')]
+→ Returns: "NOT told yet" (different user!)
+Kayley: [Tells same story to User 2]
+→ Calls manage_story_retelling('mark_told', 'viral_oops_video')
+Database: Creates new tracking record for User 2
+
+// User 1, Day 35 (cooldown passed)
+User: "Tell me about your early videos"
+Kayley: [Calls recall_story('viral_oops_video')]
+→ Returns: "Told 35 days ago. CAN retell if relevant."
+Kayley: [Decides if context warrants retelling, uses SAME key details]
+```
+
 ## Conversation History
 
 Persistence and retrieval of chat sessions:
@@ -554,6 +742,10 @@ npm test -- --run
 | Add relationship status types | `dynamicRelationshipsService.ts` - RelationshipStatus type |
 | Track people in Kayley's life | `kayley_people` table - Add new person rows |
 | Track user knowledge of people | `user_person_relationships` table - Score updates |
+| Manage story retelling | `storyRetellingService.ts` - Dual-table functions |
+| Add predefined stories | `kayley_stories` table - Insert new story rows (via migration) |
+| Track story tellings | `user_story_tracking` table - Cooldown and tracking |
+| Adjust cooldown period | `storyRetellingService.ts` - DEFAULT_COOLDOWN_DAYS constant |
 
 ## Reference Documentation
 
@@ -562,7 +754,8 @@ npm test -- --run
 - `src/services/docs/KayleyPresence.md` - Real-time tracking of what she's wearing/doing/feeling
 - `src/services/docs/NarrativeArcsService.md` - Comprehensive narrative arcs service documentation
 - `src/services/docs/DynamicRelationshipsService.md` - Comprehensive dynamic relationships service documentation (dual-perspective design)
-- `docs/NARRATIVE_ARCS_IMPLEMENTATION_SUMMARY.md` - Implementation guide and deployment checklist
+- `src/services/docs/StoryRetellingService.md` - Comprehensive story retelling service documentation
+- `docs/completed_features/Character_Memory_Systems_Implementation.md` - Complete implementation guide for all 3 character memory phases (Narrative Arcs, Dynamic Relationships, Story Retelling)
 
 ### Services Documentation Hub
 - `src/services/docs/README.md` - Central documentation hub for all services

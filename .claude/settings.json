@@ -5,7 +5,9 @@
       "Bash(npm run test:*)",
       "Read(~/.zshrc)",
       "Edit(*.md)",
-      "Edit(**/*.md)"
+      "Edit(**/*.md)",
+      "Edit(.claude/agents/*.md)",
+      "Edit(docs/*.md)"
     ]
   }
 }

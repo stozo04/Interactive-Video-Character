@@ -242,7 +242,7 @@ Use the external-integrations agent to add calendar event integration
 
 ### 9. `memory-knowledge`
 
-**Domain**: Memory systems, semantic search, user facts, character facts, narrative arcs, dynamic relationships
+**Domain**: Memory systems, semantic search, user facts, character facts, narrative arcs, dynamic relationships, story retelling consistency
 
 **When to Use**:
 - Storing/retrieving user facts or character facts
@@ -251,6 +251,7 @@ Use the external-integrations agent to add calendar event integration
 - Working with embeddings
 - Tracking Kayley's ongoing life events (narrative arcs)
 - Managing Kayley's relationships with people in her life (dynamic relationships)
+- Ensuring consistent storytelling across conversations (story retelling)
 
 **Example Invocation**:
 ```
@@ -258,21 +259,25 @@ Use the memory-knowledge agent to improve fact retrieval for the prompt
 ```
 
 **Key Skills**:
-- Fact storage patterns (user_facts, character_facts, narrative arcs, dynamic relationships)
+- Fact storage patterns (user_facts, character_facts, narrative arcs, dynamic relationships, stories)
 - Embedding-based search
 - Memory consolidation
 - Contradiction detection
 - Narrative arc lifecycle management
 - Dual-perspective relationship tracking (Kayley's view + user's view)
+- Story retelling consistency with cooldown logic
+- Dual-table patterns (global catalog + per-user tracking)
 
 **Files It Knows**:
 - `src/services/memoryService.ts`
 - `src/services/narrativeArcsService.ts`
 - `src/services/characterFactsService.ts`
 - `src/services/dynamicRelationshipsService.ts`
+- `src/services/storyRetellingService.ts`
 - Fact-related database tables
 - `kayley_narrative_arcs` table
 - `kayley_people` + `user_person_relationships` tables
+- `kayley_stories` + `user_story_tracking` tables
 - Embedding patterns
 
 ---
@@ -458,7 +463,8 @@ Resume agent ae76e47 to add error handling to the prompt builder
 - [Tool Integration Checklist](./Tool_Integration_Checklist.md) - **NEW**: 8-step checklist for adding LLM tools
 - [README - Sub-Agents Section](../README.md#claude-code-sub-agents)
 - [Spontaneity Integration Guide](./Spontaneity_Integration_Guide.md)
-- [Narrative Arcs Implementation Summary](./NARRATIVE_ARCS_IMPLEMENTATION_SUMMARY.md)
+- [Character Memory Systems Implementation](./completed_features/Character_Memory_Systems_Implementation.md) - All 3 phases (Narrative Arcs, Dynamic Relationships, Story Retelling)
 - [Narrative Arcs Service Documentation](../src/services/docs/NarrativeArcsService.md)
 - [Dynamic Relationships Service Documentation](../src/services/docs/DynamicRelationshipsService.md)
+- [Story Retelling Service Documentation](../src/services/docs/StoryRetellingService.md)
 - Agent definitions: `.claude/agents/*.md`

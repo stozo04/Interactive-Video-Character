@@ -46,6 +46,22 @@ src/services/
 - Almost moments system (unsaid feelings)
 - Relationship event recording and metrics
 
+## Cross-Agent Collaboration
+
+**When working on relationship dynamics, coordinate with:**
+- **intent-analyst** - Consume relationship signals (vulnerability, hostility) from intent
+- **prompt-architect** - Provide tier and dimension data for behavior rules in prompt
+- **memory-knowledge** - User patterns reference stored facts; milestones connect to narrative arcs
+- **presence-proactivity** - Loop salience and thread type affected by relationship state
+- **state-manager** - Own multiple tables (relationships, events, milestones, almost_moments)
+- **test-engineer** - For testing tier calculations and rupture detection
+
+**Common workflows:**
+1. **Tier progression** → I calculate new tier → prompt-architect updates behavior rules → Response changes
+2. **Rupture detected** → intent-analyst signals hostility → I detect rupture → prompt-architect adjusts tone
+3. **Milestone** → I detect and record → memory-knowledge may reference → Callbacks mention it later
+4. **Almost moment** → I generate unsaid feeling → prompt-architect suggests expression → LLM decides timing
+
 ## Relationship Tiers
 
 6 tiers define what Kayley can do/say:

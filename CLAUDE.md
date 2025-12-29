@@ -185,25 +185,199 @@ Run all tests before merging prompt changes:
 npm test -- --run
 ```
 
-## Adding New LLM Tools
+## ⚠️ CRITICAL: Adding New LLM Tools
 
-When adding a new tool that the AI can call (like `manage_narrative_arc` or `manage_dynamic_relationship`), you **MUST** follow the **8-step integration checklist**:
+> **WARNING**: Skipping steps in the Tool Integration Checklist will cause type errors and runtime failures!
+>
+> When adding a new tool that the AI can call (like `manage_narrative_arc` or `manage_dynamic_relationship`), you **MUST** follow the **8-step integration checklist** in order. **DO NOT SKIP ANY STEPS.**
 
-**📋 See**: [`docs/Tool_Integration_Checklist.md`](docs/Tool_Integration_Checklist.md) for the complete step-by-step guide.
+### 📋 Required Reading
 
-**The 8 Critical Integration Points**:
-1. `memoryService.ts` - Add to MemoryToolName, ToolCallArgs, executeMemoryTool()
-2. `aiSchema.ts` - Add to GeminiMemoryToolDeclarations
-3. `aiSchema.ts` - Add to MemoryToolArgs union (**DON'T FORGET**)
-4. `aiSchema.ts` - Add to PendingToolCall.name union (**DON'T FORGET**)
-5. `aiSchema.ts` - Add to OpenAIMemoryToolDeclarations (if using OpenAI)
-6. `toolsAndCapabilities.ts` - Add documentation with examples
-7. `systemPromptBuilder.ts` - Add context injection (if needed)
-8. Snapshot tests - Update with `-u` flag
+**STOP! Read this first**: [`docs/Tool_Integration_Checklist.md`](docs/Tool_Integration_Checklist.md)
 
-**Common Mistakes**:
-- ❌ Forgetting steps 3 or 4 → Type errors and runtime failures
-- ❌ Skipping snapshot updates → Tests fail
+The checklist provides detailed examples and explanations for each step.
+
+### The 8 Critical Integration Points
+
+**Complete ALL 8 steps in order:**
+
+1. **`memoryService.ts`** - Add to `MemoryToolName`, `ToolCallArgs`, and `executeMemoryTool()` switch
+2. **`aiSchema.ts`** - Add to `GeminiMemoryToolDeclarations` array
+3. **`aiSchema.ts`** - Add to `MemoryToolArgs` union type ⚠️ **CRITICAL - DON'T FORGET**
+4. **`aiSchema.ts`** - Add to `PendingToolCall.name` union type ⚠️ **CRITICAL - DON'T FORGET**
+5. **`aiSchema.ts`** - Add to `OpenAIMemoryToolDeclarations` (if using OpenAI)
+6. **`toolsAndCapabilities.ts`** - Add documentation with examples
+7. **`systemPromptBuilder.ts`** - Add context injection (if needed)
+8. **Snapshot Tests** - Run `npm test -- --run -t "snapshot" -u`
+
+### ❌ Common Mistakes That WILL Break Your Code
+
+- **Forgetting step 3 (`MemoryToolArgs`)** → TypeScript errors, tool args not validated
+- **Forgetting step 4 (`PendingToolCall.name`)** → Runtime failures, tool calls silently fail
+- **Skipping step 8 (snapshot updates)** → All tests fail, CI blocks merge
+- **Wrong order** → Cascading errors that are hard to debug
+
+### ✅ How to Verify Success
+
+After completing all 8 steps:
+```bash
+# 1. Check types compile
+npm run build
+
+# 2. Run tests
+npm test -- --run
+
+# 3. Test the tool manually
+npm run dev
+# → Trigger the tool in conversation and verify it works
+```
+
+If any step fails, review the checklist and ensure you completed ALL 8 steps.
+
+## ⚠️ CRITICAL: Creating New Services
+
+> **IMPORTANT**: When creating a new service (like `narrativeArcsService.ts`, `dynamicRelationshipsService.ts`, or `storyRetellingService.ts`), you **MUST** follow this complete checklist to ensure proper documentation and integration.
+
+### 📋 The Complete New Service Checklist
+
+**Complete ALL steps when creating a new service:**
+
+#### 1. Implementation
+
+1. **Create service file** - `src/services/yourNewService.ts`
+   - Follow existing patterns (see `narrativeArcsService.ts` as reference)
+   - Include proper TypeScript types
+   - Export all public functions
+   - Use Supabase for data persistence
+
+2. **Create tests** - `src/services/tests/yourNewService.test.ts`
+   - Follow TDD approach (write tests first)
+   - Use Vitest with proper mocking
+   - Cover all core functions
+   - Run: `npm test -- --run -t "yourNewService"`
+
+3. **Create migration** - `supabase/migrations/create_your_tables.sql`
+   - Include proper indexes
+   - Add foreign keys where needed
+   - Include seed data if applicable
+   - **DO NOT apply** - let user apply manually
+
+#### 2. Tool Integration (If Needed)
+
+If the service needs LLM tools (e.g., `manage_narrative_arc`), follow the **8-step Tool Integration Checklist** (see section above).
+
+#### 3. System Prompt Integration
+
+1. **Import in systemPromptBuilder.ts**
+   ```typescript
+   import { formatYourDataForPrompt } from '../yourNewService';
+   ```
+
+2. **Add to parallel fetching array**
+   ```typescript
+   const [soulContext, characterFacts, narrativeArcs, yourNewData] = await Promise.all([...]);
+   ```
+
+3. **Inject into prompt**
+   ```typescript
+   ${yourNewDataPrompt}
+   ```
+
+#### 4. Documentation (CRITICAL - Don't Skip!)
+
+1. **Create service documentation** - `src/services/docs/YourNewService.md`
+   - Follow pattern from `NarrativeArcsService.md`
+   - Include: Overview, Schema, Functions, LLM Tools, Examples, Troubleshooting
+   - See existing service docs for structure
+
+2. **Update service docs hub** - `src/services/docs/README.md`
+   - Add link to your new service doc under appropriate category
+
+3. **Update sub-agent** - `.claude/agents/memory-knowledge.md` (or appropriate agent)
+   - Add service file to "Files It Owns"
+   - Add service description to "Capabilities"
+   - Add key functions and patterns
+   - Update "Common Tasks" table
+
+4. **Update sub-agent usage guide** - `docs/Sub_Agent_Usage_Guide.md`
+   - Add service to agent's "Files It Knows"
+   - Add capabilities to "Key Skills"
+   - Add reference to new service doc in "Related Documents"
+
+5. **Create implementation summary** (optional but recommended)
+   - `docs/Phase_X_Implementation_Summary.md`
+   - Include: Overview, What Was Implemented, Files Modified, User Flow Examples
+   - Useful for future reference and onboarding
+
+#### 5. Verification
+
+```bash
+# 1. Check types compile
+npm run build
+
+# 2. Run all tests
+npm test -- --run
+
+# 3. Update snapshots if needed
+npm test -- --run -t "snapshot" -u
+
+# 4. Verify documentation links work
+```
+
+### 📚 Examples to Follow
+
+**Good Examples:**
+- `src/services/narrativeArcsService.ts` + `src/services/docs/NarrativeArcsService.md`
+- `src/services/dynamicRelationshipsService.ts` + `src/services/docs/DynamicRelationshipsService.md`
+- `src/services/storyRetellingService.ts` + `src/services/docs/StoryRetellingService.md`
+
+**Documentation Pattern:**
+```markdown
+# Service Name
+
+**File:** `src/services/yourService.ts`
+**Table:** `your_table_name`
+**Purpose:** What this service does
+
+## Overview
+## Table Schema
+## Service Functions
+## LLM Tool Integration (if applicable)
+## System Prompt Integration
+## Use Cases
+## Design Decisions
+## Testing
+## Common Patterns
+## Performance Considerations
+## Troubleshooting
+## Summary
+```
+
+### ❌ Common Documentation Mistakes
+
+- **Creating service but not documenting it** → Future developers (and you) won't know how it works
+- **Skipping sub-agent updates** → Agent won't have domain knowledge when needed
+- **Not updating README.md** → Service is hidden, hard to discover
+- **No implementation summary** → Context is lost, hard to remember decisions later
+- **Incomplete examples** → Users don't know how to use the service
+
+### ✅ How to Know You're Done
+
+Checklist complete when:
+- ✅ Service file created with all functions
+- ✅ Tests written and passing
+- ✅ Migration file created (user will apply)
+- ✅ Tool integration complete (if needed)
+- ✅ System prompt integration complete
+- ✅ Service documentation created in `src/services/docs/`
+- ✅ `src/services/docs/README.md` updated
+- ✅ Appropriate sub-agent updated
+- ✅ `docs/Sub_Agent_Usage_Guide.md` updated
+- ✅ Implementation summary created (recommended)
+- ✅ All tests pass
+- ✅ Build succeeds
+
+If any item is missing, the service implementation is **NOT COMPLETE**.
 
 ## File Organization
 
