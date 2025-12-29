@@ -385,13 +385,27 @@ If any item is missing, the service implementation is **NOT COMPLETE**.
 src/
 ├── components/      # React UI components
 ├── services/        # Business logic (AI providers, state, prompts)
+│   └── docs/        # Technical service documentation
 ├── contexts/        # React Context (auth, AI service selection)
 ├── hooks/           # Custom hooks (caching, media queues)
 ├── domain/          # Domain models (characters, relationships)
 └── utils/           # Utilities
+
 supabase/migrations/ # Database schema (15+ migrations)
-docs/                # Developer documentation and implementation plans
+
+docs/
+├── features/        # Complete feature documentation (production-ready)
+├── plans/           # Implementation plans (work in progress)
+├── bugs/            # Active bug reports (unresolved)
+├── archive/         # Historical docs (resolved bugs, deprecated features)
+└── *.md             # General documentation (guides, processes)
 ```
+
+**Key Documentation:**
+- **`docs/features/`** - Comprehensive docs for completed features
+- **`docs/Kayley_Thinking_Process.md`** - How Kayley processes information
+- **`docs/System_Prompt_Guidelines.md`** - System prompt architecture
+- **`.claude/agents/`** - Sub-agent domain expertise
 
 ## Environment Variables
 

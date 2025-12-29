@@ -29,7 +29,10 @@ import {
 const IDLE_THOUGHTS_TABLE = 'idle_thoughts';
 const THOUGHT_EXPIRATION_DAYS = 7; // Thoughts expire after 7 days
 const MAX_UNSHARED_THOUGHTS = 5; // Keep max 5 unshared thoughts per user
-const MIN_ABSENCE_HOURS_FOR_THOUGHT = 4; // Generate thoughts after 4+ hours away
+const MIN_ABSENCE_HOURS_FOR_THOUGHT = 10 / 60; // Generate thoughts after 10 minutes away
+
+// Export for use by scheduler
+export const MIN_ABSENCE_MINUTES_FOR_THOUGHT = MIN_ABSENCE_HOURS_FOR_THOUGHT * 60;
 
 // ============================================================================
 // THOUGHT TEMPLATES
@@ -262,6 +265,60 @@ export async function markThoughtAsShared(thoughtId: string): Promise<void> {
     }
   } catch (error) {
     console.error('[IdleThoughts] Error in markThoughtAsShared:', error);
+  }
+}
+
+/**
+ * Detect if any idle thoughts were mentioned in Kayley's response
+ * and mark them as shared.
+ *
+ * Call this after each AI response to track which thoughts have surfaced.
+ *
+ * Strategy:
+ * - Get all unshared thoughts
+ * - Check if key phrases from thought appear in AI response
+ * - Mark matching thoughts as shared
+ *
+ * @param userId - User ID
+ * @param aiResponse - Kayley's response text
+ * @returns IDs of thoughts that were marked as shared
+ */
+export async function detectAndMarkSharedThoughts(
+  userId: string,
+  aiResponse: string
+): Promise<string[]> {
+  try {
+    const unsharedThoughts = await getUnsharedThoughts(userId);
+    if (unsharedThoughts.length === 0) {
+      return [];
+    }
+
+    const markedIds: string[] = [];
+    const responseLower = aiResponse.toLowerCase();
+
+    for (const thought of unsharedThoughts) {
+      // Extract key snippet from thought content (first 30 chars)
+      // This is a heuristic - if the beginning of the thought appears
+      // in Kayley's response, she likely mentioned it
+      const thoughtSnippet = thought.content.slice(0, 30).toLowerCase();
+
+      // Check if snippet appears in response
+      if (responseLower.includes(thoughtSnippet)) {
+        await markThoughtAsShared(thought.id);
+        markedIds.push(thought.id);
+        console.log(`✅ [IdleThoughts] Detected and marked thought as shared: "${thought.content.slice(0, 40)}..."`);
+      }
+    }
+
+    if (markedIds.length > 0) {
+      console.log(`💭 [IdleThoughts] Marked ${markedIds.length} thought(s) as shared`);
+    }
+
+    return markedIds;
+
+  } catch (error) {
+    console.error('[IdleThoughts] Error detecting shared thoughts:', error);
+    return [];
   }
 }
 

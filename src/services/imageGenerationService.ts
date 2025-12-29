@@ -14,10 +14,13 @@ import { GoogleGenAI } from "@google/genai";
 import referenceImageRaw from "../utils/base64.txt?raw";
 import { getCurrentLookState, lockCurrentLook, getRecentSelfieHistory, recordSelfieGeneration } from './imageGeneration/currentLookService';
 import { detectTemporalContextLLMCached } from './imageGeneration/temporalDetection';
-import { enhanceSelfieContextWithLLM } from './imageGeneration/contextEnhancer';
-import { selectReferenceImage, getCurrentSeason, getTimeOfDay } from './imageGeneration/referenceSelector';
-import { getReferenceMetadata } from '../utils/base64ReferencedImages';
-import type { ReferenceSelectionContext } from './imageGeneration/types';
+import {
+  selectReferenceImage,
+  getCurrentSeason,
+  getTimeOfDay,
+} from "./imageGeneration/referenceSelector";
+import { getReferenceMetadata } from "../utils/base64ReferencedImages";
+import type { ReferenceSelectionContext } from "./imageGeneration/types";
 
 const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
 const IMAGEN_MODEL = "gemini-3-pro-image-preview";
@@ -65,13 +68,20 @@ const CHARACTER_VISUAL_IDENTITY = {
   },
 };
 
-
 /**
  * Build a verbose, narrative mood/expression description
  * optimized for Gemini 3 Pro's understanding of micro-expressions.
  */
 function buildMoodDescription(mood?: string): string {
   const moodMap: Record<string, string> = {
+    // 😜 CANDID / SELFIE-STUFF
+    smirk:
+      "with a playful half-smirk and one eye squinting slightly as if reacting to the camera flash",
+    casual:
+      "with a relaxed, neutral expression and a soft gaze, avoiding a 'posed' look",
+    cheeky:
+      "sticking her tongue out slightly with a wink, mimicking a casual snap sent to a friend",
+
     // 😊 POSITIVE / WARM
     happy:
       "with a radiant, genuine smile that reaches her eyes, creating subtle crinkles at the corners and radiating warmth",
@@ -175,16 +185,22 @@ export async function generateCompanionSelfie(
     // ====================================
     let selectedReferenceBase64: string;
     let selectionReasoning: string[] = [];
-    let selectedHairstyle: string = 'unknown';
-    let selectedOutfitStyle: string = 'unknown';
-    let selectedReferenceId: string = 'legacy';
-    let temporalContext: { isOldPhoto: boolean; referenceDate?: Date; temporalPhrases: string[] } = {
+    let selectedHairstyle: string = "unknown";
+    let selectedOutfitStyle: string = "unknown";
+    let selectedReferenceId: string = "legacy";
+    let temporalContext: {
+      isOldPhoto: boolean;
+      referenceDate?: Date;
+      temporalPhrases: string[];
+    } = {
       isOldPhoto: false,
       temporalPhrases: [],
     };
 
     if (request.userId && request.userMessage && request.conversationHistory) {
-      console.log("📸 [ImageGen] Using multi-reference system with dynamic selection");
+      console.log(
+        "📸 [ImageGen] Using multi-reference system with dynamic selection"
+      );
 
       try {
         // STEP 1: Get current look state
@@ -233,25 +249,35 @@ export async function generateCompanionSelfie(
         console.log("📸 [ImageGen] Selection reasoning:", selectionReasoning);
 
         // STEP 6: Lock current look if this is a "now" photo and no lock exists or expired
-        if (!temporalContext.isOldPhoto && (!currentLookState || new Date() > currentLookState.expiresAt)) {
+        if (
+          !temporalContext.isOldPhoto &&
+          (!currentLookState || new Date() > currentLookState.expiresAt)
+        ) {
           await lockCurrentLook(
             request.userId,
             selectedReferenceId,
             selectedHairstyle,
-            'explicit_now_selfie',
+            "explicit_now_selfie",
             24 // Lock for 24 hours
           );
           console.log("📸 [ImageGen] Locked current look for 24h");
         }
       } catch (error) {
-        console.error("❌ [ImageGen] Error in multi-reference system, falling back to legacy:", error);
+        console.error(
+          "❌ [ImageGen] Error in multi-reference system, falling back to legacy:",
+          error
+        );
         // Fallback to legacy behavior
-        selectedReferenceBase64 = request.referenceImageBase64 || referenceImageRaw;
+        selectedReferenceBase64 =
+          request.referenceImageBase64 || referenceImageRaw;
       }
     } else {
       // Legacy behavior: use manual override or default reference
-      console.log("📸 [ImageGen] Using legacy single reference (no userId provided)");
-      selectedReferenceBase64 = request.referenceImageBase64 || referenceImageRaw;
+      console.log(
+        "📸 [ImageGen] Using legacy single reference (no userId provided)"
+      );
+      selectedReferenceBase64 =
+        request.referenceImageBase64 || referenceImageRaw;
     }
 
     // ====================================
@@ -285,14 +311,19 @@ export async function generateCompanionSelfie(
     console.log("📸 [ImageGen] Full prompt text:", fullPrompt);
 
     // 3. Call Gemini 3 Pro
+
     const response = await ai.models.generateContent({
       model: IMAGEN_MODEL,
       contents: parts,
       config: {
         responseModalities: ["IMAGE"],
+
+        // 1. Image specific configurations
         imageConfig: {
           aspectRatio: "9:16",
           imageSize: "2K",
+          // Bypass the missing property in the current SDK types
+          ...({ personGeneration: "allow_adult" } as any),
         },
       },
     });
@@ -359,7 +390,10 @@ export async function generateCompanionSelfie(
 /**
  * Get reference metadata from ID (for recording hairstyle/outfit)
  */
-function getRefMetadataFromId(referenceId: string): { hairstyle: string; outfitStyle: string } {
+function getRefMetadataFromId(referenceId: string): {
+  hairstyle: string;
+  outfitStyle: string;
+} {
   const metadata = getReferenceMetadata(referenceId);
 
   if (metadata) {
@@ -370,22 +404,24 @@ function getRefMetadataFromId(referenceId: string): { hairstyle: string; outfitS
   }
 
   // Fallback: parse from reference ID (e.g., "curly_casual" -> hairstyle: "curly")
-  const parts = referenceId.split('_');
+  const parts = referenceId.split("_");
   if (parts.length >= 2) {
     const hairstyle = parts[0]; // "curly", "straight", "messy"
     const outfit = parts[parts.length - 1]; // "casual", "dressed"
 
     return {
-      hairstyle: hairstyle === 'messy' ? 'messy_bun' : hairstyle,
-      outfitStyle: outfit === 'up' ? 'dressed_up' : outfit,
+      hairstyle: hairstyle === "messy" ? "messy_bun" : hairstyle,
+      outfitStyle: outfit === "up" ? "dressed_up" : outfit,
     };
   }
 
   // Last resort fallback - use curly casual as default
-  console.warn(`[ImageGen] Could not determine metadata for ${referenceId}, using defaults`);
+  console.warn(
+    `[ImageGen] Could not determine metadata for ${referenceId}, using defaults`
+  );
   return {
-    hairstyle: 'curly',
-    outfitStyle: 'casual',
+    hairstyle: "curly",
+    outfitStyle: "casual",
   };
 }
 
@@ -415,25 +451,39 @@ function buildImagePrompt(
   outfitDescription: string,
   moodDescription: string
 ): string {
-  // 1. Get the rich scene description
   const enhancedScene = getEnhancedScene(scene);
-
-  // 2. Infer lighting (this still works great on top of the expansion)
   const lightingDescription = inferLightingAndAtmosphere(scene);
 
-  const narrative = [
-    `A high-resolution, photorealistic smartphone selfie`,
-    //`${CHARACTER_VISUAL_IDENTITY.narrativeBase}.`,
-    `She is looking into the camera ${moodDescription}.`,
+  // Logic to detect "Home" scenes for extra realism
+  const isCasualScene = scene.match(
+    /(home|bedroom|kitchen|morning|bed|couch|night)/i
+  );
 
-    // The grammar is now safe: "She is situated in [a cozy upscale restaurant...]"
+  // A. PERSPECTIVE: Mirror selfie vs. Direct selfie
+  // Example (download (4).jpg) looks like a mirror shot
+  const perspective = isCasualScene
+    ? "A casual mirror selfie taken in a bedroom mirror, with the phone and camera interface partially visible in the reflection."
+    : "A handheld smartphone selfie with a slight hand-held tilt.";
+
+  // B. TEXTURE: Force Gemini to stop the "AI airbrushing"
+  const skinAndHair = isCasualScene
+    ? "Natural, unposed look. Visible skin texture with pores and minor freckles. Her hair is unstyled, slightly messy, and tousled."
+    : "Candid look with sharp focus on her eyes and a natural shallow depth of field.";
+
+  // C. CAMERA ARTIFACTS: Mimic a real phone sensor
+  const cameraVibe = isCasualScene
+    ? "Low-fidelity smartphone photo, subtle image grain, slight motion blur, and realistic indoor sensor noise."
+    : "A high-resolution smartphone story aesthetic.";
+
+  return [
+    perspective,
+    `She is looking into the lens ${moodDescription}.`,
     `She is situated in ${enhancedScene}.`,
-
     `The lighting is ${lightingDescription}.`,
-    `The image has a candid Instagram-story aesthetic with sharp focus on her eyes and a natural shallow depth of field blurring the background.`,
+    skinAndHair,
+    cameraVibe,
+    "Her arm is visible at the edge of the frame to anchor the selfie perspective.",
   ].join(" ");
-
-  return narrative;
 }
 
 // ============================================
@@ -455,13 +505,9 @@ function getEnhancedScene(scene: string): string {
     coffee:
       "a trendy aesthetic coffee shop with exposed brick walls and lush plants",
     cafe: "a warm, inviting cafe with a pastry display case in the background",
-    home: "a bright, modern apartment living room with cozy textures and soft decor",
-    bedroom: "a soft, aesthetic bedroom with fairy lights and neutral bedding",
     gym: "a modern, clean gym with high-end exercise equipment blurred in the background",
     park: "a lush green park with dappled sunlight filtering through the trees",
     office: "a minimalist home office with a clean white desk setup",
-    kitchen:
-      "a bright, modern kitchen featuring marble countertops and copper accents",
     pool: "a poolside lounge area with sparkling blue water and lounge chairs",
     concert:
       "a vibrant concert venue with colorful stage lights beaming in the background",
@@ -470,6 +516,12 @@ function getEnhancedScene(scene: string): string {
       "an outdoor setting bathed in the warm orange and pink glow of golden hour",
     city: "a city rooftop overlooking a sprawling urban skyline",
     library: "a quiet library aisle surrounded by rows of books",
+    home: "a lived-in apartment living room with a slightly messy couch and warm, natural light",
+    bedroom:
+      "a cozy, unmade bed with soft pillows and warm ambient lamp light in the background",
+    kitchen:
+      "a real domestic kitchen with morning light hitting the counter and a coffee maker visible",
+    morning: "a soft-focus bedroom at dawn, looking cozy and slightly groggy",
   };
 
   // 1. Check for a direct keyword match
@@ -516,6 +568,16 @@ function inferLightingAndAtmosphere(scene: string): string {
   // 🏢 ARTIFICIAL / NEUTRAL
   if (s.match(/(gym|work|office|library|store|shop|mall)/)) {
     return "clean, bright overhead lighting";
+  }
+
+  // FLASH PHOTOGRAPHY (For that "party" or "night at home" look)
+  if (s.match(/(night|dark|club|bar|late)/)) {
+    return "harsh smartphone camera flash lighting, high contrast, casting a sharp shadow behind her, creating a raw candid vibe";
+  }
+
+  // LIVED-IN INDOOR LIGHT
+  if (s.match(/(home|bedroom|couch|kitchen)/)) {
+    return "soft, uneven window light mixed with warm, dim lamp light in the background";
   }
 
   // Default fallback

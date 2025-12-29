@@ -355,13 +355,16 @@ export async function saveOngoingThread(userId: string, thread: OngoingThread): 
  */
 export async function saveAllOngoingThreads(userId: string, threads: OngoingThread[]): Promise<void> {
   try {
-    // Delete old threads for this user
-    await supabase
+    // Get existing thread IDs for this user
+    const { data: existing } = await supabase
       .from(ONGOING_THREADS_TABLE)
-      .delete()
+      .select('id')
       .eq('user_id', userId);
-    
-    // Insert new threads
+
+    const existingIds = new Set(existing?.map(t => t.id) || []);
+    const newIds = new Set(threads.map(t => t.id));
+
+    // Upsert all threads (insert new or update existing)
     if (threads.length > 0) {
       const rows = threads.map(thread => ({
         id: thread.id,
@@ -374,8 +377,19 @@ export async function saveAllOngoingThreads(userId: string, threads: OngoingThre
         user_trigger: thread.userTrigger,
         created_at: new Date(thread.createdAt).toISOString(),
       }));
-      
-      await supabase.from(ONGOING_THREADS_TABLE).insert(rows);
+
+      await supabase
+        .from(ONGOING_THREADS_TABLE)
+        .upsert(rows, { onConflict: 'id' });
+    }
+
+    // Delete threads that are no longer in the array
+    const threadsToDelete = Array.from(existingIds).filter(id => !newIds.has(id));
+    if (threadsToDelete.length > 0) {
+      await supabase
+        .from(ONGOING_THREADS_TABLE)
+        .delete()
+        .in('id', threadsToDelete);
     }
   } catch (error) {
     console.error('[StateService] Error saving all ongoing threads:', error);
