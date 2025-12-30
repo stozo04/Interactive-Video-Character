@@ -244,6 +244,63 @@ RULES:
 ${buildSharedContext()}${buildProactiveSection(openLoop, proactiveThread, false)}${jsonGuardrail}`;
 }
 
+/**
+ * Build a natural "welcome back" prompt for users who have already chatted today.
+ * This skips formal greetings and focuses on continuing the conversation/vibe.
+ */
+export function buildNonGreetingPrompt(
+  relationship?: RelationshipMetrics | null,
+  userName?: string | null,
+  kayleyActivity?: string | null
+): string {
+  const tier = relationship?.relationshipTier || "acquaintance";
+  const warmth = relationship?.warmthScore ?? 0;
+
+  const now = new Date();
+  const timeString = now.toLocaleTimeString("en-US", {
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+  });
+
+  const kayleyContext = kayleyActivity
+    ? `\n🌟 YOUR CURRENT CONTEXT: You are currently "${kayleyActivity}".`
+    : "";
+
+  const context = `CURRENT TIME: ${timeString}${kayleyContext}`;
+  const jsonGuardrail = `\n\n⚠️ CRITICAL: Your entire response must be ONLY the JSON object. No preamble. Put all conversational text inside "text_response".`;
+
+  let prompt = `Generate a natural, short "welcome back" response. 
+The user has already talked to you today, so this IS NOT the first time you're seeing them.
+${context}
+
+RULES:
+- DO NOT say "Good morning/afternoon/evening" or "Hi there" as if it's new.
+- Instead, use phrases like "Back so soon?", "Where were we?", "Hey again!", "Miss me?", or whatever fits your relationship.
+- Keep it under 10 words.
+- Be extremely casual.
+`;
+
+  if (tier === "adversarial" || warmth < -10) {
+    prompt += `- Be short, cold, and slightly annoyed they're back.`;
+  } else if (tier === "rival") {
+    prompt += `- Be spicy, competitive, and teasing. "Couldn't stay away from the challenge?"`;
+  } else if (tier === "friend" || tier === "close_friend") {
+    prompt += `- Be warm, playful, and genuinely happy they're back. [cite: 24]`;
+  } else if (tier === "deeply_loving") {
+    prompt += `- Be soft, intimate, and affectionate. "Missed you already."`;
+  } else {
+    prompt += `- Be friendly and casual.`;
+  }
+
+  if (userName) {
+    prompt += `\n- Use their name if it fits: ${userName}`;
+  }
+
+  prompt += jsonGuardrail;
+  return prompt;
+}
+
 // ============================================
 // HELPERS
 // ============================================

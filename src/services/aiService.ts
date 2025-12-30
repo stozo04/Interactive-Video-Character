@@ -70,6 +70,18 @@ export interface IAIChatService {
     intent?: FullMessageIntent;
   }>;
 
+  generateNonGreeting(
+    character: CharacterProfile,
+    session?: AIChatSession,
+    relationship?: RelationshipMetrics | null,
+    characterContext?: string
+  ): Promise<{ 
+    greeting: AIActionResponse; 
+    session: AIChatSession;
+    audioData?: string;
+    intent?: FullMessageIntent;
+  }>;
+
   triggerIdleBreaker?(
     userId: string,
     options: {

@@ -430,6 +430,13 @@ export abstract class BaseAIService implements IAIChatService {
     characterContext?: string
   ): Promise<any>;
 
+  abstract generateNonGreeting(
+    character: any,
+    session: any,
+    relationship: any,
+    characterContext?: string
+  ): Promise<any>;
+
   /**
    * Triggered when the user has been idle (e.g., 5-10 mins).
    * Decides whether to ask about a user topic (Open Loop) 
