@@ -18,6 +18,7 @@ vi.mock('../stateService', () => ({
 
 vi.mock('../spontaneity/idleThoughts', () => ({
   generateIdleThought: vi.fn(),
+  MIN_ABSENCE_MINUTES_FOR_THOUGHT: 10, // Must include this export used by the scheduler
 }));
 
 vi.mock('../ongoingThreads', () => ({
@@ -107,8 +108,11 @@ describe('Idle Thoughts Scheduler', () => {
 
       startIdleThoughtsScheduler(userId);
 
-      // Fast-forward to trigger the check
-      await vi.advanceTimersByTimeAsync(1000);
+      // Stop scheduler to prevent interval from running, but immediate call is already in-flight
+      stopIdleThoughtsScheduler();
+
+      // Flush pending microtasks to let the already-started processIdleThought complete
+      await vi.runOnlyPendingTimersAsync();
 
       expect(generateIdleThought).toHaveBeenCalledWith(userId, 0.25, 'neutral'); // 15 min = 0.25 hours
       expect(createUserThreadAsync).toHaveBeenCalledWith(
@@ -149,7 +153,11 @@ describe('Idle Thoughts Scheduler', () => {
 
       startIdleThoughtsScheduler(userId);
 
-      await vi.advanceTimersByTimeAsync(1000);
+      // Stop scheduler to prevent interval from running, but immediate call is already in-flight
+      stopIdleThoughtsScheduler();
+
+      // Flush pending microtasks to let the already-started processIdleThought complete
+      await vi.runOnlyPendingTimersAsync();
 
       expect(generateIdleThought).toHaveBeenCalledWith(userId, 0.25, 'neutral'); // 15 min = 0.25 hours
       expect(createUserThreadAsync).not.toHaveBeenCalled(); // Should not try to create thread
