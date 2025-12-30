@@ -4,10 +4,12 @@
  *
  * Functions for building semantic context from message intent and relationship data.
  * These convert numeric scores to semantic descriptions that LLMs understand better.
+ *
+ * Updated to use simplified KayleyMood (energy + warmth) instead of complex 6-knob system.
  */
 
 import type { RelationshipMetrics } from "../../relationshipService";
-import type { MoodKnobs } from "../../moodKnobs";
+import type { KayleyMood } from "../../moodKnobs";
 import type {
   RelationshipSignalIntent,
   ToneIntent,
@@ -34,7 +36,7 @@ export function buildMinifiedSemanticIntent(
   toneIntent: ToneIntent | null | undefined,
   fullIntent: FullMessageIntent | null | undefined,
   relationshipSignals: RelationshipSignalIntent | null | undefined,
-  moodKnobs: MoodKnobs
+  mood: KayleyMood
 ): string {
   if (!toneIntent && !fullIntent && !relationshipSignals) {
     return "";
@@ -105,8 +107,10 @@ export function buildMinifiedSemanticIntent(
   // Open loop (compact)
   if (fullIntent?.openLoops?.hasFollowUp) {
     const ol = fullIntent.openLoops;
-    const canAsk =
-      moodKnobs.initiationRate > 0.3 && moodKnobs.curiosityDepth !== "shallow";
+    // Use energy and warmth to determine if now is a good time to ask follow-ups
+    // High energy + warmth = more proactive, ask now
+    // Low energy or guarded = hold off
+    const canAsk = mood.energy > -0.3 && mood.warmth > 0.3;
     parts.push(
       `OpenLoop=${ol.topic || "pending"}(${ol.loopType},${
         canAsk ? "ask-now" : "later"

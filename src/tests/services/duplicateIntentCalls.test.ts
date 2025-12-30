@@ -52,7 +52,7 @@ vi.mock('../../services/elevenLabsService', () => ({
 }));
 
 vi.mock('../../services/moodKnobs', () => ({
-  updateEmotionalMomentumWithIntensityAsync: vi.fn(() => Promise.resolve()),
+  recordInteractionAsync: vi.fn(() => Promise.resolve()),
 }));
 
 vi.mock('../../services/ongoingThreads', () => ({

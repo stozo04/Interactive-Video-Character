@@ -5,7 +5,7 @@ import { generateSpeech } from './elevenLabsService';
 import { AIActionResponse } from './aiSchema';
 import { analyzeUserMessageBackground } from './messageAnalyzer';
 import { detectFullIntentLLMCached, isFunctionalCommand, type FullMessageIntent } from './intentService';
-import { updateEmotionalMomentumWithIntensityAsync } from './moodKnobs';
+import { recordInteractionAsync } from './moodKnobs';
 import { getOngoingThreadsAsync, selectProactiveThread, markThreadMentionedAsync } from './ongoingThreads';
 import { getTopLoopToSurface, markLoopSurfaced } from './presenceDirector';
 import { storeCharacterFact } from './characterFactsService';
@@ -193,12 +193,11 @@ export abstract class BaseAIService implements IAIChatService {
                  isPositiveAffirmation: true // implied
                };
                
-               // Update momentum state now
+               // Update mood state now using simplified recordInteractionAsync
                const targetUserId = session?.userId || import.meta.env.VITE_USER_ID;
-               await updateEmotionalMomentumWithIntensityAsync(
+               await recordInteractionAsync(
                  targetUserId,
-                 preCalculatedIntent.tone.sentiment, 
-                 preCalculatedIntent.tone.intensity, 
+                 preCalculatedIntent.tone,  // Pass full ToneIntent
                  userMessageText,
                  genuineMomentResult as any
                );

@@ -203,13 +203,14 @@ Use the relationship-dynamics agent to implement milestone-gated tier advancemen
 
 ### 7. `intent-analyst`
 
-**Domain**: Intent detection, mood analysis, tone detection, topics
+**Domain**: Intent detection, KayleyMood (energy + warmth), tone detection, emotional momentum
 
 **When to Use**:
-- Analyzing user messages
-- Detecting emotional signals
+- Analyzing user messages for tone and sentiment
+- Detecting emotional signals and genuine moments
 - Extracting conversation topics
-- Calculating mood from context
+- Calculating simplified mood (KayleyMood: energy, warmth, genuineMoment)
+- Recording interaction tone and managing streak logic
 
 **Example Invocation**:
 ```
@@ -217,15 +218,17 @@ Use the intent-analyst to create the association engine for topic matching
 ```
 
 **Key Skills**:
-- Knows the intent detection pipeline
-- Understands mood calculation
+- Knows the intent detection pipeline (FullMessageIntent)
+- Understands simplified mood calculation (KayleyMood)
 - Implements topic similarity
 - Works with semantic analysis
+- Manages emotional momentum (weighted average, streaks)
 
 **Files It Knows**:
-- `src/services/intentService.ts`
+- `src/services/intentService.ts` - LLM-based intent detection
+- `src/services/moodKnobs.ts` - KayleyMood (energy/warmth/genuineMoment)
+- `src/services/messageAnalyzer.ts` - Background analysis orchestration
 - Intent-related types and patterns
-- Mood knob calculations
 
 ---
 
@@ -470,6 +473,7 @@ Resume agent ae76e47 to add error handling to the prompt builder
 | Calendar-aware messages | presence-proactivity | "Create post-event check-in messages" |
 | Gift messages | presence-proactivity | "Implement rare gift messages" |
 | Relationship logic | relationship-dynamics | "Implement tier progression" |
+| Mood/tone analysis | intent-analyst | "Modify KayleyMood calculation" |
 | Topic analysis | intent-analyst | "Create topic matching for X" |
 | External APIs | external-integrations | "Integrate X API" |
 | Memory/facts | memory-knowledge | "Improve fact retrieval" |

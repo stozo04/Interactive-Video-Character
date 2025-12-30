@@ -176,25 +176,26 @@ describe("Phase 2: moodKnobs Supabase Migration", () => {
       expect(savedCall[0]).toBe(testUserId);
     });
 
-    it("should update emotional momentum with tone", async () => {
+    it("should update emotional momentum with tone (simplified)", async () => {
       await recordInteractionAsync(testUserId, 0.8, "Great chat!");
-      
+
       expect(mockSaveEmotionalMomentum).toHaveBeenCalled();
       const savedCall = mockSaveEmotionalMomentum.mock.calls[0];
       expect(savedCall[0]).toBe(testUserId);
-      // Momentum should have the tone added
+      // Simplified: momentum should have updated mood level and streak
       const savedMomentum = savedCall[1];
-      expect(savedMomentum.recentInteractionTones).toContain(0.8);
+      // Tone > 0.3 = positive streak increment
+      expect(savedMomentum.positiveInteractionStreak).toBeGreaterThan(0);
     });
 
     it("should update cache so subsequent async calls get fresh data", async () => {
       await recordInteractionAsync(testUserId, 0.8, "Test");
-      
+
       // Next async call should use cached data
       const momentum = await getEmotionalMomentumAsync(testUserId);
-      
-      // Should have the interaction in it
-      expect(momentum.recentInteractionTones).toContain(0.8);
+
+      // Simplified: streak should be updated for positive tone
+      expect(momentum.positiveInteractionStreak).toBe(1);
     });
   });
 

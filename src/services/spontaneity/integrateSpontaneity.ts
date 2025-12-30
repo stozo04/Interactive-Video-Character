@@ -28,7 +28,7 @@ import type {
   SpontaneousSelfieReason,
   PendingShare,
 } from "./types";
-import type { MoodKnobs } from "../moodKnobs";
+import type { KayleyMood } from "../moodKnobs";
 
 // ============================================================================
 // PENDING SHARES - Database operations (to be implemented)
@@ -133,7 +133,7 @@ function buildSelfieContext(
 export async function integrateSpontaneity(
   userId: string,
   conversationalMood: ConversationalMood,
-  moodKnobs: MoodKnobs,
+  moodKnobs: KayleyMood,
   relationshipTier: string,
   currentTopics: string[],
   userInterests: string[],
@@ -154,11 +154,15 @@ export async function integrateSpontaneity(
   ]);
 
   // Build full spontaneity context
+  // Map KayleyMood to energy/comfort: energy is -1 to 1, warmth is 0 to 1
+  const energyLevel = (moodKnobs.energy + 1) / 2; // Scale -1..1 to 0..1
+  const comfortLevel = moodKnobs.warmth; // Warmth directly maps to comfort
+
   const context = buildSpontaneityContext({
     conversationalMood,
     relationshipTier,
-    energyLevel: moodKnobs.verbosity, // Using verbosity as energy proxy
-    comfortLevel: moodKnobs.warmthAvailability === "open" ? 0.8 : 0.5,
+    energyLevel,
+    comfortLevel,
     vulnerabilityExchangeActive: false, // TODO: Wire from relationship service
     hasSomethingToShare: currentThought !== null || recentExperience !== null,
     currentThought,

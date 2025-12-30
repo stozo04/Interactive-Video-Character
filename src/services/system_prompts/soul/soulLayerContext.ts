@@ -7,15 +7,15 @@
  */
 
 import type { SoulLayerContext } from "../types";
-import type { MoodKnobs } from "../../moodKnobs";
+import type { KayleyMood } from "../../moodKnobs";
 import type { PresenceContext } from "../../presenceDirector";
 import type { ConversationalMood } from "../../spontaneity/types";
 import { formatCallbackForPrompt } from "../../callbackDirector";
 import { getFullCharacterContext } from "../../stateService";
 import { getPresenceContext } from "../../presenceDirector";
 import {
-  getMoodKnobsAsync,
-  calculateMoodKnobsFromState,
+  getMoodAsync,
+  calculateMoodFromState,
 } from "../../moodKnobs";
 import {
   formatThreadsForPromptAsync,
@@ -61,7 +61,7 @@ export async function getSoulLayerContextAsync(
   const callbackPrompt = formatCallbackForPrompt();
 
   // Initialize with defaults
-  let moodKnobs: MoodKnobs;
+  let moodKnobs: KayleyMood;
   let threadsPrompt: string = "";
   let presenceContext: PresenceContext | undefined;
 
@@ -77,14 +77,14 @@ export async function getSoulLayerContextAsync(
 
     presenceContext = presenceResult;
 
-    // Process mood knobs from unified fetch (CPU-only, fast)
+    // Process mood using SIMPLIFIED system (energy + warmth instead of 6 knobs)
     if (fullContext.mood_state && fullContext.emotional_momentum) {
-      moodKnobs = calculateMoodKnobsFromState(
+      moodKnobs = calculateMoodFromState(
         fullContext.mood_state,
         fullContext.emotional_momentum
       );
     } else {
-      moodKnobs = await getMoodKnobsAsync(userId);
+      moodKnobs = await getMoodAsync(userId);
     }
 
     // 🚀 OPTIMIZATION: Format threads directly from fetched data
@@ -103,7 +103,7 @@ export async function getSoulLayerContextAsync(
 
     // 🚀 PARALLEL FALLBACK: Run all fallbacks in parallel
     const [moodKnobsResult, threadsResult, presenceResult] = await Promise.all([
-      getMoodKnobsAsync(userId),
+      getMoodAsync(userId),
       formatThreadsForPromptAsync(userId),
       getPresenceContext(userId).catch(() => undefined),
     ]);

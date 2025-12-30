@@ -57,7 +57,7 @@ All providers implement `IAIChatService` interface, allowing seamless switching.
 | `intentService.ts` | LLM-based message intent detection (tone, topics, signals) |
 | `presenceDirector.ts` | Determines character availability and actions |
 | `relationshipService.ts` | Relationship tier calculation and metrics |
-| `moodKnobs.ts` | Maps mood state to behavior parameters |
+| `moodKnobs.ts` | KayleyMood (energy, warmth, genuineMoment) from mood state |
 | `stateService.ts` | Supabase CRUD operations for all state |
 | `ongoingThreads.ts` | Mental thread management with decay |
 
@@ -146,12 +146,16 @@ system_prompts/
 **Example - Adding a new behavior:**
 ```typescript
 // src/services/system_prompts/behavior/newBehavior.ts
-export function buildNewBehaviorSection(moodKnobs: MoodKnobs): string {
+import type { KayleyMood } from "../../moodKnobs";
+
+export function buildNewBehaviorSection(mood: KayleyMood): string {
+  // KayleyMood has: energy (-1 to 1), warmth (0 to 1), genuineMoment (boolean)
+  const isLowEnergy = mood.energy < 0;
   return `
 ====================================================
 NEW BEHAVIOR GUIDANCE
 ====================================================
-Your instructions here...
+${isLowEnergy ? "Keep it brief - you're tired." : ""}
 `;
 }
 
@@ -159,7 +163,7 @@ Your instructions here...
 export { buildNewBehaviorSection } from "./newBehavior";
 
 // Then in builders/systemPromptBuilder.ts, import and use:
-prompt += buildNewBehaviorSection(moodKnobs);
+prompt += buildNewBehaviorSection(soulContext.moodKnobs); // KayleyMood
 ```
 
 ### Key Principles
