@@ -13,11 +13,18 @@ You own these files exclusively:
 
 ```
 src/services/
-├── presenceDirector.ts     # ~40KB - Open loops, opinions, context
-├── ongoingThreads.ts       # ~18KB - Mental weather (3-5 thoughts)
-├── loopCleanupService.ts   # ~18KB - Loop maintenance & expiration
-├── callbackDirector.ts     # ~25KB - Micro-memory callbacks
-└── prefetchService.ts      # Idle prefetching for fast responses
+├── presenceDirector.ts         # Open loops, opinions, context
+├── ongoingThreads.ts           # Mental weather (3-5 thoughts)
+├── loopCleanupService.ts       # Loop maintenance & expiration
+├── callbackDirector.ts         # Micro-memory callbacks
+├── prefetchService.ts          # Idle prefetching for fast responses
+├── idleThoughtsScheduler.ts    # Background scheduler for idle-time generation
+└── idleLife/                   # Part Two: Kayley Lives Her Life
+    ├── index.ts                # Module exports
+    ├── kayleyExperienceService.ts  # Life experiences (activities, mishaps)
+    ├── calendarAwarenessService.ts # Post-event messages
+    ├── giftMessageService.ts       # Rare gift messages (selfies, thoughts)
+    └── pendingMessageService.ts    # Message storage and delivery
 ```
 
 ## When NOT to Use Me
@@ -376,6 +383,44 @@ npm test -- --run
 | Change cleanup rules | `loopCleanupService.ts` - expiration logic |
 | Add callback type | `callbackDirector.ts` - type + selection |
 
+## Idle Life System (Part Two)
+
+Kayley has her own life during user absence:
+
+### Life Experiences
+Generated during idle time (70% chance per tick):
+- **activity**: Nailed a chord, practiced audition
+- **thought**: Had a realization
+- **mood**: Can't explain how she feels
+- **discovery**: Found something interesting
+- **mishap**: Burned lunch, spilled coffee
+
+```typescript
+const experience = await generateKayleyExperience(userId, context);
+// Surfaces naturally in conversation via system prompt injection
+```
+
+### Calendar Awareness
+Checks for completed events while user was away:
+```typescript
+const message = await checkCalendarForMessage(userId, events, lastInteractionAt);
+// Creates pending message: "Hope your interview went well!"
+```
+
+### Gift Messages
+Rare (5% chance, max once/day):
+```typescript
+const gift = await maybeGenerateGiftMessage(userId, hoursAway);
+// Could be selfie or intriguing thought
+```
+
+### Pending Messages
+Wait for user return (gift feeling):
+```typescript
+const message = await getUndeliveredMessage(userId);
+// Delivered in greeting when user returns
+```
+
 ## Reference Documentation
 
 ### Domain-Specific Documentation
@@ -384,7 +429,15 @@ npm test -- --run
 - `src/services/docs/Proactive_Systems.md` - Overview of Calendar and News systems
 - `src/services/docs/LoopCleanup.md` - The "janitor" that keeps her memory uncluttered
 
+### Idle Life System (Part Two) Documentation
+- `src/services/docs/IdleLifeService.md` - Overview of the complete idle-time system
+- `src/services/docs/KayleyExperienceService.md` - Life experiences during absence
+- `src/services/docs/CalendarAwarenessService.md` - Post-event check-in messages
+- `src/services/docs/GiftMessageService.md` - Rare gift messages (selfies or thoughts)
+- `src/services/docs/PendingMessageService.md` - Message storage and delivery
+
 ### Services Documentation Hub
 - `src/services/docs/README.md` - Central documentation hub for all services
-  - See "📅 Proactive & Memory" section for comprehensive proactivity architecture
+  - See "Proactive & Memory" section for comprehensive proactivity architecture
+  - See "Idle Life" section for Part Two documentation
   - See 4-tier idle breaker priority system documentation

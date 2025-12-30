@@ -25,6 +25,15 @@ vi.mock('../ongoingThreads', () => ({
   createUserThreadAsync: vi.fn(),
 }));
 
+// Mock idleLife module (Part Two: Kayley Lives Her Life)
+vi.mock('../idleLife', () => ({
+  generateKayleyExperience: vi.fn(),
+  buildExperienceContext: vi.fn(),
+  checkCalendarForMessage: vi.fn(),
+  maybeGenerateGiftMessage: vi.fn(),
+  hasUndeliveredMessage: vi.fn().mockResolvedValue(false),
+}));
+
 import { getMoodState } from '../stateService';
 import { generateIdleThought } from '../spontaneity/idleThoughts';
 import { createUserThreadAsync } from '../ongoingThreads';
@@ -45,8 +54,8 @@ describe('Idle Thoughts Scheduler', () => {
 
   describe('Configuration', () => {
     it('should have correct configuration constants', () => {
-      expect(IDLE_THOUGHTS_CONFIG.checkIntervalMs).toBe(1 * 60 * 1000); // 1 minute (testing mode)
-      expect(IDLE_THOUGHTS_CONFIG.minAbsenceMinutes).toBe(1); // 1 minute (testing mode)
+      expect(IDLE_THOUGHTS_CONFIG.checkIntervalMs).toBe(1 * 60 * 1000); // 1 minute
+      expect(IDLE_THOUGHTS_CONFIG.minAbsenceMinutes).toBe(10); // 10 minutes before generating thoughts
       expect(IDLE_THOUGHTS_CONFIG.thoughtIntensity).toBe(0.7);
     });
   });

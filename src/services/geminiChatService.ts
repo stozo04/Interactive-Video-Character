@@ -8,6 +8,7 @@ import { BaseAIService } from './BaseAIService';
 import { executeMemoryTool, MemoryToolName } from './memoryService';
 import { getTopLoopToSurface, markLoopSurfaced } from './presenceDirector';
 import { resolveActionKey } from '../utils/actionKeyMapper';
+import { getUndeliveredMessage, markMessageDelivered } from './idleLife';
 
 // 1. LOAD BOTH MODELS FROM ENV
 const GEMINI_MODEL = import.meta.env.VITE_GEMINI_MODEL; // The Brain (e.g. gemini-3-flash-preview)
@@ -663,11 +664,28 @@ export class GeminiService extends BaseAIService {
         );
       }
 
+      // Fetch any pending message from idle time (calendar-aware or gift messages)
+      let pendingMessage = null;
+      try {
+        pendingMessage = await getUndeliveredMessage(userId);
+        if (pendingMessage) {
+          console.log(
+            `💌 [Gemini Interactions] Found pending ${pendingMessage.trigger} message to deliver`
+          );
+        }
+      } catch (e) {
+        console.log(
+          "[Gemini Interactions] Could not fetch pending message for greeting"
+        );
+      }
+
       const greetingPrompt = buildGreetingPrompt(
         relationship,
         hasUserFacts,
         userName,
-        topOpenLoop
+        topOpenLoop,
+        null, // proactiveThread - not used here
+        pendingMessage
       );
       console.log(
         `🤖 [Gemini Interactions] Greeting tier: ${
@@ -713,6 +731,14 @@ export class GeminiService extends BaseAIService {
         await markLoopSurfaced(topOpenLoop.id);
         console.log(
           `✅ [Gemini Interactions] Marked loop as surfaced: "${topOpenLoop.topic}"`
+        );
+      }
+
+      // Mark the pending message as delivered (it was included in the greeting)
+      if (pendingMessage) {
+        await markMessageDelivered(pendingMessage.id);
+        console.log(
+          `✅ [Gemini Interactions] Marked pending ${pendingMessage.trigger} message as delivered`
         );
       }
 
