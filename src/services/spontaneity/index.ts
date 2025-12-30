@@ -19,11 +19,5 @@ export * from './associationEngine';
 // Integration (main entry point)
 export * from './integrateSpontaneity';
 
-// Visual State Mapper
-export * from './visualStateMapper';
-
-// Session Reflection
-export * from './sessionReflection';
-
 // Idle Thoughts
 export * from './idleThoughts';

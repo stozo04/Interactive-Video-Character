@@ -1,14 +1,14 @@
 # Tool Integration Checklist
 
 > **Purpose**: Step-by-step checklist for adding new LLM tools to the Interactive Video Character project
->
-> **Context**: After implementing `manage_narrative_arc` and `manage_dynamic_relationship`, this checklist was created to prevent missing any integration points
 
 ---
 
 ## Overview
 
-When adding a new tool that the AI can call (like `manage_narrative_arc` or `manage_dynamic_relationship`), you must update **8 critical files** in the correct order. Missing any step will cause type errors or runtime failures.
+When adding a new tool that the AI can call, you must update **8 critical files** in the correct order. Missing any step will cause type errors or runtime failures.
+
+> **Note**: Examples below use `my_new_tool` as a placeholder. Replace with your actual tool name.
 
 ---
 

@@ -19,9 +19,6 @@ import type {
 } from "../../intentService";
 import { getActionKeysForPrompt } from "../../../utils/actionKeyMapper";
 import { formatCharacterFactsForPrompt } from "../../characterFactsService";
-import { formatArcsForPrompt } from "../../narrativeArcsService";
-import { formatDynamicRelationshipsForPrompt } from "../../dynamicRelationshipsService";
-import { formatStoriesForPrompt } from "../../storyRetellingService";
 
 import type { SoulLayerContext } from "../types";
 
@@ -44,7 +41,7 @@ import { buildAntiAssistantSection } from "../core/antiAssistant";
 import { buildOpinionsAndPushbackSection } from "../core/opinionsAndPushback";
 import { buildIdentityAnchorSection } from "../core/identityAnchor";
 import { buildSelfKnowledgeSection } from "../core/selfKnowledge";
-import { integrateAlmostMoments } from "../../almostMoments";
+import { integrateAlmostMoments } from "../../almostMomentsService";
 import {
   buildToolsSection,
   buildToolRulesSection,
@@ -101,7 +98,6 @@ export const buildSystemPrompt = async (
   prefetchedContext?: {
     soulContext: SoulLayerContext;
     characterFacts: string;
-    narrativeArcs: string;
   }
 ): Promise<string> => {
   const name = character?.name || "Kayley Adams";
@@ -112,27 +108,18 @@ export const buildSystemPrompt = async (
 
   let soulContext: SoulLayerContext;
   let characterFactsPrompt: string;
-  let narrativeArcsPrompt: string;
-  let dynamicRelationshipsPrompt: string;
-  let storiesPrompt: string;
 
   if (prefetchedContext) {
     // Use pre-fetched data (saves ~300ms)
     console.log("✅ [buildSystemPrompt] Using pre-fetched context");
     soulContext = prefetchedContext.soulContext;
     characterFactsPrompt = prefetchedContext.characterFacts;
-    narrativeArcsPrompt = prefetchedContext.narrativeArcs;
-    dynamicRelationshipsPrompt = prefetchedContext.dynamicRelationships || "";
-    storiesPrompt = prefetchedContext.stories || "";
   } else {
     // Fallback: Fetch if not pre-fetched (still in parallel for safety)
     console.log("⚠️ [buildSystemPrompt] No pre-fetched context, fetching now");
-    [soulContext, characterFactsPrompt, narrativeArcsPrompt, dynamicRelationshipsPrompt, storiesPrompt] = await Promise.all([
+    [soulContext, characterFactsPrompt] = await Promise.all([
       getSoulLayerContextAsync(effectiveUserId),
       formatCharacterFactsForPrompt(),
-      formatArcsForPrompt(effectiveUserId),
-      formatDynamicRelationshipsForPrompt(effectiveUserId),
-      formatStoriesForPrompt(effectiveUserId),
     ]);
   }
 
@@ -181,9 +168,6 @@ YOUR IDENTITY (Source of Truth)
 ====================================================
 ${KAYLEY_FULL_PROFILE}
 ${characterFactsPrompt}
-${narrativeArcsPrompt}
-${dynamicRelationshipsPrompt}
-${storiesPrompt}
 
 ${buildSelfKnowledgeSection(display, CHARACTER_COLLECTION_ID)}
 ${buildToolsSection()}

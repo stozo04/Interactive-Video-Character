@@ -45,7 +45,7 @@ These experiences get **stored** - not to surface immediately, but to come up na
 
 ### 2. She Notices Your Calendar
 
-Kayley has access to your calendar. She pays attention. When something important happens while you're gone, she might leave you a message.
+Kayley has access to your calendar (up to a week in advanced). She pays attention. When something important happens while you're gone, she might leave you a message.
 
 **Examples:**
 
@@ -155,6 +155,7 @@ async function generateKayleyExperience(userId: string): Promise<KayleyExperienc
   if (Math.random() > 0.7) return null;
 
   // Get her current context
+  // Make this await Promise.all so 1 parrallel call
   const presence = await getPresenceContext(userId);
   const mood = await getMoodState(userId);
   const recentStories = await getActiveKayleyStories(userId);
@@ -212,18 +213,17 @@ async function checkCalendarForMessage(userId: string): Promise<PendingMessage |
   // Get events that ended while user was away
   const recentlyEndedEvents = await getRecentlyCompletedEvents(userId);
 
-  // Filter to meaningful ones (not "lunch" or "focus time")
-  const meaningfulEvents = recentlyEndedEvents.filter(event =>
-    isSignificantEvent(event) // interview, doctor, meeting with specific person, etc.
-  );
+  if (recentlyEndedEvents.length === 0) return null;
 
-  if (meaningfulEvents.length === 0) return null;
-
-  // Pick the most significant one
-  const event = meaningfulEvents[0];
+  
+  // Call LLM to see if any event is to meaningful ones (not "lunch" or "focus time")
+  // that would want to give our user a meaningful message while they are away
+  // like doctors, interview, dentist ..
+  Creat LLM Prompt and call and get response
+  
 
   // Generate a thoughtful message
-  const message = await generateCalendarMessage(event);
+  send a message in the chat
 
   return {
     messageText: message,
@@ -234,23 +234,6 @@ async function checkCalendarForMessage(userId: string): Promise<PendingMessage |
   };
 }
 
-function isSignificantEvent(event: CalendarEvent): boolean {
-  const dominated = event.summary.toLowerCase();
-
-  // Significant
-  if (dominated.includes('interview')) return true;
-  if (dominated.includes('doctor') || dominated.includes('appointment')) return true;
-  if (dominated.includes('presentation')) return true;
-  if (dominated.includes('meeting with')) return true; // specific person
-  if (dominated.includes('call with')) return true;
-
-  // Not significant
-  if (dominated.includes('lunch')) return false;
-  if (dominated.includes('focus')) return false;
-  if (dominated.includes('block')) return false;
-
-  return false; // Default to not messaging
-}
 ```
 
 **LLM Prompt for calendar messages:**
