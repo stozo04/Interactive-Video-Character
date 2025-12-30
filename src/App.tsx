@@ -516,7 +516,8 @@ const App: React.FC = () => {
            
            await conversationHistoryService.appendConversationHistory(
               userId,
-              [{ role: 'user', text: '📷 [Sent an Image]' }, { role: 'model', text: displayText }]
+             [{ role: 'user', text: '📷 [Sent an Image]' }, { role: 'model', text: displayText }],
+             updatedSession?.interactionId || aiSession?.interactionId
            );
 
            // Create Event
@@ -555,7 +556,8 @@ const App: React.FC = () => {
           
           await conversationHistoryService.appendConversationHistory(
             userId,
-            [{ role: 'user', text: '📷 [Sent an Image]' }, { role: 'model', text: response.text_response }]
+            [{ role: 'user', text: '📷 [Sent an Image]' }, { role: 'model', text: response.text_response }],
+            updatedSession?.interactionId || aiSession?.interactionId
           );
 
           if (!isMuted && audioData) {
@@ -850,7 +852,14 @@ const App: React.FC = () => {
         { role: 'model', text: response.text_response }
       ]);
       
-      // 4. Play Audio/Action
+      // 4. Save to DB
+      await conversationHistoryService.appendConversationHistory(
+        userId,
+        [{ role: 'model', text: response.text_response }],
+        updatedSession.interactionId
+      );
+
+      // 5. Play Audio/Action
       if (!isMuted && audioData) enqueueAudio(audioData);
       if (response.action_id) playAction(response.action_id);
       if (response.open_app) {
@@ -960,6 +969,13 @@ const App: React.FC = () => {
         { role: 'model', text: response.text_response }
       ]);
       
+      // Save to DB
+      await conversationHistoryService.appendConversationHistory(
+        userId,
+        [{ role: 'model', text: response.text_response }],
+        updatedSession.interactionId
+      );
+
       // UI Layer: Play Audio/Action
       if (!isMuted && audioData) {
         // Convert string URL to ArrayBuffer if needed, or use directly
@@ -1222,7 +1238,8 @@ const App: React.FC = () => {
       try {
         await conversationHistoryService.appendConversationHistory(
           userId,
-          [{ role: 'model', text: characterMessage }]
+          [{ role: 'model', text: characterMessage }],
+          aiSession?.interactionId // Pass the current interaction ID
         );
         setLastSavedMessageIndex(updatedHistory.length - 1);
 
@@ -1240,7 +1257,7 @@ const App: React.FC = () => {
     };
 
     processEmailNotification();
-  }, [debouncedEmailQueue, selectedCharacter, isMuted]); // Added isMuted to dependencies
+  }, [debouncedEmailQueue, selectedCharacter, isMuted, aiSession]); // Added isMuted and aiSession to dependencies
 
   const handleImageUpload = (image: UploadedImage) => {
     setUploadedImage(image);
@@ -1654,8 +1671,11 @@ const App: React.FC = () => {
       setRelationship(relationshipData);
       
       try {
-        // Check if this is the first login of the day
-        // If so, skip the immediate greeting - the Daily Catch-up will handle it in 5s
+        // 1. Check if any conversation occurred today (DB source of truth)
+        const messageCount = await conversationHistoryService.getTodaysMessageCount(userId);
+        const hasHadConversationToday = messageCount > 0;
+
+        // 2. Check if this is the first login of the day (Local state for briefing delay)
         const today = new Date().toDateString();
         const lastBriefingDate = localStorage.getItem(`last_briefing_${character.id}`);
         const isFirstLoginToday = lastBriefingDate !== today;
@@ -1663,26 +1683,57 @@ const App: React.FC = () => {
         // Start with fresh session
         const session: AIChatSession = { userId, model: activeService.model };
 
-        if (isFirstLoginToday) {
-          // First login of the day: Skip immediate greeting, let Daily Catch-up handle it
+        // USER REQUIREMENT: Store the conversationId that google gemini gives per day
+        // Try to restore today's Gemini interaction ID for continuity
+        const existingInteractionId = await conversationHistoryService.getTodaysInteractionId(userId);
+        if (existingInteractionId) {
+          console.log(`🔗 [App] Restoring today's interaction ID: ${existingInteractionId}`);
+          session.interactionId = existingInteractionId;
+        }
+
+        if (!hasHadConversationToday && isFirstLoginToday) {
+        // First login of the day AND no conversation yet: Skip immediate greeting, let Daily Catch-up handle it
           console.log('🌅 [App] First login today - skipping immediate greeting, Daily Catch-up will fire in 5s');
           setAiSession(session);
           setChatHistory([]); // Empty - catch-up will provide the greeting
-        } else {
-          // Returning user (already had catch-up today): Generate normal greeting
+        } else if (!hasHadConversationToday) {
+          // No conversation today BUT not the first login (already briefed or briefing dismissed): Generate normal greeting
+          console.log('🤖 [App] Returning to session (no prior chat today) - generating formal greeting');
           const { greeting, session: updatedSession } = await activeService.generateGreeting(
             character, session, relationshipData, kayleyContext
           );
           setAiSession(updatedSession);
 
-          // Start with just the greeting - fresh session!
           const initialHistory = [{ role: 'model' as const, text: greeting.text_response }];
           setChatHistory(initialHistory);
 
           if (greeting.action_id && newActionUrls[greeting.action_id]) {
-              setTimeout(() => {
-                  playAction(greeting.action_id!);
-              }, 100);
+            setTimeout(() => playAction(greeting.action_id!), 100);
+          }
+        } else {
+          // CONVERSATION OCCURRED TODAY: Reload all exchanges and generate informal "welcome back"
+          console.log(`🧠 [App] Chat detected today (${messageCount} messages) - reloading history and generating non-greeting`);
+
+          const todayHistory = await conversationHistoryService.loadTodaysConversationHistory(userId);
+          setChatHistory(todayHistory);
+
+          const { greeting: backMessage, session: updatedSession } = await activeService.generateNonGreeting(
+            character, session, relationshipData, kayleyContext
+          );
+          setAiSession(updatedSession);
+
+          // Append the "welcome back" message to the restored history
+          setChatHistory(prev => [...prev, { role: 'model' as const, text: backMessage.text_response }]);
+
+          // Save the interaction record
+          await conversationHistoryService.appendConversationHistory(
+            userId,
+            [{ role: 'model', text: backMessage.text_response }],
+            updatedSession.interactionId || session.interactionId // Restore interactionId here
+          );
+
+          if (backMessage.action_id && newActionUrls[backMessage.action_id]) {
+            setTimeout(() => playAction(backMessage.action_id!), 100);
           }
         }
 
@@ -2287,7 +2338,8 @@ const App: React.FC = () => {
                 setChatHistory(prev => [...prev, { role: 'model' as const, text: response.text_response }]);
                 await conversationHistoryService.appendConversationHistory(
                   userId,
-                  [{ role: 'user', text: message }, { role: 'model', text: response.text_response }]
+                  [{ role: 'user', text: message }, { role: 'model', text: response.text_response }],
+                  updatedSession?.interactionId || aiSession?.interactionId
                 );
                 setLastSavedMessageIndex(updatedHistory.length);
                 
@@ -2330,7 +2382,8 @@ const App: React.FC = () => {
               setChatHistory(prev => [...prev, { role: 'model' as const, text: response.text_response }]);
               await conversationHistoryService.appendConversationHistory(
                 userId,
-                [{ role: 'user', text: message }, { role: 'model', text: response.text_response }]
+                [{ role: 'user', text: message }, { role: 'model', text: response.text_response }],
+                updatedSession?.interactionId || aiSession?.interactionId
               );
               setLastSavedMessageIndex(updatedHistory.length);
 
@@ -2367,6 +2420,14 @@ const App: React.FC = () => {
               media.enqueueAudio(audioData);
             }
             
+            // Save initial conversation
+            await conversationHistoryService.appendConversationHistory(
+              userId,
+              [{ role: 'user', text: message }, { role: 'model', text: response.text_response }],
+              updatedSession?.interactionId || aiSession?.interactionId
+            );
+            setLastSavedMessageIndex(updatedHistory.length);
+
             // Fetch news from Hacker News
             const stories = await fetchTechNews();
             
@@ -2444,7 +2505,8 @@ Let the user know in a friendly way and maybe offer to check back later.
             // Save initial conversation
             await conversationHistoryService.appendConversationHistory(
               userId,
-              [{ role: 'user', text: message }, { role: 'model', text: response.text_response }]
+              [{ role: 'user', text: message }, { role: 'model', text: response.text_response }],
+              updatedSession?.interactionId || aiSession?.interactionId
             );
             setLastSavedMessageIndex(updatedHistory.length);
             
@@ -2511,7 +2573,7 @@ Let the user know in a friendly way and maybe offer to check back later.
               
               if (!isMuted) {
                 const errorAudio = await generateSpeech(errorMessage);
-                if (errorAudio) media.enqueueAudio(errorAudio);
+                if (errorAudio) media.enqueueAudio(errorMessage);
               }
               
               console.error('❌ Selfie generation failed:', selfieResult.error);
@@ -2566,7 +2628,8 @@ Let the user know in a friendly way and maybe offer to check back later.
              
              await conversationHistoryService.appendConversationHistory(
                 userId,
-                [{ role: 'user', text: message }, { role: 'model', text: displayText }]
+               [{ role: 'user', text: message }, { role: 'model', text: displayText }],
+               updatedSession?.interactionId || aiSession?.interactionId
              );
              setLastSavedMessageIndex(updatedHistory.length);
 
@@ -2607,7 +2670,8 @@ Let the user know in a friendly way and maybe offer to check back later.
             setChatHistory(prev => [...prev, { role: 'model' as const, text: displayText }]);
             await conversationHistoryService.appendConversationHistory(
               userId,
-              [{ role: 'user', text: message }, { role: 'model', text: displayText }]
+              [{ role: 'user', text: message }, { role: 'model', text: displayText }],
+              updatedSession?.interactionId || aiSession?.interactionId
             );
           }
         } else if (calendarDeleteIndex !== -1) {
@@ -2664,14 +2728,15 @@ Let the user know in a friendly way and maybe offer to check back later.
             const displayText = textBeforeTag ? `${textBeforeTag}\n\n${confirmationText}` : confirmationText;
 
             // Delete the event
-            console.log("�️ Deleting event:", eventIdToDelete);
+            console.log("🗑️ Deleting event:", eventIdToDelete);
             await calendarService.deleteEvent(session.accessToken, eventIdToDelete);
 
             setChatHistory(prev => [...prev, { role: 'model' as const, text: displayText }]);
 
             await conversationHistoryService.appendConversationHistory(
               userId,
-              [{ role: 'user', text: message }, { role: 'model', text: displayText }]
+              [{ role: 'user', text: message }, { role: 'model', text: displayText }],
+              updatedSession?.interactionId || aiSession?.interactionId
             );
             setLastSavedMessageIndex(updatedHistory.length);
 
@@ -2708,7 +2773,8 @@ Let the user know in a friendly way and maybe offer to check back later.
              setChatHistory(prev => [...prev, { role: 'model' as const, text: displayText }]);
              await conversationHistoryService.appendConversationHistory(
                 userId,
-                [{ role: 'user', text: message }, { role: 'model', text: displayText }]
+               [{ role: 'user', text: message }, { role: 'model', text: displayText }],
+               updatedSession?.interactionId || aiSession?.interactionId
              );
            }
         } else {
@@ -2717,7 +2783,8 @@ Let the user know in a friendly way and maybe offer to check back later.
             
             await conversationHistoryService.appendConversationHistory(
                 userId,
-                [{ role: 'user', text: message }, { role: 'model', text: response.text_response }]
+              [{ role: 'user', text: message }, { role: 'model', text: response.text_response }],
+              updatedSession?.interactionId || aiSession?.interactionId
             );
             setLastSavedMessageIndex(updatedHistory.length);
 

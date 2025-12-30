@@ -9,6 +9,7 @@ interface ConversationHistoryRow {
   message_role: 'user' | 'model';
   message_text: string;
   action_id?: string | null;
+  interaction_id: string; // The Gemini interaction ID
   created_at: string;
 }
 
@@ -18,7 +19,8 @@ interface ConversationHistoryRow {
  */
 export const saveConversationHistory = async (
   userId: string,
-  messages: ChatMessage[]
+  messages: ChatMessage[],
+  interactionId?: string
 ): Promise<void> => {
   if (messages.length === 0) {
     return; // Nothing to save
@@ -30,7 +32,8 @@ export const saveConversationHistory = async (
       user_id: userId,
       message_role: msg.role === 'user' ? 'user' : 'model' as 'user' | 'model',
       message_text: msg.text,
-      action_id: null, // Can be enhanced later to track which action was triggered
+      action_id: null,
+      interaction_id: interactionId || crypto.randomUUID(), // USER REQUIREMENT: Track that id, fallback to GUID
     }));
 
     // Insert all messages in a batch
@@ -93,7 +96,8 @@ export const loadConversationHistory = async (
  */
 export const appendConversationHistory = async (
   userId: string,
-  newMessages: ChatMessage[]
+  newMessages: ChatMessage[],
+  interactionId?: string
 ): Promise<void> => {
   if (newMessages.length === 0) {
     return;
@@ -105,6 +109,7 @@ export const appendConversationHistory = async (
       message_role: msg.role === 'user' ? 'user' : 'model' as 'user' | 'model',
       message_text: msg.text,
       action_id: null,
+      interaction_id: interactionId || crypto.randomUUID(), // USER REQUIREMENT: Track that id, fallback to GUID
     }));
 
     const { error } = await supabase
@@ -141,6 +146,103 @@ export const clearConversationHistory = async (
   } catch (error) {
     console.error('Error clearing conversation history:', error);
     throw error;
+  }
+};
+
+/**
+ * Get the number of messages sent by or to a user today
+ */
+export const getTodaysMessageCount = async (userId: string): Promise<number> => {
+  try {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    
+    const { count, error } = await supabase
+      .from(CONVERSATION_HISTORY_TABLE)
+      .select('*', { count: 'exact', head: true })
+      .eq('user_id', userId)
+      .gte('created_at', today.toISOString());
+
+    if (error) {
+      console.error('Failed to get today\'s message count:', error);
+      return 0;
+    }
+
+    return count || 0;
+  } catch (error) {
+    console.error('Error getting today\'s message count:', error);
+    return 0;
+  }
+};
+
+/**
+ * Load conversation history for a user for today only
+ */
+export const loadTodaysConversationHistory = async (
+  userId: string
+): Promise<ChatMessage[]> => {
+  try {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const { data, error } = await supabase
+      .from(CONVERSATION_HISTORY_TABLE)
+      .select('*')
+      .eq('user_id', userId)
+      .gte('created_at', today.toISOString())
+      .order('created_at', { ascending: true });
+
+    if (error) {
+      console.error('Failed to load today\'s conversation history:', error);
+      return [];
+    }
+
+    if (!data || data.length === 0) {
+      return [];
+    }
+
+    return (data as ConversationHistoryRow[]).map((row) => ({
+      role: row.message_role === 'user' ? 'user' : 'model',
+      text: row.message_text,
+    }));
+  } catch (error) {
+    console.error('Error loading today\'s conversation history:', error);
+    return [];
+  }
+};
+
+/**
+ * Get the Interaction ID used for today's conversation
+ */
+export const getTodaysInteractionId = async (
+  userId: string
+): Promise<string | null> => {
+  try {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const { data, error } = await supabase
+      .from(CONVERSATION_HISTORY_TABLE)
+      .select('interaction_id')
+      .eq('user_id', userId)
+      .gte('created_at', today.toISOString())
+      .not('interaction_id', 'is', null)
+      .order('created_at', { ascending: false })
+      .limit(1);
+
+    if (error) {
+      console.error('Failed to get today\'s interaction ID:', error);
+      return null;
+    }
+
+    if (!data || data.length === 0) {
+      return null;
+    }
+
+    return (data[0] as any).interaction_id;
+  } catch (error) {
+    console.error('Error getting today\'s interaction ID:', error);
+    return null;
   }
 };
 

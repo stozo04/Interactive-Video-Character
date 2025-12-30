@@ -1,7 +1,7 @@
 import { GoogleGenAI } from "@google/genai";
 import { ChatMessage, UploadedImage } from '../types';
 import { AIChatSession, UserContent, AIChatOptions } from './aiService';
-import { buildSystemPrompt, buildGreetingPrompt } from './promptUtils';
+import { buildSystemPrompt, buildGreetingPrompt, buildNonGreetingPrompt } from './promptUtils';
 import { AIActionResponse, GeminiMemoryToolDeclarations } from './aiSchema';
 import { generateSpeech } from './elevenLabsService';
 import { BaseAIService } from './BaseAIService';
@@ -702,6 +702,11 @@ export class GeminiService extends BaseAIService {
         system_instruction: systemPrompt,
       };
 
+      if (session?.interactionId) {
+        console.log(`🔗 [Gemini Interactions] Restoring continuity for Greeting: ${session.interactionId}`);
+        interactionConfig.previous_interaction_id = session.interactionId;
+      }
+
       // Add memory tools to personalize greeting (e.g., look up user's name)
       interactionConfig.tools = this.buildMemoryTools();
 
@@ -753,6 +758,103 @@ export class GeminiService extends BaseAIService {
       };
     } catch (error) {
       console.error("Gemini Interactions Greeting Error:", error);
+      throw error;
+    }
+  }
+
+  /**
+   * Generate a natural "welcome back" response for returning users.
+   */
+  async generateNonGreeting(
+    character: any,
+    session: any,
+    relationship: any,
+    characterContext?: string
+  ): Promise<any> {
+    const userId = session?.userId || USER_ID;
+
+    const systemPrompt = await buildSystemPrompt(
+      character,
+      relationship,
+      [],
+      characterContext,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      session?.userId,
+      undefined
+    );
+
+    try {
+      // Get user's name if known
+      let userName: string | null = null;
+      try {
+        const userFacts = await executeMemoryTool(
+          "recall_user_info",
+          { category: "identity" },
+          userId
+        );
+        const nameMatch = userFacts.match(/name:\s*(\w+)/i);
+        if (nameMatch) {
+          userName = nameMatch[1];
+        }
+      } catch (e) {
+        // Ignore errors fetching name
+      }
+
+      const nonGreetingPrompt = buildNonGreetingPrompt(
+        relationship,
+        userName,
+        characterContext
+      );
+
+      // Build interaction config
+      const interactionConfig: any = {
+        model: this.model,
+        input: [{ type: "text", text: nonGreetingPrompt }],
+        system_instruction: systemPrompt,
+      };
+
+      if (session?.interactionId) {
+        console.log(`🔗 [Gemini Interactions] Restoring continuity for Non-Greeting: ${session.interactionId}`);
+        interactionConfig.previous_interaction_id = session.interactionId;
+      }
+
+      // Add memory tools
+      interactionConfig.tools = this.buildMemoryTools();
+
+      // Create interaction
+      let interaction = await this.createInteraction(interactionConfig);
+
+      // Handle tool calls
+      interaction = await this.continueInteractionWithTools(
+        interaction,
+        interactionConfig,
+        systemPrompt,
+        userId,
+        [], // No session history yet, App.tsx will load database history
+        undefined,
+        2
+      );
+
+      // Parse response
+      const structuredResponse = this.parseInteractionResponse(interaction);
+
+      // Generate audio
+      const audioData = await generateSpeech(structuredResponse.text_response);
+
+      return {
+        greeting: structuredResponse,
+        session: {
+          userId: userId,
+          model: this.model,
+          interactionId: interaction.id,
+        },
+        audioData,
+      };
+    } catch (error) {
+      console.error("Gemini Interactions Non-Greeting Error:", error);
       throw error;
     }
   }
