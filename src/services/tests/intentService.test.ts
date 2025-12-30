@@ -1304,12 +1304,12 @@ describe("Phase 3: Mood Detection via ToneIntent", () => {
   
   const testUserId = 'test-user-intent';
   
-  describe("recordInteractionAsync with ToneIntent", () => {
-    it("should accept ToneIntent object (Phase 3 enhancement)", async () => {
+  describe("recordInteractionAsync with ToneIntent (Simplified)", () => {
+    it("should accept ToneIntent object", async () => {
       const { recordInteractionAsync, resetEmotionalMomentumAsync, getEmotionalMomentumAsync } = await import("../moodKnobs");
-      
+
       await resetEmotionalMomentumAsync(testUserId);
-      
+
       // Create a ToneIntent object
       const toneIntent = {
         sentiment: 0.7,
@@ -1318,32 +1318,33 @@ describe("Phase 3: Mood Detection via ToneIntent", () => {
         isSarcastic: false,
         explanation: 'Test tone'
       };
-      
+
       // Should not throw
       await recordInteractionAsync(testUserId, toneIntent, "Test message");
-      
-      // Should have recorded the interaction
+
+      // Should have recorded the interaction - check streak updated
       const momentum = await getEmotionalMomentumAsync(testUserId);
-      expect(momentum.recentInteractionTones.length).toBeGreaterThan(0);
+      expect(momentum.positiveInteractionStreak).toBe(1);
     });
 
     it("should still accept number", async () => {
       const { recordInteractionAsync, resetEmotionalMomentumAsync, getEmotionalMomentumAsync } = await import("../moodKnobs");
-      
+
       await resetEmotionalMomentumAsync(testUserId);
-      
+
       // Should not throw with number
       await recordInteractionAsync(testUserId, 0.5, "Test message");
-      
+
       const momentum = await getEmotionalMomentumAsync(testUserId);
-      expect(momentum.recentInteractionTones.length).toBeGreaterThan(0);
+      // Tone 0.5 > 0.3 = positive, so streak should be 1
+      expect(momentum.positiveInteractionStreak).toBe(1);
     });
 
     it("should extract sentiment from ToneIntent for mood calculations", async () => {
       const { recordInteractionAsync, resetEmotionalMomentumAsync, getEmotionalMomentumAsync } = await import("../moodKnobs");
-      
+
       await resetEmotionalMomentumAsync(testUserId);
-      
+
       const toneIntent = {
         sentiment: 0.9,  // Very positive
         primaryEmotion: 'happy' as const,
@@ -1351,105 +1352,80 @@ describe("Phase 3: Mood Detection via ToneIntent", () => {
         isSarcastic: false,
         explanation: 'Very positive tone'
       };
-      
+
       await recordInteractionAsync(testUserId, toneIntent, "Great day!");
-      
+
       const momentum = await getEmotionalMomentumAsync(testUserId);
-      // The last recorded tone should match the sentiment
-      expect(momentum.recentInteractionTones[momentum.recentInteractionTones.length - 1]).toBe(0.9);
+      // Simplified: mood level should be updated via weighted average
+      // Initial mood 0, tone 0.9 -> 0 * 0.8 + 0.9 * 0.2 = 0.18
+      expect(momentum.currentMoodLevel).toBeGreaterThan(0);
     });
   });
 
   // ============================================
-  // Intensity-Modulated Mood Shifts Tests
+  // Simplified Mood Shift Tests (Intensity Removed)
   // ============================================
-  
-  describe("intensity-modulated mood shifts", () => {
-    it("should shift mood faster with high intensity emotions", async () => {
+
+  describe("simplified mood shifts (no intensity modulation)", () => {
+    it("should shift mood based on sentiment only (intensity removed)", async () => {
       const { recordInteractionAsync, resetEmotionalMomentumAsync, getEmotionalMomentumAsync } = await import("../moodKnobs");
-      
+
       // Start fresh
       await resetEmotionalMomentumAsync(testUserId);
-      
-      // Record several high-intensity positive interactions
+
+      // Record several positive interactions
       for (let i = 0; i < 5; i++) {
         await recordInteractionAsync(testUserId, {
           sentiment: 0.8,
           primaryEmotion: 'excited' as const,
-          intensity: 0.95,  // Very high intensity
+          intensity: 0.95,  // Intensity is now ignored
           isSarcastic: false
         }, "Feeling amazing!");
       }
-      
-      const highIntensityMomentum = await getEmotionalMomentumAsync(testUserId);
-      const highIntensityMoodLevel = highIntensityMomentum.currentMoodLevel;
-      
-      // Reset and try with low intensity
-      await resetEmotionalMomentumAsync(testUserId);
-      
-      // Record same number of low-intensity positive interactions
-      for (let i = 0; i < 5; i++) {
-        await recordInteractionAsync(testUserId, {
-          sentiment: 0.8,
-          primaryEmotion: 'happy' as const,
-          intensity: 0.2,  // Low intensity
-          isSarcastic: false
-        }, "Feeling okay");
-      }
-      
-      const lowIntensityMomentum = await getEmotionalMomentumAsync(testUserId);
-      const lowIntensityMoodLevel = lowIntensityMomentum.currentMoodLevel;
-      
-      // High intensity should result in higher mood level
-      expect(highIntensityMoodLevel).toBeGreaterThan(lowIntensityMoodLevel);
+
+      const momentum = await getEmotionalMomentumAsync(testUserId);
+
+      // With simplified system, mood level uses weighted average
+      // Each interaction: newMood = oldMood * 0.8 + tone * 0.2
+      // After 5 interactions with 0.8 tone, mood should approach 0.8
+      expect(momentum.currentMoodLevel).toBeGreaterThan(0);
+      expect(momentum.positiveInteractionStreak).toBe(5);
     });
 
-    it("should shift mood down faster with high intensity negative emotions", async () => {
+    it("should shift mood down with negative sentiment", async () => {
       const { recordInteractionAsync, resetEmotionalMomentumAsync, getEmotionalMomentumAsync } = await import("../moodKnobs");
-      
+
       await resetEmotionalMomentumAsync(testUserId);
-      
-      // Record high-intensity negative interaction
+
+      // Record negative interaction
       await recordInteractionAsync(testUserId, {
         sentiment: -0.7,
         primaryEmotion: 'angry' as const,
-        intensity: 0.9,  // High intensity
+        intensity: 0.9,  // Intensity is now ignored
         isSarcastic: false
       }, "So frustrated!");
-      
-      const highIntensityMomentum = await getEmotionalMomentumAsync(testUserId);
-      const highIntensityMoodLevel = highIntensityMomentum.currentMoodLevel;
-      
-      // Reset and try with low intensity
-      await resetEmotionalMomentumAsync(testUserId);
-      
-      await recordInteractionAsync(testUserId, {
-        sentiment: -0.7,
-        primaryEmotion: 'sad' as const,
-        intensity: 0.2,  // Low intensity
-        isSarcastic: false
-      }, "A bit sad");
-      
-      const lowIntensityMomentum = await getEmotionalMomentumAsync(testUserId);
-      const lowIntensityMoodLevel = lowIntensityMomentum.currentMoodLevel;
-      
-      // High intensity negative should result in lower (more negative) mood
-      expect(highIntensityMoodLevel).toBeLessThan(lowIntensityMoodLevel);
+
+      const momentum = await getEmotionalMomentumAsync(testUserId);
+
+      // Mood level should be negative after negative interaction
+      expect(momentum.currentMoodLevel).toBeLessThan(0);
+      // Streak should be 0 (negative tone < -0.2 decrements)
+      expect(momentum.positiveInteractionStreak).toBe(0);
     });
 
-    it("should use default intensity 0.5 when passing number", async () => {
+    it("should update mood when passing number directly", async () => {
       const { recordInteractionAsync, resetEmotionalMomentumAsync, getEmotionalMomentumAsync } = await import("../moodKnobs");
-      
+
       await resetEmotionalMomentumAsync(testUserId);
-      
+
       // Record with number
       await recordInteractionAsync(testUserId, 0.8, "Positive message");
-      
+
       const momentum = await getEmotionalMomentumAsync(testUserId);
-      
-      // Should have recorded without errors
-      expect(momentum.recentInteractionTones.length).toBe(1);
-      expect(momentum.recentInteractionTones[0]).toBe(0.8);
+
+      // Should have recorded - streak should be 1 (tone > 0.3)
+      expect(momentum.positiveInteractionStreak).toBe(1);
+      expect(momentum.currentMoodLevel).toBeGreaterThan(0);
     });
   });
 

@@ -406,24 +406,30 @@ describe("Phase 2: Emotional Momentum", () => {
   // recordInteractionAsync Integration
   // ============================================
 
-  describe("recordInteractionAsync - Momentum Updates", () => {
+  describe("recordInteractionAsync - Momentum Updates (Simplified)", () => {
     beforeEach(async () => {
       await resetEmotionalMomentumAsync(TEST_USER_ID);
     });
 
     it("should update emotional momentum when recording interaction", async () => {
+      // With simplified system, we track positiveInteractionStreak (tone > 0.3 = increment)
       await recordInteractionAsync(TEST_USER_ID, 0.8, "great chat!");
-      
+
       const momentum = await getEmotionalMomentumAsync(TEST_USER_ID);
-      expect(momentum.recentInteractionTones).toContain(0.8);
+      // Simplified: no more recentInteractionTones tracking
+      // Just streak increment for positive tone
       expect(momentum.positiveInteractionStreak).toBe(1);
+      // Mood level should be updated via weighted average
+      expect(momentum.currentMoodLevel).toBeGreaterThan(0);
     });
 
-    it("should detect genuine moment in user message", async () => {
-      await recordInteractionAsync(TEST_USER_ID, 0.9, "I'm so proud of you and all your progress!");
-      
+    it("should update mood level via weighted average", async () => {
+      // Start with neutral mood (0), then apply positive tone (0.8)
+      // New moodLevel = oldMoodLevel * 0.8 + tone * 0.2 = 0 * 0.8 + 0.8 * 0.2 = 0.16
+      await recordInteractionAsync(TEST_USER_ID, 0.8, "great chat!");
+
       const momentum = await getEmotionalMomentumAsync(TEST_USER_ID);
-      expect(momentum.genuineMomentDetected).toBe(true);
+      expect(momentum.currentMoodLevel).toBeCloseTo(0.16, 1);
     });
   });
 

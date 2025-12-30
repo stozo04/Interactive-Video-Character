@@ -53,12 +53,11 @@ vi.mock("../moodKnobs", async (importOriginal) => {
   const actual = await importOriginal() as any;
   return {
     ...actual,
-    formatMoodKnobsForPrompt: vi.fn(() => ""),
-    calculateMoodKnobs: vi.fn(() => ({
-      patienceDecay: 'slow',
-      warmthAvailability: 'neutral',
-      socialBattery: 66,
-      flirtThreshold: 'cautious',
+    formatMoodForPrompt: vi.fn(() => ""),
+    calculateMoodFromState: vi.fn(() => ({
+      energy: 0.3,
+      warmth: 0.5,
+      genuineMoment: false,
     })),
   };
 });

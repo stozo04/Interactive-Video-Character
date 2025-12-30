@@ -6,16 +6,20 @@
  * Centralizing them here prevents circular dependencies.
  */
 
-import type { MoodKnobs } from "../moodKnobs";
+import type { KayleyMood } from "../moodKnobs";
 import type { PresenceContext } from "../presenceDirector";
 import type { SpontaneityIntegration } from "../spontaneity/types";
 
 /**
  * Soul Layer Context - the "alive" components
  * Now includes PRESENCE for proactive memory and opinions
+ *
+ * SIMPLIFIED: moodKnobs is now KayleyMood (2 numbers + genuine moment)
+ * instead of the old 6-knob system.
  */
 export interface SoulLayerContext {
-  moodKnobs: MoodKnobs;
+  /** Simplified mood: energy (-1 to 1), warmth (0 to 1), genuineMoment */
+  moodKnobs: KayleyMood;
   threadsPrompt: string;
   callbackPrompt: string;
   /** Presence context including open loops and opinions (async loaded) */
@@ -25,7 +29,7 @@ export interface SoulLayerContext {
 }
 
 // Re-export types that are commonly needed by prompt builders
-export type { MoodKnobs } from "../moodKnobs";
+export type { KayleyMood } from "../moodKnobs";
 export type { PresenceContext } from "../presenceDirector";
 export type { RelationshipMetrics } from "../relationshipService";
 export type { SpontaneityIntegration } from "../spontaneity/types";

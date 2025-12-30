@@ -44,22 +44,20 @@ vi.mock('../ongoingThreads', () => ({
 
 // Mock moodKnobs
 vi.mock('../moodKnobs', () => ({
-  getMoodKnobsAsync: vi.fn(() => Promise.resolve({
-    curiosityDepth: 'balanced',
-    initiationRate: 0.5,
-    verbosity: 0.5,
-    warmthAvailability: 'open',
-    patienceDecay: 'moderate',
-    flirtThreshold: 0.5,
+  getMoodAsync: vi.fn(() => Promise.resolve({
+    energy: 0.3,
+    warmth: 0.8,
+    genuineMoment: false,
   })),
-  formatMoodKnobsForPrompt: vi.fn(() => 'MOOD KNOBS:\nTest mood'),
-  calculateMoodKnobsFromState: vi.fn(() => ({
-    curiosityDepth: 'balanced',
-    initiationRate: 0.5,
-    verbosity: 0.5,
-    warmthAvailability: 'open',
-    patienceDecay: 'moderate',
-    flirtThreshold: 0.5,
+  formatMoodForPrompt: vi.fn(() => `HOW YOU'RE FEELING:
+Decent day. Normal energy levels.
+You're warming up. The vibe is good.
+
+Let this show naturally in your responses. Don't explain your mood.`),
+  calculateMoodFromState: vi.fn(() => ({
+    energy: 0.3,
+    warmth: 0.8,
+    genuineMoment: false,
   })),
 }));
 

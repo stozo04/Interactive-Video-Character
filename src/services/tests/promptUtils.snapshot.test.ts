@@ -110,27 +110,26 @@ vi.mock("../stateService", () => ({
   ),
 }));
 
-// Mock moodKnobs with deterministic values
+// Mock moodKnobs with deterministic simplified values
 vi.mock("../moodKnobs", async (importOriginal) => {
   const actual = (await importOriginal()) as any;
-  const mockMoodKnobs = {
-    patienceDecay: "slow" as const,
-    warmthAvailability: "neutral" as const,
-    socialBattery: 65,
-    flirtThreshold: 0.5,
-    curiosityDepth: "moderate" as const,
-    initiationRate: 0.5,
-    verbosity: 0.6,
+  const mockKayleyMood = {
+    energy: 0.3,
+    warmth: 0.5,
+    genuineMoment: false,
   };
   return {
     ...actual,
-    formatMoodKnobsForPrompt: vi.fn(
+    formatMoodForPrompt: vi.fn(
       () => `
-[MOOD KNOBS: patience=slow, warmth=neutral, battery=65%, curiosity=moderate]`
+HOW YOU'RE FEELING:
+Decent day. Normal energy levels.
+You're warming up. The vibe is good.
+
+Let this show naturally in your responses. Don't explain your mood.`
     ),
-    calculateMoodKnobs: vi.fn(() => mockMoodKnobs),
-    calculateMoodKnobsFromState: vi.fn(() => mockMoodKnobs),
-    getMoodKnobsAsync: vi.fn(() => Promise.resolve(mockMoodKnobs)),
+    calculateMoodFromState: vi.fn(() => mockKayleyMood),
+    getMoodAsync: vi.fn(() => Promise.resolve(mockKayleyMood)),
   };
 });
 

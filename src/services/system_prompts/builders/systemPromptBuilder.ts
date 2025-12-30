@@ -10,7 +10,7 @@ import type { RelationshipMetrics } from "../../relationshipService";
 import { KAYLEY_FULL_PROFILE } from "../../../domain/characters/kayleyCharacterProfile";
 import { GAMES_PROFILE } from "../../../domain/characters/gamesProfile";
 import { getRecentNewsContext } from "../../newsService";
-import { formatMoodKnobsForPrompt } from "../../moodKnobs";
+import { formatMoodForPrompt } from "../../moodKnobs";
 import { getIntimacyContextForPromptAsync } from "../../relationshipService";
 import type {
   RelationshipSignalIntent,
@@ -218,10 +218,10 @@ ${
                 relationship?.relationshipTier === "acquaintance" ||
                 relationship?.relationshipTier === "neutral_negative" ||
                 !relationship;
+              // KayleyMood: energy < 0 = low energy, warmth < 0.4 = guarded
               const isBadMood =
-                moodKnobs.verbosity < 0.5 ||
-                moodKnobs.warmthAvailability === "guarded" ||
-                moodKnobs.patienceDecay === "quick";
+                moodKnobs.energy < 0 ||
+                moodKnobs.warmth < 0.4;
               if (isStranger)
                 return `🚫 INAPPROPRIATE (stranger): Set FIRM boundaries. Don't answer boundary-testing questions. "That's personal for someone I just met."`;
               if (isBadMood)
@@ -303,8 +303,8 @@ ${buildStyleOutputSection(moodKnobs, relationship)}`;
   // ============================================
   // Note: soulContext and moodKnobs already calculated above
 
-  // Add mood knobs (hidden causes, not randomness)
-  prompt += formatMoodKnobsForPrompt(moodKnobs);
+  // Add mood (simplified: energy + warmth instead of 6 knobs)
+  prompt += formatMoodForPrompt(moodKnobs);
 
   // Add bid detection
   prompt += buildBidDetectionPrompt();
@@ -445,10 +445,12 @@ The goal is to feel like you have an inner life and want to share it, not like y
 
   // Add intimacy context (probabilistic, not gated)
   if (relationship && effectiveUserId) {
+    // Derive flirt threshold from warmth: warmth 0-1 maps to threshold 0.2-0.9
+    const flirtThreshold = soulContext.moodKnobs.warmth * 0.7 + 0.2;
     const intimacyContext = await getIntimacyContextForPromptAsync(
       effectiveUserId,
       relationship,
-      soulContext.moodKnobs.flirtThreshold
+      flirtThreshold
     );
 
     prompt += `

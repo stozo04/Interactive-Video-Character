@@ -65,6 +65,187 @@ export type EmotionalMomentum = SupabaseEmotionalMomentum;
 export type { ConversationContext, ToneIntent, PrimaryEmotion } from './intentService';
 
 // ============================================
+// SIMPLIFIED MOOD SYSTEM (Phase 2 Simplification)
+// The LLM is smart - it doesn't need 6 precise knobs.
+// Two numbers + genuine moment is enough.
+// ============================================
+
+/**
+ * Simplified mood representation.
+ * Just two numbers that the LLM can interpret naturally.
+ */
+export interface KayleyMood {
+  /** Her overall energy today (-1 to 1) */
+  energy: number;
+  /** How warm she feels toward you right now (0 to 1) */
+  warmth: number;
+  /** Did something special happen? */
+  genuineMoment: boolean;
+}
+
+/**
+ * Simplified mood state (for calculateMood)
+ */
+export interface SimplifiedMoodState {
+  dailyEnergy: number;   // 0.4 to 1.0 (seeded daily)
+  socialBattery: number; // 0.2 to 1.0 (depletes with use)
+  lastInteractionAt: number;
+}
+
+/**
+ * Simplified emotional momentum (for calculateMood)
+ */
+export interface SimplifiedEmotionalMomentum {
+  moodLevel: number;         // -1 to 1
+  positiveStreak: number;    // 0+
+  genuineMomentActive: boolean;
+  genuineMomentAt: number | null;
+}
+
+/**
+ * Get simple time of day factor.
+ * Much simpler than the old 7-bracket system.
+ */
+function getSimpleTimeOfDay(): number {
+  const hour = new Date().getHours();
+  if (hour >= 9 && hour < 17) return 0.9;  // Work hours: good
+  if (hour >= 6 && hour < 9) return 0.7;   // Morning: warming up
+  if (hour >= 17 && hour < 21) return 0.8; // Evening: winding down
+  return 0.5;                               // Night: tired
+}
+
+/**
+ * Clamp a value between min and max
+ */
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value));
+}
+
+/**
+ * Calculate simplified mood from state and momentum.
+ * Replaces the complex 6-knob calculation.
+ *
+ * @param state - Simplified mood state (dailyEnergy, socialBattery)
+ * @param momentum - Simplified emotional momentum (moodLevel, streak, genuine)
+ * @returns KayleyMood with just energy, warmth, and genuineMoment
+ */
+export function calculateMood(
+  state: SimplifiedMoodState,
+  momentum: SimplifiedEmotionalMomentum
+): KayleyMood {
+  // Energy: her day (independent of user)
+  const timeOfDay = getSimpleTimeOfDay();
+  // Scale dailyEnergy (0.4-1.0) * socialBattery (0.2-1.0) * timeOfDay (0.5-0.9)
+  // Then scale to -1 to 1 range
+  const rawEnergy = state.dailyEnergy * state.socialBattery * timeOfDay;
+  // Transform 0.04-0.9 range to approximately -1 to 1
+  const energy = (rawEnergy * 2) - 1;
+
+  // Warmth: how she feels about user
+  // moodLevel is -1 to 1, transform to 0 to 1
+  let warmth = (momentum.moodLevel + 1) / 2;
+
+  // Boost for positive streak (>= 3)
+  if (momentum.positiveStreak >= 3) {
+    warmth = Math.min(1, warmth + 0.2);
+  }
+
+  // Big boost for genuine moment
+  if (momentum.genuineMomentActive) {
+    warmth = Math.min(1, warmth + 0.3);
+  }
+
+  return {
+    energy: clamp(energy, -1, 1),
+    warmth: clamp(warmth, 0, 1),
+    genuineMoment: momentum.genuineMomentActive,
+  };
+}
+
+/**
+ * Adapter function to calculate KayleyMood from the existing Supabase types.
+ * This allows callers to use the simplified mood system with existing state.
+ *
+ * @param moodState - Full MoodState from Supabase
+ * @param emotionalMomentum - Full EmotionalMomentum from Supabase
+ * @returns KayleyMood with simplified energy, warmth, genuineMoment
+ */
+export function calculateMoodFromState(
+  moodState: MoodState,
+  emotionalMomentum: EmotionalMomentum
+): KayleyMood {
+  // Map from old types to simplified types
+  const simplifiedState: SimplifiedMoodState = {
+    dailyEnergy: moodState.dailyEnergy,
+    socialBattery: moodState.socialBattery,
+    lastInteractionAt: moodState.lastInteractionAt,
+  };
+
+  const simplifiedMomentum: SimplifiedEmotionalMomentum = {
+    moodLevel: emotionalMomentum.currentMoodLevel,
+    positiveStreak: emotionalMomentum.positiveInteractionStreak,
+    genuineMomentActive: emotionalMomentum.genuineMomentDetected,
+    genuineMomentAt: emotionalMomentum.lastGenuineMomentAt,
+  };
+
+  return calculateMood(simplifiedState, simplifiedMomentum);
+}
+
+/**
+ * Async function to get simplified mood (replacement for getMoodKnobsAsync).
+ *
+ * @param userId - User ID for Supabase lookup
+ * @returns Promise resolving to KayleyMood
+ */
+export async function getMoodAsync(userId: string): Promise<KayleyMood> {
+  const state = await getMoodStateAsync(userId);
+  const momentum = await getEmotionalMomentumAsync(userId);
+  return calculateMoodFromState(state, momentum);
+}
+
+/**
+ * Format mood for prompt injection.
+ * Much simpler and more natural than the old 6-knob format.
+ * Target: < 200 characters instead of ~500.
+ *
+ * @param mood - The simplified KayleyMood
+ * @returns Natural language description for prompt injection
+ */
+export function formatMoodForPrompt(mood: KayleyMood): string {
+  // Energy description
+  let energyDesc: string;
+  if (mood.energy > 0.5) {
+    energyDesc = "Great energy today. You're feeling sharp and engaged.";
+  } else if (mood.energy > 0) {
+    energyDesc = "Decent day. Normal energy levels.";
+  } else if (mood.energy > -0.5) {
+    energyDesc = "Low-key day. You're a bit tired, keeping things chill.";
+  } else {
+    energyDesc = "Rough day. Low energy, not much patience for BS.";
+  }
+
+  // Warmth description
+  let warmthDesc: string;
+  if (mood.genuineMoment) {
+    warmthDesc = "Something they said really touched you. You feel seen and understood.";
+  } else if (mood.warmth > 0.7) {
+    warmthDesc = "You're feeling really good about this person right now.";
+  } else if (mood.warmth > 0.4) {
+    warmthDesc = "You're warming up. The vibe is good.";
+  } else {
+    warmthDesc = "You're a bit guarded. They haven't fully earned your openness yet.";
+  }
+
+  return `
+HOW YOU'RE FEELING:
+${energyDesc}
+${warmthDesc}
+
+Let this show naturally in your responses. Don't explain your mood.
+`.trim();
+}
+
+// ============================================
 // Constants
 // ============================================
 
@@ -339,39 +520,70 @@ export async function updateEmotionalMomentumAsync(
  */
 export async function recordInteractionAsync(
   userId: string,
-  toneOrToneIntent: number | ToneIntent = 0, 
+  toneOrToneIntent: number | ToneIntent = 0,
   userMessage: string = '',
   genuineMomentOverride?: GenuineMomentResult
 ): Promise<void> {
   const state = await getMoodStateAsync(userId);
-  
-  // Extract tone value and intensity from input
+  const momentum = await getEmotionalMomentumAsync(userId);
+
+  // Extract tone value from input
   let tone: number;
-  let intensity: number = 0.5;
-  
   if (typeof toneOrToneIntent === 'number') {
     tone = toneOrToneIntent;
   } else {
     tone = toneOrToneIntent.sentiment;
-    intensity = toneOrToneIntent.intensity;
   }
 
-  // Deplete social battery slightly with each interaction
-  state.socialBattery = Math.max(0.2, state.socialBattery - 0.03);
+  // --- UPDATE MOOD STATE ---
+  // Deplete social battery slightly (0.02 per interaction)
+  state.socialBattery = Math.max(0.2, state.socialBattery - 0.02);
   state.lastInteractionAt = Date.now();
   state.lastInteractionTone = tone;
-  
-  await saveMoodStateAsync(userId, state);
-  
-  // Update emotional momentum with LLM-based detection and context
-  // We use the intensity-aware version which supports overrides
-  await updateEmotionalMomentumWithIntensityAsync(
-    userId,
-    tone,
-    intensity,
-    userMessage,
-    genuineMomentOverride
+
+  // --- UPDATE EMOTIONAL MOMENTUM (SIMPLIFIED) ---
+  // Simple weighted average for mood level
+  momentum.currentMoodLevel = momentum.currentMoodLevel * 0.8 + tone * 0.2;
+
+  // Simple streak logic
+  if (tone > 0.3) {
+    momentum.positiveInteractionStreak++;
+  } else if (tone < -0.2) {
+    momentum.positiveInteractionStreak = Math.max(0, momentum.positiveInteractionStreak - 1);
+  }
+
+  // Handle genuine moment (from LLM detection or override)
+  const genuineMoment = genuineMomentOverride ||
+    (userMessage ? await detectGenuineMomentLLMCached(userMessage) : null);
+
+  // Check for genuine moment - GenuineMomentResult has isPositiveAffirmation,
+  // GenuineMomentIntent doesn't but isGenuine + category is sufficient
+  const isGenuineMoment = genuineMoment?.isGenuine && (
+    ('isPositiveAffirmation' in genuineMoment && genuineMoment.isPositiveAffirmation) ||
+    (!('isPositiveAffirmation' in genuineMoment) && genuineMoment.category !== null)
   );
+
+  if (isGenuineMoment) {
+    console.log(`🌟 [MoodKnobs] Genuine moment detected! Category: ${genuineMoment?.category}`);
+    momentum.genuineMomentDetected = true;
+    momentum.lastGenuineMomentAt = Date.now();
+    momentum.currentMoodLevel = Math.min(0.8, momentum.currentMoodLevel + 0.5);
+  }
+
+  // Clear old genuine moment (4+ hours)
+  if (momentum.lastGenuineMomentAt) {
+    const hoursSinceGenuine = (Date.now() - momentum.lastGenuineMomentAt) / (1000 * 60 * 60);
+    if (hoursSinceGenuine > 4) {
+      momentum.genuineMomentDetected = false;
+    }
+  }
+
+  // Clamp mood level to valid range
+  momentum.currentMoodLevel = clamp(momentum.currentMoodLevel, -1, 1);
+
+  // Save both states
+  await saveMoodStateAsync(userId, state);
+  await saveMomentumAsync(userId, momentum);
 }
 
 /**
@@ -509,13 +721,6 @@ function calculateMomentumDirection(tones: number[]): number {
   if (diff > 0.15) return 1;    // Improving
   if (diff < -0.15) return -1;  // Declining
   return 0;                     // Stable
-}
-
-/**
- * Clamp a value between min and max
- */
-function clamp(value: number, min: number, max: number): number {
-  return Math.min(max, Math.max(min, value));
 }
 
 /**

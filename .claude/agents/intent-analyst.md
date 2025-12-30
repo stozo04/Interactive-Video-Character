@@ -1,6 +1,6 @@
 ---
 name: intent-analyst
-description: Expert in LLM-based intent detection, semantic analysis, tone detection, and mood calculation. Use proactively for intent types, message analysis, mood knobs, and emotional momentum.
+description: Expert in LLM-based intent detection, semantic analysis, tone detection, and simplified mood calculation. Use proactively for intent types, message analysis, KayleyMood (energy + warmth), and emotional momentum.
 tools: Read, Edit, Write, Glob, Grep, Bash
 model: sonnet
 ---
@@ -15,7 +15,7 @@ You own these files exclusively:
 src/services/
 ├── intentService.ts      # ~81KB - LLM-based intent detection
 ├── messageAnalyzer.ts    # Orchestrates all post-response analysis
-└── moodKnobs.ts          # ~37KB - Mood → behavior parameters
+└── moodKnobs.ts          # Simplified mood system (energy + warmth)
 ```
 
 ## When NOT to Use Me
@@ -134,50 +134,63 @@ const intent = await detectFullIntentLLM(message);
 await setCache(cacheKey, intent, TTL_5_MINUTES);
 ```
 
-## Mood Knobs System
+## Simplified Mood System (KayleyMood)
 
-Converts mood state into behavior parameters:
+**As of December 2024**, the mood system was simplified from 6 complex knobs to just **2 numbers + 1 boolean**:
 
 ```typescript
-interface MoodKnobs {
-  energyLevel: number;         // 0-1, affects verbosity
-  socialBattery: number;       // 0-1, affects engagement
-  emotionalOpenness: number;   // 0-1, affects vulnerability
-  playfulness: number;         // 0-1, affects humor/teasing
-  patience: number;            // 0-1, affects tolerance
-  curiosity: number;           // 0-1, affects question-asking
+interface KayleyMood {
+  energy: number;        // -1 to 1 (her day, independent of user)
+  warmth: number;        // 0 to 1 (how she feels toward you)
+  genuineMoment: boolean; // Did something special happen?
 }
 
-// Usage in prompt building:
-if (moodKnobs.energyLevel < 0.3) {
-  prompt += "Keep responses brief. You're tired.";
+// Calculated from state:
+function calculateMood(state: MoodState, momentum: EmotionalMomentum): KayleyMood {
+  const timeOfDay = getSimpleTimeOfDay(); // 0.5-0.9 based on hour
+  const rawEnergy = state.dailyEnergy * state.socialBattery * timeOfDay;
+  const energy = (rawEnergy * 2) - 1; // Scale to -1 to 1
+
+  let warmth = (momentum.moodLevel + 1) / 2; // -1..1 → 0..1
+  if (momentum.positiveStreak >= 3) warmth += 0.2;
+  if (momentum.genuineMomentActive) warmth += 0.3;
+
+  return { energy, warmth, genuineMoment: momentum.genuineMomentActive };
 }
 ```
 
-### Emotional Momentum
+### Natural Language Prompt Injection
 
-Tracks mood streaks and intensity over time:
+Instead of numeric knobs, the prompt now receives natural language:
 
 ```typescript
-async function updateEmotionalMomentumWithIntensityAsync(
+// formatMoodForPrompt(mood) returns something like:
+// "HOW YOU'RE FEELING:
+// Decent day. Normal energy levels.
+// You're warming up. The vibe is good.
+// Let this show naturally in your responses. Don't explain your mood."
+```
+
+### Emotional Momentum (Simplified)
+
+Tracks mood via simple weighted average:
+
+```typescript
+async function recordInteractionAsync(
   userId: string,
-  intent: FullMessageIntent
+  tone: number | ToneIntent,
+  userMessage: string
 ): Promise<void> {
-  const currentMomentum = await getEmotionalMomentum(userId);
+  const momentum = await getEmotionalMomentumAsync(userId);
 
-  // Positive interactions build momentum
-  if (intent.tone.sentiment > 0.3) {
-    currentMomentum.positiveStreak++;
-    currentMomentum.negativeStreak = 0;
-  }
+  // Simple weighted average for mood level
+  momentum.currentMoodLevel = momentum.currentMoodLevel * 0.8 + tone * 0.2;
 
-  // Negative interactions drain it
-  if (intent.tone.sentiment < -0.3) {
-    currentMomentum.negativeStreak++;
-    currentMomentum.positiveStreak = 0;
-  }
+  // Simple streak logic (no intensity multiplier)
+  if (tone > 0.3) momentum.positiveInteractionStreak++;
+  else if (tone < -0.2) momentum.positiveInteractionStreak = Math.max(0, streak - 1);
 
-  await saveEmotionalMomentum(userId, currentMomentum);
+  await saveMomentum(userId, momentum);
 }
 ```
 
@@ -216,7 +229,7 @@ async function analyzeUserMessageBackground(
     detectOpenLoops(message, userId),           // presenceDirector
     analyzeMessageForPatterns(message, userId), // userPatterns
     detectMilestoneInMessage(message, userId),  // relationshipMilestones
-    updateEmotionalMomentumWithIntensityAsync(userId, intent), // moodKnobs
+    recordInteractionAsync(userId, intent.tone, message),      // moodKnobs
     recordRelationshipEvent(message, response, userId),        // relationshipService
   ]);
 }
@@ -303,9 +316,10 @@ npm test -- --run
 |------|-----------------|
 | Add new intent type | `intentService.ts` - interface + LLM prompt |
 | Modify tone detection | `intentService.ts` - tone parsing logic |
-| Change mood thresholds | `moodKnobs.ts` - threshold constants |
+| Change mood calculation | `moodKnobs.ts` - `calculateMood()` function |
+| Modify mood prompt text | `moodKnobs.ts` - `formatMoodForPrompt()` |
 | Add fast-path pattern | `intentService.ts` - `isFunctionalCommand()` |
-| Modify momentum decay | `moodKnobs.ts` - momentum update logic |
+| Modify streak logic | `moodKnobs.ts` - `recordInteractionAsync()` |
 
 ## Reference Documentation
 

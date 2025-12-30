@@ -108,14 +108,19 @@ Use helper functions to include only relevant sections based on current state.
 1. Create file in appropriate folder:
 ```typescript
 // src/services/system_prompts/behavior/newBehavior.ts
-import { MoodKnobs } from "../types";
+import type { KayleyMood } from "../../moodKnobs";
 
-export function buildNewBehaviorSection(moodKnobs: MoodKnobs): string {
+export function buildNewBehaviorSection(mood: KayleyMood): string {
+  // KayleyMood has: energy (-1 to 1), warmth (0 to 1), genuineMoment (boolean)
+  const isLowEnergy = mood.energy < 0;
+  const isGuarded = mood.warmth < 0.4;
+
   return `
 ====================================================
 NEW BEHAVIOR GUIDANCE
 ====================================================
-Your instructions here based on mood: ${moodKnobs.energyLevel}
+${isLowEnergy ? "Keep responses brief - you're tired." : ""}
+${isGuarded ? "Be more reserved until the vibe improves." : ""}
 `;
 }
 ```
@@ -130,7 +135,7 @@ export { buildNewBehaviorSection } from "./newBehavior";
 ```typescript
 import { buildNewBehaviorSection } from "../behavior";
 // ... in buildSystemPrompt():
-prompt += buildNewBehaviorSection(moodKnobs);
+prompt += buildNewBehaviorSection(soulContext.moodKnobs); // KayleyMood
 ```
 
 4. Run snapshot tests:
@@ -170,9 +175,9 @@ npm test -- --run
 
 ## Key Dependencies
 
-- `MoodKnobs` from `moodKnobs.ts` - Behavior parameters from mood
-- `RelationshipState` from `relationshipService.ts` - Tier and dimensions
-- `SoulLayerContext` from `soulLayerContext.ts` - Ongoing threads, mental weather
+- `KayleyMood` from `moodKnobs.ts` - Simplified mood: energy (-1 to 1), warmth (0 to 1), genuineMoment (boolean)
+- `RelationshipMetrics` from `relationshipService.ts` - Tier and dimensions
+- `SoulLayerContext` from `soulLayerContext.ts` - Ongoing threads, mental weather, moodKnobs (KayleyMood)
 - `FullMessageIntent` from `intentService.ts` - User's detected intent
 
 ## Reference Documentation
