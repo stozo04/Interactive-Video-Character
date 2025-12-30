@@ -33,7 +33,7 @@ import {
 import * as relationshipService from './relationshipService';
 import { analyzeMessageForPatterns, detectTopics } from './userPatterns';
 import { detectMilestoneInMessage } from './relationshipMilestones';
-import { maybeGenerateNewFeeling } from './almostMoments';
+import { maybeGenerateNewFeeling } from './almostMomentsService';
 import { 
   recordInteractionAsync,
   detectGenuineMomentWithLLM,

@@ -236,7 +236,7 @@ If any step fails, review the checklist and ensure you completed ALL 8 steps.
 
 ## ⚠️ CRITICAL: Creating New Services
 
-> **IMPORTANT**: When creating a new service (like `narrativeArcsService.ts`, `dynamicRelationshipsService.ts`, or `storyRetellingService.ts`), you **MUST** follow this complete checklist to ensure proper documentation and integration.
+> **IMPORTANT**: When creating a new service, you **MUST** follow this complete checklist to ensure proper documentation and integration.
 
 ### 📋 The Complete New Service Checklist
 
@@ -245,7 +245,7 @@ If any step fails, review the checklist and ensure you completed ALL 8 steps.
 #### 1. Implementation
 
 1. **Create service file** - `src/services/yourNewService.ts`
-   - Follow existing patterns (see `narrativeArcsService.ts` as reference)
+   - Follow existing patterns (see `characterFactsService.ts` as reference)
    - Include proper TypeScript types
    - Export all public functions
    - Use Supabase for data persistence
@@ -264,7 +264,7 @@ If any step fails, review the checklist and ensure you completed ALL 8 steps.
 
 #### 2. Tool Integration (If Needed)
 
-If the service needs LLM tools (e.g., `manage_narrative_arc`), follow the **8-step Tool Integration Checklist** (see section above).
+If the service needs LLM tools (e.g., `store_character_info`), follow the **8-step Tool Integration Checklist** (see section above).
 
 #### 3. System Prompt Integration
 
@@ -275,7 +275,7 @@ If the service needs LLM tools (e.g., `manage_narrative_arc`), follow the **8-st
 
 2. **Add to parallel fetching array**
    ```typescript
-   const [soulContext, characterFacts, narrativeArcs, yourNewData] = await Promise.all([...]);
+   const [soulContext, characterFacts, yourNewData] = await Promise.all([...]);
    ```
 
 3. **Inject into prompt**
@@ -286,9 +286,9 @@ If the service needs LLM tools (e.g., `manage_narrative_arc`), follow the **8-st
 #### 4. Documentation (CRITICAL - Don't Skip!)
 
 1. **Create service documentation** - `src/services/docs/YourNewService.md`
-   - Follow pattern from `NarrativeArcsService.md`
+   - Follow pattern from existing service docs
    - Include: Overview, Schema, Functions, LLM Tools, Examples, Troubleshooting
-   - See existing service docs for structure
+   - See existing service docs in `src/services/docs/` for structure
 
 2. **Update service docs hub** - `src/services/docs/README.md`
    - Add link to your new service doc under appropriate category
@@ -327,9 +327,9 @@ npm test -- --run -t "snapshot" -u
 ### 📚 Examples to Follow
 
 **Good Examples:**
-- `src/services/narrativeArcsService.ts` + `src/services/docs/NarrativeArcsService.md`
-- `src/services/dynamicRelationshipsService.ts` + `src/services/docs/DynamicRelationshipsService.md`
-- `src/services/storyRetellingService.ts` + `src/services/docs/StoryRetellingService.md`
+- `src/services/characterFactsService.ts` - Kayley's emergent facts about herself
+- `src/services/memoryService.ts` - Semantic search and user facts
+- `src/services/intentService.ts` - Message intent detection
 
 **Documentation Pattern:**
 ```markdown

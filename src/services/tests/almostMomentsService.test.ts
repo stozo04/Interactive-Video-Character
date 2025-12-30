@@ -1,6 +1,6 @@
-// src/services/almostMoments/__tests__/almostMoments.test.ts
+// src/services/tests/almostMomentsService.test.ts
 /**
- * Almost Moments Tests (TDD)
+ * Almost Moments Service Tests (TDD)
  *
  * Tests for expression generation, stage calculation, prompt inclusion rules,
  * and trigger logic.
@@ -9,7 +9,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 // Mock Supabase client before any imports that use it
-vi.mock("../../supabaseClient", () => ({
+vi.mock("../supabaseClient", () => ({
   supabase: {
     from: vi.fn(() => ({
       select: vi.fn(() => ({
@@ -31,13 +31,14 @@ vi.mock("../../supabaseClient", () => ({
   },
 }));
 
-import { generateAlmostExpression } from "../expressionGenerator";
-import { buildAlmostMomentsPrompt } from "../almostMomentsPromptBuilder";
 import {
+  generateAlmostExpression,
+  buildAlmostMomentsPrompt,
   calculateStage,
   shouldTriggerAlmostMoment,
+  type UnsaidFeeling,
+  type AlmostMomentContext,
 } from "../almostMomentsService";
-import type { UnsaidFeeling, AlmostMomentContext } from "../types";
 
 const baseFeeling: UnsaidFeeling = {
   id: "feeling-1",

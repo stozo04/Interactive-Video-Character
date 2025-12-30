@@ -39,6 +39,7 @@ These are things currently happening in YOUR life right now:
 ```
 src/services/narrativeArcsService.ts (573 lines)
 src/services/docs/NarrativeArcsService.md
+any and all readme's and subagents readmes
 ```
 
 ### Files to Modify
@@ -96,7 +97,7 @@ Remove documentation reference to NarrativeArcsService.
 
 ```sql
 -- Only run if you want to clean up the schema
-DROP TABLE IF EXISTS narrative_arcs;
+DROP TABLE IF EXISTS kayley_narrative_arcs;
 ```
 
 ---

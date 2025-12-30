@@ -263,11 +263,7 @@ export type MemoryToolArgs =
   | { tool: 'recall_memory'; args: RecallMemoryArgs }
   | { tool: 'recall_user_info'; args: RecallUserInfoArgs }
   | { tool: 'store_user_info'; args: StoreUserInfoArgs }
-  | { tool: 'store_character_info'; args: { category: string; key: string; value: string } }
-  | { tool: 'manage_narrative_arc'; args: { action: string; arc_key: string; arc_title?: string; initial_event?: string; event?: string; resolution?: string; reason?: string } }
-  | { tool: 'manage_dynamic_relationship'; args: { action: string; person_key: string; relationship_status?: string; event?: string; warmth_change?: number; trust_change?: number; familiarity_change?: number; sentiment?: string } }
-  | { tool: 'recall_story'; args: { story_key: string } }
-  | { tool: 'manage_story_retelling'; args: { action: string; story_key: string; story_title?: string; summary?: string; key_details?: Array<{ detail: string; value: string }> } };
+  | { tool: 'store_character_info'; args: { category: string; key: string; value: string } };
 
 // ============================================
 // Function Declarations for AI Providers
@@ -379,100 +375,6 @@ export const GeminiMemoryToolDeclarations = [
     }
   },
   {
-    name: "manage_narrative_arc",
-    description:
-      "Manage YOUR (Kayley's) ongoing life events and projects. " +
-      "Use this to create, update, resolve, or abandon arcs in your life. " +
-      "This makes you feel ALIVE - users can ask about your projects weeks later! " +
-      "Examples: starting a collab video, dealing with a client, training for something, " +
-      "or any ongoing project/challenge in your life.",
-    parameters: {
-      type: "object",
-      properties: {
-        action: {
-          type: "string",
-          enum: ["create", "update", "resolve", "abandon"],
-          description: "create: start new arc, update: add progress, resolve: finish successfully, abandon: gave up"
-        },
-        arc_key: {
-          type: "string",
-          description: "Unique identifier for the arc (e.g., 'collab_sarah_dec2024', 'client_project_nov'). Include topic/person/timeframe for uniqueness."
-        },
-        arc_title: {
-          type: "string",
-          description: "Human-readable title (only for 'create'). E.g., 'Collab Video with Sarah'"
-        },
-        initial_event: {
-          type: "string",
-          description: "What started this arc (only for 'create'). E.g., 'Met Sarah at meetup, planning AI ethics video'"
-        },
-        event: {
-          type: "string",
-          description: "Progress update (only for 'update'). E.g., 'Filming complete, editing in progress'"
-        },
-        resolution: {
-          type: "string",
-          description: "How it ended (only for 'resolve'). E.g., 'Video published, got great response'"
-        },
-        reason: {
-          type: "string",
-          description: "Why abandoned (only for 'abandon'). E.g., 'Lost funding, couldn't continue'"
-        }
-      },
-      required: ["action", "arc_key"]
-    }
-  },
-  {
-    name: "manage_dynamic_relationship",
-    description:
-      "Manage relationships with people in YOUR life (Lena, Ethan, Mom) and track how the user feels about them. " +
-      "This has TWO perspectives: YOUR relationship with them (Kayley's view) AND the user's feelings about them. " +
-      "Actions: update_kayley_relationship (change your status with them), log_kayley_event (add life event), " +
-      "update_user_feeling (change user's warmth/trust/familiarity), mention_to_user (log that you mentioned them).",
-    parameters: {
-      type: "object",
-      properties: {
-        action: {
-          type: "string",
-          enum: ["update_kayley_relationship", "log_kayley_event", "update_user_feeling", "mention_to_user"],
-          description: "update_kayley_relationship: change your relationship status, log_kayley_event: add event to their life, update_user_feeling: change user's scores, mention_to_user: increment mention count"
-        },
-        person_key: {
-          type: "string",
-          enum: ["lena", "ethan", "mom"],
-          description: "Which person: 'lena' (best friend), 'ethan' (brother), 'mom' (mother)"
-        },
-        relationship_status: {
-          type: "string",
-          enum: ["close", "friendly", "distant", "complicated", "estranged"],
-          description: "Your current relationship status with them (for update_kayley_relationship)"
-        },
-        event: {
-          type: "string",
-          description: "Life event to log (for log_kayley_event or mention_to_user). E.g., 'Started new job', 'Got engaged'"
-        },
-        warmth_change: {
-          type: "number",
-          description: "How much to change user's warmth score (-50 to +50) (for update_user_feeling)"
-        },
-        trust_change: {
-          type: "number",
-          description: "How much to change user's trust score (-50 to +50) (for update_user_feeling)"
-        },
-        familiarity_change: {
-          type: "number",
-          description: "How much to change user's familiarity score (0 to 100) (for update_user_feeling)"
-        },
-        sentiment: {
-          type: "string",
-          enum: ["positive", "neutral", "negative"],
-          description: "Sentiment of the mention (for mention_to_user)"
-        }
-      },
-      required: ["action", "person_key"]
-    }
-  },
-  {
     name: "task_action",
     description: 
       "Manage the user's daily checklist/tasks. " +
@@ -546,63 +448,6 @@ export const GeminiMemoryToolDeclarations = [
         }
       },
       required: ["action"]
-    }
-  },
-  {
-    name: "recall_story",
-    description:
-      "Check if you've told a specific story to this user before, and get the key details. " +
-      "Use this BEFORE telling a story to avoid repetition and ensure consistency. " +
-      "Returns: whether you've told it, when, and the key details to include.",
-    parameters: {
-      type: "object",
-      properties: {
-        story_key: {
-          type: "string",
-          description: "The story identifier (e.g., 'viral_oops_video', 'laptop_catastrophe')"
-        }
-      },
-      required: ["story_key"]
-    }
-  },
-  {
-    name: "manage_story_retelling",
-    description:
-      "Manage story retelling - mark a story as told, or create a new story. " +
-      "Actions: 'mark_told' (after telling a story), 'create_story' (create new dynamic story)",
-    parameters: {
-      type: "object",
-      properties: {
-        action: {
-          type: "string",
-          enum: ["mark_told", "create_story"],
-          description: "mark_told: record that you told this story; create_story: add new story to your catalog"
-        },
-        story_key: {
-          type: "string",
-          description: "Story identifier (required for both actions)"
-        },
-        story_title: {
-          type: "string",
-          description: "Story title (required for create_story)"
-        },
-        summary: {
-          type: "string",
-          description: "1-2 sentence summary (required for create_story)"
-        },
-        key_details: {
-          type: "array",
-          items: {
-            type: "object",
-            properties: {
-              detail: { type: "string" },
-              value: { type: "string" }
-            }
-          },
-          description: "Array of key details (required for create_story)"
-        }
-      },
-      required: ["action", "story_key"]
     }
   }
 ];
@@ -787,160 +632,6 @@ export const OpenAIMemoryToolDeclarations = [
       required: ["category", "key", "value"]
     }
   },
-  {
-    type: "function" as const,
-    name: "manage_narrative_arc",
-    description:
-      "Manage YOUR (Kayley's) ongoing life events and projects. " +
-      "Use this to create, update, resolve, or abandon arcs in your life. " +
-      "This makes you feel ALIVE - users can ask about your projects weeks later! " +
-      "Examples: starting a collab video, dealing with a client, training for something, " +
-      "or any ongoing project/challenge in your life.",
-    parameters: {
-      type: "object",
-      properties: {
-        action: {
-          type: "string",
-          enum: ["create", "update", "resolve", "abandon"],
-          description: "create: start new arc, update: add progress, resolve: finish successfully, abandon: gave up"
-        },
-        arc_key: {
-          type: "string",
-          description: "Unique identifier for the arc (e.g., 'collab_sarah_dec2024', 'client_project_nov'). Include topic/person/timeframe for uniqueness."
-        },
-        arc_title: {
-          type: "string",
-          description: "Human-readable title (only for 'create'). E.g., 'Collab Video with Sarah'"
-        },
-        initial_event: {
-          type: "string",
-          description: "What started this arc (only for 'create'). E.g., 'Met Sarah at meetup, planning AI ethics video'"
-        },
-        event: {
-          type: "string",
-          description: "Progress update (only for 'update'). E.g., 'Filming complete, editing in progress'"
-        },
-        resolution: {
-          type: "string",
-          description: "How it ended (only for 'resolve'). E.g., 'Video published, got great response'"
-        },
-        reason: {
-          type: "string",
-          description: "Why abandoned (only for 'abandon'). E.g., 'Lost funding, couldn't continue'"
-        }
-      },
-      required: ["action", "arc_key"]
-    }
-  },
-  {
-    type: "function" as const,
-    name: "manage_dynamic_relationship",
-    description:
-      "Manage relationships with people in YOUR life (Lena, Ethan, Mom) and track how the user feels about them. " +
-      "This has TWO perspectives: YOUR relationship with them (Kayley's view) AND the user's feelings about them. " +
-      "Actions: update_kayley_relationship (change your status with them), log_kayley_event (add life event), " +
-      "update_user_feeling (change user's warmth/trust/familiarity), mention_to_user (log that you mentioned them).",
-    parameters: {
-      type: "object",
-      properties: {
-        action: {
-          type: "string",
-          enum: ["update_kayley_relationship", "log_kayley_event", "update_user_feeling", "mention_to_user"],
-          description: "update_kayley_relationship: change your relationship status, log_kayley_event: add event to their life, update_user_feeling: change user's scores, mention_to_user: increment mention count"
-        },
-        person_key: {
-          type: "string",
-          enum: ["lena", "ethan", "mom"],
-          description: "Which person: 'lena' (best friend), 'ethan' (brother), 'mom' (mother)"
-        },
-        relationship_status: {
-          type: "string",
-          enum: ["close", "friendly", "distant", "complicated", "estranged"],
-          description: "Your current relationship status with them (for update_kayley_relationship)"
-        },
-        event: {
-          type: "string",
-          description: "Life event to log (for log_kayley_event or mention_to_user). E.g., 'Started new job', 'Got engaged'"
-        },
-        warmth_change: {
-          type: "number",
-          description: "How much to change user's warmth score (-50 to +50) (for update_user_feeling)"
-        },
-        trust_change: {
-          type: "number",
-          description: "How much to change user's trust score (-50 to +50) (for update_user_feeling)"
-        },
-        familiarity_change: {
-          type: "number",
-          description: "How much to change user's familiarity score (-50 to +50) (for update_user_feeling)"
-        },
-        sentiment: {
-          type: "string",
-          description: "Sentiment of the mention (for mention_to_user)"
-        }
-      },
-      required: ["action", "person_key"]
-    }
-  },
-  {
-    type: "function" as const,
-    name: "recall_story",
-    description:
-      "Check if you've told a specific story to this user before, and get the key details. " +
-      "Use this BEFORE telling a story to avoid repetition and ensure consistency. " +
-      "Returns: whether you've told it, when, and the key details to include.",
-    parameters: {
-      type: "object",
-      properties: {
-        story_key: {
-          type: "string",
-          description: "The story identifier (e.g., 'viral_oops_video', 'laptop_catastrophe')"
-        }
-      },
-      required: ["story_key"]
-    }
-  },
-  {
-    type: "function" as const,
-    name: "manage_story_retelling",
-    description:
-      "Manage story retelling - mark a story as told, or create a new story. " +
-      "Actions: 'mark_told' (after telling a story), 'create_story' (create new dynamic story)",
-    parameters: {
-      type: "object",
-      properties: {
-        action: {
-          type: "string",
-          enum: ["mark_told", "create_story"],
-          description: "mark_told: record that you told this story; create_story: add new story to your catalog"
-        },
-        story_key: {
-          type: "string",
-          description: "Story identifier (required for both actions)"
-        },
-        story_title: {
-          type: "string",
-          description: "Story title (required for create_story)"
-        },
-        summary: {
-          type: "string",
-          description: "1-2 sentence summary (required for create_story)"
-        },
-        key_details: {
-          type: "array",
-          items: {
-            type: "object",
-            properties: {
-              detail: { type: "string" },
-              value: { type: "string" }
-            }
-          },
-          description: "Array of key details (required for create_story)"
-        }
-      },
-      required: ["action", "story_key"]
-    }
-  }
 ];
 
 // ============================================
@@ -952,7 +643,7 @@ export const OpenAIMemoryToolDeclarations = [
  */
 export interface PendingToolCall {
   id: string;
-  name: 'recall_memory' | 'recall_user_info' | 'store_user_info' | 'task_action' | 'calendar_action' | 'store_character_info' | 'manage_narrative_arc' | 'manage_dynamic_relationship' | 'recall_story' | 'manage_story_retelling';
+  name: 'recall_memory' | 'recall_user_info' | 'store_user_info' | 'task_action' | 'calendar_action' | 'store_character_info';
   arguments: Record<string, any>;
 }
 

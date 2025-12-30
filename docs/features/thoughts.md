@@ -2468,7 +2468,7 @@ Since the app is **single user** and runs **only during office hours**, the foll
 ```json
 {
   "calendarEvent": {
-    "title": "client presentation",
+    "title": "client presentation",p
     "when": "tomorrow afternoon",
     "hoursUntil": 20
   }

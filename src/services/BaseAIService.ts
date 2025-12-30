@@ -18,7 +18,7 @@ import {
   calculateStage,
   recordAlmostMoment,
   generateAlmostExpression
-} from './almostMoments';
+} from './almostMomentsService';
 
 /**
  * Guardrail: Check if text_response is valid for TTS.
