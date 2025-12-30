@@ -43,6 +43,12 @@ import { buildIdentityAnchorSection } from "../core/identityAnchor";
 import { buildSelfKnowledgeSection } from "../core/selfKnowledge";
 import { integrateAlmostMoments } from "../../almostMomentsService";
 import {
+  formatExperiencesForPrompt,
+  getUndeliveredMessage,
+  type PendingMessage,
+} from "../../idleLife";
+import { buildPendingMessageSection } from "./greetingBuilder";
+import {
   buildToolsSection,
   buildToolRulesSection,
   buildAppLaunchingSection,
@@ -231,7 +237,9 @@ ${
 
 ${getTierBehaviorPrompt(relationship?.relationshipTier)}
 ${buildDynamicDimensionEffects(relationship)}
-${buildSelfieRulesPrompt(relationship)}${almostMomentsPrompt ? `\n${almostMomentsPrompt}` : ""}
+${buildSelfieRulesPrompt(relationship)}${
+    almostMomentsPrompt ? `\n${almostMomentsPrompt}` : ""
+  }
 
 Familiarity behavior:
 - early: Be naturally curious but don't pretend you know patterns about them yet
@@ -313,6 +321,41 @@ ${buildStyleOutputSection(moodKnobs, relationship)}`;
 
   // Add ongoing threads (her mental weather)
   prompt += soulContext.threadsPrompt;
+
+  // Add pending messages (Part Two: highest priority - messages waiting for user)
+  // These are calendar-aware messages or gift messages that take priority over experiences
+  if (effectiveUserId) {
+    try {
+      const pendingMessage = await getUndeliveredMessage(effectiveUserId);
+      if (pendingMessage) {
+        // Get user's name for personalization (we may not have it in this context)
+        // The pending message section will still work without a name
+        const pendingMessagePrompt = buildPendingMessageSection(pendingMessage, null);
+        if (pendingMessagePrompt) {
+          prompt += pendingMessagePrompt;
+          console.log(
+            `[buildSystemPrompt] Added pending ${pendingMessage.trigger} message to prompt`
+          );
+        }
+      }
+    } catch (error) {
+      console.warn("[buildSystemPrompt] Failed to fetch pending message:", error);
+    }
+  }
+
+  // Add life experiences (Part Two: things that happened to Kayley today)
+  if (effectiveUserId) {
+    try {
+      const experiencesPrompt = await formatExperiencesForPrompt(
+        effectiveUserId
+      );
+      if (experiencesPrompt) {
+        prompt += experiencesPrompt;
+      }
+    } catch (error) {
+      console.warn("[buildSystemPrompt] Failed to fetch experiences:", error);
+    }
+  }
 
   // Add spontaneity (if available and applicable)
   if (soulContext.spontaneityIntegration) {

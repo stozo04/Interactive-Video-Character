@@ -1,6 +1,6 @@
 # Sub-Agent Usage Guide
 
-> **Last Updated**: 2025-12-26
+> **Last Updated**: 2025-12-30
 > **Purpose**: How to effectively use Claude Code sub-agents for this project
 > **Context**: Lessons learned from implementing the Spontaneity System
 
@@ -130,17 +130,24 @@ Use the test-engineer to write comprehensive tests for the spontaneity tracker
 
 ### 5. `presence-proactivity`
 
-**Domain**: Proactive behavior, idle breaker, open loops, callbacks
+**Domain**: Proactive behavior, idle breaker, open loops, callbacks, idle life system
 
 **When to Use**:
 - Implementing features that trigger without user input
 - Managing ongoing threads (mental weather)
 - Creating idle thoughts or session reflections
 - Handling user absence
+- Generating Kayley's life experiences during idle time
+- Calendar-aware post-event messages
+- Rare gift messages (selfies or thoughts)
+- Pending message storage and delivery
 
 **Example Invocation**:
 ```
 Use the presence-proactivity agent to create the session reflection and idle thoughts system
+```
+```
+Use the presence-proactivity agent to implement calendar awareness for post-event check-ins
 ```
 
 **Key Skills**:
@@ -148,10 +155,20 @@ Use the presence-proactivity agent to create the session reflection and idle tho
 - Understands callback timing and decay
 - Manages thread lifecycle
 - Creates proactive conversation starters
+- Generates life experiences (activities, mishaps, thoughts)
+- Calendar event importance analysis
+- Gift message probability and limits (5% chance, once/day max)
+- Pending message priority system
 
 **Files It Knows**:
 - `src/services/presenceDirector.ts`
 - `src/services/ongoingThreads.ts`
+- `src/services/idleThoughtsScheduler.ts`
+- `src/services/idleLife/` (all idle life services)
+  - `kayleyExperienceService.ts` - Life experiences
+  - `calendarAwarenessService.ts` - Post-event messages
+  - `giftMessageService.ts` - Rare gift messages
+  - `pendingMessageService.ts` - Message storage/delivery
 - Open loop tracking patterns
 
 ---
@@ -449,6 +466,9 @@ Resume agent ae76e47 to add error handling to the prompt builder
 | Write tests first | test-engineer | "Write tests for X (TDD)" |
 | Integration | chat-engine-specialist | "Wire X into the chat flow" |
 | Proactive features | presence-proactivity | "Create idle/reflection for X" |
+| Idle life experiences | presence-proactivity | "Generate life experiences during absence" |
+| Calendar-aware messages | presence-proactivity | "Create post-event check-in messages" |
+| Gift messages | presence-proactivity | "Implement rare gift messages" |
 | Relationship logic | relationship-dynamics | "Implement tier progression" |
 | Topic analysis | intent-analyst | "Create topic matching for X" |
 | External APIs | external-integrations | "Integrate X API" |
@@ -467,4 +487,11 @@ Resume agent ae76e47 to add error handling to the prompt builder
 - [Narrative Arcs Service Documentation](../src/services/docs/NarrativeArcsService.md)
 - [Dynamic Relationships Service Documentation](../src/services/docs/DynamicRelationshipsService.md)
 - [Story Retelling Service Documentation](../src/services/docs/StoryRetellingService.md)
+- **Idle Life (Part Two) Documentation**:
+  - [Idle Life Service Overview](../src/services/docs/IdleLifeService.md) - Complete idle-time system
+  - [Kayley Experience Service](../src/services/docs/KayleyExperienceService.md) - Life experiences during absence
+  - [Calendar Awareness Service](../src/services/docs/CalendarAwarenessService.md) - Post-event check-in messages
+  - [Gift Message Service](../src/services/docs/GiftMessageService.md) - Rare gift messages
+  - [Pending Message Service](../src/services/docs/PendingMessageService.md) - Message storage and delivery
+  - [Feature Spec](./features/Idle_Thoughts_Part_Two.md) - Original implementation spec
 - Agent definitions: `.claude/agents/*.md`

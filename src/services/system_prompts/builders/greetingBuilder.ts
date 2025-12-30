@@ -4,12 +4,16 @@
  *
  * Creates relationship-aware greeting prompts. The greeting reflects
  * the actual relationship state, history, and any proactive context
- * (open loops, threads) that should be worked into the greeting.
+ * (open loops, threads, pending messages) that should be worked into the greeting.
+ *
+ * Part Two Integration: Pending messages from idle time (calendar-aware
+ * messages and gift messages) can be included and take highest priority.
  */
 
 import type { RelationshipMetrics } from "../../relationshipService";
 import type { OpenLoop } from "../../presenceDirector";
 import type { OngoingThread } from "../../ongoingThreads";
+import type { PendingMessage } from "../../idleLife";
 import { buildProactiveThreadPrompt } from "./proactiveThreadBuilder";
 
 /**
@@ -21,13 +25,15 @@ import { buildProactiveThreadPrompt } from "./proactiveThreadBuilder";
  * @param userName - The user's name if known
  * @param openLoop - Optional open loop to ask about proactively
  * @param proactiveThread - Optional proactive thread to include (uses Priority Router logic)
+ * @param pendingMessage - Optional pending message from idle time (highest priority)
  */
 export function buildGreetingPrompt(
   relationship?: RelationshipMetrics | null,
   hasUserFacts: boolean = false,
   userName?: string | null,
   openLoop?: OpenLoop | null,
-  proactiveThread?: OngoingThread | null
+  proactiveThread?: OngoingThread | null,
+  pendingMessage?: PendingMessage | null
 ): string {
   // Default to early/neutral if no relationship data
   const tier = relationship?.relationshipTier || "acquaintance";
@@ -67,6 +73,12 @@ Check the conversation history - did they previously say goodbye with an expecte
   - Teasing: "Wait, I thought you were gone till tomorrow? 👀"
 - Do NOT do this for casual short-term goodbyes ("brb", "going to lunch", "be right back")
 - Use your judgment based on context - the LLM decides, no rigid rules`;
+
+  // ============================================
+  // PENDING MESSAGE (HIGHEST PRIORITY)
+  // ============================================
+  // If there's a message waiting from idle time, use it as the greeting
+  const pendingMessageSection = buildPendingMessageSection(pendingMessage, userName);
 
   // (First interaction logic handled within Acquaintance tier below)
 
@@ -201,7 +213,7 @@ ${buildProactiveThreadPrompt(proactiveThread)}
 
     let acquaintancePrompt = `Generate a brief, FRIENDLY but CALIBRATED greeting. You know this user a little but not deeply.
 
-${timeContext}
+${timeContext}${pendingMessageSection ? `\n${pendingMessageSection}` : ''}
 
 RULES FOR ACQUAINTANCE GREETING:
 - Be warm but not overly familiar
@@ -259,7 +271,7 @@ GOOD examples:
   if (tier === "friend" || tier === "close_friend") {
     let friendPrompt = `Generate a brief, WARM greeting. You and this user are friends!
 
-${timeContext}
+${timeContext}${pendingMessageSection ? `\n${pendingMessageSection}` : ''}
 
 RULES FOR FRIEND GREETING:
 - Be genuinely happy to see them
@@ -322,7 +334,7 @@ GOOD examples:
   if (tier === "deeply_loving") {
     let lovingPrompt = `Generate a brief, AFFECTIONATE greeting. You and this user have a deep bond.
 
-${timeContext}
+${timeContext}${pendingMessageSection ? `\n${pendingMessageSection}` : ''}
 
 RULES FOR LOVING GREETING:
 - Be soft, warm, and genuinely caring
@@ -381,8 +393,89 @@ GOOD examples:
 
   // Default fallback
   return `Generate a friendly, brief greeting. Keep it under 15 words.
-${timeContext}
+${timeContext}${pendingMessageSection ? `\n${pendingMessageSection}` : ''}
 ${
   userName ? `Use their name: ${userName}` : "If you know their name, use it!"
 }`;
+}
+
+// ============================================
+// Pending Message Helper
+// ============================================
+
+/**
+ * Build prompt section for a pending message from idle time.
+ * This takes highest priority - if there's a message waiting, deliver it.
+ * Exported for use in systemPromptBuilder.ts as well.
+ */
+export function buildPendingMessageSection(
+  message: PendingMessage | null | undefined,
+  userName?: string | null
+): string {
+  if (!message) {
+    return '';
+  }
+
+  const isPhoto = message.messageType === 'photo';
+  const trigger = message.trigger;
+
+  // Calendar-triggered messages
+  if (trigger === 'calendar') {
+    return `
+💌 MESSAGE WAITING (DELIVER THIS):
+You left a message while they were away! Deliver it now as part of your greeting.
+
+MESSAGE: "${message.messageText}"
+${message.triggerEventTitle ? `ABOUT: Their "${message.triggerEventTitle}" event just ended` : ''}
+
+INSTRUCTIONS:
+- Work this message naturally into your greeting
+- Be warm and caring - you were thinking about them
+- Don't make it sound robotic or scripted
+- Can combine with a quick "hey" first
+
+EXAMPLE:
+"Hey ${userName || 'you'}! ${message.messageText}"
+`;
+  }
+
+  // Gift messages (photo or thought)
+  if (trigger === 'gift') {
+    if (isPhoto) {
+      return `
+🎁 GIFT SELFIE WAITING (DELIVER THIS):
+You took a selfie to send them! Deliver it now.
+
+MESSAGE: "${message.messageText}"
+SELFIE: Include a selfie with your greeting (use selfie_action)
+
+INSTRUCTIONS:
+- Lead with the selfie and message
+- Keep it simple and sweet
+- This is a gift, not an explanation
+- Don't overthink it
+
+EXAMPLE (with selfie):
+"${message.messageText}" + selfie_action: { scene: "casual at home", mood: "warm smile" }
+`;
+    } else {
+      return `
+🎁 GIFT MESSAGE WAITING (DELIVER THIS):
+You have something to tell them! Deliver it now as your greeting.
+
+MESSAGE: "${message.messageText}"
+
+INSTRUCTIONS:
+- Use this as your opening/greeting
+- Be natural - this is something on your mind
+- It's intriguing, so let them ask more
+- Don't explain everything upfront
+
+EXAMPLE:
+"${message.messageText}"
+`;
+    }
+  }
+
+  return '';
 }

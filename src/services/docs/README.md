@@ -37,6 +37,13 @@ The system follows a "Perception -> processing -> Action" pipeline:
 *   [Proactive Systems](./Proactive_Systems.md): Overview of Calendar and News systems.
 *   [Loop Cleanup](./LoopCleanup.md): The "janitor" that keeps her memory from getting cluttered.
 
+### 🌙 Idle Life (Part Two: Kayley Lives Her Life)
+*   [Idle Life Service](./IdleLifeService.md): Overview of the complete idle-time system.
+*   [Kayley Experience Service](./KayleyExperienceService.md): Life experiences (activities, mishaps, thoughts) generated during absence.
+*   [Calendar Awareness Service](./CalendarAwarenessService.md): Post-event check-in messages ("Hope your interview went well!").
+*   [Gift Message Service](./GiftMessageService.md): Rare, unprompted "gift" messages (selfies or thoughts).
+*   [Pending Message Service](./PendingMessageService.md): Storage and delivery of messages waiting for user return.
+
 ### 🎮 Features & Interaction
 *   [Interactive Features](./Interactive_Features.md): Whiteboard, games, drawing, and "Almost Moments".
 
