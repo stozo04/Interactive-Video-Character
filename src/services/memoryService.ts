@@ -439,7 +439,7 @@ export interface ToolCallArgs {
     priority?: 'low' | 'medium' | 'high';
   };
   calendar_action: {
-    action: 'create' | 'delete';
+    action: 'create' | 'delete' | 'list';
     summary?: string;
     start?: string;
     end?: string;
@@ -447,6 +447,9 @@ export interface ToolCallArgs {
     event_id?: string;
     event_ids?: string[];
     delete_all?: boolean;
+    days?: number;
+    timeMin?: string;
+    timeMax?: string;
   };
   store_character_info: {
     category: 'quirk' | 'relationship' | 'experience' | 'preference' | 'detail' | 'other';
@@ -667,6 +670,7 @@ export const executeMemoryTool = async (
               
               for (const id of eventIdsToDelete) {
                 try {
+                   // Ensure we're using the service from the barrel correctly
                   await calendarService.deleteEvent(accessToken, id);
                   deletedCount++;
                 } catch (err) {
@@ -684,6 +688,55 @@ export const executeMemoryTool = async (
               return `Error deleting calendar event: ${error instanceof Error ? error.message : 'Unknown error'}`;
             }
           }
+
+          case 'list': {
+            try {
+              const { days, timeMin, timeMax } = calendarArgs;
+              const now = new Date();
+              
+              // Determine range
+              let startISO: string;
+              let endISO: string;
+              
+              if (timeMin && timeMax) {
+                startISO = timeMin;
+                endISO = timeMax;
+              } else {
+                const startDate = timeMin ? new Date(timeMin) : new Date(now);
+                if (!timeMin) startDate.setHours(0, 0, 0, 0); // Start of today if not specified
+                
+                const lookaheadDays = days || 7;
+                const endDate = timeMax ? new Date(timeMax) : new Date(startDate.getTime() + lookaheadDays * 24 * 60 * 60 * 1000);
+                if (!timeMax) endDate.setHours(23, 59, 59, 999);
+                
+                startISO = startDate.toISOString();
+                endISO = endDate.toISOString();
+              }
+              
+              const events = await calendarService.getEvents(accessToken, startISO, endISO, 50);
+              
+              if (events.length === 0) {
+                return `No events found between ${new Date(startISO).toLocaleDateString()} and ${new Date(endISO).toLocaleDateString()}.`;
+              }
+              
+              const eventLines = events.map((event, i) => {
+                const t = new Date(event.start.dateTime || event.start.date || '');
+                const timeStr = t.toLocaleString("en-US", {
+                  weekday: "short",
+                  month: "numeric",
+                  day: "numeric",
+                  hour: "numeric",
+                  minute: "2-digit",
+                });
+                return `${i + 1}. "${event.summary}" (ID: ${event.id}) at ${timeStr}`;
+              });
+              
+              return `Found ${events.length} event(s):\n${eventLines.join('\n')}`;
+            } catch (error) {
+              console.error('Calendar list error:', error);
+              return `Error listing calendar events: ${error instanceof Error ? error.message : 'Unknown error'}`;
+            }
+          }
           
           default:
             return `Unknown calendar action: ${action}`;
@@ -694,10 +747,10 @@ export const executeMemoryTool = async (
         const { storeCharacterFact } = await import('./characterFactsService');
         const { category, key, value } = args as ToolCallArgs['store_character_info'];
 
-        // We pass undefined for characterId to use the default 'kayley'
-        // We pass undefined for sourceMessageId since this comes from a tool call, not a specific message scan (or we could pass the current message ID if we had it?)
+        // We use the default characterId 'kayley'
+        // We pass no sourceMessageId since this comes from a tool call, not a specific message scan
         // Since this is an explicit choice by the AI, we treat it with high confidence (1.0 default).
-        const success = await storeCharacterFact(undefined, category, key, value);
+        const success = await storeCharacterFact(category, key, value);
 
         return success
           ? `✓ Stored character fact: ${key} = "${value}"`

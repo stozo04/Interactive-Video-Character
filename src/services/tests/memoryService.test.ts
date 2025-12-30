@@ -264,7 +264,7 @@ describe('memoryService', () => {
       
       const result = await executeMemoryTool('store_character_info', args, userId);
       
-      expect(charFactsMock.storeCharacterFact).toHaveBeenCalledWith(undefined, 'preference', 'laptop_name', 'Nova');
+      expect(charFactsMock.storeCharacterFact).toHaveBeenCalledWith('preference', 'laptop_name', 'Nova');
       expect(result).toContain('✓ Stored character fact');
     });
   });

@@ -66,21 +66,18 @@ class CalendarService extends EventTarget {
   }
 
 
-  /**
-   * Get upcoming events for the next 24 hours
+   /**
+   * Get events for a specific timeframe
    */
-  async getUpcomingEvents(accessToken: string): Promise<CalendarEvent[]> {
+  async getEvents(accessToken: string, timeMin: string, timeMax: string, maxResults: number = 25): Promise<CalendarEvent[]> {
     try {
-      const now = new Date();
-      const tomorrow = new Date(now.getTime() + 24 * 60 * 60 * 1000);
-
       const params = new URLSearchParams({
         calendarId: 'primary',
-        timeMin: now.toISOString(),
-        timeMax: tomorrow.toISOString(),
+        timeMin: timeMin,
+        timeMax: timeMax,
         singleEvents: 'true',
         orderBy: 'startTime',
-        maxResults: '10',
+        maxResults: maxResults.toString(),
       });
 
       const response = await fetch(
@@ -107,14 +104,22 @@ class CalendarService extends EventTarget {
 
       const data = await response.json();
       const rawEvents: CalendarEvent[] = data.items || [];
-      // Apply the filter
       const events = this.filterValidEvents(rawEvents);
-      console.log(`📅 Fetched ${events.length} valid events (filtered from ${rawEvents.length})`);
+      console.log(`📅 Fetched ${events.length} valid events between ${timeMin} and ${timeMax}`);
       return events;
     } catch (error) {
       console.error('Error fetching calendar events:', error);
       throw error;
     }
+  }
+
+  /**
+   * Get upcoming events for the next 7 days
+   */
+  async getUpcomingEvents(accessToken: string): Promise<CalendarEvent[]> {
+    const now = new Date();
+    const nextWeek = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+    return this.getEvents(accessToken, now.toISOString(), nextWeek.toISOString(), 15);
   }
 
   /**
@@ -155,67 +160,22 @@ class CalendarService extends EventTarget {
     }
   }
 
-  /**
-   * Get events for the current week (Sunday to Saturday)
+   /**
+   * Get events for the next 7 days
    * Used for proactive calendar check-ins
    */
   async getWeekEvents(accessToken: string): Promise<CalendarEvent[]> {
-    try {
-      const now = new Date();
-      
-      // Get Sunday of current week
-      const sunday = new Date(now);
-      sunday.setDate(now.getDate() - now.getDay());
-      sunday.setHours(0, 0, 0, 0);
-      
-      // Get Saturday end of current week
-      const saturday = new Date(sunday);
-      saturday.setDate(sunday.getDate() + 6);
-      saturday.setHours(23, 59, 59, 999);
+    const now = new Date();
+    
+    // Start from beginning of today to catch any current/missed events
+    const startDate = new Date(now);
+    startDate.setHours(0, 0, 0, 0);
+    
+    // Look ahead 7 days from now
+    const endDate = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+    endDate.setHours(23, 59, 59, 999);
 
-      const params = new URLSearchParams({
-        calendarId: 'primary',
-        timeMin: sunday.toISOString(),
-        timeMax: saturday.toISOString(),
-        singleEvents: 'true',
-        orderBy: 'startTime',
-        maxResults: '50',
-      });
-
-      const response = await fetch(
-        `${BASE_URL}/calendars/primary/events?${params.toString()}`,
-        {
-          headers: {
-            Authorization: `Bearer ${accessToken}`,
-            'Content-Type': 'application/json',
-          },
-        }
-      );
-
-      if (response.status === 401) {
-        console.error('Calendar API: Token expired or invalid');
-        this.dispatchEvent(new CustomEvent('auth-error'));
-        throw new Error('Authentication failed. Please reconnect your Google account.');
-      }
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error('Calendar API error:', response.status, errorText);
-        throw new Error(`Failed to fetch week calendar events: ${response.statusText}`);
-      }
-
-      const data = await response.json();
-      const rawEvents: CalendarEvent[] = data.items || [];
-
-      // Apply the filter
-      const events = this.filterValidEvents(rawEvents);
-
-      console.log(`📅 Fetched ${events.length} valid events (filtered from ${rawEvents.length})`);
-      return events;
-    } catch (error) {
-      console.error('Error fetching week calendar events:', error);
-      throw error;
-    }
+    return this.getEvents(accessToken, startDate.toISOString(), endDate.toISOString(), 50);
   }
 
   /**

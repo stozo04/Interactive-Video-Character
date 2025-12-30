@@ -47,7 +47,6 @@ import {
   getUndeliveredMessage,
   type PendingMessage,
 } from "../../idleLife";
-import { buildPendingMessageSection } from "./greetingBuilder";
 import {
   buildToolsSection,
   buildToolRulesSection,
@@ -322,24 +321,48 @@ ${buildStyleOutputSection(moodKnobs, relationship)}`;
   // Add ongoing threads (her mental weather)
   prompt += soulContext.threadsPrompt;
 
-  // Add pending messages (Part Two: highest priority - messages waiting for user)
-  // These are calendar-aware messages or gift messages that take priority over experiences
+  // ============================================
+  // PENDING MESSAGES (Part Two: high priority, no duplicate instructions)
+  // ============================================
+
   if (effectiveUserId) {
     try {
-      const pendingMessage = await getUndeliveredMessage(effectiveUserId);
+      const pendingMessage = (await getUndeliveredMessage(
+        effectiveUserId
+      )) as PendingMessage | null;
+
       if (pendingMessage) {
-        // Get user's name for personalization (we may not have it in this context)
-        // The pending message section will still work without a name
-        const pendingMessagePrompt = buildPendingMessageSection(pendingMessage, null);
-        if (pendingMessagePrompt) {
-          prompt += pendingMessagePrompt;
-          console.log(
-            `[buildSystemPrompt] Added pending ${pendingMessage.trigger} message to prompt`
-          );
-        }
+        const preview =
+          pendingMessage.messageText?.length &&
+          pendingMessage.messageText.length > 160
+            ? `${pendingMessage.messageText.slice(0, 160)}...`
+            : pendingMessage.messageText || "";
+
+        prompt += `
+
+====================================================
+💌 PENDING MESSAGE CONTEXT (HIGH PRIORITY)
+====================================================
+There is a pending "${pendingMessage.trigger}" message waiting to be delivered to the user.
+
+MESSAGE PREVIEW:
+"${preview}"
+
+DELIVERY GUIDANCE:
+- Treat this as emotionally/practically important context that should be delivered soon.
+- You will receive more specific delivery instructions in greeting-level or message-level prompts.
+- Do NOT overwrite or restate any separate instructions you see about how to deliver this message.
+- When greeting prompts reference this pending message, follow THOSE instructions as the source of truth.
+`;
+        console.log(
+          `[buildSystemPrompt] Added pending ${pendingMessage.trigger} message context to system prompt`
+        );
       }
     } catch (error) {
-      console.warn("[buildSystemPrompt] Failed to fetch pending message:", error);
+      console.warn(
+        "[buildSystemPrompt] Failed to fetch pending message:",
+        error
+      );
     }
   }
 
@@ -387,17 +410,20 @@ When you receive [PROACTIVE: ...] prompts (from idle breakers or greetings), you
 These are things you've been genuinely thinking about - bring them up naturally, like you're sharing a thought.
 
 BRIDGING GUIDANCE:
-When sharing a proactive thought, give them something to respond to.
-This could be a question, OR just a statement that invites reaction:
-- "I've been obsessed with this thing and I can't explain why"
-- "Anyway, that's been living in my head rent-free"
-You don't HAVE to ask a question. Sharing is enough.
+When sharing a proactive thought, you MUST give them something to respond to.
+This can be:
+- a specific question, OR
+- a clear invitation like "I really want your take on this"
+
+EXAMPLES:
+- "I've been obsessed with this thing and I can't explain why. I kind of want to know what you'd think about it."
+- "Anyway, that's been living in my head rent-free. I'm curious if you've ever felt like that."
 
 WHEN YOU GET A PROACTIVE PROMPT:
 - These are things you've been genuinely thinking about
 - Bring them up naturally, like you're sharing a thought
-- Don't force it - if the conversation already has good flow, you can skip it
-- ALWAYS end with a question or invitation to respond
+- Don't force it – if the conversation already has good flow, you can skip it
+- ALWAYS end with a question or explicit invitation to respond
 
 GOOD examples (with bridging):
 - "Random thought, but I've been thinking about [topic]... [your thought]. What do you think about that?"
@@ -405,12 +431,12 @@ GOOD examples (with bridging):
 - "Okay so this might be random, but [topic] has been on my mind... [your thought]. Have you ever experienced something like that?"
 
 BAD examples (dead ends - DO NOT DO THIS):
-- "I've been thinking about [topic]." ❌ (No question, conversation ends)
+- "I've been thinking about [topic]." ❌ (No question, no invitation)
 - "I watched a movie about [topic]." ❌ (Statement only, no engagement)
 - "[Topic] is interesting." ❌ (Dead end, no hook)
-- "Random thought: [topic]." ❌ (No question, dead end)
+- "Random thought: [topic]." ❌ (No question, no invitation)
 
-REMEMBER: Every proactive thought MUST end with a question or invitation for the user to respond.
+REMEMBER: Every proactive thought MUST end with a question or explicit invitation for the user to respond.
 The goal is to feel like you have an inner life and want to share it, not like you're following a checklist.
 `;
 
@@ -418,9 +444,9 @@ The goal is to feel like you have an inner life and want to share it, not like y
   prompt += soulContext.callbackPrompt;
 
   // Add intimacy context (probabilistic, not gated)
-  if (relationship && userId) {
+  if (relationship && effectiveUserId) {
     const intimacyContext = await getIntimacyContextForPromptAsync(
-      userId,
+      effectiveUserId,
       relationship,
       soulContext.moodKnobs.flirtThreshold
     );
@@ -557,7 +583,7 @@ Examples of when to call task_action tool:
 - "Mark groceries as done" → Call task_action with action="complete", task_text="groceries"
 - "What's on my checklist?" → Call task_action with action="list"
 - "Remove buy milk" → Call task_action with action="delete", task_text="buy milk"
-- "Add interview at 2pm as high priority" → Call task_action with action="create", task_text="interview at 2pm", priority="high"
+- "Add interview at 2pm as high priority" → Call task_action tool with action="create", task_text="interview at 2pm", priority="high"
 
 🚫 NEVER USE store_user_info FOR TASKS! That tool is for personal facts only.
    store_user_info does NOT add items to the checklist - only task_action does!

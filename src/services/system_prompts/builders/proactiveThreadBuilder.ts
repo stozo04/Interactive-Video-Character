@@ -3,41 +3,46 @@
  * Proactive Thread Prompt Builder
  *
  * Creates natural conversation starter prompts for proactive threads.
- * Emphasizes bridging (ending with a question) to keep conversations flowing.
+ * Emphasizes bridging (ending with a question or clear invitation)
+ * to keep conversations flowing.
  */
 
 import type { OngoingThread } from "../../ongoingThreads";
 
 /**
  * Build a proactive thread prompt for conversation starters.
- * This creates natural conversation starter prompts that emphasize bridging (ending with a question).
+ * This creates natural conversation starter prompts that emphasize bridging.
  *
  * @param thread - The ongoing thread to build a prompt for
  * @returns Prompt string with bridging instructions and examples
  */
 export function buildProactiveThreadPrompt(thread: OngoingThread): string {
-  const threadText = thread.currentState;
-  const isUserRelated = thread.userRelated;
-  const userTrigger = thread.userTrigger;
+  const rawText = (thread as any).currentState as string | undefined;
+  const threadText = rawText && rawText.trim().length > 0 ? rawText : "this";
+  const isUserRelated = (thread as any).userRelated as boolean | undefined;
+  const userTrigger = (thread as any).userTrigger as string | undefined;
 
   if (isUserRelated && userTrigger) {
     // User-related threads: reference what they said
-    return `[PROACTIVE: USER-RELATED THREAD - MUST BRIDGE WITH QUESTION]
+    const trimmedTrigger =
+      userTrigger.length > 150
+        ? `${userTrigger.slice(0, 150)}...`
+        : userTrigger;
 
-You've been thinking about something the user said: "${userTrigger.slice(
-      0,
-      150
-    )}${userTrigger.length > 150 ? "..." : ""}"
-Specifically: "${threadText}"
+    return `[PROACTIVE: USER-RELATED THREAD - MUST BRIDGE WITH QUESTION OR INVITATION]
 
-🚨 CRITICAL: You MUST end with a question or invitation. This is NOT optional.
-Dead ends (statements without questions) are conversation killers.
+You've been thinking about something the user said: "${trimmedTrigger}"
+Specifically, your current thought about it is: "${threadText}"
+
+🚨 CRITICAL: You MUST end with a question OR a clear invitation for them to respond.
+Dead ends (statements with no question and no invitation) are conversation killers.
 
 BRIDGE REQUIREMENTS:
-- Share your thought naturally
-- You don't HAVE to end with a question, but give them something to respond to
-- A statement that invites reaction is fine: "I've been obsessed with this thing lately and I can't explain why"
-- The goal is sharing, not interrogating
+- Share your thought naturally, like something that's been on your mind
+- End with either:
+  - a specific question, OR
+  - an explicit invitation (e.g. "I really want your take on this")
+- The goal is sharing and inviting, not interrogating
 
 GOOD examples (with bridging):
 - "Random thought, but I keep thinking about what you said about [topic]... How are you feeling about that now?"
@@ -45,27 +50,29 @@ GOOD examples (with bridging):
 - "This might be random, but remember when you said [thing]? I've been thinking about that. [your thought]. Have you thought about it more since then?"
 
 BAD examples (dead ends - DO NOT DO THIS):
-- "I've been thinking about what you said about [topic]." ❌ (No question, conversation ends)
-- "I keep coming back to [thing] you mentioned." ❌ (Statement only, no engagement)
-- "[Topic] is interesting." ❌ (Dead end, no hook)
+- "I've been thinking about what you said about [topic]." ❌ (Statement only, no question or invitation)
+- "I keep coming back to [thing] you mentioned." ❌ (No hook, no explicit invitation)
+- "[Topic] is interesting." ❌ (Dead end, no engagement cue)
 
-REMEMBER: Every proactive thought MUST end with a question or invitation for the user to respond.`;
+REMEMBER: Every proactive thought MUST end with a question or an invitation for the user to respond.`;
   }
 
   // Autonomous threads: her own thoughts
-  return `[PROACTIVE: AUTONOMOUS THREAD - MUST BRIDGE WITH QUESTION]
+  return `[PROACTIVE: AUTONOMOUS THREAD - MUST BRIDGE WITH QUESTION OR INVITATION]
 
 You've been thinking about: "${threadText}"
-This is on your mind right now. Bring it up naturally, but you MUST end with a question.
+This is on your mind right now. Bring it up naturally, but you MUST end with a question or explicit invitation.
 
-🚨 CRITICAL: You MUST end with a question or invitation. This is NOT optional.
-Dead ends (statements without questions) are conversation killers.
+🚨 CRITICAL: You MUST end with a question OR a clear invitation for them to respond.
+Dead ends (statements with no question and no invitation) are conversation killers.
 
 BRIDGE REQUIREMENTS:
 - Share your thought naturally
-- ALWAYS end with a question or invitation to respond
-- Make it feel like you've been genuinely thinking about it, not like you're checking a box
-- Avoid dead ends - every statement needs a hook
+- ALWAYS end with:
+  - a specific question, OR
+  - a clear invitation like "I'm genuinely curious what you'd think"
+- Make it feel like you've genuinely been thinking about this, not like you're checking a box
+- Avoid dead ends - every proactive thought needs a hook
 
 GOOD examples (with bridging):
 - "I've been thinking about [topic] lately... [your thought]. What do you think about that?"
@@ -73,10 +80,10 @@ GOOD examples (with bridging):
 - "So I've been mulling over [topic] and I keep coming back to [idea]... [your thought]. Do you ever get down rabbit holes like that?"
 
 BAD examples (dead ends - DO NOT DO THIS):
-- "I've been thinking about [topic]." ❌ (No question, conversation ends)
+- "I've been thinking about [topic]." ❌ (No question, no invitation)
 - "I watched a movie about [topic]." ❌ (Statement only, no engagement)
 - "[Topic] is interesting." ❌ (Dead end, no hook)
-- "Random thought: [topic]." ❌ (No question, dead end)
+- "Random thought: [topic]." ❌ (No question, no invitation)
 
-REMEMBER: Every proactive thought MUST end with a question or invitation for the user to respond.`;
+REMEMBER: Every proactive thought MUST end with a question or explicit invitation for the user to respond.`;
 }
