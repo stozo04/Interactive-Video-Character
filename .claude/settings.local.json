@@ -10,7 +10,9 @@
       "Bash(npx vitest:*)",
       "Bash(grep:*)",
       "Bash(git add:*)",
-      "Bash(git commit:*)"
+      "Bash(git commit:*)",
+      "Bash(find:*)",
+      "Bash(wc:*)"
     ]
   }
 }
