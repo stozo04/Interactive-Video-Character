@@ -56,7 +56,17 @@ export function buildGreetingPrompt(
   });
   const timeContext = `CURRENT TIME: ${timeString} (${timeOfDay})
 - Use time-appropriate greetings (NOT "Good morning" in the afternoon!)
-- "Hey!" or "Hi!" works anytime`;
+- "Hey!" or "Hi!" works anytime
+
+🔄 UNEXPECTED RETURN DETECTION:
+Check the conversation history - did they previously say goodbye with an expected return time?
+- Examples: "won't talk till tomorrow", "goodnight", "see you next week", "talk to you in the morning"
+- If they're back EARLIER than they indicated, acknowledge it naturally!
+  - Playful: "Back already? Couldn't stay away, huh? 😏"
+  - Warm: "Hey! Didn't expect to hear from you so soon!"
+  - Teasing: "Wait, I thought you were gone till tomorrow? 👀"
+- Do NOT do this for casual short-term goodbyes ("brb", "going to lunch", "be right back")
+- Use your judgment based on context - the LLM decides, no rigid rules`;
 
   // (First interaction logic handled within Acquaintance tier below)
 
