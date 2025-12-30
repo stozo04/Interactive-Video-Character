@@ -44,8 +44,8 @@ export const AIActionResponseSchema = z.object({
    * NOTE: task_action has been moved to a function tool (see GeminiMemoryToolDeclarations)
    */
   calendar_action: z.object({
-    action: z.enum(['create', 'delete']).describe(
-      "The calendar action to perform: 'create' to add a new event, 'delete' to remove event(s)"
+    action: z.enum(['create', 'delete', 'list']).describe(
+      "The calendar action to perform: 'create' to add a new event, 'delete' to remove event(s), 'list' to fetch events"
     ),
     event_id: z.string().optional().describe(
       "Single event ID from the calendar list (for deleting one event)"
@@ -67,6 +67,15 @@ export const AIActionResponseSchema = z.object({
     ),
     timeZone: z.string().optional().describe(
       "Timezone for the event, default: America/Chicago"
+    ),
+    days: z.number().optional().describe(
+      "For list: number of days to look ahead (default: 7)"
+    ),
+    timeMin: z.string().optional().describe(
+      "For list: ISO start time filter"
+    ),
+    timeMax: z.string().optional().describe(
+      "For list: ISO end time filter"
     )
   }).nullable().optional().describe(
     "Calendar action if the user wants to create or delete calendar event(s)"
@@ -405,16 +414,17 @@ export const GeminiMemoryToolDeclarations = [
   {
     name: "calendar_action",
     description: 
-      "Create or delete Google Calendar events. " +
+      "Create, delete, or list Google Calendar events. " +
       "Use 'create' to add a new event (requires summary, start time, end time). " +
       "Use 'delete' to remove an event by ID. " +
-      "Examples: 'Add meeting at 2pm to my calendar', 'Delete the dentist appointment'",
+      "Use 'list' to fetch upcoming events (can specify 'days' for lookahead). " +
+      "Examples: 'Add meeting at 2pm to my calendar', 'Delete the dentist appointment', 'What is my schedule for next week?'",
     parameters: {
       type: "object",
       properties: {
         action: {
           type: "string",
-          enum: ["create", "delete"],
+          enum: ["create", "delete", "list"],
           description: "The calendar action to perform"
         },
         summary: {
@@ -445,6 +455,18 @@ export const GeminiMemoryToolDeclarations = [
         delete_all: {
           type: "boolean",
           description: "For delete: set to true to delete ALL events"
+        },
+        days: {
+          type: "number",
+          description: "For list: number of days to look ahead (default: 7)"
+        },
+        timeMin: {
+          type: "string",
+          description: "For list: ISO start time filter"
+        },
+        timeMax: {
+          type: "string",
+          description: "For list: ISO end time filter"
         }
       },
       required: ["action"]
@@ -559,15 +581,16 @@ export const OpenAIMemoryToolDeclarations = [
     type: "function" as const,
     name: "calendar_action",
     description: 
-      "Create or delete Google Calendar events. " +
+      "Create, delete, or list Google Calendar events. " +
       "Use 'create' to add a new event (requires summary, start time, end time). " +
-      "Use 'delete' to remove an event by ID.",
+      "Use 'delete' to remove an event by ID. " +
+      "Use 'list' to fetch upcoming events (can specify 'days' for lookahead).",
     parameters: {
       type: "object",
       properties: {
         action: {
           type: "string",
-          enum: ["create", "delete"],
+          enum: ["create", "delete", "list"],
           description: "The calendar action to perform"
         },
         summary: {
@@ -598,6 +621,10 @@ export const OpenAIMemoryToolDeclarations = [
         delete_all: {
           type: "boolean",
           description: "For delete: set to true to delete ALL events"
+        },
+        days: {
+          type: "number",
+          description: "For list: number of days to look ahead (default: 7)"
         }
       },
       required: ["action"]

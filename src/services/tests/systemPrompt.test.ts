@@ -581,7 +581,9 @@ describe("buildGreetingPrompt", () => {
     it("should not ask for name immediately (per guidelines)", () => {
       const prompt = buildGreetingPrompt(null, false, null, null);
       
-      expect(prompt).toContain("Introduce yourself naturally");
+      expect(prompt).toContain(
+        "Generate a warm, natural INTRODUCTORY greeting. This is your FIRST TIME talking"
+      );
     });
 
     it("should keep greeting short", () => {

@@ -267,7 +267,7 @@ export abstract class BaseAIService implements IAIChatService {
         console.log(`💾 [BaseAIService] AI generated new character fact: ${category}.${key} = "${value}"`);
         
         // Fire-and-forget: Don't block the response for database write
-        storeCharacterFact('kayley', category as any, key, value)
+        storeCharacterFact(category as any, key, value)
           .then(stored => {
             if (stored) {
               console.log(`✅ [BaseAIService] Character fact saved successfully: ${key}`);

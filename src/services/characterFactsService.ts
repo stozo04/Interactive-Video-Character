@@ -100,19 +100,18 @@ function isInCharacterProfile(factKey: string, factValue: string): boolean {
 /**
  * Get all character facts for a character
  * 
- * @param characterId - Character identifier (defaults to 'kayley')
  * @param category - Optional category filter
  * @returns Array of character facts
  */
 export const getCharacterFacts = async (
-  characterId: string = DEFAULT_CHARACTER_ID,
+
   category?: CharacterFactCategory
 ): Promise<CharacterFact[]> => {
   try {
     let query = supabase
       .from(CHARACTER_FACTS_TABLE)
       .select('*')
-      .eq('character_id', characterId)
+      .eq('character_id', DEFAULT_CHARACTER_ID)
       .order('created_at', { ascending: false });
     
     if (category) {
@@ -137,7 +136,6 @@ export const getCharacterFacts = async (
  * Store a new character fact or update an existing one.
  * First checks if the fact is already in the character profile.
  * 
- * @param characterId - Character identifier (defaults to 'kayley')
  * @param category - Fact category
  * @param key - Fact key (e.g., 'laptop_name')
  * @param value - Fact value (e.g., 'Nova')
@@ -146,7 +144,6 @@ export const getCharacterFacts = async (
  * @returns true if stored, false if already in profile or storage failed
  */
 export const storeCharacterFact = async (
-  characterId: string = DEFAULT_CHARACTER_ID,
   category: CharacterFactCategory,
   key: string,
   value: string,
@@ -161,7 +158,7 @@ export const storeCharacterFact = async (
     }
     
     // Check if we already have this fact stored
-    const existing = await getCharacterFacts(characterId);
+    const existing = await getCharacterFacts();
     const duplicate = existing.find(
       f => f.fact_key.toLowerCase() === key.toLowerCase() &&
            f.fact_value.toLowerCase() === value.toLowerCase()
@@ -179,7 +176,7 @@ export const storeCharacterFact = async (
     const { error } = await supabase
       .from(CHARACTER_FACTS_TABLE)
       .upsert({
-        character_id: characterId,
+        character_id: DEFAULT_CHARACTER_ID,
         category,
         fact_key: key,
         fact_value: value,
@@ -207,13 +204,10 @@ export const storeCharacterFact = async (
 /**
  * Format character facts for inclusion in AI prompts
  * 
- * @param characterId - Character identifier (defaults to 'kayley')
  * @returns Formatted string of character facts
  */
-export const formatCharacterFactsForPrompt = async (
-  characterId: string = DEFAULT_CHARACTER_ID
-): Promise<string> => {
-  const facts = await getCharacterFacts(characterId);
+export const formatCharacterFactsForPrompt = async (): Promise<string> => {
+  const facts = await getCharacterFacts();
   
   if (facts.length === 0) {
     return '';
@@ -269,7 +263,6 @@ export const detectCharacterFacts = (responseText: string): Array<{
   value: string;
 }> => {
   const detected: Array<{ category: CharacterFactCategory; key: string; value: string }> = [];
-  const text = responseText.toLowerCase();
   
   // Pattern: "I name all my devices. My laptop is X and my camera is Y"
   const deviceNamePattern = /(?:my|i named?|names?)\s+(?:laptop|computer)\s+(?:is|called?|named?)\s+["']?([A-Z][a-z]+)["']?/i;
@@ -330,20 +323,18 @@ export const detectCharacterFacts = (responseText: string): Array<{
  * 
  * @param responseText - The AI's response text
  * @param sourceMessageId - Optional message ID where this was learned
- * @param characterId - Character identifier (defaults to 'kayley')
  * @returns Number of facts stored
  */
 export const processAndStoreCharacterFacts = async (
   responseText: string,
   sourceMessageId?: string,
-  characterId: string = DEFAULT_CHARACTER_ID
 ): Promise<number> => {
   const detected = detectCharacterFacts(responseText);
   let storedCount = 0;
   
   for (const fact of detected) {
     const stored = await storeCharacterFact(
-      characterId,
+
       fact.category,
       fact.key,
       fact.value,

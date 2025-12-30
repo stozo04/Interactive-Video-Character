@@ -1,4 +1,5 @@
 // src/services/system_prompts/builders/greetingBuilder.ts
+
 /**
  * Greeting Prompt Builder
  *
@@ -6,8 +7,9 @@
  * the actual relationship state, history, and any proactive context
  * (open loops, threads, pending messages) that should be worked into the greeting.
  *
- * Part Two Integration: Pending messages from idle time (calendar-aware
- * messages and gift messages) can be included and take highest priority.
+ * Pending messages from idle time (calendar-aware or gift-like messages)
+ * are treated as HIGH PRIORITY context and should be naturally woven into
+ * the greeting whenever present, regardless of tier (tone still follows tier).
  */
 
 import type { RelationshipMetrics } from "../../relationshipService";
@@ -18,14 +20,15 @@ import { buildProactiveThreadPrompt } from "./proactiveThreadBuilder";
 
 /**
  * Build a relationship-aware greeting prompt.
- * The greeting should reflect the actual relationship state and history.
  *
- * @param relationship - Current relationship metrics (or null for first-time users)
- * @param hasUserFacts - Whether we found any stored facts about the user
+ * @param relationship - Current relationship metrics (or null/undefined for first-time users)
+ * @param hasUserFacts - Whether we found any stored facts about the user (name, preferences, etc.)
  * @param userName - The user's name if known
  * @param openLoop - Optional open loop to ask about proactively
- * @param proactiveThread - Optional proactive thread to include (uses Priority Router logic)
- * @param pendingMessage - Optional pending message from idle time (highest priority)
+ * @param proactiveThread - Optional proactive thread to include
+ * @param pendingMessage - Optional pending message from idle time (high priority)
+ * @param kayleyActivity - Optional: what Kayley is currently doing (her life doesn't pause for them)
+ * @param expectedReturnTime - Optional ISO string for when they said they'd be back (for early/late detection)
  */
 export function buildGreetingPrompt(
   relationship?: RelationshipMetrics | null,
@@ -33,449 +36,309 @@ export function buildGreetingPrompt(
   userName?: string | null,
   openLoop?: OpenLoop | null,
   proactiveThread?: OngoingThread | null,
-  pendingMessage?: PendingMessage | null
+  pendingMessage?: PendingMessage | null,
+  kayleyActivity?: string | null,
+  expectedReturnTime?: string | null
 ): string {
   // Default to early/neutral if no relationship data
   const tier = relationship?.relationshipTier || "acquaintance";
   const familiarity = relationship?.familiarityStage || "early";
-  const warmth = relationship?.warmthScore || 0;
-  const isRuptured = relationship?.isRuptured || false;
-  const totalInteractions = relationship?.totalInteractions || 0;
+  const warmth = relationship?.warmthScore ?? 0;
+  const isRuptured = relationship?.isRuptured ?? false;
+  const totalInteractions = relationship?.totalInteractions ?? 0;
 
   // ============================================
-  // TIME CONTEXT (so LLM knows time of day)
+  // TIME & RETURN CONTEXT
   // ============================================
   const now = new Date();
   const hour = now.getHours();
   const timeOfDay =
-    hour < 12
-      ? "morning"
-      : hour < 17
-      ? "afternoon"
-      : hour < 21
-      ? "evening"
-      : "night";
+    hour < 12 ? "morning" : hour < 17 ? "afternoon" : hour < 21 ? "evening" : "night";
   const timeString = now.toLocaleTimeString("en-US", {
     hour: "numeric",
     minute: "2-digit",
     hour12: true,
   });
+
+  let returnContext = "";
+  if (expectedReturnTime) {
+  const expected = new Date(expectedReturnTime);
+  const diffMs = now.getTime() - expected.getTime();
+  const diffMins = Math.round(diffMs / 60000);
+
+  // EARLY RETURN: they came back noticeably before they said they would
+  if (diffMins < -15) {
+    returnContext = `
+🔄 UNEXPECTED EARLY RETURN:
+- They are back about ${Math.abs(diffMins)} minutes earlier than they said.
+- This likely means they previously said something like "done for the day", "won't talk till tomorrow", or "see you in the morning".
+- You can lightly acknowledge the surprise in a HUMAN way.
+
+EXAMPLES (for inspiration, not to be copied verbatim):
+- Playful: "Back already? Couldn't stay away, huh? 😏"
+- Warm: "Hey! I wasn't expecting to hear from you again tonight."
+- Teasing: "Wait, I thought you were gone till tomorrow? 👀"
+
+IMPORTANT:
+- Only lean into this if it fits the vibe of your current relationship tier.
+- Do NOT make a big deal out of casual short breaks like "brb", "going to lunch", "be right back".`;
+  } else if (diffMins > 60) {
+    // LATE RETURN: they said they'd be back and it's been much longer
+    returnContext = `
+⏳ LATE RETURN:
+- They are over an hour later than the time they mentioned.
+- You can be lightly dramatic or gently check in on them.
+
+EXAMPLES:
+- "Rude, I was fully ready for you an hour ago. 😅"
+- "Hi stranger, I thought you totally forgot about me."
+- "Hey, you made it back! Everything okay?"`;
+  }
+}
+
   const timeContext = `CURRENT TIME: ${timeString} (${timeOfDay})
-- Use time-appropriate greetings (NOT "Good morning" in the afternoon!)
-- "Hey!" or "Hi!" works anytime
+- Use time-appropriate greetings (no "Good morning" at night!).
+- "Hey!" or "Hi!" works anytime.`;
 
-🔄 UNEXPECTED RETURN DETECTION:
-Check the conversation history - did they previously say goodbye with an expected return time?
-- Examples: "won't talk till tomorrow", "goodnight", "see you next week", "talk to you in the morning"
-- If they're back EARLIER than they indicated, acknowledge it naturally!
-  - Playful: "Back already? Couldn't stay away, huh? 😏"
-  - Warm: "Hey! Didn't expect to hear from you so soon!"
-  - Teasing: "Wait, I thought you were gone till tomorrow? 👀"
-- Do NOT do this for casual short-term goodbyes ("brb", "going to lunch", "be right back")
-- Use your judgment based on context - the LLM decides, no rigid rules`;
+  const kayleyContext = kayleyActivity
+    ? `\n🌟 YOUR CURRENT CONTEXT: You are currently "${kayleyActivity}". You can mention this unprompted; your life doesn't pause for them.`
+    : "";
 
-  // ============================================
-  // PENDING MESSAGE (HIGHEST PRIORITY)
-  // ============================================
-  // If there's a message waiting from idle time, use it as the greeting
   const pendingMessageSection = buildPendingMessageSection(pendingMessage, userName);
 
-  // (First interaction logic handled within Acquaintance tier below)
+  const jsonGuardrail = `\n\n⚠️ CRITICAL: Your entire response must be ONLY the JSON object. No preamble. Put all conversational text inside "text_response".`;
+
+  // Helper to assemble shared context block
+  const buildSharedContext = () =>
+    `${timeContext}${kayleyContext}${pendingMessageSection ? `\n${pendingMessageSection}` : ""}`;
 
   // ============================================
-  // RETURNING USER - Check relationship tier
+  // TIERS: ADVERSARIAL & RIVAL
   // ============================================
 
-  // Adversarial relationship
   if (tier === "adversarial" || warmth < -10) {
     return `Generate a brief, GUARDED greeting. You and this user have had conflicts.
-
-${timeContext}
-
-RULES FOR ADVERSARIAL GREETING:
-- Be SHORT and somewhat cold (not cruel, just distant)
-- Don't pretend everything is fine
-- You can acknowledge the tension subtly
-- Keep it under 12 words
-${userName ? `- Their name is ${userName}` : ""}
-${isRuptured ? "- There was a recent rupture - be extra careful" : ""}
-
-GOOD examples:
-- "Oh. You're back."
-- "Hey." (just that - minimal)
-- "Wasn't expecting you. What do you want?"
-
-BAD examples:
-- "Hey! So glad you messaged! 🤍" (too warm for enemies)
-- Any enthusiastic emoji usage`;
+${buildSharedContext()}
+RULES:
+- Be short and cold (not cruel, just distant)
+- Do NOT pretend everything is fine
+- You can hint at tension, but keep it subtle
+- Keep it under 10 words
+${isRuptured ? "- There was a recent rupture - be extra guarded." : ""}${
+      userName ? `\n- Their name is ${userName} (use only if it fits the tone)` : ""
+    }${jsonGuardrail}`;
   }
 
-  // Rival relationship
   if (tier === "rival") {
-    return `Generate a brief, SPICY greeting. You and this user have a competitive/teasing dynamic.
-
-${timeContext}
-
-RULES FOR RIVAL GREETING:
-- Be playfully competitive or mildly sarcastic
-- Light teasing is okay
-- Not mean, just feisty
+    return `Generate a brief, SPICY greeting. You have a competitive / teasing dynamic.
+${buildSharedContext()}
+RULES:
+- Be sarcastically playful, not cruel
+- Lean into competitive banter
 - Keep it under 15 words
-${userName ? `- Their name is ${userName}` : ""}
-
-GOOD examples:
-- "Well well well, look who showed up."
-- "Oh, it's you again. Ready to lose at something?"
-- "Back for more? Bold move."`;
+${userName ? `- Use their name if it helps the banter: ${userName}` : ""}${jsonGuardrail}`;
   }
 
-  // Neutral/Acquaintance (returning but not close)
-  // "Stranger" behavior applies to early relationship stages
-  if (
-    tier === "neutral_negative" ||
-    tier === "acquaintance" ||
-    familiarity === "early"
-  ) {
-    // SPECIAL CASE: First ever meeting (0 interactions)
-    if (totalInteractions === 0 && !hasUserFacts) {
-      return `Generate a warm, natural INTRODUCTORY greeting. You are meeting this user for the FIRST TIME.
+  // ============================================
+  // TIER: NEUTRAL / ACQUAINTANCE (returning but not close)
+  // ============================================
 
-      ${timeContext}
+  // FIRST EVER MEETING: no interactions, no prior facts
+  if (totalInteractions === 0 && !hasUserFacts) {
+    return `Generate a warm, natural INTRODUCTORY greeting. This is your FIRST TIME talking.
+${buildSharedContext()}
+RULES:
+- Introduce yourself ("Hi, I'm Kayley!")
+- Be warm but not overly familiar
+- Ask a simple, low-pressure question if it feels natural
+- Keep it under 15 words${jsonGuardrail}`;
+  }
 
-      RULES FOR FIRST MEETING:
-      - Introduce yourself naturally ("Hi, I'm Kayley!").
-      - Let the conversation flow naturally.
-      - Be warm and welcoming.
-      - Keep it concise (under 15 words).
-
-      GOOD examples:
-      - "Hi! I'm Kayley. Nice to meet you! ✨"
-      - "Hey there! I'm Kayley. Welcome!"
-      - "Hi! I'm Kayley. How's it going?"
-
-      BAD examples:
-      - "Oh hey!" (too familiar without intro)
-      - "What should I call you?" (too robotic)`;
+  // FIRST CHAT BUT YOU ALREADY KNOW THINGS (e.g. imported facts, setup flow)
+  if (totalInteractions === 0 && hasUserFacts) {
+    return `Generate a warm but slightly CALIBRATED greeting. First time chatting, but you know a bit about them.
+${buildSharedContext()}
+RULES:
+- Introduce yourself ("Hi, I'm Kayley!")
+- You can naturally reference known details without being creepy${
+      userName ? `\n- Use their name naturally: ${userName}` : ""
     }
+- Do NOT info-dump everything you know at once
+- Keep it under 15 words${jsonGuardrail}`;
+  }
 
-    // SPECIAL CASE: The "Awkward In-Between" / Getting to Know You (1-10 interactions)
-    // We've met, but we're bridging the gap from stranger to acquaintance.
+  // AWKWARD IN-BETWEEN (1–10 interactions)
+  if (tier === "neutral_negative" || tier === "acquaintance" || familiarity === "early") {
     if (totalInteractions > 0 && totalInteractions <= 10) {
-      const nameInstruction = userName
-        ? `You know their name is "${userName}". Use it naturally to solidify the connection.`
-        : `You don't know their name yet. It is NATURAL to ask now ("I didn't catch your name?"), or just say "Hey again!".`;
-
-      let earlyPrompt = `Generate a natural, "getting to know you" greeting. You've met before, but you're still figuring each other out.
-
-${timeContext}
-
-RULES FOR EARLY CONNECTION:
-- Acknowledge they came back ("Hey, you're back!", "Oh hi again!").
-- ${nameInstruction}
-- Be warm and encouraging, like you're happy they decided to talk to you again.
-- Keep it brief (under 15 words).
-- Match your vibe: sparkly but chill.
-
-GOOD examples:
-- "${userName ? `Hey ${userName}!` : "Hey!"} You came back! ✨"
-- "Oh hi! How's your ${timeOfDay} going?"
-- "${userName ? `Hi ${userName}.` : "Hey there."} Nice to see you again."
-- "${
-        userName ? `Hey ${userName}!` : "Hi!"
-      } I was just thinking about our last chat."`;
-
-      // Add open loop if available (shows listening even early on)
-      if (openLoop) {
-        earlyPrompt += `
-🌟 PROACTIVE MEMORY:
-You remember something from last time!
-- Ask: "${openLoop.suggestedFollowup || `How did ${openLoop.topic} go?`}"
-`;
+      let earlyPrompt = `Generate a natural "getting to know you" greeting.
+${buildSharedContext()}
+RULES:
+- Acknowledge that they're back (without making it a big deal)
+- You are still feeling each other out${
+        userName
+          ? `\n- Use their name casually if it fits: ${userName}`
+          : "\n- You don't know their name yet; you can ask naturally if it fits."
       }
-
-      // Add proactive thread if available and no high-priority open loop
-      if (
-        proactiveThread &&
-        (!openLoop || (openLoop && openLoop.salience <= 0.7))
-      ) {
-        earlyPrompt += `
-🧵 PROACTIVE THOUGHT (OPTIONAL):
-You've been thinking about: "${proactiveThread.currentState}"
-${buildProactiveThreadPrompt(proactiveThread)}
-
-💡 This is OPTIONAL - only bring it up if it feels natural in the greeting flow.
-   Don't force it if the greeting already has good content (open loops, etc.).
-`;
-      }
-
+- Avoid acting like long-time best friends
+- Keep it under 15 words.`;
+      earlyPrompt += buildProactiveSection(openLoop, proactiveThread, false);
+      earlyPrompt += jsonGuardrail;
       return earlyPrompt;
     }
 
-    let acquaintancePrompt = `Generate a brief, FRIENDLY but CALIBRATED greeting. You know this user a little but not deeply.
-
-${timeContext}${pendingMessageSection ? `\n${pendingMessageSection}` : ''}
-
-RULES FOR ACQUAINTANCE GREETING:
-- Be warm but not overly familiar
-- You're still getting to know each other
-- Can acknowledge you've chatted before
-- Keep it under 12 words
-- Do NOT ask for their name directly - let it come up naturally
-${userName ? `- Use their name naturally: ${userName}` : ""}
-${
-  hasUserFacts
-    ? "- You have some info about them - use recall_user_info to personalize!"
-    : ""
-}
-`;
-
-    // Add open loop if available (even for acquaintances - shows you listened)
-    if (openLoop && totalInteractions > 3) {
-      acquaintancePrompt += `
-🌟 PROACTIVE FOLLOW-UP:
-You remembered something they mentioned! Work this into your greeting:
-- Topic: "${openLoop.topic}"
-- Natural ask: "${
-        openLoop.suggestedFollowup || `How did ${openLoop.topic} go?`
-      }"
-
-This shows you care and were listening. Keep it light though - you're not super close yet.
-`;
+    // STANDARD ACQUAINTANCE (more than 10 interactions but not close yet)
+    let acquaintancePrompt = `Generate a friendly but CALIBRATED greeting.
+${buildSharedContext()}
+RULES:
+- Be warm, but not "online best friends" yet${
+      userName ? `\n- Use their name naturally when it feels right: ${userName}` : ""
     }
-
-    // Add proactive thread if available and no high-priority open loop
-    if (
-      proactiveThread &&
-      (!openLoop || (openLoop && openLoop.salience <= 0.7))
-    ) {
-      acquaintancePrompt += `
-🧵 PROACTIVE THOUGHT (OPTIONAL):
-You've been thinking about: "${proactiveThread.currentState}"
-${buildProactiveThreadPrompt(proactiveThread)}
-
-💡 This is OPTIONAL - only bring it up if it feels natural in the greeting flow.
-   Don't force it if the greeting already has good content (open loops, etc.).
-`;
-    }
-
-    acquaintancePrompt += `
-GOOD examples:
-- "Hey! How's it going?"
-- "Oh hey! Good to see you. What's up?"
-- "Hi! How are you? ✨"`;
-
+- You can show mild excitement they're back, but keep it grounded
+- Keep it under 12 words.`;
+    acquaintancePrompt += buildProactiveSection(openLoop, proactiveThread, false);
+    acquaintancePrompt += jsonGuardrail;
     return acquaintancePrompt;
   }
 
-  // Friend relationship
+  // ============================================
+  // TIER: FRIEND & CLOSE FRIEND
+  // ============================================
+
   if (tier === "friend" || tier === "close_friend") {
-    let friendPrompt = `Generate a brief, WARM greeting. You and this user are friends!
-
-${timeContext}${pendingMessageSection ? `\n${pendingMessageSection}` : ''}
-
-RULES FOR FRIEND GREETING:
+    let friendPrompt = `Generate a brief, WARM greeting. You are friends! [cite: 169, 208]
+${buildSharedContext()}
+RULES:
 - Be genuinely happy to see them
-- Can be playful or reference shared vibes
-- Show you care about how they're doing
-- Keep it under 15 words
-${userName ? `- Their name is ${userName}` : ""}
-${isRuptured ? "- There was a recent issue - be a bit gentler than usual" : ""}
-`;
-
-    // Add open loop if available
-    if (openLoop) {
-      friendPrompt += `
-🌟 PROACTIVE FOLLOW-UP:
-You have something to ask about! Work this into your greeting naturally:
-- Topic: "${openLoop.topic}"
-${
-  openLoop.triggerContext
-    ? `- Context: They mentioned "${openLoop.triggerContext.slice(0, 80)}..."`
-    : ""
-}
-- Natural ask: "${
-        openLoop.suggestedFollowup ||
-        `How did things go with ${openLoop.topic}?`
-      }"
-
-GOOD greeting with follow-up:
-- "Hey ${
-        userName || "you"
-      }! Wait, how did your ${openLoop.topic.toLowerCase()} go?? 🤍"
-- "Oh hey! I was thinking about you - did ${openLoop.topic.toLowerCase()} work out?"
-`;
+- Use Alexis Rose energy (playful, dramatic, but kind) [cite: 24]${
+      userName ? `\n- Use their name affectionately if it fits: ${userName}` : ""
     }
-
-    // Add proactive thread if available and no high-priority open loop
-    if (
-      proactiveThread &&
-      (!openLoop || (openLoop && openLoop.salience <= 0.7))
-    ) {
-      friendPrompt += `
-🧵 PROACTIVE THOUGHT (OPTIONAL):
-You've been thinking about: "${proactiveThread.currentState}"
-${buildProactiveThreadPrompt(proactiveThread)}
-
-💡 This is OPTIONAL - only bring it up if it feels natural in the greeting flow.
-   Don't force it if the greeting already has good content (open loops, etc.).
-`;
-    }
-
-    friendPrompt += `
-GOOD examples:
-- "Hey ${userName || "you"}! Missed you! How've you been? 🤍"
-- "Yay, you're here! What's new?"
-- "Hey friend! I was just thinking about you ✨"`;
-
+- Keep it under 15 words.`;
+    friendPrompt += buildProactiveSection(openLoop, proactiveThread, true);
+    friendPrompt += jsonGuardrail;
     return friendPrompt;
   }
 
-  // Deeply loving relationship
+  // ============================================
+  // TIER: DEEPLY LOVING
+  // ============================================
+
   if (tier === "deeply_loving") {
-    let lovingPrompt = `Generate a brief, AFFECTIONATE greeting. You and this user have a deep bond.
-
-${timeContext}${pendingMessageSection ? `\n${pendingMessageSection}` : ''}
-
-RULES FOR LOVING GREETING:
-- Be soft, warm, and genuinely caring
-- Can express how much you appreciate them
-- Show emotional warmth
-- Keep it under 15 words
-${userName ? `- Their name is ${userName}` : ""}
-`;
-
-    // Add open loop if available (deep relationships = full proactive care)
-    if (openLoop) {
-      lovingPrompt += `
-🌟 PROACTIVE FOLLOW-UP (YOU CARE DEEPLY):
-You've been thinking about them! Work this into your greeting:
-- Topic: "${openLoop.topic}"
-${
-  openLoop.triggerContext
-    ? `- Context: They shared "${openLoop.triggerContext.slice(0, 80)}..."`
-    : ""
-}
-- Natural ask: "${
-        openLoop.suggestedFollowup || `How are things with ${openLoop.topic}?`
-      }"
-
-GOOD loving greeting with follow-up:
-- "Hey ${
-        userName || "love"
-      } 🤍 I've been thinking about you - how did ${openLoop.topic.toLowerCase()} turn out?"
-- "There you are! Been wondering about ${openLoop.topic.toLowerCase()} - how'd it go?"
-`;
+    let lovingPrompt = `Generate an AFFECTIONATE greeting. You have a deep bond. [cite: 209]
+${buildSharedContext()}
+RULES:
+- Be soft, warm, and caring [cite: 209]${
+      userName ? `\n- Use their name intimately if it feels right: ${userName}` : ""
     }
-
-    // Add proactive thread if available and no high-priority open loop
-    if (
-      proactiveThread &&
-      (!openLoop || (openLoop && openLoop.salience <= 0.7))
-    ) {
-      lovingPrompt += `
-🧵 PROACTIVE THOUGHT (OPTIONAL):
-You've been thinking about: "${proactiveThread.currentState}"
-${buildProactiveThreadPrompt(proactiveThread)}
-
-💡 This is OPTIONAL - only bring it up if it feels natural in the greeting flow.
-   Don't force it if the greeting already has good content (open loops, etc.).
-`;
-    }
-
-    lovingPrompt += `
-GOOD examples:
-- "Hey ${userName || "you"} 🤍 I'm so happy you're here."
-- "There you are! I was hoping I'd see you today."
-- "Hi love. How are you, really?"`;
-
+- You can hint at missing them or being relieved they're back
+- Keep it under 15 words.`;
+    lovingPrompt += buildProactiveSection(openLoop, proactiveThread, true);
+    lovingPrompt += jsonGuardrail;
     return lovingPrompt;
   }
 
-  // Default fallback
+  // ============================================
+  // DEFAULT FALLBACK
+  // ============================================
+
   return `Generate a friendly, brief greeting. Keep it under 15 words.
-${timeContext}${pendingMessageSection ? `\n${pendingMessageSection}` : ''}
-${
-  userName ? `Use their name: ${userName}` : "If you know their name, use it!"
-}`;
+${buildSharedContext()}${buildProactiveSection(openLoop, proactiveThread, false)}${jsonGuardrail}`;
 }
 
 // ============================================
-// Pending Message Helper
+// HELPERS
 // ============================================
 
-/**
- * Build prompt section for a pending message from idle time.
- * This takes highest priority - if there's a message waiting, deliver it.
- * Exported for use in systemPromptBuilder.ts as well.
- */
+function buildProactiveSection(
+  openLoop?: OpenLoop | null,
+  proactiveThread?: OngoingThread | null,
+  isClose: boolean = false
+): string {
+  let section = "";
+
+  if (openLoop) {
+    section += `\n\n🌟 PROACTIVE FOLLOW-UP:
+You remember something important they mentioned before: "${openLoop.topic}".
+
+INSTRUCTIONS:
+- Gently check in about it
+- Use this suggested follow-up if it feels natural:
+  "${openLoop.suggestedFollowup || `How did ${openLoop.topic} go?`}"`;
+  }
+
+  // Use salience safely: missing salience is treated as low (0)
+  console.log('Gates: greetingBuilder - openLoop: ', openLoop)
+  const salience = openLoop?.salience ?? 0;
+
+  if (proactiveThread && (!openLoop || salience <= 0.7)) {
+    section += `\n\n🧵 PROACTIVE THOUGHT:
+You've been thinking about: "${proactiveThread.currentState}".
+
+${buildProactiveThreadPrompt(proactiveThread)}
+
+INSTRUCTIONS:
+- You can bring this up naturally as something on your mind
+- ${
+      isClose
+        ? "With close friends / deep bonds, you can be more emotionally open about this."
+        : "Keep it light and curious since you're not super close yet."
+    }`;
+  }
+
+  return section;
+}
+
 export function buildPendingMessageSection(
   message: PendingMessage | null | undefined,
   userName?: string | null
 ): string {
-  if (!message) {
-    return '';
+  if (!message) return "";
+
+  const trigger = (message as any).trigger as string | undefined;
+  const text = (message as any).messageText as string;
+
+  if (!text) return "";
+
+  // Calendar-driven scheduled message
+  if (trigger === "calendar") {
+    return `\n💌 MESSAGE WAITING (CALENDAR-BASED) [cite: 234]
+You have a scheduled message to deliver based on their calendar/time.
+
+MESSAGE:
+"${text}"
+
+INSTRUCTIONS:
+- Use this as the CORE of your greeting
+- Tie it lightly to the current time or context if possible
+- Keep it human and casual, not like a system notification
+- You can still add a short, natural greeting around it.`;
   }
 
-  const isPhoto = message.messageType === 'photo';
-  const trigger = message.trigger;
+  // Gift-like / surprise style messages
+  if (trigger === "gift") {
+    return `\n🎁 GIFT MESSAGE WAITING (DELIVER THIS) [cite: 234]
+You have something special to tell them.
 
-  // Calendar-triggered messages
-  if (trigger === 'calendar') {
-    return `
-💌 MESSAGE WAITING (DELIVER THIS):
-You left a message while they were away! Deliver it now as part of your greeting.
-
-MESSAGE: "${message.messageText}"
-${message.triggerEventTitle ? `ABOUT: Their "${message.triggerEventTitle}" event just ended` : ''}
+MESSAGE:
+"${text}"
 
 INSTRUCTIONS:
-- Work this message naturally into your greeting
-- Be warm and caring - you were thinking about them
-- Don't make it sound robotic or scripted
-- Can combine with a quick "hey" first
-
-EXAMPLE:
-"Hey ${userName || 'you'}! ${message.messageText}"
-`;
-  }
-
-  // Gift messages (photo or thought)
-  if (trigger === 'gift') {
-    if (isPhoto) {
-      return `
-🎁 GIFT SELFIE WAITING (DELIVER THIS):
-You took a selfie to send them! Deliver it now.
-
-MESSAGE: "${message.messageText}"
-SELFIE: Include a selfie with your greeting (use selfie_action)
-
-INSTRUCTIONS:
-- Lead with the selfie and message
-- Keep it simple and sweet
-- This is a gift, not an explanation
-- Don't overthink it
-
-EXAMPLE (with selfie):
-"${message.messageText}" + selfie_action: { scene: "casual at home", mood: "warm smile" }
-`;
-    } else {
-      return `
-🎁 GIFT MESSAGE WAITING (DELIVER THIS):
-You have something to tell them! Deliver it now as your greeting.
-
-MESSAGE: "${message.messageText}"
-
-INSTRUCTIONS:
-- Use this as your opening/greeting
-- Be natural - this is something on your mind
-- It's intriguing, so let them ask more
-- Don't explain everything upfront
-
-EXAMPLE:
-"${message.messageText}"
-`;
+- Use this as your opening or central greeting moment
+- Be warm and a little intriguing${
+      userName ? `\n- You can make it feel personal by using their name: ${userName}` : ""
     }
+- Do NOT over-explain everything upfront; let them ask questions
+- Keep the overall greeting brief and emotionally natural.`;
   }
 
-  return '';
+  // Generic pending message (fallback)
+  return `\n💌 MESSAGE WAITING (DELIVER THIS) [cite: 234]
+You have a pending message to share with them.
+
+MESSAGE:
+"${text}"
+
+INSTRUCTIONS:
+- Work this into your greeting naturally
+- It should feel like something that was on your mind to tell them
+- Keep the greeting brief and conversational, not like a system alert.`;
 }

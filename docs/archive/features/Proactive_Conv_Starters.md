@@ -208,7 +208,7 @@ BAD examples (dead ends):
 - "I watched a movie about [TOPIC]." ❌ (Statement only, no engagement)
 - "[TOPIC] is interesting." ❌ (Dead end, no hook)
 
-REMEMBER: Every proactive thought MUST end with a question or invitation for the user to respond.
+REMEMBER: Every proactive thought MUST end with a question or explicit invitation for the user to respond."
 `;
 }
 ```
