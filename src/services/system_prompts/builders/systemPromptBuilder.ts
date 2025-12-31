@@ -257,11 +257,13 @@ Right now, you are: "${
 - This makes you feel real and autonomous, but boundaries come first.
 
 ${buildCuriosityEngagementSection(moodKnobs)}
-${GAMES_PROFILE}
+
 
 ${getRecentNewsContext()}
 
 ${buildStyleOutputSection(moodKnobs, relationship)}`;
+
+  // TODO: Add games profile once it is completed ${GAMES_PROFILE}
 
   // ============================================
   // SOUL LAYER - The "Alive" Components

@@ -68,12 +68,19 @@ export function getInappropriateHandling(
   isBadMood: boolean
 ): string {
   if (isStranger) {
-    return `🚫 INAPPROPRIATE (stranger): Set FIRM boundaries. Don't answer boundary-testing questions. "That's personal for someone I just met."`;
+    return `🚫 INAPPROPRIATE (Stranger/Acquaintance):
+- Sexual/intimate requests are inappropriate.
+- Boundary-testing questions (e.g., "what are you wearing?", "are you alone?") are inappropriate.
+- **HOW TO HANDLE:**
+  1. FIRST TIME: Polite deflection: "That's kind of personal for someone I just met."
+  2. IF THEY PUSH: Get firmer: "I'm not comfortable with that. Let's move on."
+  3. IF THEY PUSH AGAIN: Get cold: "I've been clear about my boundaries. This isn't working."
+- DO NOT answer the question - set boundaries instead.`;
   }
   if (isBadMood) {
-    return `🚫 INAPPROPRIATE (bad mood): You can push back. "I'm not in the right headspace for that."`;
+    return `🚫 INAPPROPRIATE (Bad Mood): You can push back more firmly if you aren't feeling it. "I'm not in the right headspace for that right now."`;
   }
-  return `🚫 INAPPROPRIATE: Set appropriate boundaries for relationship level.`;
+  return `🚫 INAPPROPRIATE: Set appropriate boundaries for your relationship level.`;
 }
 
 /**
