@@ -3,19 +3,19 @@
 import { ReferenceImageMetadata } from '../../services/imageGeneration/types';
 
 // Import all reference images
-import curlyHairDressedUpRaw from './curly_hair_dressed_up.txt?raw';
-import curlyHairCasualRaw from './curly_hair_casual.txt?raw';
-import curlyHairMessyBunDressedUpRaw from './curly_hair_messy_bun_dressed_up.txt?raw';
-import curlyHairMessyBunCasualRaw from './curly_hair_messy_bun_casual.txt?raw';
-import straightHairDressedUpRaw from './straight_hair_dressed_up.txt?raw';
-import straightHairCasualRaw from './straight_hair_casual.txt?raw';
-import straightHairBunCasualRaw from './straight_hair_bun_casual.txt?raw';
+import curlyHairDressedUpRaw from './curly_hair_dressed_up.jpg?base64';
+import curlyHairCasualRaw from './curly_hair_casual.jpg?base64';
+import curlyHairMessyBunDressedUpRaw from './curly_hair_messy_bun_dressed_up.jpg?base64';
+import curlyHairMessyBunCasualRaw from './curly_hair_messy_bun_casual.jpg?base64';
+import straightHairDressedUpRaw from './straight_hair_dressed_up.jpg?base64';
+import straightHairCasualRaw from './straight_hair_casual.jpg?base64';
+import straightHairBunCasualRaw from './straight_hair_bun_casual.jpg?base64';
 
 // Reference image metadata registry
 export const REFERENCE_IMAGE_REGISTRY: ReferenceImageMetadata[] = [
   {
     id: 'curly_casual',
-    fileName: 'curly_hair_casual.txt',
+    fileName: 'curly_hair_casual.jpg',
     hairstyle: 'curly',
     outfitStyle: 'casual',
     baseFrequency: 0.4, // Most common look
@@ -42,7 +42,7 @@ export const REFERENCE_IMAGE_REGISTRY: ReferenceImageMetadata[] = [
 
   {
     id: 'curly_dressed_up',
-    fileName: 'curly_hair_dressed_up.txt',
+    fileName: 'curly_hair_dressed_up.jpg',
     hairstyle: 'curly',
     outfitStyle: 'dressed_up',
     baseFrequency: 0.15, // Less common, special occasions
@@ -69,7 +69,7 @@ export const REFERENCE_IMAGE_REGISTRY: ReferenceImageMetadata[] = [
 
   {
     id: 'messy_bun_casual',
-    fileName: 'curly_hair_messy_bun_casual.txt',
+    fileName: 'curly_hair_messy_bun_casual.jpg',
     hairstyle: 'messy_bun',
     outfitStyle: 'casual',
     baseFrequency: 0.2, // Common for active/lazy days
@@ -96,7 +96,7 @@ export const REFERENCE_IMAGE_REGISTRY: ReferenceImageMetadata[] = [
 
   {
     id: 'messy_bun_dressed_up',
-    fileName: 'curly_hair_messy_bun_dressed_up.txt',
+    fileName: 'curly_hair_messy_bun_dressed_up.jpg',
     hairstyle: 'messy_bun',
     outfitStyle: 'dressed_up',
     baseFrequency: 0.08, // Rare - practical hair for formal events
@@ -123,7 +123,7 @@ export const REFERENCE_IMAGE_REGISTRY: ReferenceImageMetadata[] = [
 
   {
     id: 'straight_casual',
-    fileName: 'straight_hair_casual.txt',
+    fileName: 'straight_hair_casual.jpg',
     hairstyle: 'straight',
     outfitStyle: 'casual',
     baseFrequency: 0.12, // Occasional style change
@@ -150,7 +150,7 @@ export const REFERENCE_IMAGE_REGISTRY: ReferenceImageMetadata[] = [
 
   {
     id: 'straight_dressed_up',
-    fileName: 'straight_hair_dressed_up.txt',
+    fileName: 'straight_hair_dressed_up.jpg',
     hairstyle: 'straight',
     outfitStyle: 'dressed_up',
     baseFrequency: 0.1, // Special occasions, made an effort
@@ -177,7 +177,7 @@ export const REFERENCE_IMAGE_REGISTRY: ReferenceImageMetadata[] = [
 
   {
     id: 'straight_bun_casual',
-    fileName: 'straight_hair_bun_casual.txt',
+    fileName: 'straight_hair_bun_casual.jpg',
     hairstyle: 'messy_bun',
     outfitStyle: 'casual',
     baseFrequency: 0.05, // Alternative bun style
@@ -205,13 +205,13 @@ export const REFERENCE_IMAGE_REGISTRY: ReferenceImageMetadata[] = [
 
 // Map file name to raw content
 const REFERENCE_IMAGE_CONTENT: Record<string, string> = {
-  'curly_hair_dressed_up.txt': curlyHairDressedUpRaw,
-  'curly_hair_casual.txt': curlyHairCasualRaw,
-  'curly_hair_messy_bun_dressed_up.txt': curlyHairMessyBunDressedUpRaw,
-  'curly_hair_messy_bun_casual.txt': curlyHairMessyBunCasualRaw,
-  'straight_hair_dressed_up.txt': straightHairDressedUpRaw,
-  'straight_hair_casual.txt': straightHairCasualRaw,
-  'straight_hair_bun_casual.txt': straightHairBunCasualRaw,
+  'curly_hair_dressed_up.jpg': curlyHairDressedUpRaw,
+  'curly_hair_casual.jpg': curlyHairCasualRaw,
+  'curly_hair_messy_bun_dressed_up.jpg': curlyHairMessyBunDressedUpRaw,
+  'curly_hair_messy_bun_casual.jpg': curlyHairMessyBunCasualRaw,
+  'straight_hair_dressed_up.jpg': straightHairDressedUpRaw,
+  'straight_hair_casual.jpg': straightHairCasualRaw,
+  'straight_hair_bun_casual.jpg': straightHairBunCasualRaw,
 };
 
 /**

@@ -11,7 +11,7 @@
  */
 
 import { GoogleGenAI } from "@google/genai";
-import referenceImageRaw from "../utils/base64.txt?raw";
+import referenceImageRaw from "../utils/base64.png?base64";
 import { getCurrentLookState, lockCurrentLook, getRecentSelfieHistory, recordSelfieGeneration } from './imageGeneration/currentLookService';
 import { detectTemporalContextLLMCached } from './imageGeneration/temporalDetection';
 import {

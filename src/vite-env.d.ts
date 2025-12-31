@@ -15,3 +15,9 @@ declare module '*?raw' {
   const content: string;
   export default content;
 }
+
+// Allow importing images as base64 with ?base64 suffix
+declare module '*?base64' {
+  const content: string;
+  export default content;
+}

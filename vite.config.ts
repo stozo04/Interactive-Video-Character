@@ -23,6 +23,22 @@ export default defineConfig(({ mode }) => {
       plugins: [
         react(),
         {
+          name: 'base64-loader',
+          transform(code, id) {
+            if (id.includes('?base64')) {
+              const filePath = id.split('?')[0];
+              const buffer = fs.readFileSync(filePath);
+              const base64 = buffer.toString('base64');
+              const ext = path.extname(filePath).toLowerCase();
+              const mimeType = ext === '.jpg' || ext === '.jpeg' ? 'image/jpeg' : 'image/png';
+              return {
+                code: `export default "data:${mimeType};base64,${base64}";`,
+                map: null
+              };
+            }
+          }
+        },
+        {
           name: 'save-selfie-plugin',
           configureServer(server) {
             server.middlewares.use((req, res, next) => {
