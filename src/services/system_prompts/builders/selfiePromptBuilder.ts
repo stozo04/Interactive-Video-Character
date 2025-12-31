@@ -1,20 +1,19 @@
-// src/services/system_prompts/features/selfieRules.ts
+// src/services/system_prompts/builders/selfiePromptBuilder.ts
 /**
- * Selfie Rules Configuration
+ * Selfie Rules Configuration Builder
  *
  * Determines what selfie/image rules to include based on relationship tier.
  * Friends+ get full selfie instructions, strangers get deflection only.
+ * 
+ * This is treated as an "action" builder rather than a core relationship builder.
  */
 
-import type { RelationshipMetrics } from "../../relationshipService";
+import type { RelationshipMetrics } from "../types";
 
 /**
- * Phase 3 Optimization: Determine if selfie rules should be included.
+ * Determine if selfie rules should be included.
  * For strangers/acquaintances, we only need the deflection guidance (shorter).
  * For friends+, we include the full selfie instructions.
- *
- * @param relationship - Current relationship metrics
- * @returns Object with shouldIncludeFull (for friends+) and shouldIncludeDeflection (for strangers)
  */
 export function getSelfieRulesConfig(
   relationship: RelationshipMetrics | null | undefined
@@ -40,10 +39,9 @@ export function getSelfieRulesConfig(
 }
 
 /**
- * Phase 3 Optimization: Build conditional selfie rules prompt.
+ * Build conditional selfie rules prompt.
  * - Friends+ get full selfie instructions with examples
  * - Strangers/acquaintances get only deflection guidance
- * This saves ~70 lines for strangers (~150 tokens)
  */
 export function buildSelfieRulesPrompt(
   relationship: RelationshipMetrics | null | undefined
@@ -117,5 +115,5 @@ Response:
   "text_response": "Ha! We literally just met. Tell me about yourself first 😊",
   "action_id": null
 }
-`;
+`.trim();
 }
