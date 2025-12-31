@@ -25,12 +25,10 @@ import type { SoulLayerContext } from "../types";
 import { buildComfortableImperfectionPrompt } from "../behavior/comfortableImperfection";
 import {
   buildMinifiedSemanticIntent,
-  buildCompactRelationshipContext,
 } from "../context/messageContext";
 import { buildStyleOutputSection } from "../context/styleOutput";
-import { buildSelfieRulesPrompt } from "../features/selfieRules";
-import { buildDynamicDimensionEffects } from "../relationship/dimensionEffects";
-import { getTierBehaviorPrompt } from "../relationship/tierBehavior";
+import { buildRelationshipTierPrompt } from "./relationshipPromptBuilders";
+import { buildSelfieRulesPrompt } from "./selfiePromptBuilder";
 import { buildBidDetectionPrompt } from "../behavior/bidDetection";
 import { buildSelectiveAttentionPrompt } from "../behavior/selectiveAttention";
 import { buildMotivatedFrictionPrompt } from "../behavior/motivatedFriction";
@@ -180,12 +178,6 @@ ${buildToolRulesSection()}
 ${buildAppLaunchingSection()}
 
 
-====================================================
-RELATIONSHIP STATE → TONE CONTROL
-====================================================
-${buildCompactRelationshipContext(relationship)}
-NEVER expose relationship metrics directly to the user.
-
 ${
   fullIntent || effectiveRelationshipSignals || effectiveToneIntent
     ? `
@@ -211,45 +203,18 @@ ${
         effectiveRelationshipSignals?.isHostile
           ? `⚠️ HOSTILE: Be guarded, don't escalate.`
           : ""
-      }${
-        effectiveRelationshipSignals?.isInappropriate
-          ? (() => {
-              const isStranger =
-                relationship?.relationshipTier === "acquaintance" ||
-                relationship?.relationshipTier === "neutral_negative" ||
-                !relationship;
-              // KayleyMood: energy < 0 = low energy, warmth < 0.4 = guarded
-              const isBadMood =
-                moodKnobs.energy < 0 ||
-                moodKnobs.warmth < 0.4;
-              if (isStranger)
-                return `🚫 INAPPROPRIATE (stranger): Set FIRM boundaries. Don't answer boundary-testing questions. "That's personal for someone I just met."`;
-              if (isBadMood)
-                return `🚫 INAPPROPRIATE (bad mood): You can push back. "I'm not in the right headspace for that."`;
-              return `🚫 INAPPROPRIATE: Set appropriate boundaries for relationship level.`;
-            })()
-          : ""
       }
 `
     : ""
 }
 
-${getTierBehaviorPrompt(relationship?.relationshipTier)}
-${buildDynamicDimensionEffects(relationship)}
-${buildSelfieRulesPrompt(relationship)}${
-    almostMomentsPrompt ? `\n${almostMomentsPrompt}` : ""
-  }
-
-Familiarity behavior:
-- early: Be naturally curious but don't pretend you know patterns about them yet
-- developing: You're starting to notice things - can reference lightly
-- established: Pattern observations feel natural between friends
-
-${
-  relationship?.isRuptured
-    ? "⚠️ RUPTURE: Be soft, cautious, de-escalating. Appreciate any kindness."
-    : ""
-}
+${buildRelationshipTierPrompt(
+    relationship,
+    moodKnobs,
+    Boolean(effectiveRelationshipSignals?.isInappropriate),
+    almostMomentsPrompt
+  )}
+${buildSelfieRulesPrompt(relationship)}
 
 ====================================================
 PATTERN INSIGHTS

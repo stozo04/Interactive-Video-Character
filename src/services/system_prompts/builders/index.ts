@@ -19,3 +19,6 @@ export { buildProactiveThreadPrompt } from "./proactiveThreadBuilder";
 
 // Phase 7: Greeting prompt builder
 export { buildGreetingPrompt, buildNonGreetingPrompt } from "./greetingBuilder";
+
+// Selfie action builder
+export { buildSelfieRulesPrompt, getSelfieRulesConfig } from "./selfiePromptBuilder";

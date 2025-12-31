@@ -14,4 +14,3 @@
  */
 
 // Phase 3 + Phase 4: Selfie rules configuration and prompt
-export { getSelfieRulesConfig, buildSelfieRulesPrompt } from "./selfieRules";
