@@ -347,6 +347,20 @@ export async function generateCompanionSelfie(
 
     console.log("✅ [ImageGen] Selfie generated successfully!");
 
+    // --- AUTO-SAVE TO LOCAL FILESYSTEM (Development only) ---
+    try {
+      fetch('/api/save-selfie', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          imageBase64: generatedPart.inlineData.data,
+          scene: request.scene
+        })
+      }).catch(e => console.warn("📸 [ImageGen] Auto-save failed (expected if not in dev):", e));
+    } catch (e) {
+      console.warn("📸 [ImageGen] Auto-save error:", e);
+    }
+
     // ====================================
     // RECORD GENERATION IN HISTORY
     // ====================================
