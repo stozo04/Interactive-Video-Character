@@ -39,21 +39,35 @@ export function GoogleAuthProvider({
     const loadSession = async () => {
       setStatus('loading');
       try {
-        const existingSession = googleAuth.getSession();
-        if (existingSession) {
-          // Validate and potentially refresh the session
-          try {
-            const validSession = await googleAuth.ensureValidSession(existingSession);
-            setSession(validSession);
-            setStatus('connected');
-          } catch (err) {
-            // Session is invalid, clear it
-            console.warn('Existing session is invalid:', err);
-            setSession(null);
+        // Try to get existing Supabase session first
+        const { data: { session: sbSession } } = await googleAuth.supabase.auth.getSession();
+
+        if (sbSession && sbSession.provider_token) {
+          const gmailSession: GmailSession = {
+            email: sbSession.user.email || '',
+            accessToken: sbSession.provider_token,
+            expiresAt: (sbSession.expires_at || 0) * 1000,
+            refreshedAt: Date.now(),
+          };
+          googleAuth.saveSession(gmailSession);
+          setSession(gmailSession);
+          setStatus('connected');
+        } else {
+        // Fallback to local storage if it's still valid
+          const existingSession = googleAuth.getSession();
+          if (existingSession) {
+            try {
+              const validSession = await googleAuth.ensureValidSession(existingSession);
+              setSession(validSession);
+              setStatus('connected');
+            } catch (err) {
+              console.warn('Existing session is invalid:', err);
+              setSession(null);
+              setStatus('idle');
+            }
+          } else {
             setStatus('idle');
           }
-        } else {
-          setStatus('idle');
         }
       } catch (err) {
         console.error('Error loading session:', err);
@@ -62,9 +76,32 @@ export function GoogleAuthProvider({
     };
 
     loadSession();
+
+    // Listen for auth state changes (especially important for Supabase redirects)
+    const { data: { subscription } } = googleAuth.supabase.auth.onAuthStateChange(async (event, sbSession) => {
+      console.log('Auth state changed:', event);
+      if (event === 'SIGNED_IN' && sbSession && sbSession.provider_token) {
+        const gmailSession: GmailSession = {
+          email: sbSession.user.email || '',
+          accessToken: sbSession.provider_token,
+          expiresAt: (sbSession.expires_at || 0) * 1000,
+          refreshedAt: Date.now(),
+        };
+        googleAuth.saveSession(gmailSession);
+        setSession(gmailSession);
+        setStatus('connected');
+      } else if (event === 'SIGNED_OUT') {
+        setSession(null);
+        setStatus('idle');
+      }
+    });
+
+    return () => {
+      subscription.unsubscribe();
+    };
   }, []);
 
-  // Auto-refresh timer
+  // Auto-refresh timer - simplified since Supabase handles refresh
   useEffect(() => {
     if (!autoRefresh || !session || status !== 'connected') {
       return;
@@ -74,25 +111,21 @@ export function GoogleAuthProvider({
       try {
         const validSession = await googleAuth.ensureValidSession(session);
         if (validSession.accessToken !== session.accessToken) {
-          // Token was refreshed
           setSession(validSession);
-          console.log('Session auto-refreshed');
+          console.log('Session auto-refreshed via Supabase');
         }
       } catch (err) {
         console.error('Auto-refresh failed:', err);
-        setError('Session expired. Please sign in again.');
-        setSession(null);
-        setStatus('idle');
+        // Don't immediately log out on refresh failure if we're using Supabase
+        // only if it's definitely expired
       }
     };
 
-    // Set up periodic check
     refreshTimerRef.current = window.setInterval(checkAndRefresh, refreshCheckInterval);
 
     return () => {
       if (refreshTimerRef.current !== null) {
         window.clearInterval(refreshTimerRef.current);
-        refreshTimerRef.current = null;
       }
     };
   }, [session, status, autoRefresh, refreshCheckInterval]);
@@ -102,57 +135,41 @@ export function GoogleAuthProvider({
     setError(null);
 
     try {
-      // Get access token (force consent to show popup)
-      const { accessToken, expiresAt, refreshedAt } = await googleAuth.getAccessToken(true);
+      const { error } = await googleAuth.supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: {
+          scopes: googleAuth.SCOPES_ARRAY.join(' '),
+          queryParams: {
+            access_type: 'offline',
+            prompt: 'consent',
+          },
+          redirectTo: window.location.origin,
+        },
+      });
+
+      if (error) throw error;
       
-      // Get user profile
-      const { email } = await googleAuth.getUserProfile(accessToken);
-      
-      // Create and save session
-      const newSession: GmailSession = {
-        email,
-        accessToken,
-        expiresAt,
-        refreshedAt,
-      };
-      
-      googleAuth.saveSession(newSession);
-      setSession(newSession);
-      setStatus('connected');
-      
-      console.log('Successfully signed in as:', email);
+      // Note: redirection happens here, UI will be updated via onAuthStateChange on return
     } catch (err: any) {
       const errorMessage = err.message || 'Failed to sign in';
       console.error('Sign in error:', errorMessage);
       setError(errorMessage);
       setStatus('error');
-      
-      // Reset to idle after showing error
-      setTimeout(() => {
-        if (status === 'error') {
-          setStatus('idle');
-        }
-      }, 3000);
     }
-  }, [status]);
+  }, []);
 
   const signOut = useCallback(async () => {
-    if (!session) return;
-
     try {
-      await googleAuth.signOut(session.accessToken);
+      await googleAuth.signOut();
       setSession(null);
       setStatus('idle');
       setError(null);
-      
-      console.log('Successfully signed out');
     } catch (err: any) {
       console.error('Sign out error:', err);
-      // Clear session even if sign out fails
       setSession(null);
       setStatus('idle');
     }
-  }, [session]);
+  }, []);
 
   const refreshSession = useCallback(async () => {
     if (!session) {

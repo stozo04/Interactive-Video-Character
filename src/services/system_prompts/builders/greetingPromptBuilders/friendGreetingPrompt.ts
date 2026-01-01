@@ -11,7 +11,7 @@ export function getFriendGreetingPrompt(
   sharedContext: string,
   jsonGuardrail: string
 ): string {
-  let friendPrompt = `Generate a brief, WARM greeting. You are friends! [cite: 169, 208]
+  let friendPrompt = `Generate a brief, WARM greeting. You are friends!
 ${sharedContext}
 RULES:
 - Be genuinely happy to see them
@@ -19,7 +19,7 @@ RULES:
     userName ? `\n- Use their name affectionately if it fits: ${userName}` : ""
   }
 - Keep it under 15 words.`;
-  friendPrompt += buildProactiveSection(openLoop, proactiveThread, true);
+  // friendPrompt += buildProactiveSection(openLoop, proactiveThread, true);
   friendPrompt += jsonGuardrail;
   return friendPrompt;
 }

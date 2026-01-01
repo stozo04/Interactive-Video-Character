@@ -8,8 +8,9 @@ const CALENDAR_SCOPE = "https://www.googleapis.com/auth/calendar.events";
 const USERINFO_EMAIL_SCOPE = "https://www.googleapis.com/auth/userinfo.email";
 const USERINFO_PROFILE_SCOPE = "https://www.googleapis.com/auth/userinfo.profile";
 
-// Combine all scopes into one string
-const SCOPES = [GMAIL_SCOPE, CALENDAR_SCOPE, USERINFO_EMAIL_SCOPE, USERINFO_PROFILE_SCOPE].join(' ');
+// Combine all scopes into one array for Supabase
+export const SCOPES_ARRAY = [GMAIL_SCOPE, CALENDAR_SCOPE, USERINFO_EMAIL_SCOPE, USERINFO_PROFILE_SCOPE];
+const SCOPES = SCOPES_ARRAY.join(' ');
 
 // Buffer time before token expiry to refresh (5 minutes)
 const TOKEN_REFRESH_BUFFER_MS = 5 * 60 * 1000;
@@ -36,8 +37,10 @@ export type AuthStatus =
   | 'error';
 
 const SESSION_KEY = "gmail_session";
+import { supabase } from './supabaseClient';
+export { supabase };
 
-// Global token client instance for refresh
+// Global token client instance for refresh - still kept for potential UI needs
 let tokenClientInstance: any = null;
 
 // Helper to load the Google GIS script
@@ -108,74 +111,53 @@ function getTokenClient(): any {
  * @param forceConsent - If true, will always show the Google "consent" screen.
  * If false (default), it will try a silent login first.
  */
-export async function getAccessToken(
-  forceConsent = false
-): Promise<Omit<GmailSession, "email">> {
-  await loadGisScript();
-  validateClientId();
+/**
+ * Gets a fresh access token from the Supabase session.
+ * Supabase handles the refresh_token automatically.
+ */
+export async function getAccessToken(): Promise<Omit<GmailSession, "email">> {
+  const { data: { session }, error } = await supabase.auth.getSession();
+  
+  if (error) {
+    console.error('Error getting Supabase session:', error);
+    throw error;
+  }
 
-  return new Promise((resolve, reject) => {
-    try {
-      const clientId = import.meta.env.VITE_GOOGLE_CLIENT_ID;
-      
-      const client = google.accounts.oauth2.initTokenClient({
-        client_id: clientId,
-        scope: SCOPES,
-        // 'prompt' is the key:
-        // 'consent' = always show popup
-        // '' (empty) = try silent sign-in
-        prompt: forceConsent ? "consent" : "",
-        callback: (tokenResponse: any) => {
-          if (tokenResponse.error) {
-            const errorMsg = tokenResponse.error_description || tokenResponse.error;
-            console.error('Token error:', errorMsg);
-            return reject(new Error(errorMsg));
-          }
-          
-          if (!tokenResponse.access_token) {
-            return reject(new Error("No access token received from Google."));
-          }
-          
-          const expiresAt = Date.now() + Number(tokenResponse.expires_in) * 1000;
-          console.log('Access token obtained, expires in', tokenResponse.expires_in, 'seconds');
-          
-          resolve({
-            accessToken: tokenResponse.access_token,
-            expiresAt: expiresAt,
-            refreshedAt: Date.now(),
-          });
-        },
-        error_callback: (error: any) => {
-          const errorMsg = error.message || error.type || 'Unknown error';
-          console.error('OAuth error:', errorMsg);
-          
-          if (errorMsg.includes('popup_closed')) {
-            reject(new Error("Authentication popup was closed. Please try again."));
-          } else if (errorMsg.includes('popup_blocked')) {
-            reject(new Error("Popup was blocked. Please allow popups for this site."));
-          } else {
-            reject(new Error(`Authentication failed: ${errorMsg}`));
-          }
-        },
-      });
-      
-      // Request the token
-      client.requestAccessToken();
-    } catch (error) {
-      console.error('Error initializing token client:', error);
-      reject(error);
-    }
-  });
+  if (!session || !session.provider_token) {
+    throw new Error("No active Google session found in Supabase. Please sign in.");
+  }
+
+  // Supabase's session.expires_at is in seconds
+  const expiresAt = session.expires_at ? session.expires_at * 1000 : Date.now() + 3600 * 1000;
+
+  return {
+    accessToken: session.provider_token,
+    expiresAt: expiresAt,
+    refreshedAt: Date.now(),
+  };
 }
 
 /**
- * Refreshes an existing access token
+ * Refreshes an existing access token via Supabase
  */
 export async function refreshAccessToken(): Promise<Omit<GmailSession, "email">> {
-  console.log('Refreshing access token...');
-  // For Google OAuth 2.0 with implicit flow, we need to request a new token
-  // This will attempt silent authentication
-  return getAccessToken(false);
+  console.log('Refreshing Supabase session...');
+  const { data, error } = await supabase.auth.refreshSession();
+  
+  if (error) {
+    console.error('Failed to refresh Supabase session:', error);
+    throw error;
+  }
+
+  if (!data.session || !data.session.provider_token) {
+    throw new Error("Failed to obtain refreshed provider token from Supabase.");
+  }
+
+  return {
+    accessToken: data.session.provider_token,
+    expiresAt: data.session.expires_at ? data.session.expires_at * 1000 : Date.now() + 3600 * 1000,
+    refreshedAt: Date.now(),
+  };
 }
 
 /**
@@ -187,11 +169,13 @@ export async function ensureValidSession(
   const now = Date.now();
   const timeUntilExpiry = session.expiresAt - now;
   
-  // If token expires within the buffer time, refresh it
+  // If token expires within the buffer time, try to get a fresh one from Supabase
   if (timeUntilExpiry < TOKEN_REFRESH_BUFFER_MS) {
-    console.log('Token expiring soon, refreshing...');
+    console.log('Token expiring soon, checking Supabase session...');
     try {
-      const { accessToken, expiresAt, refreshedAt } = await refreshAccessToken();
+      // getAccessToken() logic will return a fresh token if Supabase has refreshed it
+      const { accessToken, expiresAt, refreshedAt } = await getAccessToken();
+      
       const refreshedSession: GmailSession = {
         ...session,
         accessToken,
@@ -201,10 +185,21 @@ export async function ensureValidSession(
       saveSession(refreshedSession);
       return refreshedSession;
     } catch (error) {
-      console.error('Failed to refresh token:', error);
-      // Clear invalid session
-      clearSession();
-      throw new Error('Session expired. Please sign in again.');
+      console.warn('Failed to get fresh token from Supabase, attempting explicit refresh:', error);
+      try {
+        const { accessToken, expiresAt, refreshedAt } = await refreshAccessToken();
+        const refreshedSession: GmailSession = {
+          ...session,
+          accessToken,
+          expiresAt,
+          refreshedAt,
+        };
+        saveSession(refreshedSession);
+        return refreshedSession;
+      } catch (refreshError) {
+        console.error('Failed to refresh Supabase session:', refreshError);
+        throw new Error('Session expired. Please sign in again.');
+      }
     }
   }
   
@@ -247,26 +242,16 @@ export async function getUserProfile(accessToken: string): Promise<{ email: stri
 /**
  * Signs the user out by revoking the token.
  */
-export async function signOut(accessToken: string): Promise<void> {
+export async function signOut(): Promise<void> {
   try {
-    await loadGisScript();
+    const { error } = await supabase.auth.signOut();
+    if (error) throw error;
     
-    // Revoke the token with Google
-    return new Promise((resolve) => {
-      google.accounts.oauth2.revoke(accessToken, (done: any) => {
-        if (done.error) {
-          console.warn('Error revoking token:', done.error);
-        } else {
-          console.log('Google token revoked successfully');
-        }
-        // Always clear local storage, even if revocation fails
-        clearSession();
-        resolve();
-      });
-    });
+    // Clear local storage
+    clearSession();
+    console.log('Signed out from Supabase and cleared local session');
   } catch (error) {
     console.error('Error during sign out:', error);
-    // Clear local storage even if revocation fails
     clearSession();
   }
 }
