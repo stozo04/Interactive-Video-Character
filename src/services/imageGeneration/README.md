@@ -103,15 +103,19 @@ src/services/imageGeneration/
 ├── currentLookService.ts       # Database operations for state/history
 └── README.md                   # This file
 
-src/utils/base64ReferencedImages/
+src/utils/referenceImages/
 ├── index.ts                    # Reference image registry + metadata
-├── curly_hair_casual.txt       # Base64 reference images
-├── curly_hair_dressed_up.txt
-├── curly_hair_messy_bun_casual.txt
-├── curly_hair_messy_bun_dressed_up.txt
-├── straight_hair_casual.txt
-├── straight_hair_dressed_up.txt
-└── straight_hair_bun_casual.txt
+├── curlyHairCasual/            # Curly hair casual reference images
+├── curlyHairFormal/            # Curly hair formal reference images
+├── straightHairCasual/         # Straight hair casual reference images
+├── straightHairFormal/         # Straight hair formal reference images
+├── curly_hair_casual.jpg       # Legacy reference images
+├── curly_hair_dressed_up.jpg
+├── curly_hair_messy_bun_casual.jpg
+├── curly_hair_messy_bun_dressed_up.jpg
+├── straight_hair_casual.jpg
+├── straight_hair_dressed_up.jpg
+└── straight_hair_bun_casual.jpg
 
 supabase/migrations/
 └── create_image_generation_tables.sql  # Database schema
@@ -383,12 +387,12 @@ console.log('📸 [ImageGen] Selection reasoning:', selectionReasoning);
 1. **Create Base64 File**
    ```bash
    # Convert image to base64
-   base64 -i new_image.jpg > src/utils/base64ReferencedImages/ponytail_athletic.txt
+   base64 -i new_image.jpg > src/utils/referenceImages/ponytail_athletic.txt
    ```
 
 2. **Add Metadata to Registry**
    ```typescript
-   // src/utils/base64ReferencedImages/index.ts
+   // src/utils/referenceImages/index.ts
    import ponytailAthleticRaw from './ponytail_athletic.txt?raw';
 
    export const REFERENCE_IMAGE_REGISTRY: ReferenceImageMetadata[] = [

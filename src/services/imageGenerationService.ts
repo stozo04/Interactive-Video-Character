@@ -19,7 +19,7 @@ import {
   getCurrentSeason,
   getTimeOfDay,
 } from "./imageGeneration/referenceSelector";
-import { getReferenceMetadata } from "../utils/base64ReferencedImages";
+import { getReferenceMetadata } from "../utils/referenceImages";
 import type { ReferenceSelectionContext } from "./imageGeneration/types";
 
 const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
@@ -503,7 +503,7 @@ function buildImagePrompt(
     `The lighting is ${lightingDescription}.`,
     skinAndHair,
     cameraVibe,
-    "One arm is extended out of frame holding the phone (taking the selfie), visible only at the edge of the frame. The other hand is free and naturally posed - touching her hair, making a peace sign, resting on her hip, giving a thumbs up, or in a playful gesture. CRITICAL: No phone is visible in the image because the phone is being held by the extended arm outside the frame.",
+    "She is taking a selfie with one arm extended toward the camera, cropped at the edge of the frame. Her other arm rests naturally at her side or on her hip. CRITICAL: Only two arms total, no phone visible in frame.",
   ].join(" ");
 }
 
