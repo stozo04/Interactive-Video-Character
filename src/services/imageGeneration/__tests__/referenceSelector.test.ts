@@ -5,7 +5,7 @@ import { selectReferenceImage, getCurrentSeason, getTimeOfDay } from '../referen
 import type { ReferenceSelectionContext } from '../types';
 
 // Mock the base64 reference images module
-vi.mock('../../../utils/base64ReferencedImages', () => ({
+vi.mock('../../../utils/referenceImages', () => ({
   REFERENCE_IMAGE_REGISTRY: [
     {
       id: 'curly_casual',

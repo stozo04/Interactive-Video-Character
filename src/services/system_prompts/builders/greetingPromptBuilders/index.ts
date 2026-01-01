@@ -42,7 +42,7 @@ export function getBaseGreetingContext(
   });
 
   const timeContext = `CURRENT TIME: ${timeString} (${timeOfDay})
-- Use time-appropriate greetings (no "Good morning" at night!).
+- Use time-appropriate greetings.
 - "Hey!" or "Hi!" works anytime.`;
 
   const kayleyContext = kayleyActivity
@@ -304,10 +304,6 @@ RULES:
     prompt += `- Be soft, intimate, and affectionate. "Missed you already."`;
   } else {
     prompt += `- Be friendly and casual.`;
-  }
-
-  if (userName) {
-    prompt += `\n- Use their name if it fits: ${userName}`;
   }
 
   prompt += jsonGuardrail;

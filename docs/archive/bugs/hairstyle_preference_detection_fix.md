@@ -50,7 +50,7 @@ When a user said "with straight hair", the system:
 
 ### Why Curly Always Won
 
-From `base64ReferencedImages/index.ts`:
+From `referenceImages/index.ts`:
 - `curly_casual`: baseFrequency = 0.4 (40 points base score)
 - `straight_casual`: baseFrequency = 0.12 (12 points base score)
 
@@ -416,7 +416,7 @@ The second bug occurred because locked look checking happened BEFORE hairstyle d
 ## Related Systems
 
 ### Reference Image Registry
-- **File:** `src/utils/base64ReferencedImages/index.ts`
+- **File:** `src/utils/referenceImages/index.ts`
 - **Available Hairstyles:** curly, straight, messy_bun
 - **Available References:** 7 total (2 curly, 2 straight, 2 messy_bun, 1 straight_bun)
 

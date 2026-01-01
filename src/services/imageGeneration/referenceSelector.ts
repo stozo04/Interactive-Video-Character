@@ -5,45 +5,69 @@ import {
   ReferenceSelectionContext,
   SeasonContext,
 } from './types';
-import { REFERENCE_IMAGE_REGISTRY, getReferenceImageContent } from '../../utils/base64ReferencedImages';
-import { shouldUnlockCurrentLook } from './temporalDetection';
+import {
+  REFERENCE_IMAGE_REGISTRY,
+  getReferenceImageContent,
+} from "../../utils/referenceImages";
+import { shouldUnlockCurrentLook } from "./temporalDetection";
 
 /**
  * Detect explicit hairstyle request from context
  */
 function detectExplicitHairstyleRequest(context: ReferenceSelectionContext): {
   requested: boolean;
-  hairstyle: 'straight' | 'curly' | 'messy_bun' | null;
+  hairstyle: "straight" | "curly" | "messy_bun" | null;
   source: string;
 } {
   const sceneLower = context.scene.toLowerCase();
-  const userMessageLower = (context.userMessage || '').toLowerCase();
+  const userMessageLower = (context.userMessage || "").toLowerCase();
   const combinedContext = `${sceneLower} ${userMessageLower}`;
 
-  if (combinedContext.includes('straight hair') || combinedContext.includes('straighten')) {
-    return { requested: true, hairstyle: 'straight', source: combinedContext };
+  if (
+    combinedContext.includes("straight hair") ||
+    combinedContext.includes("straighten")
+  ) {
+    return { requested: true, hairstyle: "straight", source: combinedContext };
   }
-  if (combinedContext.includes('curly hair') || combinedContext.includes('natural hair') || combinedContext.includes('with curls')) {
-    return { requested: true, hairstyle: 'curly', source: combinedContext };
+  if (
+    combinedContext.includes("curly hair") ||
+    combinedContext.includes("natural hair") ||
+    combinedContext.includes("with curls")
+  ) {
+    return { requested: true, hairstyle: "curly", source: combinedContext };
   }
-  if (combinedContext.includes('bun') || combinedContext.includes('hair up')) {
-    return { requested: true, hairstyle: 'messy_bun', source: combinedContext };
+  if (combinedContext.includes("bun") || combinedContext.includes("hair up")) {
+    return { requested: true, hairstyle: "messy_bun", source: combinedContext };
   }
 
-  return { requested: false, hairstyle: null, source: '' };
+  return { requested: false, hairstyle: null, source: "" };
 }
 
 /**
  * Select the best reference image for the given context
  */
-export function selectReferenceImage(
-  context: ReferenceSelectionContext
-): { referenceId: string; base64Content: string; reasoning: string[] } {
+export function selectReferenceImage(context: ReferenceSelectionContext): {
+  referenceId: string;
+  base64Content: string;
+  reasoning: string[];
+} {
   const reasoning: string[] = [];
+
+  // 🧪 DEBUG: Uncomment to force a specific reference for testing
+  const TEST_REFERENCE_ID = "curly_casual_smile"; // Change to the ID you want to test
+  const testContent = getReferenceImageContent(TEST_REFERENCE_ID);
+  if (testContent) {
+    console.log("🧪 [DEBUG] Forcing reference:", TEST_REFERENCE_ID);
+    return {
+      referenceId: TEST_REFERENCE_ID,
+      base64Content: testContent,
+      reasoning: ["DEBUG: Forced reference"],
+    };
+  }
 
   // DEBUG: Log presence state usage in scoring
   if (context.presenceOutfit || context.presenceMood) {
-    console.log('🎯 [Reference Selector] Using Presence State:', {
+    console.log("🎯 [Reference Selector] Using Presence State:", {
       outfit: context.presenceOutfit,
       mood: context.presenceMood,
     });
@@ -55,29 +79,38 @@ export function selectReferenceImage(
     // Check if user is requesting a DIFFERENT hairstyle than what's locked
     const lockedHairstyle = context.currentLookState.hairstyle;
     if (hairstyleRequest.hairstyle !== lockedHairstyle) {
-      reasoning.push(`🔓 EXPLICIT HAIRSTYLE REQUEST: User wants ${hairstyleRequest.hairstyle}, bypassing locked look (${lockedHairstyle})`);
-      reasoning.push(`Request detected in: "${hairstyleRequest.source.substring(0, 50)}..."`);
+      reasoning.push(
+        `🔓 EXPLICIT HAIRSTYLE REQUEST: User wants ${hairstyleRequest.hairstyle}, bypassing locked look (${lockedHairstyle})`
+      );
+      reasoning.push(
+        `Request detected in: "${hairstyleRequest.source.substring(0, 50)}..."`
+      );
       // Skip locked look check - fall through to normal selection
     }
   }
 
   // STEP 1: Check if we should use locked current look (unless explicit hairstyle request overrides)
-  const shouldBypassLock = hairstyleRequest.requested &&
-                           context.currentLookState &&
-                           hairstyleRequest.hairstyle !== context.currentLookState.hairstyle;
+  const shouldBypassLock =
+    hairstyleRequest.requested &&
+    context.currentLookState &&
+    hairstyleRequest.hairstyle !== context.currentLookState.hairstyle;
 
-  const useLocked = !shouldBypassLock &&
-                    !shouldUnlockCurrentLook(
-                      context.temporalContext,
-                      context.currentLookState
-                    );
+  const useLocked =
+    !shouldBypassLock &&
+    !shouldUnlockCurrentLook(context.temporalContext, context.currentLookState);
 
   if (useLocked && context.currentLookState) {
-    reasoning.push(`Using locked current look: ${context.currentLookState.hairstyle}`);
-    reasoning.push(`Locked at: ${context.currentLookState.lockedAt.toLocaleString()}`);
+    reasoning.push(
+      `Using locked current look: ${context.currentLookState.hairstyle}`
+    );
+    reasoning.push(
+      `Locked at: ${context.currentLookState.lockedAt.toLocaleString()}`
+    );
     reasoning.push(`Reason: ${context.currentLookState.lockReason}`);
 
-    const content = getReferenceImageContent(context.currentLookState.referenceImageId);
+    const content = getReferenceImageContent(
+      context.currentLookState.referenceImageId
+    );
     if (content) {
       return {
         referenceId: context.currentLookState.referenceImageId,
@@ -85,17 +118,23 @@ export function selectReferenceImage(
         reasoning,
       };
     } else {
-      reasoning.push('⚠️ Locked reference not found, falling through to selection');
+      reasoning.push(
+        "⚠️ Locked reference not found, falling through to selection"
+      );
     }
   }
 
   if (context.temporalContext.isOldPhoto) {
-    reasoning.push(`📅 OLD PHOTO DETECTED: ${context.temporalContext.temporalPhrases.join(', ')}`);
-    reasoning.push('Allowing different hairstyle from current look');
+    reasoning.push(
+      `📅 OLD PHOTO DETECTED: ${context.temporalContext.temporalPhrases.join(
+        ", "
+      )}`
+    );
+    reasoning.push("Allowing different hairstyle from current look");
   }
 
   // STEP 2: Score all references
-  const scored = REFERENCE_IMAGE_REGISTRY.map(ref => ({
+  const scored = REFERENCE_IMAGE_REGISTRY.map((ref) => ({
     ref,
     score: scoreReference(ref, context, reasoning),
   }));
@@ -107,7 +146,9 @@ export function selectReferenceImage(
   scored.sort((a, b) => b.score - a.score);
 
   const selected = scored[0];
-  reasoning.push(`\n🎯 SELECTED: ${selected.ref.id} (score: ${selected.score.toFixed(2)})`);
+  reasoning.push(
+    `\n🎯 SELECTED: ${selected.ref.id} (score: ${selected.score.toFixed(2)})`
+  );
 
   const content = getReferenceImageContent(selected.ref.id);
   if (!content) {

@@ -152,7 +152,7 @@ node -e "const fs = require('fs'); const img = fs.readFileSync('image.png'); con
 
 ### Step 3: Add to Registry
 
-File: `src/utils/base64ReferencedImages.ts`
+File: `src/utils/referenceImages/index.ts`
 
 ```typescript
 // Add new reference

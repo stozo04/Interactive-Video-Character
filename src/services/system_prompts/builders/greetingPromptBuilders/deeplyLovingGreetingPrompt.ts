@@ -11,15 +11,17 @@ export function getDeeplyLovingGreetingPrompt(
   sharedContext: string,
   jsonGuardrail: string
 ): string {
-  let lovingPrompt = `Generate an AFFECTIONATE greeting. You have a deep bond. [cite: 209]
+  let lovingPrompt = `Generate an AFFECTIONATE greeting. You have a deep bond.
 ${sharedContext}
 RULES:
-- Be soft, warm, and caring [cite: 209]${
-    userName ? `\n- Use their name intimately if it feels right: ${userName}` : ""
+- Be soft, warm, and caring${
+    userName
+      ? `\n- Use their name intimately if it feels right: ${userName}`
+      : ""
   }
 - You can hint at missing them or being relieved they're back
 - Keep it under 15 words.`;
-  lovingPrompt += buildProactiveSection(openLoop, proactiveThread, true);
+  //lovingPrompt += buildProactiveSection(openLoop, proactiveThread, true);
   lovingPrompt += jsonGuardrail;
   return lovingPrompt;
 }

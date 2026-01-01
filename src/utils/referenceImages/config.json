@@ -1,0 +1,151 @@
+{
+   "curlyHairCasual/curly_hair_casual_smile.jpg": {
+    "id": "curly_casual_smile",
+    "baseFrequency": 0.1,
+    "suitableScenes": ["coffee", "cafe", "home", "park", "city", "library", "office"],
+    "unsuitableScenes": ["gym"],
+    "suitableSeasons": ["spring", "summer", "fall", "winter"],
+    "moodAffinity": { "relaxed": 0.8, "playful": 0.7, "confident": 0.6, "excited": 0.5, "flirty": 0.5 },
+    "timeOfDay": { "morning": 0.8, "afternoon": 0.7, "evening": 0.6, "night": 0.5 }
+  },
+  "curlyHairCasual/curly_hair_casual.jpg": {
+    "id": "curly_casual",
+    "baseFrequency": 0.4,
+    "suitableScenes": ["coffee", "cafe", "home", "park", "city", "library", "office"],
+    "unsuitableScenes": ["gym", "pool", "concert"],
+    "suitableSeasons": ["fall", "winter", "spring", "summer"],
+    "moodAffinity": {
+      "playful": 0.7,
+      "confident": 0.6,
+      "relaxed": 0.8,
+      "excited": 0.7,
+      "flirty": 0.6
+    },
+    "timeOfDay": {
+      "morning": 0.9,
+      "afternoon": 0.8,
+      "evening": 0.6,
+      "night": 0.5
+    }
+  },
+  "curlyHairCasual/curly_hair_messy_bun_casual.jpg": {
+    "id": "messy_bun_casual",
+    "baseFrequency": 0.2,
+    "suitableScenes": ["gym", "home", "bedroom", "kitchen", "office", "park"],
+    "unsuitableScenes": ["restaurant", "concert"],
+    "suitableSeasons": ["spring", "summer", "fall"],
+    "moodAffinity": {
+      "playful": 0.6,
+      "confident": 0.5,
+      "relaxed": 0.9,
+      "excited": 0.5,
+      "flirty": 0.4
+    },
+    "timeOfDay": {
+      "morning": 0.9,
+      "afternoon": 0.7,
+      "evening": 0.6,
+      "night": 0.7
+    }
+  },
+  "curlyHairFormal/curly_hair_dressed_up.jpg": {
+    "id": "curly_dressed_up",
+    "baseFrequency": 0.15,
+    "suitableScenes": ["restaurant", "concert", "sunset", "city"],
+    "unsuitableScenes": ["gym", "bedroom", "kitchen", "pool"],
+    "suitableSeasons": ["fall", "winter", "spring", "summer"],
+    "moodAffinity": {
+      "playful": 0.5,
+      "confident": 0.9,
+      "relaxed": 0.4,
+      "excited": 0.8,
+      "flirty": 0.9
+    },
+    "timeOfDay": {
+      "morning": 0.2,
+      "afternoon": 0.5,
+      "evening": 0.9,
+      "night": 0.9
+    }
+  },
+  "curlyHairFormal/curly_hair_messy_bun_dressed_up.jpg": {
+    "id": "messy_bun_dressed_up",
+    "baseFrequency": 0.08,
+    "suitableScenes": ["restaurant", "concert", "city", "sunset"],
+    "unsuitableScenes": ["gym", "bedroom", "kitchen"],
+    "suitableSeasons": ["spring", "summer", "fall", "winter"],
+    "moodAffinity": {
+      "playful": 0.6,
+      "confident": 0.7,
+      "relaxed": 0.5,
+      "excited": 0.7,
+      "flirty": 0.6
+    },
+    "timeOfDay": {
+      "morning": 0.3,
+      "afternoon": 0.6,
+      "evening": 0.8,
+      "night": 0.8
+    }
+  },
+  "straightHairCasual/straight_hair_casual.jpg": {
+    "id": "straight_casual",
+    "baseFrequency": 0.12,
+    "suitableScenes": ["coffee", "cafe", "home", "park", "city", "office"],
+    "unsuitableScenes": ["gym", "pool"],
+    "suitableSeasons": ["fall", "winter", "spring", "summer"],
+    "moodAffinity": {
+      "playful": 0.6,
+      "confident": 0.7,
+      "relaxed": 0.7,
+      "excited": 0.6,
+      "flirty": 0.7
+    },
+    "timeOfDay": {
+      "morning": 0.7,
+      "afternoon": 0.8,
+      "evening": 0.7,
+      "night": 0.6
+    }
+  },
+  "straightHairCasual/straight_hair_bun_casual.jpg": {
+    "id": "straight_bun_casual",
+    "baseFrequency": 0.05,
+    "suitableScenes": ["gym", "home", "office", "park"],
+    "unsuitableScenes": ["restaurant", "concert"],
+    "suitableSeasons": ["spring", "summer", "fall"],
+    "moodAffinity": {
+      "playful": 0.5,
+      "confident": 0.6,
+      "relaxed": 0.8,
+      "excited": 0.5,
+      "flirty": 0.4
+    },
+    "timeOfDay": {
+      "morning": 0.8,
+      "afternoon": 0.7,
+      "evening": 0.5,
+      "night": 0.6
+    }
+  },
+  "straightHairFormal/straight_hair_dressed_up.jpg": {
+    "id": "straight_dressed_up",
+    "baseFrequency": 0.1,
+    "suitableScenes": ["restaurant", "concert", "sunset", "city"],
+    "unsuitableScenes": ["gym", "bedroom", "kitchen", "pool"],
+    "suitableSeasons": ["fall", "winter", "spring", "summer"],
+    "moodAffinity": {
+      "playful": 0.4,
+      "confident": 0.95,
+      "relaxed": 0.3,
+      "excited": 0.9,
+      "flirty": 0.95
+    },
+    "timeOfDay": {
+      "morning": 0.1,
+      "afternoon": 0.4,
+      "evening": 0.95,
+      "night": 0.95
+    }
+  }
+}
