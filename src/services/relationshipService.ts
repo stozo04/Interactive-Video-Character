@@ -23,10 +23,7 @@ const RELATIONSHIP_EVENTS_TABLE = 'relationship_events';
 const RELATIONSHIP_INSIGHTS_TABLE = 'relationship_insights';
 
 // Environment Variables
-const GROK_API_KEY = import.meta.env.VITE_GROK_API_KEY;
 const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
-const CHATGPT_API_KEY = import.meta.env.VITE_CHATGPT_API_KEY;
-const CHATGPT_MODEL = import.meta.env.VITE_CHATGPT_MODEL;
 const GEMINI_MODEL = import.meta.env.VITE_GEMINI_MODEL;
 
 export interface RelationshipMetrics {
@@ -326,13 +323,12 @@ export const updateRelationship = async (
 };
 
 /**
- * Analyze message sentiment using the active AI Service
- * This provides deep emotional understanding
+ * Analyze message sentiment for relationship updates.
+ * Uses pre-calculated intent when available (optimized path).
  */
 export const analyzeMessageSentiment = async (
   message: string,
   conversationContext: ChatMessage[],
-  aiService: string = 'grok',
   intent?: FullMessageIntent
 ): Promise<RelationshipEvent> => {
   try {
@@ -390,110 +386,22 @@ Return ONLY valid JSON (no markdown, no code blocks):
   "user_mood": "stressed" | "bored" | "calm" | "hyped" | "sad" | "happy" | null
 }`;
 
-    let analysis: any;
-
-    if (aiService === 'gemini') {
-      // --- GEMINI IMPLEMENTATION ---
-      if (!GEMINI_API_KEY) {
-         console.warn('VITE_GEMINI_API_KEY not set, falling back to keyword matching.');
-         return fallbackSentimentAnalysis(message, conversationContext);
-      }
-
-      const genAI = new GoogleGenAI({ apiKey: GEMINI_API_KEY });
-
-      const result = await genAI.models.generateContent({
-        model: GEMINI_MODEL, 
-        contents: [{ role: 'user', parts: [{ text: analysisPrompt }] }],
-        config: { responseMimeType: "application/json" }
-      });
-      
-      const responseText = result.text || "{}";
-      analysis = JSON.parse(responseText);
-
-    } else if (aiService === 'chatgpt') {
-      // --- CHATGPT IMPLEMENTATION ---
-      if (!CHATGPT_API_KEY) {
-        console.warn('VITE_CHATGPT_API_KEY not set, falling back to keyword matching.');
-        return fallbackSentimentAnalysis(message, conversationContext);
-      }
-
-      const response = await fetch('https://api.openai.com/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${CHATGPT_API_KEY}`,
-        },
-        body: JSON.stringify({
-          model: CHATGPT_MODEL,
-          messages: [
-            {
-              role: 'system',
-              content: 'You are a sentiment analysis tool. Analyze user messages for emotional tone and sentiment toward the character. Return only valid JSON.',
-            },
-            {
-              role: 'user',
-              content: analysisPrompt,
-            },
-          ],
-        }),
-      });
-
-      if (!response.ok) {
-        console.warn('ChatGPT sentiment analysis failed, using fallback');
-        return fallbackSentimentAnalysis(message, conversationContext);
-      }
-
-      const data = await response.json();
-      const analysisText = data.choices[0]?.message?.content || '{}';
-      
-      // Clean up potential markdown
-      const cleaned = analysisText.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
-      analysis = JSON.parse(cleaned);
-
-    } else if (aiService === 'grok') {
-      // --- GROK IMPLEMENTATION ---
-      if (!GROK_API_KEY) {
-        console.warn('VITE_GROK_API_KEY not set, using fallback sentiment analysis');
-        return fallbackSentimentAnalysis(message, conversationContext);
-      }
-
-      const response = await fetch('https://api.x.ai/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${GROK_API_KEY}`,
-        },
-        body: JSON.stringify({
-          model: 'grok-4-fast-reasoning-latest',
-          messages: [
-            {
-              role: 'system',
-              content: 'You are a sentiment analysis tool. Analyze user messages for emotional tone and sentiment toward the character. Return only valid JSON.',
-            },
-            {
-              role: 'user',
-              content: analysisPrompt,
-            },
-          ],
-          temperature: 0.3, 
-        }),
-      });
-
-      if (!response.ok) {
-        console.warn('Grok sentiment analysis failed, using fallback');
-        return fallbackSentimentAnalysis(message, conversationContext);
-      }
-
-      const data = await response.json();
-      const analysisText = data.choices[0]?.message?.content || '{}';
-      
-      // Clean up potential markdown
-      const cleaned = analysisText.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
-      analysis = JSON.parse(cleaned);
-    } else {
-       // Default Fallback
-       return fallbackSentimentAnalysis(message, conversationContext);
+    // Use Gemini for sentiment analysis
+    if (!GEMINI_API_KEY) {
+      console.warn('VITE_GEMINI_API_KEY not set, falling back to keyword matching.');
+      return fallbackSentimentAnalysis(message, conversationContext);
     }
+
+    const genAI = new GoogleGenAI({ apiKey: GEMINI_API_KEY });
+
+    const result = await genAI.models.generateContent({
+      model: GEMINI_MODEL,
+      contents: [{ role: 'user', parts: [{ text: analysisPrompt }] }],
+      config: { responseMimeType: "application/json" }
+    });
+
+    const responseText = result.text || "{}";
+    const analysis = JSON.parse(responseText);
 
     const sentiment = analysis.sentiment || 'neutral';
     const intensity = Math.max(1, Math.min(10, analysis.intensity || 5));
@@ -514,7 +422,7 @@ Return ONLY valid JSON (no markdown, no code blocks):
     };
 
   } catch (error) {
-    console.error(`Error in sentiment analysis (${aiService}):`, error);
+    console.error('Error in sentiment analysis:', error);
     return fallbackSentimentAnalysis(message, conversationContext);
   }
 };

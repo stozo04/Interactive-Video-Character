@@ -54,7 +54,7 @@ import { useDebounce } from './hooks/useDebounce';
 import { useMediaQueues } from './hooks/useMediaQueues';
 import { useCacheWarming } from './hooks/useCacheWarming';
 import { useAIService } from './contexts/AIServiceContext';
-import { AIChatSession, UserContent } from './services/aiService';
+import { AIChatSession, UserContent, AIChatOptions } from './services/aiService';
 import { startCleanupScheduler, stopCleanupScheduler } from './services/loopCleanupService';
 import { startIdleThoughtsScheduler, stopIdleThoughtsScheduler } from './services/idleThoughtsScheduler';
 import { GAMES_PROFILE } from './domain/characters/gamesProfile';
@@ -218,7 +218,7 @@ interface DisplayCharacter {
 
 const App: React.FC = () => {
   const { session, status: authStatus, signOut } = useGoogleAuth();
-  const { activeService, activeServiceId } = useAIService();
+  const activeService = useAIService();
   const [view, setView] = useState<View>('loading');
   const [characters, setCharacters] = useState<CharacterProfile[]>([]);
   const [selectedCharacter, setSelectedCharacter] =
@@ -453,24 +453,19 @@ const App: React.FC = () => {
     setIsProcessingAction(true);
 
     try {
-      const userId = getUserId();
-      const sessionToUse: AIChatSession = aiSession || { userId, characterId: selectedCharacter.id };
+      const sessionToUse: AIChatSession = aiSession || { model: activeService.model };
 
-      // 2. Send to AI Service
+      // 2. Send to AI Service (service fetches context internally)
       const { response, session: updatedSession, audioData } = await activeService.generateResponse(
-        { 
-          type: 'image_text', 
+        {
+          type: 'image_text',
           text: "What do you think of this?", // Default prompt
           imageData: base64,
           mimeType: mimeType
         },
         {
-          character: selectedCharacter,
-          chatHistory: chatHistory, 
-          relationship: relationship, 
-          upcomingEvents: upcomingEvents,
-          characterContext: kayleyContext,
-          tasks: tasks,
+          chatHistory: chatHistory,
+          googleAccessToken: session?.accessToken,
         },
         sessionToUse
       );
@@ -833,15 +828,12 @@ const App: React.FC = () => {
       // 2. Send to AI (Grok/Gemini)
       // Notice we pass the systemPrompt as 'text' but with a special type or just handle it as text
       const { response, session: updatedSession, audioData } = await activeService.generateResponse(
-        { type: 'text', text: systemPrompt }, 
+        { type: 'text', text: systemPrompt },
         {
-          character: selectedCharacter,
           chatHistory, // Pass existing history so it knows context
-          relationship, 
-          upcomingEvents,
-          characterContext: kayleyContext,
+          googleAccessToken: session?.accessToken,
         },
-        aiSession || { userId, characterId: selectedCharacter.id }
+        aiSession || { model: activeService.model }
       );
 
       setAiSession(updatedSession);
@@ -940,17 +932,12 @@ const App: React.FC = () => {
       setIsProcessingAction(true);
 
       const result = await activeService.triggerIdleBreaker(
-        userId,
         {
-          character: selectedCharacter,
-          relationship,
-          tasks,
           chatHistory,
-          characterContext: kayleyContext,
-          upcomingEvents,
+          googleAccessToken: session?.accessToken,
           proactiveSettings,
         },
-        aiSession || { userId, characterId: selectedCharacter.id }
+        aiSession || { model: activeService.model }
       );
 
       if (!result) {
@@ -1681,7 +1668,7 @@ const App: React.FC = () => {
         const isFirstLoginToday = lastBriefingDate !== today;
 
         // Start with fresh session
-        const session: AIChatSession = { userId, model: activeService.model };
+        const session: AIChatSession = { model: activeService.model };
 
         // USER REQUIREMENT: Store the conversationId that google gemini gives per day
         // Try to restore today's Gemini interaction ID for continuity
@@ -1700,7 +1687,7 @@ const App: React.FC = () => {
           // No conversation today BUT not the first login (already briefed or briefing dismissed): Generate normal greeting
           console.log('🤖 [App] Returning to session (no prior chat today) - generating formal greeting');
           const { greeting, session: updatedSession } = await activeService.generateGreeting(
-            character, session, relationshipData, kayleyContext
+            aiSession || { model: activeService.model }
           );
           setAiSession(updatedSession);
 
@@ -1718,7 +1705,7 @@ const App: React.FC = () => {
           setChatHistory(todayHistory);
 
           const { greeting: backMessage, session: updatedSession } = await activeService.generateNonGreeting(
-            character, session, relationshipData, kayleyContext
+            aiSession || { model: activeService.model }
           );
           setAiSession(updatedSession);
 
@@ -1982,7 +1969,7 @@ const App: React.FC = () => {
       if (sentimentPromise) return;
 
       sentimentPromise = relationshipService
-        .analyzeMessageSentiment(message, updatedHistory, activeServiceId, intent)
+        .analyzeMessageSentiment(message, updatedHistory, intent)
         .then(event => relationshipService.updateRelationship(userId, event))
         .catch(error => {
           console.error('Background sentiment analysis failed:', error);
@@ -2031,15 +2018,12 @@ const App: React.FC = () => {
       // This replaced the old regex-based detectAndStoreUserInfo
       // ============================================
 
-      const sessionToUse: AIChatSession = aiSession || { userId, characterId: selectedCharacter.id };
-      const context = {
-          character: selectedCharacter,
-          chatHistory: chatHistory, 
-          relationship: relationship, 
-          upcomingEvents: upcomingEvents,
-          characterContext: kayleyContext,
-          tasks: tasks,
-        googleAccessToken: session.accessToken,
+      const sessionToUse: AIChatSession = aiSession || { model: activeService.model };
+      const context: AIChatOptions = {
+        chatHistory: chatHistory,
+        googleAccessToken: session?.accessToken,
+        audioMode: 'async',
+        onAudioData: (data) => media.enqueueAudio(data),
       };
 
       // 1. Start AI response immediately (main critical path)
@@ -2088,15 +2072,10 @@ const App: React.FC = () => {
           }
         }
 
-        // Update context with the potentially fresher events
-        const freshContext = {
-          ...context,
-          upcomingEvents: currentEventsContext
-        };
-
+        // Service fetches context internally - we just pass minimal options
         const { response, session: updatedSession, audioData, intent } = await activeService.generateResponse(
           { type: 'text', text: textToSend },
-          freshContext,
+          context,
           sessionToUse
         );
 
@@ -2948,8 +2927,7 @@ Let the user know in a friendly way and maybe offer to check back later.
       hasSelectedCharacter: !!selectedCharacter,
     });
 
-    const userId = getUserId();
-    const sessionToUse: AIChatSession = aiSession || { userId, characterId: selectedCharacter.id };
+    const sessionToUse: AIChatSession = aiSession || { model: activeService.model };
 
     try {
       // ============================================
@@ -2985,10 +2963,8 @@ Let the user know in a friendly way and maybe offer to check back later.
           mimeType: 'image/png'
         },
         {
-          character: selectedCharacter,
           chatHistory: [], // Fresh context for games
-          relationship,
-          characterContext: `Playing a game on the whiteboard.\n\n${GAMES_PROFILE}`,
+          googleAccessToken: session?.accessToken,
           audioMode: 'async',
           onAudioData: (audioData: string) => {
             // Don't block drawing/action on TTS.

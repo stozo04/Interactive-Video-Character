@@ -2,7 +2,6 @@
 import React, { useState } from 'react';
 import { GmailConnectButton } from './GmailConnectButton';
 import { useGoogleAuth } from '../contexts/GoogleAuthContext';
-import { useAIService } from '../contexts/AIServiceContext'; // Import the hook
 import type { ProactiveSettings } from '../types';
 
 interface SettingsPanelProps {
@@ -20,10 +19,7 @@ export function SettingsPanel({
 }: SettingsPanelProps) {
   const [isOpen, setIsOpen] = useState(false);
   const { session, signOut, status } = useGoogleAuth();
-  
-  // 1. Get the active service and setter from context
-  const { activeServiceId, setService } = useAIService();
-  
+
   // Check if all proactive features are off
   const allProactiveOff = proactiveSettings 
     ? !proactiveSettings.calendar && !proactiveSettings.news && !proactiveSettings.checkins
@@ -36,13 +32,6 @@ export function SettingsPanel({
     } catch (error) {
       console.error('Error signing out:', error);
     }
-  };
-
-  // 2. Add the handler with logging
-  const handleServiceChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    const newService = e.target.value as 'grok' | 'gemini' | 'chatgpt';
-    console.log(`🔄 [Settings] User toggled AI Service to: ${newService.toUpperCase()}`);
-    setService(newService);
   };
 
   return (
@@ -108,33 +97,6 @@ export function SettingsPanel({
                   />
                 </svg>
               </button>
-            </div>
-
-            {/* 3. ADD THIS SECTION: AI Brain Toggle */}
-            <div className="border-b border-gray-700 pb-4 mb-4">
-              <h3 className="text-sm font-medium text-gray-300 mb-2">
-                AI Intelligence
-              </h3>
-              <div className="relative">
-                <select
-                  value={activeServiceId}
-                  onChange={handleServiceChange}
-                  className="w-full bg-gray-900 text-white text-sm rounded-lg px-3 py-2 border border-gray-600 focus:border-purple-500 focus:ring-1 focus:ring-purple-500 outline-none appearance-none"
-                >
-                  <option value="grok">Grok (xAI) - Beta</option>
-                  <option value="gemini">Gemini (Google)</option>
-                  <option value="chatgpt">ChatGPT (OpenAI)</option>
-                </select>
-                {/* Custom Arrow Icon */}
-                <div className="absolute inset-y-0 right-0 flex items-center px-2 pointer-events-none">
-                  <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                  </svg>
-                </div>
-              </div>
-              <p className="text-xs text-gray-500 mt-2">
-                Controls which AI model powers the character.
-              </p>
             </div>
 
             {/* Proactive Features Section */}
