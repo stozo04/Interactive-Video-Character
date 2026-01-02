@@ -406,7 +406,7 @@ export async function analyzeUserMessage(
   
   try {
     // 1. The Single Source of Truth
-    // Use pre-calculated intent if provided (optimization from BaseAIService)
+    // Use pre-calculated intent if provided (optimization from GeminiChatService)
     fullIntent = preCalculatedIntent || await detectFullIntentLLMCached(message, conversationContext);
     
     // 2. Distribute results

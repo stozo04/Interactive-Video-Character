@@ -297,43 +297,4 @@ describe('Latency Optimizations - Phase 1', () => {
     });
   });
 
-  // Since we'll be testing BaseAIService interactions, we need to mock prefetchService
-  describe('Optimization 4: Post-response Pre-fetch', () => {
-    it('should trigger prefetch in generateResponse', async () => {
-      // Mock prefetchService
-      const { prefetchOnIdle } = await import('../prefetchService');
-      const prefetchMock = vi.mocked(prefetchOnIdle);
-      
-      // Import BaseAIService and create a dummy implementation
-      const { BaseAIService } = await import('../BaseAIService');
-      
-      class TestService extends BaseAIService {
-        model = 'test-model';
-        async callProvider() {
-          return {
-            response: { text_response: 'Hello', action_id: null },
-            session: { userId: 'test-user', characterId: 'test-char' }
-          };
-        }
-        async generateGreeting() { return {}; }
-      }
-      
-      const service = new TestService();
-      
-      vi.useFakeTimers();
-      
-      // Call generateResponse
-      await service.generateResponse(
-        { type: 'text', text: 'hi' },
-        { character: {} as any, chatHistory: [], audioMode: 'none' },
-        { userId: 'test-user' }
-      );
-      
-      // Fast-forward timers
-      vi.runAllTimers();
-      
-      expect(prefetchMock).toHaveBeenCalled();
-      vi.useRealTimers();
-    });
-  });
 });

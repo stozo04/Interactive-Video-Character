@@ -14,7 +14,8 @@
       "Bash(find:*)",
       "Bash(wc:*)",
       "Bash(git stash:*)",
-      "Bash(git mv:*)"
+      "Bash(git mv:*)",
+      "Bash(git rm:*)"
     ]
   }
 }

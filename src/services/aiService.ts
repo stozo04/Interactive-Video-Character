@@ -1,23 +1,30 @@
-import { ChatMessage, CharacterProfile, Task } from '../types';
-import { RelationshipMetrics } from './relationshipService';
+import { ChatMessage } from '../types';
 import { AIActionResponse } from './aiSchema';
-
 import { FullMessageIntent } from './intentService';
 
 // Define what a user can send (Text OR Audio OR Image with Text)
-export type UserContent = 
+export type UserContent =
   | { type: 'text'; text: string }
   | { type: 'audio'; data: string; mimeType: string } // data is base64
   | { type: 'image_text'; text: string; imageData: string; mimeType: string };
 
+/**
+ * Options for AI chat requests.
+ *
+ * ARCHITECTURE NOTE: The service fetches all context internally using VITE_USER_ID.
+ * This is a single-user app - no userId parameter needed.
+ */
 export interface AIChatOptions {
-  character?: CharacterProfile;
+  /**
+   * Current session chat history (for display and context).
+   */
   chatHistory?: ChatMessage[];
-  relationship?: RelationshipMetrics | null;
-  upcomingEvents?: any[];
-  characterContext?: string; // What the character is "doing" right now
-  tasks?: Task[]; // User's daily checklist tasks
-  googleAccessToken?: string; // Google OAuth access token for calendar operations
+
+  /**
+   * Google OAuth access token for calendar/email operations.
+   */
+  googleAccessToken?: string;
+
   /**
    * Audio generation behavior for this request.
    * - sync (default): wait for TTS before returning
@@ -25,6 +32,7 @@ export interface AIChatOptions {
    * - none: do not generate audio
    */
   audioMode?: 'sync' | 'async' | 'none';
+
   /**
    * Only used when audioMode === 'async'. Called when audio is ready.
    */
@@ -36,70 +44,64 @@ export interface AIMessage {
   content: string;
 }
 
+/**
+ * Session state for AI conversations.
+ * Uses VITE_USER_ID internally - no userId field needed.
+ */
 export interface AIChatSession {
-  userId: string;
   model?: string;
-  previousResponseId?: string; // Used by ChatGPT/Grok for stateful conversations
   interactionId?: string; // Used by Gemini Interactions API for stateful conversations
-  geminiHistory?: any[]; 
 }
 
 // Update return types to include optional audioData
 export interface IAIChatService {
-  model: string; // Added model property
+  model: string;
+
   generateResponse(
     input: UserContent,
     options: AIChatOptions,
     session?: AIChatSession
-  ): Promise<{ 
-      response: AIActionResponse; 
-      session: AIChatSession;
-      audioData?: string; // URL to blob or base64 audio data
-      intent?: FullMessageIntent; // Phase 7: Start returning the "brain's" intent from analysis
-  }>;
-
-  generateGreeting(
-    character: CharacterProfile,
-    session?: AIChatSession,
-    relationship?: RelationshipMetrics | null,
-    characterContext?: string
-  ): Promise<{ 
-    greeting: AIActionResponse; 
-    session: AIChatSession;
-    audioData?: string; // URL to blob or base64 audio data
-    intent?: FullMessageIntent;
-  }>;
-
-  generateNonGreeting(
-    character: CharacterProfile,
-    session?: AIChatSession,
-    relationship?: RelationshipMetrics | null,
-    characterContext?: string
-  ): Promise<{ 
-    greeting: AIActionResponse; 
+  ): Promise<{
+    response: AIActionResponse;
     session: AIChatSession;
     audioData?: string;
     intent?: FullMessageIntent;
   }>;
 
+  generateGreeting(
+    session?: AIChatSession
+  ): Promise<{
+    greeting: AIActionResponse;
+    session: AIChatSession;
+    audioData?: string;
+  }>;
+
+  generateNonGreeting(
+    session?: AIChatSession
+  ): Promise<{
+    greeting: AIActionResponse;
+    session: AIChatSession;
+    audioData?: string;
+  }>;
+
+  /**
+   * Triggered when the user has been idle. Decides whether to ask about
+   * an open loop or share a proactive thought.
+   */
   triggerIdleBreaker?(
-    userId: string,
     options: {
-      character?: CharacterProfile;
-      relationship?: RelationshipMetrics | null;
-      tasks?: any[];
       chatHistory?: any[];
-      characterContext?: string;
-      upcomingEvents?: any[];
+      googleAccessToken?: string;
       proactiveSettings?: {
         checkins?: boolean;
         news?: boolean;
+        calendar?: boolean;
       };
     },
     session?: AIChatSession
-  ): Promise<{ 
-    response: AIActionResponse; 
-    session: AIChatSession; 
+  ): Promise<{
+    response: AIActionResponse;
+    session: AIChatSession;
     audioData?: string;
   } | null>;
 }
