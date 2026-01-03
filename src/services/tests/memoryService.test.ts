@@ -66,7 +66,7 @@ describe('memoryService', () => {
         end: { dateTime: '2025-12-16T15:00:00' },
       });
 
-      const result = await executeMemoryTool('calendar_action', validCreateArgs, userId, mockContext);
+      const result = await executeMemoryTool('calendar_action', validCreateArgs, mockContext);
 
       expect(mockCreateEvent).toHaveBeenCalledWith(mockAccessToken, expect.objectContaining({
         summary: 'Test Event',
@@ -77,7 +77,7 @@ describe('memoryService', () => {
     });
 
     it('should fail if access token is missing', async () => {
-      const result = await executeMemoryTool('calendar_action', validCreateArgs, userId, { ...mockContext, googleAccessToken: undefined });
+      const result = await executeMemoryTool('calendar_action', validCreateArgs, { ...mockContext, googleAccessToken: undefined });
 
       expect(mockCreateEvent).not.toHaveBeenCalled();
       expect(result).toContain('Error: Not connected to Google Calendar');
@@ -86,7 +86,7 @@ describe('memoryService', () => {
     it('should fail if required create arguments are missing', async () => {
       const invalidArgs = { ...validCreateArgs, summary: undefined };
       // Cast to any to bypass type check for test
-      const result = await executeMemoryTool('calendar_action', invalidArgs as any, userId, mockContext);
+      const result = await executeMemoryTool('calendar_action', invalidArgs as any, mockContext);
 
       expect(mockCreateEvent).not.toHaveBeenCalled();
       expect(result).toContain('Error: Calendar event requires summary, start, and end time');
@@ -95,7 +95,7 @@ describe('memoryService', () => {
     it('should handle API errors gracefully during creation', async () => {
       mockCreateEvent.mockRejectedValue(new Error('API Error'));
 
-      const result = await executeMemoryTool('calendar_action', validCreateArgs, userId, mockContext);
+      const result = await executeMemoryTool('calendar_action', validCreateArgs, mockContext);
 
       expect(mockCreateEvent).toHaveBeenCalled();
       expect(result).toContain('Error creating calendar event: API Error');
@@ -109,7 +109,7 @@ describe('memoryService', () => {
         event_id: 'event-123',
       };
 
-      const result = await executeMemoryTool('calendar_action', deleteArgs, userId, mockContext);
+      const result = await executeMemoryTool('calendar_action', deleteArgs, mockContext);
 
       expect(mockDeleteEvent).toHaveBeenCalledWith(mockAccessToken, 'event-123');
       expect(result).toContain('✓ Deleted 1 calendar event(s)');
@@ -123,7 +123,7 @@ describe('memoryService', () => {
         event_ids: ['event-1', 'event-2'],
       };
 
-      const result = await executeMemoryTool('calendar_action', deleteArgs, userId, mockContext);
+      const result = await executeMemoryTool('calendar_action', deleteArgs, mockContext);
 
       expect(mockDeleteEvent).toHaveBeenCalledTimes(2);
       expect(mockDeleteEvent).toHaveBeenCalledWith(mockAccessToken, 'event-1');
@@ -147,7 +147,7 @@ describe('memoryService', () => {
         delete_all: true,
       };
 
-      const result = await executeMemoryTool('calendar_action', deleteArgs, userId, contextWithEvents);
+      const result = await executeMemoryTool('calendar_action', deleteArgs, contextWithEvents);
 
       expect(mockDeleteEvent).toHaveBeenCalledTimes(2);
       expect(mockDeleteEvent).toHaveBeenCalledWith(mockAccessToken, 'ev1');
@@ -159,7 +159,7 @@ describe('memoryService', () => {
       mockCreateEvent.mockResolvedValue({});
       const argsNoTz = { ...validCreateArgs, timeZone: undefined };
       
-      await executeMemoryTool('calendar_action', argsNoTz, userId, mockContext);
+      await executeMemoryTool('calendar_action', argsNoTz, mockContext);
       
       expect(mockCreateEvent).toHaveBeenCalledWith(mockAccessToken, expect.objectContaining({
         start: expect.objectContaining({ timeZone: 'America/Chicago' })
@@ -180,10 +180,10 @@ describe('memoryService', () => {
         task_text: 'Buy milk',
         priority: 'medium',
       };
-      
-      const result = await executeMemoryTool('task_action', args, userId);
-      
-      expect(taskServiceMock.createTask).toHaveBeenCalledWith(userId, 'Buy milk', 'medium');
+
+      const result = await executeMemoryTool('task_action', args, mockContext);
+
+      expect(taskServiceMock.createTask).toHaveBeenCalledWith('Buy milk', 'medium');
       expect(result).toContain('✓ Created task: "Buy milk"');
     });
 
@@ -194,7 +194,7 @@ describe('memoryService', () => {
       ]);
 
       const args: ToolCallArgs['task_action'] = { action: 'list' };
-      const result = await executeMemoryTool('task_action', args, userId);
+      const result = await executeMemoryTool('task_action', args, mockContext);
 
       expect(result).toContain('Pending:');
       expect(result).toContain('[ ] Buy milk (medium priority)');
@@ -212,7 +212,7 @@ describe('memoryService', () => {
         task_text: 'buy milk',
       };
       
-      const result = await executeMemoryTool('task_action', args, userId);
+      const result = await executeMemoryTool('task_action', args, mockContext);
       
       expect(taskServiceMock.toggleTask).toHaveBeenCalledWith('1', false);
       expect(result).toContain('✓ Completed task');
@@ -226,7 +226,7 @@ describe('memoryService', () => {
          task_text: 'nonexistent',
        };
        
-       const result = await executeMemoryTool('task_action', args, userId);
+       const result = await executeMemoryTool('task_action', args, mockContext);
        
        expect(result).toContain('Could not find a task matching');
     });
@@ -241,7 +241,7 @@ describe('memoryService', () => {
         task_text: 'buy milk',
       };
 
-      const result = await executeMemoryTool('task_action', args, userId);
+      const result = await executeMemoryTool('task_action', args, mockContext);
 
       expect(taskServiceMock.deleteTask).toHaveBeenCalledWith('1');
       expect(result).toContain('✓ Deleted task');
@@ -262,7 +262,7 @@ describe('memoryService', () => {
         value: 'Nova'
       };
       
-      const result = await executeMemoryTool('store_character_info', args, userId);
+      const result = await executeMemoryTool('store_character_info', args, mockContext);
       
       expect(charFactsMock.storeCharacterFact).toHaveBeenCalledWith('preference', 'laptop_name', 'Nova');
       expect(result).toContain('✓ Stored character fact');

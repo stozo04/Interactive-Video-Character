@@ -5,7 +5,7 @@
  * Tests the async Supabase-backed functions with caching:
  * - getMoodStateAsync(userId) with caching
  * - getEmotionalMomentumAsync(userId) with caching
- * - recordInteractionAsync(userId, tone, message, context)
+ * - recordInteractionAsync(tone, message, context)
  */
 
 import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
@@ -102,33 +102,34 @@ describe("Phase 2: moodKnobs Supabase Migration", () => {
 
   describe("getMoodStateAsync", () => {
     it("should fetch mood state from Supabase with userId", async () => {
-      const result = await getMoodStateAsync(testUserId);
+      const result = await getMoodStateAsync();
       
-      expect(mockGetMoodState).toHaveBeenCalledWith(testUserId);
+      expect(mockGetMoodState).toHaveBeenCalled();
       expect(result.dailyEnergy).toBe(0.7);
     });
 
     it("should cache result and avoid repeat DB calls", async () => {
       // First call - hits Supabase
-      await getMoodStateAsync(testUserId);
+      await getMoodStateAsync();
       expect(mockGetMoodState).toHaveBeenCalledTimes(1);
       
       // Second call - should use cache
-      await getMoodStateAsync(testUserId);
+      await getMoodStateAsync();
       expect(mockGetMoodState).toHaveBeenCalledTimes(1); // Still 1, no new call
     });
 
-    it("should fetch fresh data for different userId", async () => {
-      await getMoodStateAsync(testUserId);
-      await getMoodStateAsync("different-user");
-      
-      expect(mockGetMoodState).toHaveBeenCalledTimes(2);
+    it("should use cache on second call", async () => {
+      await getMoodStateAsync();
+      await getMoodStateAsync();
+
+      // Should only call DB once due to caching
+      expect(mockGetMoodState).toHaveBeenCalledTimes(1);
     });
 
     it("should handle Supabase errors gracefully", async () => {
       mockGetMoodState.mockRejectedValueOnce(new Error("DB error"));
       
-      const result = await getMoodStateAsync(testUserId);
+      const result = await getMoodStateAsync();
       
       // Should return default state on error
       expect(result.dailyEnergy).toBeDefined();
@@ -141,24 +142,25 @@ describe("Phase 2: moodKnobs Supabase Migration", () => {
 
   describe("getEmotionalMomentumAsync", () => {
     it("should fetch emotional momentum from Supabase with userId", async () => {
-      const result = await getEmotionalMomentumAsync(testUserId);
+      const result = await getEmotionalMomentumAsync();
       
-      expect(mockGetEmotionalMomentum).toHaveBeenCalledWith(testUserId);
+      expect(mockGetEmotionalMomentum).toHaveBeenCalled();
       expect(result.currentMoodLevel).toBe(0);
     });
 
     it("should cache result and avoid repeat DB calls", async () => {
-      await getEmotionalMomentumAsync(testUserId);
-      await getEmotionalMomentumAsync(testUserId);
+      await getEmotionalMomentumAsync();
+      await getEmotionalMomentumAsync();
       
       expect(mockGetEmotionalMomentum).toHaveBeenCalledTimes(1);
     });
 
-    it("should invalidate cache for different userId", async () => {
-      await getEmotionalMomentumAsync(testUserId);
-      await getEmotionalMomentumAsync("another-user");
-      
-      expect(mockGetEmotionalMomentum).toHaveBeenCalledTimes(2);
+    it("should use cache after first call", async () => {
+      await getEmotionalMomentumAsync();
+      await getEmotionalMomentumAsync();
+
+      // Should only call DB once due to caching
+      expect(mockGetEmotionalMomentum).toHaveBeenCalledTimes(1);
     });
   });
 
@@ -167,32 +169,29 @@ describe("Phase 2: moodKnobs Supabase Migration", () => {
   // ============================================
 
   describe("recordInteractionAsync", () => {
-    it("should accept userId as first parameter", async () => {
-      await recordInteractionAsync(testUserId, 0.5, "Hello!");
-      
-      // Should have saved state with userId
+    it("should save mood state when recording interaction", async () => {
+      await recordInteractionAsync(0.5, "Hello!");
+
+      // Should have saved state
       expect(mockSaveMoodState).toHaveBeenCalled();
-      const savedCall = mockSaveMoodState.mock.calls[0];
-      expect(savedCall[0]).toBe(testUserId);
     });
 
     it("should update emotional momentum with tone (simplified)", async () => {
-      await recordInteractionAsync(testUserId, 0.8, "Great chat!");
+      await recordInteractionAsync(0.8, "Great chat!");
 
       expect(mockSaveEmotionalMomentum).toHaveBeenCalled();
       const savedCall = mockSaveEmotionalMomentum.mock.calls[0];
-      expect(savedCall[0]).toBe(testUserId);
       // Simplified: momentum should have updated mood level and streak
-      const savedMomentum = savedCall[1];
+      const savedMomentum = savedCall[0];
       // Tone > 0.3 = positive streak increment
       expect(savedMomentum.positiveInteractionStreak).toBeGreaterThan(0);
     });
 
     it("should update cache so subsequent async calls get fresh data", async () => {
-      await recordInteractionAsync(testUserId, 0.8, "Test");
+      await recordInteractionAsync(0.8, "Test");
 
       // Next async call should use cached data
-      const momentum = await getEmotionalMomentumAsync(testUserId);
+      const momentum = await getEmotionalMomentumAsync();
 
       // Simplified: streak should be updated for positive tone
       expect(momentum.positiveInteractionStreak).toBe(1);
@@ -205,21 +204,21 @@ describe("Phase 2: moodKnobs Supabase Migration", () => {
 
   describe("updateEmotionalMomentumAsync", () => {
     it("should require userId parameter", async () => {
-      await updateEmotionalMomentumAsync(testUserId, 0.7, "Nice!");
+      await updateEmotionalMomentumAsync(0.7, "Nice!");
       
       expect(mockSaveEmotionalMomentum).toHaveBeenCalled();
-      expect(mockSaveEmotionalMomentum.mock.calls[0][0]).toBe(testUserId);
+      expect(mockSaveEmotionalMomentum).toHaveBeenCalled();
     });
 
     it("should track positive interaction streaks", async () => {
       // Multiple positive interactions
-      await updateEmotionalMomentumAsync(testUserId, 0.7, "");
-      await updateEmotionalMomentumAsync(testUserId, 0.8, "");
-      await updateEmotionalMomentumAsync(testUserId, 0.6, "");
+      await updateEmotionalMomentumAsync(0.7, "");
+      await updateEmotionalMomentumAsync(0.8, "");
+      await updateEmotionalMomentumAsync(0.6, "");
       
       // Get the last saved momentum
       const lastCall = mockSaveEmotionalMomentum.mock.calls.at(-1);
-      const savedMomentum = lastCall?.[1];
+      const savedMomentum = lastCall?.[0];
       
       expect(savedMomentum?.positiveInteractionStreak).toBeGreaterThanOrEqual(3);
     });
@@ -231,7 +230,7 @@ describe("Phase 2: moodKnobs Supabase Migration", () => {
 
   describe("getMoodKnobsAsync", () => {
     it("should return calculated mood knobs", async () => {
-      const knobs = await getMoodKnobsAsync(testUserId);
+      const knobs = await getMoodKnobsAsync();
       
       expect(knobs.verbosity).toBeDefined();
       expect(knobs.warmthAvailability).toBeDefined();
@@ -239,8 +238,8 @@ describe("Phase 2: moodKnobs Supabase Migration", () => {
     });
 
     it("should use cached state data", async () => {
-      await getMoodKnobsAsync(testUserId);
-      await getMoodKnobsAsync(testUserId);
+      await getMoodKnobsAsync();
+      await getMoodKnobsAsync();
       
       // Should only call stateService once due to caching
       expect(mockGetMoodState).toHaveBeenCalledTimes(1);
@@ -254,8 +253,8 @@ describe("Phase 2: moodKnobs Supabase Migration", () => {
   describe("Cache Management", () => {
     it("clearMoodKnobsCache should reset all cached data", async () => {
       // Prime caches
-      await getMoodStateAsync(testUserId);
-      await getEmotionalMomentumAsync(testUserId);
+      await getMoodStateAsync();
+      await getEmotionalMomentumAsync();
       
       expect(mockGetMoodState).toHaveBeenCalledTimes(1);
       expect(mockGetEmotionalMomentum).toHaveBeenCalledTimes(1);
@@ -264,8 +263,8 @@ describe("Phase 2: moodKnobs Supabase Migration", () => {
       clearMoodKnobsCache();
       
       // Next calls should hit DB again
-      await getMoodStateAsync(testUserId);
-      await getEmotionalMomentumAsync(testUserId);
+      await getMoodStateAsync();
+      await getEmotionalMomentumAsync();
       
       expect(mockGetMoodState).toHaveBeenCalledTimes(2);
       expect(mockGetEmotionalMomentum).toHaveBeenCalledTimes(2);

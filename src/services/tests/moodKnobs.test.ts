@@ -227,7 +227,7 @@ describe("Phase 2: Emotional Momentum", () => {
 
   describe("getEmotionalMomentumAsync", () => {
     it("should create fresh momentum state if none exists", async () => {
-      const momentum = await getEmotionalMomentumAsync(TEST_USER_ID);
+      const momentum = await getEmotionalMomentumAsync();
       
       expect(momentum.currentMoodLevel).toBe(0);
       expect(momentum.momentumDirection).toBe(0);
@@ -238,9 +238,9 @@ describe("Phase 2: Emotional Momentum", () => {
     });
 
     it("should return stored momentum if exists", async () => {
-      await getEmotionalMomentumAsync(TEST_USER_ID);
-      await updateEmotionalMomentumAsync(TEST_USER_ID, 0.8, "Great chat!");
-      const retrieved = await getEmotionalMomentumAsync(TEST_USER_ID);
+      await getEmotionalMomentumAsync();
+      await updateEmotionalMomentumAsync(0.8, "Great chat!");
+      const retrieved = await getEmotionalMomentumAsync();
       
       expect(retrieved.recentInteractionTones.length).toBeGreaterThan(0);
     });
@@ -248,16 +248,16 @@ describe("Phase 2: Emotional Momentum", () => {
 
   describe("resetEmotionalMomentumAsync", () => {
     it("should reset all momentum values to fresh state", async () => {
-      await updateEmotionalMomentumAsync(TEST_USER_ID, 0.8);
-      await updateEmotionalMomentumAsync(TEST_USER_ID, 0.7);
-      await updateEmotionalMomentumAsync(TEST_USER_ID, 0.9);
+      await updateEmotionalMomentumAsync(0.8);
+      await updateEmotionalMomentumAsync(0.7);
+      await updateEmotionalMomentumAsync(0.9);
       
-      const before = await getEmotionalMomentumAsync(TEST_USER_ID);
+      const before = await getEmotionalMomentumAsync();
       expect(before.positiveInteractionStreak).toBeGreaterThan(0);
       
-      await resetEmotionalMomentumAsync(TEST_USER_ID);
+      await resetEmotionalMomentumAsync();
       
-      const after = await getEmotionalMomentumAsync(TEST_USER_ID);
+      const after = await getEmotionalMomentumAsync();
       expect(after.positiveInteractionStreak).toBe(0);
       expect(after.currentMoodLevel).toBe(0);
       expect(after.recentInteractionTones).toEqual([]);
@@ -270,22 +270,22 @@ describe("Phase 2: Emotional Momentum", () => {
 
   describe("updateEmotionalMomentumAsync - Gradual Shifts", () => {
     beforeEach(async () => {
-      await resetEmotionalMomentumAsync(TEST_USER_ID);
+      await resetEmotionalMomentumAsync();
     });
 
     it("1 positive interaction should NOT cause significant mood shift", async () => {
-      const initial = await getEmotionalMomentumAsync(TEST_USER_ID);
-      const afterOne = await updateEmotionalMomentumAsync(TEST_USER_ID, 0.8, "haha that's funny!");
+      const initial = await getEmotionalMomentumAsync();
+      const afterOne = await updateEmotionalMomentumAsync(0.8, "haha that's funny!");
       
       expect(afterOne.positiveInteractionStreak).toBe(1);
       expect(afterOne.currentMoodLevel).toBeLessThan(0.1);
     });
 
     it("3-4 positive interactions should start to shift mood", async () => {
-      await updateEmotionalMomentumAsync(TEST_USER_ID, 0.6);
-      await updateEmotionalMomentumAsync(TEST_USER_ID, 0.7);
-      await updateEmotionalMomentumAsync(TEST_USER_ID, 0.8);
-      const afterFour = await updateEmotionalMomentumAsync(TEST_USER_ID, 0.7);
+      await updateEmotionalMomentumAsync(0.6);
+      await updateEmotionalMomentumAsync(0.7);
+      await updateEmotionalMomentumAsync(0.8);
+      const afterFour = await updateEmotionalMomentumAsync(0.7);
       
       expect(afterFour.positiveInteractionStreak).toBeGreaterThanOrEqual(3);
       expect(afterFour.currentMoodLevel).toBeGreaterThan(0);
@@ -293,35 +293,35 @@ describe("Phase 2: Emotional Momentum", () => {
 
     it("6+ positive interactions should allow full thaw", async () => {
       for (let i = 0; i < 6; i++) {
-        await updateEmotionalMomentumAsync(TEST_USER_ID, 0.7 + (i * 0.02));
+        await updateEmotionalMomentumAsync(0.7 + (i * 0.02));
       }
       
-      const afterSix = await getEmotionalMomentumAsync(TEST_USER_ID);
+      const afterSix = await getEmotionalMomentumAsync();
       
       expect(afterSix.positiveInteractionStreak).toBeGreaterThanOrEqual(6);
       expect(afterSix.currentMoodLevel).toBeGreaterThan(0.3);
     });
 
     it("negative interaction should reduce streak but NOT reset completely", async () => {
-      await updateEmotionalMomentumAsync(TEST_USER_ID, 0.7);
-      await updateEmotionalMomentumAsync(TEST_USER_ID, 0.8);
-      await updateEmotionalMomentumAsync(TEST_USER_ID, 0.7);
-      await updateEmotionalMomentumAsync(TEST_USER_ID, 0.8);
+      await updateEmotionalMomentumAsync(0.7);
+      await updateEmotionalMomentumAsync(0.8);
+      await updateEmotionalMomentumAsync(0.7);
+      await updateEmotionalMomentumAsync(0.8);
       
-      const beforeNegative = await getEmotionalMomentumAsync(TEST_USER_ID);
+      const beforeNegative = await getEmotionalMomentumAsync();
       expect(beforeNegative.positiveInteractionStreak).toBe(4);
       
-      const afterNegative = await updateEmotionalMomentumAsync(TEST_USER_ID, -0.5);
+      const afterNegative = await updateEmotionalMomentumAsync(-0.5);
       
       expect(afterNegative.positiveInteractionStreak).toBe(2);
     });
 
     it("neutral interaction should NOT break momentum", async () => {
-      await updateEmotionalMomentumAsync(TEST_USER_ID, 0.7);
-      await updateEmotionalMomentumAsync(TEST_USER_ID, 0.8);
-      await updateEmotionalMomentumAsync(TEST_USER_ID, 0.7);
+      await updateEmotionalMomentumAsync(0.7);
+      await updateEmotionalMomentumAsync(0.8);
+      await updateEmotionalMomentumAsync(0.7);
       
-      const afterNeutral = await updateEmotionalMomentumAsync(TEST_USER_ID, 0.1);
+      const afterNeutral = await updateEmotionalMomentumAsync(0.1);
       
       expect(afterNeutral.positiveInteractionStreak).toBe(3);
     });
@@ -333,15 +333,14 @@ describe("Phase 2: Emotional Momentum", () => {
 
   describe("updateEmotionalMomentumAsync - Genuine Moment Exception", () => {
     beforeEach(async () => {
-      await resetEmotionalMomentumAsync(TEST_USER_ID);
+      await resetEmotionalMomentumAsync();
     });
 
     it("genuine moment should cause INSTANT mood shift bypassing streak", async () => {
-      const initial = await getEmotionalMomentumAsync(TEST_USER_ID);
+      const initial = await getEmotionalMomentumAsync();
       expect(initial.positiveInteractionStreak).toBe(0);
       
       const afterGenuine = await updateEmotionalMomentumAsync(
-        TEST_USER_ID,
         0.9,
         "You're so thoughtful and smart, I love how you think deeply about things"
       );
@@ -353,8 +352,8 @@ describe("Phase 2: Emotional Momentum", () => {
     });
 
     it("genuine moment flag should persist for multiple interactions", async () => {
-      await updateEmotionalMomentumAsync(TEST_USER_ID, 0.9, "I'm so proud of you and how far you've come");
-      const momentum = await updateEmotionalMomentumAsync(TEST_USER_ID, 0.5, "that's cool");
+      await updateEmotionalMomentumAsync(0.9, "I'm so proud of you and how far you've come");
+      const momentum = await updateEmotionalMomentumAsync(0.5, "that's cool");
       
       expect(momentum.genuineMomentDetected).toBe(true);
     });
@@ -366,37 +365,37 @@ describe("Phase 2: Emotional Momentum", () => {
 
   describe("getMoodKnobsAsync - Momentum Integration", () => {
     beforeEach(async () => {
-      await resetEmotionalMomentumAsync(TEST_USER_ID);
+      await resetEmotionalMomentumAsync();
     });
 
     it("low streak should keep warmthAvailability guarded or neutral", async () => {
-      await updateEmotionalMomentumAsync(TEST_USER_ID, 0.7);
-      await updateEmotionalMomentumAsync(TEST_USER_ID, 0.7);
+      await updateEmotionalMomentumAsync(0.7);
+      await updateEmotionalMomentumAsync(0.7);
       
-      const knobs = await getMoodKnobsAsync(TEST_USER_ID);
+      const knobs = await getMoodKnobsAsync();
       
       expect(['guarded', 'neutral']).toContain(knobs.warmthAvailability);
     });
 
     it("high streak (6+) should allow warmthAvailability to shift", async () => {
       for (let i = 0; i < 7; i++) {
-        await updateEmotionalMomentumAsync(TEST_USER_ID, 0.8);
+        await updateEmotionalMomentumAsync(0.8);
       }
       
-      const knobs = await getMoodKnobsAsync(TEST_USER_ID);
-      const momentum = await getEmotionalMomentumAsync(TEST_USER_ID);
+      const knobs = await getMoodKnobsAsync();
+      const momentum = await getEmotionalMomentumAsync();
       
       expect(momentum.positiveInteractionStreak).toBeGreaterThanOrEqual(6);
       expect(['neutral', 'open']).toContain(knobs.warmthAvailability);
     });
 
     it("genuine moment should enable path to open warmth", async () => {
-      await updateEmotionalMomentumAsync(TEST_USER_ID, 0.9, "You're not alone, I'm here for you always");
+      await updateEmotionalMomentumAsync(0.9, "You're not alone, I'm here for you always");
       
-      const momentum = await getEmotionalMomentumAsync(TEST_USER_ID);
+      const momentum = await getEmotionalMomentumAsync();
       expect(momentum.genuineMomentDetected).toBe(true);
       
-      const knobs = await getMoodKnobsAsync(TEST_USER_ID);
+      const knobs = await getMoodKnobsAsync();
       
       expect(['neutral', 'open']).toContain(knobs.warmthAvailability);
     });
@@ -408,14 +407,14 @@ describe("Phase 2: Emotional Momentum", () => {
 
   describe("recordInteractionAsync - Momentum Updates (Simplified)", () => {
     beforeEach(async () => {
-      await resetEmotionalMomentumAsync(TEST_USER_ID);
+      await resetEmotionalMomentumAsync();
     });
 
     it("should update emotional momentum when recording interaction", async () => {
       // With simplified system, we track positiveInteractionStreak (tone > 0.3 = increment)
-      await recordInteractionAsync(TEST_USER_ID, 0.8, "great chat!");
+      await recordInteractionAsync(0.8, "great chat!");
 
-      const momentum = await getEmotionalMomentumAsync(TEST_USER_ID);
+      const momentum = await getEmotionalMomentumAsync();
       // Simplified: no more recentInteractionTones tracking
       // Just streak increment for positive tone
       expect(momentum.positiveInteractionStreak).toBe(1);
@@ -426,9 +425,9 @@ describe("Phase 2: Emotional Momentum", () => {
     it("should update mood level via weighted average", async () => {
       // Start with neutral mood (0), then apply positive tone (0.8)
       // New moodLevel = oldMoodLevel * 0.8 + tone * 0.2 = 0 * 0.8 + 0.8 * 0.2 = 0.16
-      await recordInteractionAsync(TEST_USER_ID, 0.8, "great chat!");
+      await recordInteractionAsync(0.8, "great chat!");
 
-      const momentum = await getEmotionalMomentumAsync(TEST_USER_ID);
+      const momentum = await getEmotionalMomentumAsync();
       expect(momentum.currentMoodLevel).toBeCloseTo(0.16, 1);
     });
   });
@@ -439,12 +438,12 @@ describe("Phase 2: Emotional Momentum", () => {
 
   describe("getMoodDescription", () => {
     beforeEach(async () => {
-      await resetEmotionalMomentumAsync(TEST_USER_ID);
+      await resetEmotionalMomentumAsync();
     });
 
     it("should include streak info when warming up", async () => {
       for (let i = 0; i < 4; i++) {
-        await updateEmotionalMomentumAsync(TEST_USER_ID, 0.8);
+        await updateEmotionalMomentumAsync(0.8);
       }
       
       const description = getMoodDescription();
@@ -454,7 +453,7 @@ describe("Phase 2: Emotional Momentum", () => {
 
     it("should indicate thawed when streak is 6+", async () => {
       for (let i = 0; i < 7; i++) {
-        await updateEmotionalMomentumAsync(TEST_USER_ID, 0.8);
+        await updateEmotionalMomentumAsync(0.8);
       }
       
       const description = getMoodDescription();
@@ -463,7 +462,7 @@ describe("Phase 2: Emotional Momentum", () => {
     });
 
     it("should indicate genuine moment when active", async () => {
-      await updateEmotionalMomentumAsync(TEST_USER_ID, 0.9, "You're not alone, I'm here for you");
+      await updateEmotionalMomentumAsync(0.9, "You're not alone, I'm here for you");
       
       const description = getMoodDescription();
       
@@ -498,11 +497,11 @@ describe("Phase 2: Emotional Momentum", () => {
 
   describe("Emotional Momentum - Edge Cases", () => {
     beforeEach(async () => {
-      await resetEmotionalMomentumAsync(TEST_USER_ID);
+      await resetEmotionalMomentumAsync();
     });
 
     it("should NOT shift mood with only 1 positive interaction", async () => {
-      const momentum = await updateEmotionalMomentumAsync(TEST_USER_ID, 0.8, "");
+      const momentum = await updateEmotionalMomentumAsync(0.8, "");
       
       expect(momentum.positiveInteractionStreak).toBe(1);
       expect(momentum.currentMoodLevel).toBeLessThan(0.1);
@@ -510,10 +509,10 @@ describe("Phase 2: Emotional Momentum", () => {
     
     it("should shift mood after 5 positive interactions", async () => {
       for (let i = 0; i < 5; i++) {
-        await updateEmotionalMomentumAsync(TEST_USER_ID, 0.8, "");
+        await updateEmotionalMomentumAsync(0.8, "");
       }
       
-      const momentum = await getEmotionalMomentumAsync(TEST_USER_ID);
+      const momentum = await getEmotionalMomentumAsync();
       expect(momentum.positiveInteractionStreak).toBe(5);
       expect(momentum.currentMoodLevel).toBeGreaterThan(0.3);
     });
@@ -526,22 +525,22 @@ describe("Phase 2: Emotional Momentum", () => {
     });
 
     it("should maintain momentum direction across interactions", async () => {
-      await updateEmotionalMomentumAsync(TEST_USER_ID, 0.7, "");
-      await updateEmotionalMomentumAsync(TEST_USER_ID, 0.8, "");
-      await updateEmotionalMomentumAsync(TEST_USER_ID, 0.9, "");
+      await updateEmotionalMomentumAsync(0.7, "");
+      await updateEmotionalMomentumAsync(0.8, "");
+      await updateEmotionalMomentumAsync(0.9, "");
       
-      const momentum = await getEmotionalMomentumAsync(TEST_USER_ID);
+      const momentum = await getEmotionalMomentumAsync();
       
       expect(momentum.momentumDirection).toBeGreaterThan(0);
     });
 
     it("should handle rapid sequence of mixed tone interactions", async () => {
-      await updateEmotionalMomentumAsync(TEST_USER_ID, 0.8, "great!");
-      await updateEmotionalMomentumAsync(TEST_USER_ID, -0.3, "ugh");
-      await updateEmotionalMomentumAsync(TEST_USER_ID, 0.6, "okay");
-      await updateEmotionalMomentumAsync(TEST_USER_ID, 0.9, "amazing");
+      await updateEmotionalMomentumAsync(0.8, "great!");
+      await updateEmotionalMomentumAsync(-0.3, "ugh");
+      await updateEmotionalMomentumAsync(0.6, "okay");
+      await updateEmotionalMomentumAsync(0.9, "amazing");
       
-      const momentum = await getEmotionalMomentumAsync(TEST_USER_ID);
+      const momentum = await getEmotionalMomentumAsync();
       
       expect(momentum.recentInteractionTones.length).toBeGreaterThanOrEqual(4);
     });
