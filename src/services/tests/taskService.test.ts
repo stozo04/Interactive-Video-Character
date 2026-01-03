@@ -31,44 +31,48 @@ describe('taskService', () => {
     vi.clearAllMocks();
   });
 
-  describe('fetchTasks', () => {
-    it('should fetch tasks for a user', async () => {
+  describe("fetchTasks", () => {
+    it("should fetch tasks for a user", async () => {
       const selectMock = vi.fn().mockReturnValue({
         eq: vi.fn().mockReturnValue({
           or: vi.fn().mockReturnValue({
-            order: vi.fn().mockResolvedValue({ data: mockTasks, error: null })
-          })
-        })
+            order: vi.fn().mockResolvedValue({ data: mockTasks, error: null }),
+          }),
+        }),
       });
 
       (supabase.from as any).mockReturnValue({ select: selectMock });
 
-      const tasks = await taskService.fetchTasks('user-123');
-      
+      const tasks = await taskService.fetchTasks();
+
       expect(tasks).toHaveLength(1);
-      expect(tasks[0].text).toBe('Test task');
+      expect(tasks[0].text).toBe("Test task");
       expect(tasks[0].scheduledDate).toBeDefined();
-      expect(selectMock).toHaveBeenCalledWith('*');
+      expect(selectMock).toHaveBeenCalledWith("*");
     });
   });
 
-  describe('createTask', () => {
-    it('should create a task', async () => {
+  describe("createTask", () => {
+    it("should create a task", async () => {
       const insertMock = vi.fn().mockReturnValue({
         select: vi.fn().mockReturnValue({
-          single: vi.fn().mockResolvedValue({ data: mockTasks[0], error: null })
-        })
+          single: vi
+            .fn()
+            .mockResolvedValue({ data: mockTasks[0], error: null }),
+        }),
       });
 
       (supabase.from as any).mockReturnValue({ insert: insertMock });
 
-      const task = await taskService.createTask('user-123', 'Test task', 'low');
-      
-      expect(task).toEqual(expect.objectContaining({
-        text: 'Test task',
-        priority: 'low',
-        scheduledDate: expect.any(String)
-      }));
+      const task = await taskService.createTask("Test task", "low");
+
+      expect(task).toEqual(
+        expect.objectContaining({
+          text: "Test task",
+          priority: "low",
+          scheduledDate: expect.any(String),
+        })
+      );
     });
   });
 

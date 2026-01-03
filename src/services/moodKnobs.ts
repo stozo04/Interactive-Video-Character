@@ -12,7 +12,6 @@
  * - All state now persisted to Supabase via stateService
  * - Local caching to avoid DB hits on every call
  * - Async-first API with sync fallbacks for backwards compatibility
- * - userId required for all state operations
  */
 
 import { 
@@ -194,12 +193,11 @@ export function calculateMoodFromState(
 /**
  * Async function to get simplified mood (replacement for getMoodKnobsAsync).
  *
- * @param userId - User ID for Supabase lookup
  * @returns Promise resolving to KayleyMood
  */
-export async function getMoodAsync(userId: string): Promise<KayleyMood> {
-  const state = await getMoodStateAsync(userId);
-  const momentum = await getEmotionalMomentumAsync(userId);
+export async function getMoodAsync(): Promise<KayleyMood> {
+  const state = await getMoodStateAsync();
+  const momentum = await getEmotionalMomentumAsync();
   return calculateMoodFromState(state, momentum);
 }
 
@@ -319,7 +317,6 @@ export type InsecurityCategory = keyof typeof INSECURITY_KEYWORDS;
 // ============================================
 
 interface CacheEntry<T> {
-  userId: string;
   data: T;
   timestamp: number;
 }
@@ -330,9 +327,8 @@ let momentumCache: CacheEntry<EmotionalMomentum> | null = null;
 /**
  * Check if a cache entry is still valid
  */
-function isCacheValid<T>(cache: CacheEntry<T> | null, userId: string): boolean {
+function isCacheValid<T>(cache: CacheEntry<T> | null): boolean {
   if (!cache) return false;
-  if (cache.userId !== userId) return false;
   if (Date.now() - cache.timestamp > CACHE_TTL) return false;
   return true;
 }
@@ -352,35 +348,34 @@ export function clearMoodKnobsCache(): void {
 /**
  * Get mood state from Supabase with caching.
  * 
- * @param userId - User ID for Supabase lookup
  * @returns Promise resolving to MoodState
  */
-export async function getMoodStateAsync(userId: string): Promise<MoodState> {
+export async function getMoodStateAsync(): Promise<MoodState> {
   // Return from cache if valid
-  if (isCacheValid(moodStateCache, userId)) {
+  if (isCacheValid(moodStateCache)) {
     return moodStateCache!.data;
   }
   
   try {
-    const state = await getSupabaseMoodState(userId);
+    const state = await getSupabaseMoodState();
     
     // Check if it's a new day and needs recalculation
     const currentSeed = getDailySeed();
     if (state.dailySeed !== currentSeed) {
       // New day - create fresh state with daily variation
       const freshState = createFreshMoodStateWithSeed(currentSeed, state.lastInteractionAt);
-      moodStateCache = { userId, data: freshState, timestamp: Date.now() };
+      moodStateCache = { data: freshState, timestamp: Date.now() };
       // Save to Supabase (non-blocking)
-      saveSupabaseMoodState(userId, freshState).catch(console.error);
+      saveSupabaseMoodState(freshState).catch(console.error);
       return freshState;
     }
     
-    moodStateCache = { userId, data: state, timestamp: Date.now() };
+    moodStateCache = { data: state, timestamp: Date.now() };
     return state;
   } catch (error) {
     console.error('[MoodKnobs] Error fetching mood state:', error);
     const defaultState = createDefaultMoodState();
-    moodStateCache = { userId, data: defaultState, timestamp: Date.now() };
+    moodStateCache = { data: defaultState, timestamp: Date.now() };
     return defaultState;
   }
 }
@@ -388,36 +383,34 @@ export async function getMoodStateAsync(userId: string): Promise<MoodState> {
 /**
  * Save mood state to Supabase and update cache.
  * 
- * @param userId - User ID for Supabase lookup
  * @param state - MoodState to save
  */
-async function saveMoodStateAsync(userId: string, state: MoodState): Promise<void> {
+async function saveMoodStateAsync(state: MoodState): Promise<void> {
   // Update cache immediately
-  moodStateCache = { userId, data: state, timestamp: Date.now() };
+  moodStateCache = { data: state, timestamp: Date.now() };
   // Save to Supabase (fire and forget for non-blocking)
-  await saveSupabaseMoodState(userId, state);
+  await saveSupabaseMoodState(state);
 }
 
 /**
  * Get emotional momentum from Supabase with caching.
  * 
- * @param userId - User ID for Supabase lookup
  * @returns Promise resolving to EmotionalMomentum
  */
-export async function getEmotionalMomentumAsync(userId: string): Promise<EmotionalMomentum> {
+export async function getEmotionalMomentumAsync(): Promise<EmotionalMomentum> {
   // Return from cache if valid
-  if (isCacheValid(momentumCache, userId)) {
+  if (isCacheValid(momentumCache)) {
     return momentumCache!.data;
   }
   
   try {
-    const momentum = await getSupabaseEmotionalMomentum(userId);
-    momentumCache = { userId, data: momentum, timestamp: Date.now() };
+    const momentum = await getSupabaseEmotionalMomentum();
+    momentumCache = { data: momentum, timestamp: Date.now() };
     return momentum;
   } catch (error) {
     console.error('[MoodKnobs] Error fetching emotional momentum:', error);
     const defaultMomentum = createDefaultEmotionalMomentum();
-    momentumCache = { userId, data: defaultMomentum, timestamp: Date.now() };
+    momentumCache = { data: defaultMomentum, timestamp: Date.now() };
     return defaultMomentum;
   }
 }
@@ -425,33 +418,30 @@ export async function getEmotionalMomentumAsync(userId: string): Promise<Emotion
 /**
  * Save emotional momentum to Supabase and update cache.
  * 
- * @param userId - User ID for Supabase lookup
  * @param momentum - EmotionalMomentum to save
  */
-async function saveMomentumAsync(userId: string, momentum: EmotionalMomentum): Promise<void> {
+async function saveMomentumAsync(momentum: EmotionalMomentum): Promise<void> {
   // Update cache immediately
-  momentumCache = { userId, data: momentum, timestamp: Date.now() };
+  momentumCache = { data: momentum, timestamp: Date.now() };
   // Save to Supabase
-  await saveSupabaseEmotionalMomentum(userId, momentum);
+  await saveSupabaseEmotionalMomentum(momentum);
 }
 
 /**
  * Async version of updateEmotionalMomentum that uses LLM-based detection.
  * This is the recommended function to call for user message processing.
  * 
- * @param userId - User ID for state persistence
  * @param tone - Interaction tone from -1 (negative) to 1 (positive)
  * @param userMessage - User message for genuine moment detection
  * @param conversationContext - Optional recent chat history for context
  * @returns Promise resolving to updated EmotionalMomentum
  */
 export async function updateEmotionalMomentumAsync(
-  userId: string,
   tone: number,
   userMessage: string = '',
   conversationContext?: ConversationContext
 ): Promise<EmotionalMomentum> {
-  const momentum = await getEmotionalMomentumAsync(userId);
+  const momentum = await getEmotionalMomentumAsync();
   
   // Add tone to history (keep last MAX_TONE_HISTORY)
   momentum.recentInteractionTones.push(tone);
@@ -475,7 +465,7 @@ export async function updateEmotionalMomentumAsync(
     momentum.momentumDirection = 1;
     momentum.positiveInteractionStreak = Math.max(MOOD_SHIFT_THRESHOLDS.noticeableShiftStreak, momentum.positiveInteractionStreak);
     
-    await saveMomentumAsync(userId, momentum);
+    await saveMomentumAsync(momentum);
     return momentum;
   }
   
@@ -505,7 +495,7 @@ export async function updateEmotionalMomentumAsync(
     }
   }
   
-  await saveMomentumAsync(userId, momentum);
+  await saveMomentumAsync(momentum);
   return momentum;
 }
 
@@ -513,19 +503,17 @@ export async function updateEmotionalMomentumAsync(
  * Record an interaction (async version - recommended).
  * Updates both mood state and emotional momentum.
  * 
- * @param userId - User ID for state persistence
  * @param tone - Interaction tone from -1 (negative) to 1 (positive)
  * @param userMessage - User message for genuine moment detection
  * @param conversationContext - Optional recent chat history for context
  */
 export async function recordInteractionAsync(
-  userId: string,
   toneOrToneIntent: number | ToneIntent = 0,
   userMessage: string = '',
   genuineMomentOverride?: GenuineMomentResult
 ): Promise<void> {
-  const state = await getMoodStateAsync(userId);
-  const momentum = await getEmotionalMomentumAsync(userId);
+  const state = await getMoodStateAsync();
+  const momentum = await getEmotionalMomentumAsync();
 
   // Extract tone value from input
   let tone: number;
@@ -582,30 +570,28 @@ export async function recordInteractionAsync(
   momentum.currentMoodLevel = clamp(momentum.currentMoodLevel, -1, 1);
 
   // Save both states
-  await saveMoodStateAsync(userId, state);
-  await saveMomentumAsync(userId, momentum);
+  await saveMoodStateAsync( state);
+  await saveMomentumAsync(momentum);
 }
 
 /**
  * Reset emotional momentum (async version)
  * 
- * @param userId - User ID for state persistence
  */
-export async function resetEmotionalMomentumAsync(userId: string): Promise<void> {
+export async function resetEmotionalMomentumAsync(): Promise<void> {
   const fresh = createDefaultEmotionalMomentum();
-  await saveMomentumAsync(userId, fresh);
+  await saveMomentumAsync(fresh);
   console.log('🧠 [MoodKnobs] Reset emotional momentum');
 }
 
 /**
  * Get mood knobs (async version - recommended)
  * 
- * @param userId - User ID for state lookup
  * @returns Promise resolving to calculated MoodKnobs
  */
-export async function getMoodKnobsAsync(userId: string): Promise<MoodKnobs> {
-  const state = await getMoodStateAsync(userId);
-  const momentum = await getEmotionalMomentumAsync(userId);
+export async function getMoodKnobsAsync(): Promise<MoodKnobs> {
+  const state = await getMoodStateAsync();
+  const momentum = await getEmotionalMomentumAsync();
   return calculateMoodKnobsFromState(state, momentum);
 }
 
@@ -1004,13 +990,12 @@ export async function detectGenuineMomentWithLLM(
  * Higher intensity emotions shift mood faster.
  */
 export async function updateEmotionalMomentumWithIntensityAsync(
-  userId: string,
   tone: number,
   intensity: number,
   userMessage: string = '',
   genuineMomentOverride?: GenuineMomentResult
 ): Promise<EmotionalMomentum> {
-  const momentum = await getEmotionalMomentumAsync(userId);
+  const momentum = await getEmotionalMomentumAsync();
   
   momentum.recentInteractionTones.push(tone);
   if (momentum.recentInteractionTones.length > MAX_TONE_HISTORY) {
@@ -1030,7 +1015,7 @@ export async function updateEmotionalMomentumWithIntensityAsync(
     momentum.momentumDirection = 1;
     momentum.positiveInteractionStreak = Math.max(MOOD_SHIFT_THRESHOLDS.noticeableShiftStreak, momentum.positiveInteractionStreak);
     
-    await saveMomentumAsync(userId, momentum);
+    await saveMomentumAsync(momentum);
     return momentum;
   }
   
@@ -1082,7 +1067,7 @@ export async function updateEmotionalMomentumWithIntensityAsync(
     }
   }
   
-  await saveMomentumAsync(userId, momentum);
+  await saveMomentumAsync(momentum);
   return momentum;
 }
 

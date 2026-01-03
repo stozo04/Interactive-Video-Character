@@ -78,14 +78,12 @@ function sanitizeForGemini(text: string): string {
  * Uses simple text matching (ILIKE) for now - can be upgraded to 
  * full-text search or vector embeddings later.
  * 
- * @param userId - The user's ID
  * @param query - Natural language search query
  * @param limit - Maximum number of results (default: 5)
  * @param timeframe - 'recent' (last 7 days) or 'all' (entire history)
  * @returns Array of matching messages with relevance context
  */
 export const searchMemories = async (
-  userId: string,
   query: string,
   limit: number = DEFAULT_MEMORY_LIMIT,
   timeframe: 'recent' | 'all' = 'all'
@@ -105,7 +103,6 @@ export const searchMemories = async (
     let queryBuilder = supabase
       .from(CONVERSATION_HISTORY_TABLE)
       .select('id, message_text, message_role, created_at')
-      .eq('user_id', userId)
       .order('created_at', { ascending: false })
       .limit(limit * 3); // Fetch more than needed, we'll filter for relevance
 
@@ -203,12 +200,10 @@ function extractSearchTerms(query: string): string[] {
 /**
  * Get stored facts about the user.
  * 
- * @param userId - The user's ID
  * @param category - Filter by category, or 'all' for everything
  * @returns Array of user facts
  */
 export const getUserFacts = async (
-  userId: string,
   category: FactCategory = 'all'
 ): Promise<UserFact[]> => {
   try {
@@ -217,7 +212,6 @@ export const getUserFacts = async (
     let queryBuilder = supabase
       .from(USER_FACTS_TABLE)
       .select('*')
-      .eq('user_id', userId)
       .order('updated_at', { ascending: false });
 
     if (category !== 'all') {
@@ -240,11 +234,11 @@ export const getUserFacts = async (
   }
 };
 
+const USER_ID = import.meta.env.VITE_USER_ID;
 /**
  * Store a new fact about the user or update an existing one.
  * Uses UPSERT to handle conflicts on (user_id, category, fact_key).
  * 
- * @param userId - The user's ID
  * @param category - Fact category
  * @param key - Fact key (e.g., 'name', 'job')
  * @param value - Fact value
@@ -252,7 +246,6 @@ export const getUserFacts = async (
  * @param confidence - Confidence score (0-1), default 1.0
  */
 export const storeUserFact = async (
-  userId: string,
   category: UserFact['category'],
   key: string,
   value: string,
@@ -267,7 +260,7 @@ export const storeUserFact = async (
     const { error } = await supabase
       .from(USER_FACTS_TABLE)
       .upsert({
-        user_id: userId,
+        user_id: USER_ID,
         category,
         fact_key: key,
         fact_value: value,
@@ -296,12 +289,10 @@ export const storeUserFact = async (
  * Delete a specific user fact.
  * Useful for GDPR compliance or user-requested forgetting.
  * 
- * @param userId - The user's ID
  * @param category - Fact category
  * @param key - Fact key to delete
  */
 export const deleteUserFact = async (
-  userId: string,
   category: UserFact['category'],
   key: string
 ): Promise<boolean> => {
@@ -311,7 +302,6 @@ export const deleteUserFact = async (
     const { error } = await supabase
       .from(USER_FACTS_TABLE)
       .delete()
-      .eq('user_id', userId)
       .eq('category', category)
       .eq('fact_key', key);
 
@@ -337,19 +327,16 @@ export const deleteUserFact = async (
  * Get a summary of recent conversation context.
  * Useful for providing minimal context without loading full history.
  * 
- * @param userId - The user's ID
  * @param messageCount - Number of recent messages to include
  * @returns Formatted string with recent context
  */
 export const getRecentContext = async (
-  userId: string,
   messageCount: number = DEFAULT_RECENT_CONTEXT_COUNT
 ): Promise<string> => {
   try {
     const { data, error } = await supabase
       .from(CONVERSATION_HISTORY_TABLE)
       .select('message_text, message_role, created_at')
-      .eq('user_id', userId)
       .order('created_at', { ascending: false })
       .limit(messageCount);
 
@@ -464,13 +451,11 @@ export interface ToolCallArgs {
  * 
  * @param toolName - The name of the tool to execute
  * @param args - Tool-specific arguments
- * @param userId - The user's ID
  * @returns Result string to return to the AI
  */
 export const executeMemoryTool = async (
   toolName: MemoryToolName,
   args: ToolCallArgs[typeof toolName],
-  userId: string,
   context?: ToolExecutionContext
 ): Promise<string> => {
   console.log(`🔧 [Memory Tool] Executing: ${toolName}`, args);
@@ -508,13 +493,13 @@ export const executeMemoryTool = async (
     switch (toolName) {
       case 'recall_memory': {
         const { query, timeframe } = args as ToolCallArgs['recall_memory'];
-        const memories = await searchMemories(userId, query, DEFAULT_MEMORY_LIMIT, timeframe);
+        const memories = await searchMemories(query, DEFAULT_MEMORY_LIMIT, timeframe);
         return formatMemoriesForAI(memories);
       }
 
       case 'recall_user_info': {
         const { category, specific_key } = args as ToolCallArgs['recall_user_info'];
-        const facts = await getUserFacts(userId, category);
+        const facts = await getUserFacts(category);
         
         // If a specific key was requested, filter to just that
         if (specific_key) {
@@ -540,7 +525,7 @@ export const executeMemoryTool = async (
 
       case 'store_user_info': {
         const { category, key, value } = args as ToolCallArgs['store_user_info'];
-        const success = await storeUserFact(userId, category, key, value);
+        const success = await storeUserFact(category, key, value);
         return success 
           ? `✓ Stored: ${key} = "${value}"` 
           : `Failed to store information.`;
@@ -556,7 +541,7 @@ export const executeMemoryTool = async (
             if (!task_text) {
               return 'Error: task_text is required for creating a task.';
             }
-            await createTask(userId, task_text, priority || 'low');
+            await createTask(task_text, priority || 'low');
             return `✓ Created task: "${task_text}" (priority: ${priority || 'low'})`;
           }
           
@@ -565,7 +550,7 @@ export const executeMemoryTool = async (
               return 'Error: task_text is required for completing a task.';
             }
             // Find and complete the task
-            const tasks = await fetchTasks(userId);
+            const tasks = await fetchTasks();
             const matchingTask = tasks.find(t => 
               t.text.toLowerCase().includes(task_text.toLowerCase())
             );
@@ -581,7 +566,7 @@ export const executeMemoryTool = async (
               return 'Error: task_text is required for deleting a task.';
             }
             // Find and delete the task
-            const allTasks = await fetchTasks(userId);
+            const allTasks = await fetchTasks();
             const taskToDelete = allTasks.find(t => 
               t.text.toLowerCase().includes(task_text.toLowerCase())
             );
@@ -593,7 +578,7 @@ export const executeMemoryTool = async (
           }
           
           case 'list': {
-            const taskList = await fetchTasks(userId);
+            const taskList = await fetchTasks();
             if (taskList.length === 0) {
               return 'No tasks on your checklist.';
             }
@@ -868,12 +853,10 @@ export function formatFactValueForDisplay(value: string): string {
  * - MUTABLE (location, occupation): Can be updated/overwritten
  * - ADDITIVE (likes, favorite_*): Append to JSON array
  *
- * @param userId - The user's ID
  * @param detectedFacts - Facts detected by the LLM from intentService
  * @returns Array of facts that were actually stored/updated
  */
 export const processDetectedFacts = async (
-  userId: string,
   detectedFacts: LLMDetectedFact[]
 ): Promise<LLMDetectedFact[]> => {
   if (!detectedFacts || detectedFacts.length === 0) {
@@ -884,7 +867,7 @@ export const processDetectedFacts = async (
 
   try {
     // Fetch existing facts to check for duplicates and current values
-    const existingFacts = await getUserFacts(userId, 'all');
+    const existingFacts = await getUserFacts('all');
 
     // Create a map of existing facts for fast lookup
     const existingFactsMap = new Map(
@@ -928,7 +911,6 @@ export const processDetectedFacts = async (
       // MUTABLE: Always update (fall through to store)
 
       const success = await storeUserFact(
-        userId,
         fact.category,
         fact.key,
         fact.value,
@@ -961,12 +943,10 @@ export const processDetectedFacts = async (
  * Detect important user information from a message and store it.
  * This is a BACKUP to AI tool calling - it runs client-side after each message.
  * 
- * @param userId - The user's ID
  * @param message - The user's message text
  * @returns Array of info that was stored
  */
 export const detectAndStoreUserInfo = async (
-  userId: string,
   message: string
 ): Promise<DetectedInfo[]> => {
   const detected: DetectedInfo[] = [];
@@ -1169,7 +1149,7 @@ export const detectAndStoreUserInfo = async (
   // STORE DETECTED INFO
   // ============================================
   for (const info of detected) {
-    await storeUserFact(userId, info.category, info.key, info.value);
+    await storeUserFact(info.category, info.key, info.value);
   }
 
   if (detected.length > 0) {

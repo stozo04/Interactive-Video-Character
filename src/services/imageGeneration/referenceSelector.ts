@@ -54,16 +54,16 @@ export function selectReferenceImage(context: ReferenceSelectionContext): {
   const reasoning: string[] = [];
 
   // 🧪 DEBUG: Uncomment to force a specific reference for testing
-  const TEST_REFERENCE_ID = "curly_casual_smile"; // Change to the ID you want to test
-  const testContent = getReferenceImageContent(TEST_REFERENCE_ID);
-  if (testContent) {
-    console.log("🧪 [DEBUG] Forcing reference:", TEST_REFERENCE_ID);
-    return {
-      referenceId: TEST_REFERENCE_ID,
-      base64Content: testContent,
-      reasoning: ["DEBUG: Forced reference"],
-    };
-  }
+  // const TEST_REFERENCE_ID = "curly_casual_smile"; // Change to the ID you want to test
+  // const testContent = getReferenceImageContent(TEST_REFERENCE_ID);
+  // if (testContent) {
+  //   console.log("🧪 [DEBUG] Forcing reference:", TEST_REFERENCE_ID);
+  //   return {
+  //     referenceId: TEST_REFERENCE_ID,
+  //     base64Content: testContent,
+  //     reasoning: ["DEBUG: Forced reference"],
+  //   };
+  // }
 
   // DEBUG: Log presence state usage in scoring
   if (context.presenceOutfit || context.presenceMood) {

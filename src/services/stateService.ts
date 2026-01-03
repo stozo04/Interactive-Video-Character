@@ -15,15 +15,15 @@
 import { supabase } from './supabaseClient';
 import { Task } from '../types';
 import { getPresenceContext } from './presenceDirector';
-
+const USER_ID = import.meta.env.VITE_USER_ID;
 // ============================================
 // Table Names
 // ============================================
 
-const MOOD_STATES_TABLE = 'mood_states';
-const EMOTIONAL_MOMENTUM_TABLE = 'emotional_momentum';
-const ONGOING_THREADS_TABLE = 'ongoing_threads';
-const INTIMACY_STATES_TABLE = 'intimacy_states';
+const MOOD_STATES_TABLE = "mood_states";
+const EMOTIONAL_MOMENTUM_TABLE = "emotional_momentum";
+const ONGOING_THREADS_TABLE = "ongoing_threads";
+const INTIMACY_STATES_TABLE = "intimacy_states";
 
 // ============================================
 // Types
@@ -48,14 +48,14 @@ export interface EmotionalMomentum {
   lastGenuineMomentAt: number | null;
 }
 
-export type ThreadTheme = 
-  | 'creative_project'
-  | 'family'
-  | 'self_improvement'
-  | 'social'
-  | 'work'
-  | 'existential'
-  | 'user_reflection';
+export type ThreadTheme =
+  | "creative_project"
+  | "family"
+  | "self_improvement"
+  | "social"
+  | "work"
+  | "existential"
+  | "user_reflection";
 
 export interface OngoingThread {
   id: string;
@@ -82,7 +82,9 @@ export interface IntimacyState {
 
 function getDailySeed(): number {
   const today = new Date();
-  return today.getFullYear() * 10000 + (today.getMonth() + 1) * 100 + today.getDate();
+  return (
+    today.getFullYear() * 10000 + (today.getMonth() + 1) * 100 + today.getDate()
+  );
 }
 
 export function createDefaultMoodState(): MoodState {
@@ -125,31 +127,32 @@ export function createDefaultIntimacyState(): IntimacyState {
 /**
  * Get mood state from Supabase
  */
-export async function getMoodState(userId: string): Promise<MoodState> {
+export async function getMoodState(): Promise<MoodState> {
   try {
     const { data, error } = await supabase
       .from(MOOD_STATES_TABLE)
-      .select('*')
-      .eq('user_id', userId)
+      .select("*")
       .single();
-    
+
     if (error || !data) {
       const defaultState = createDefaultMoodState();
-      await saveMoodState(userId, defaultState);
+      await saveMoodState(defaultState);
       return defaultState;
     }
-    
+
     return {
       dailyEnergy: data.daily_energy,
       socialBattery: data.social_battery,
       internalProcessing: data.internal_processing,
       calculatedAt: new Date(data.calculated_at).getTime(),
       dailySeed: data.daily_seed,
-      lastInteractionAt: data.last_interaction_at ? new Date(data.last_interaction_at).getTime() : Date.now(),
+      lastInteractionAt: data.last_interaction_at
+        ? new Date(data.last_interaction_at).getTime()
+        : Date.now(),
       lastInteractionTone: data.last_interaction_tone ?? 0,
     };
   } catch (error) {
-    console.error('[StateService] Error getting mood state:', error);
+    console.error("[StateService] Error getting mood state:", error);
     return createDefaultMoodState();
   }
 }
@@ -157,12 +160,11 @@ export async function getMoodState(userId: string): Promise<MoodState> {
 /**
  * Save mood state to Supabase
  */
-export async function saveMoodState(userId: string, state: MoodState): Promise<void> {
+export async function saveMoodState(state: MoodState): Promise<void> {
   try {
-    await supabase
-      .from(MOOD_STATES_TABLE)
-      .upsert({
-        user_id: userId,
+    await supabase.from(MOOD_STATES_TABLE).upsert(
+      {
+        user_id: USER_ID,
         daily_energy: state.dailyEnergy,
         social_battery: state.socialBattery,
         internal_processing: state.internalProcessing,
@@ -170,41 +172,39 @@ export async function saveMoodState(userId: string, state: MoodState): Promise<v
         daily_seed: state.dailySeed,
         last_interaction_at: new Date(state.lastInteractionAt).toISOString(),
         last_interaction_tone: state.lastInteractionTone,
-      }, {
-        onConflict: 'user_id'
-      });
+      },
+      {
+        onConflict: "user_id",
+      }
+    );
   } catch (error) {
-    console.error('[StateService] Error saving mood state:', error);
+    console.error("[StateService] Error saving mood state:", error);
   }
 }
 
 /**
  * Pre-warms the context cache when the app loads.
  * Call this when the chat component mounts to reduce first-message latency.
- * 
- * @param userId - The user's ID
+ *
  */
-export async function warmContextCache(userId: string): Promise<void> {
-  if (!userId) return;
-  
-  console.log('🔥 [StateService] Warming context cache for user:', userId);
-  
+export async function warmContextCache(): Promise<void> {
+  console.log("🔥 [StateService] Warming context cache");
+
   const startTime = performance.now();
-  
+
   try {
     // Fire all context fetches in parallel (fire-and-forget)
     await Promise.all([
-      getFullCharacterContext(userId),
-      getPresenceContext(userId),
+      getFullCharacterContext(),
+      getPresenceContext(),
       // Add any other commonly-needed context here
     ]);
-    
+
     const duration = performance.now() - startTime;
     console.log(`✅ [StateService] Cache warmed in ${duration.toFixed(0)}ms`);
-    
   } catch (error) {
     // Non-critical - just log and continue
-    console.warn('⚠️ [StateService] Cache warming failed:', error);
+    console.warn("⚠️ [StateService] Cache warming failed:", error);
   }
 }
 
@@ -215,78 +215,82 @@ export async function warmContextCache(userId: string): Promise<void> {
 /**
  * Get emotional momentum from Supabase
  */
-export async function getEmotionalMomentum(userId: string): Promise<EmotionalMomentum> {
+export async function getEmotionalMomentum(): Promise<EmotionalMomentum> {
   try {
     const { data, error } = await supabase
       .from(EMOTIONAL_MOMENTUM_TABLE)
-      .select('*')
-      .eq('user_id', userId)
+      .select("*")
       .single();
-    
+
     if (error || !data) {
       const defaultMomentum = createDefaultEmotionalMomentum();
-      await saveEmotionalMomentum(userId, defaultMomentum);
+      await saveEmotionalMomentum(defaultMomentum);
       return defaultMomentum;
     }
-    
+
     return {
       currentMoodLevel: data.current_mood_level,
       momentumDirection: data.momentum_direction,
       positiveInteractionStreak: data.positive_interaction_streak,
       recentInteractionTones: data.recent_interaction_tones || [],
       genuineMomentDetected: data.genuine_moment_detected,
-      lastGenuineMomentAt: data.last_genuine_moment_at 
-        ? new Date(data.last_genuine_moment_at).getTime() 
+      lastGenuineMomentAt: data.last_genuine_moment_at
+        ? new Date(data.last_genuine_moment_at).getTime()
         : null,
     };
   } catch (error) {
-    console.error('[StateService] Error getting emotional momentum:', error);
+    console.error("[StateService] Error getting emotional momentum:", error);
     return createDefaultEmotionalMomentum();
   }
 }
 
 /**
  * Save emotional momentum to Supabase
- * 
+ *
  * NOTE: Race condition risk exists if user sends multiple messages quickly.
  * For single-user prototype, this is acceptable. For production, consider
  * implementing optimistic concurrency control using updated_at timestamps.
  */
-export async function saveEmotionalMomentum(userId: string, momentum: EmotionalMomentum, expectedUpdatedAt?: string): Promise<void> {
+export async function saveEmotionalMomentum(
+  momentum: EmotionalMomentum,
+  expectedUpdatedAt?: string
+): Promise<void> {
   try {
     // If expectedUpdatedAt is provided, check for race condition (optimistic concurrency)
     if (expectedUpdatedAt) {
       const { data: current, error: fetchError } = await supabase
         .from(EMOTIONAL_MOMENTUM_TABLE)
-        .select('updated_at')
-        .eq('user_id', userId)
+        .select("updated_at")
         .single();
-      
+
       if (!fetchError && current && current.updated_at !== expectedUpdatedAt) {
         // Race condition detected: data was modified since fetch
-        console.warn('[StateService] Race condition detected in saveEmotionalMomentum: updated_at mismatch. Data may have been modified by another request.');
+        console.warn(
+          "[StateService] Race condition detected in saveEmotionalMomentum: updated_at mismatch. Data may have been modified by another request."
+        );
         // For single-user prototype: Log warning but proceed (graceful degradation)
         // For production: Fetch fresh data, merge changes, and retry
       }
     }
-    
-    await supabase
-      .from(EMOTIONAL_MOMENTUM_TABLE)
-      .upsert({
-        user_id: userId,
+
+    await supabase.from(EMOTIONAL_MOMENTUM_TABLE).upsert(
+      {
+        user_id: USER_ID,
         current_mood_level: momentum.currentMoodLevel,
         momentum_direction: momentum.momentumDirection,
         positive_interaction_streak: momentum.positiveInteractionStreak,
         recent_interaction_tones: momentum.recentInteractionTones,
         genuine_moment_detected: momentum.genuineMomentDetected,
-        last_genuine_moment_at: momentum.lastGenuineMomentAt 
-          ? new Date(momentum.lastGenuineMomentAt).toISOString() 
+        last_genuine_moment_at: momentum.lastGenuineMomentAt
+          ? new Date(momentum.lastGenuineMomentAt).toISOString()
           : null,
-      }, {
-        onConflict: 'user_id'
-      });
+      },
+      {
+        onConflict: "user_id",
+      }
+    );
   } catch (error) {
-    console.error('[StateService] Error saving emotional momentum:', error);
+    console.error("[StateService] Error saving emotional momentum:", error);
   }
 }
 
@@ -297,30 +301,31 @@ export async function saveEmotionalMomentum(userId: string, momentum: EmotionalM
 /**
  * Get ongoing threads from Supabase
  */
-export async function getOngoingThreads(userId: string): Promise<OngoingThread[]> {
+export async function getOngoingThreads(): Promise<OngoingThread[]> {
   try {
     const { data, error } = await supabase
       .from(ONGOING_THREADS_TABLE)
-      .select('*')
-      .eq('user_id', userId)
-      .order('intensity', { ascending: false });
-    
+      .select("*")
+      .order("intensity", { ascending: false });
+
     if (error || !data) {
       return [];
     }
-    
-    return data.map(row => ({
+
+    return data.map((row) => ({
       id: row.id,
       theme: row.theme as ThreadTheme,
       currentState: row.current_state,
       intensity: row.intensity,
-      lastMentioned: row.last_mentioned ? new Date(row.last_mentioned).getTime() : null,
+      lastMentioned: row.last_mentioned
+        ? new Date(row.last_mentioned).getTime()
+        : null,
       userRelated: row.user_related,
       createdAt: new Date(row.created_at).getTime(),
       userTrigger: row.user_trigger,
     }));
   } catch (error) {
-    console.error('[StateService] Error getting ongoing threads:', error);
+    console.error("[StateService] Error getting ongoing threads:", error);
     return [];
   }
 }
@@ -328,51 +333,57 @@ export async function getOngoingThreads(userId: string): Promise<OngoingThread[]
 /**
  * Save a single thread to Supabase
  */
-export async function saveOngoingThread(userId: string, thread: OngoingThread): Promise<void> {
+export async function saveOngoingThread(thread: OngoingThread): Promise<void> {
   try {
-    await supabase
-      .from(ONGOING_THREADS_TABLE)
-      .upsert({
+    await supabase.from(ONGOING_THREADS_TABLE).upsert(
+      {
         id: thread.id,
-        user_id: userId,
+        user_id: USER_ID,
         theme: thread.theme,
         current_state: thread.currentState,
         intensity: thread.intensity,
-        last_mentioned: thread.lastMentioned ? new Date(thread.lastMentioned).toISOString() : null,
+        last_mentioned: thread.lastMentioned
+          ? new Date(thread.lastMentioned).toISOString()
+          : null,
         user_related: thread.userRelated,
         user_trigger: thread.userTrigger,
         created_at: new Date(thread.createdAt).toISOString(),
-      }, {
-        onConflict: 'id'
-      });
+      },
+      {
+        onConflict: "id",
+      }
+    );
   } catch (error) {
-    console.error('[StateService] Error saving ongoing thread:', error);
+    console.error("[StateService] Error saving ongoing thread:", error);
   }
 }
 
 /**
  * Save all threads (replaces all for user)
  */
-export async function saveAllOngoingThreads(userId: string, threads: OngoingThread[]): Promise<void> {
+export async function saveAllOngoingThreads(
+  threads: OngoingThread[]
+): Promise<void> {
   try {
     // Get existing thread IDs for this user
     const { data: existing } = await supabase
       .from(ONGOING_THREADS_TABLE)
-      .select('id')
-      .eq('user_id', userId);
+      .select("id");
 
-    const existingIds = new Set(existing?.map(t => t.id) || []);
-    const newIds = new Set(threads.map(t => t.id));
+    const existingIds = new Set(existing?.map((t) => t.id) || []);
+    const newIds = new Set(threads.map((t) => t.id));
 
     // Upsert all threads (insert new or update existing)
     if (threads.length > 0) {
-      const rows = threads.map(thread => ({
+      const rows = threads.map((thread) => ({
         id: thread.id,
-        user_id: userId,
+        user_id: USER_ID,
         theme: thread.theme,
         current_state: thread.currentState,
         intensity: thread.intensity,
-        last_mentioned: thread.lastMentioned ? new Date(thread.lastMentioned).toISOString() : null,
+        last_mentioned: thread.lastMentioned
+          ? new Date(thread.lastMentioned).toISOString()
+          : null,
         user_related: thread.userRelated,
         user_trigger: thread.userTrigger,
         created_at: new Date(thread.createdAt).toISOString(),
@@ -380,19 +391,21 @@ export async function saveAllOngoingThreads(userId: string, threads: OngoingThre
 
       await supabase
         .from(ONGOING_THREADS_TABLE)
-        .upsert(rows, { onConflict: 'id' });
+        .upsert(rows, { onConflict: "id" });
     }
 
     // Delete threads that are no longer in the array
-    const threadsToDelete = Array.from(existingIds).filter(id => !newIds.has(id));
+    const threadsToDelete = Array.from(existingIds).filter(
+      (id) => !newIds.has(id)
+    );
     if (threadsToDelete.length > 0) {
       await supabase
         .from(ONGOING_THREADS_TABLE)
         .delete()
-        .in('id', threadsToDelete);
+        .in("id", threadsToDelete);
     }
   } catch (error) {
-    console.error('[StateService] Error saving all ongoing threads:', error);
+    console.error("[StateService] Error saving all ongoing threads:", error);
   }
 }
 
@@ -401,12 +414,9 @@ export async function saveAllOngoingThreads(userId: string, threads: OngoingThre
  */
 export async function deleteOngoingThread(threadId: string): Promise<void> {
   try {
-    await supabase
-      .from(ONGOING_THREADS_TABLE)
-      .delete()
-      .eq('id', threadId);
+    await supabase.from(ONGOING_THREADS_TABLE).delete().eq("id", threadId);
   } catch (error) {
-    console.error('[StateService] Error deleting ongoing thread:', error);
+    console.error("[StateService] Error deleting ongoing thread:", error);
   }
 }
 
@@ -417,38 +427,37 @@ export async function deleteOngoingThread(threadId: string): Promise<void> {
 /**
  * Get intimacy state from Supabase
  */
-export async function getIntimacyState(userId: string): Promise<IntimacyState> {
+export async function getIntimacyState(): Promise<IntimacyState> {
   try {
     const { data, error } = await supabase
       .from(INTIMACY_STATES_TABLE)
-      .select('*')
-      .eq('user_id', userId)
+      .select("*")
       .single();
-    
+
     if (error || !data) {
       const defaultState = createDefaultIntimacyState();
-      await saveIntimacyState(userId, defaultState);
+      await saveIntimacyState(defaultState);
       return defaultState;
     }
-    
+
     return {
       recentToneModifier: data.recent_tone_modifier,
       vulnerabilityExchangeActive: data.vulnerability_exchange_active,
-      lastVulnerabilityAt: data.last_vulnerability_at 
-        ? new Date(data.last_vulnerability_at).getTime() 
+      lastVulnerabilityAt: data.last_vulnerability_at
+        ? new Date(data.last_vulnerability_at).getTime()
         : null,
       lowEffortStreak: data.low_effort_streak,
       recentQuality: data.recent_quality,
     };
   } catch (error) {
-    console.error('[StateService] Error getting intimacy state:', error);
+    console.error("[StateService] Error getting intimacy state:", error);
     return createDefaultIntimacyState();
   }
 }
 
 /**
  * Save intimacy state to Supabase
- * 
+ *
  * NOTE: Race condition risk exists if user sends multiple messages quickly.
  * For single-user prototype, this is acceptable. For production, consider
  * implementing optimistic concurrency control using updated_at timestamps.
@@ -460,42 +469,44 @@ export async function getIntimacyState(userId: string): Promise<IntimacyState> {
 /**
  * Unified state fetch - gets all character context in a single RPC call
  * Optimizes network roundtrips from 3-4 calls to 1
- * 
- * @param userId - User ID for Supabase lookup
+ *
  * @returns Object containing mood_state, emotional_momentum, ongoing_threads, intimacy_state
  */
-export async function getFullCharacterContext(userId: string): Promise<{
+export async function getFullCharacterContext(): Promise<{
   mood_state: MoodState | null;
   emotional_momentum: EmotionalMomentum | null;
   ongoing_threads: OngoingThread[];
   intimacy_state: IntimacyState | null;
 }> {
   try {
-    const { data, error } = await supabase.rpc('get_full_character_context', {
-      user_id: userId
+    const { data, error } = await supabase.rpc("get_full_character_context", {
+      user_id: USER_ID,
     });
-    
+
     if (error) {
-      console.error('[StateService] Error fetching full character context:', error);
+      console.error(
+        "[StateService] Error fetching full character context:",
+        error
+      );
       // Fallback to individual fetches
       const [mood, momentum, threads, intimacy] = await Promise.all([
-        getMoodState(userId).catch(() => null),
-        getEmotionalMomentum(userId).catch(() => null),
-        getOngoingThreads(userId).catch(() => []),
-        getIntimacyState(userId).catch(() => null)
+        getMoodState().catch(() => null),
+        getEmotionalMomentum().catch(() => null),
+        getOngoingThreads().catch(() => []),
+        getIntimacyState().catch(() => null),
       ]);
-      
+
       return {
         mood_state: mood,
         emotional_momentum: momentum,
         ongoing_threads: threads,
-        intimacy_state: intimacy
+        intimacy_state: intimacy,
       };
     }
-    
+
     // Parse the JSON response
     const context = data as any;
-    
+
     // Transform database rows to TypeScript interfaces
     const transformMoodState = (row: any): MoodState | null => {
       if (!row) return null;
@@ -505,11 +516,13 @@ export async function getFullCharacterContext(userId: string): Promise<{
         internalProcessing: row.internal_processing,
         calculatedAt: new Date(row.calculated_at).getTime(),
         dailySeed: row.daily_seed,
-        lastInteractionAt: row.last_interaction_at ? new Date(row.last_interaction_at).getTime() : Date.now(),
+        lastInteractionAt: row.last_interaction_at
+          ? new Date(row.last_interaction_at).getTime()
+          : Date.now(),
         lastInteractionTone: row.last_interaction_tone ?? 0,
       };
     };
-    
+
     const transformEmotionalMomentum = (row: any): EmotionalMomentum | null => {
       if (!row) return null;
       return {
@@ -518,58 +531,64 @@ export async function getFullCharacterContext(userId: string): Promise<{
         positiveInteractionStreak: row.positive_interaction_streak,
         recentInteractionTones: row.recent_interaction_tones || [],
         genuineMomentDetected: row.genuine_moment_detected,
-        lastGenuineMomentAt: row.last_genuine_moment_at ? new Date(row.last_genuine_moment_at).getTime() : null,
+        lastGenuineMomentAt: row.last_genuine_moment_at
+          ? new Date(row.last_genuine_moment_at).getTime()
+          : null,
       };
     };
-    
+
     const transformOngoingThreads = (rows: any[]): OngoingThread[] => {
       if (!rows || !Array.isArray(rows)) return [];
-      return rows.map(row => ({
+      return rows.map((row) => ({
         id: row.id,
         theme: row.theme as ThreadTheme,
         currentState: row.current_state,
         intensity: row.intensity,
-        lastMentioned: row.last_mentioned ? new Date(row.last_mentioned).getTime() : null,
+        lastMentioned: row.last_mentioned
+          ? new Date(row.last_mentioned).getTime()
+          : null,
         userRelated: row.user_related,
         createdAt: new Date(row.created_at).getTime(),
         userTrigger: row.user_trigger,
       }));
     };
-    
+
     const transformIntimacyState = (row: any): IntimacyState | null => {
       if (!row) return null;
       return {
         recentToneModifier: row.recent_tone_modifier,
         vulnerabilityExchangeActive: row.vulnerability_exchange_active,
-        lastVulnerabilityAt: row.last_vulnerability_at 
-          ? new Date(row.last_vulnerability_at).getTime() 
+        lastVulnerabilityAt: row.last_vulnerability_at
+          ? new Date(row.last_vulnerability_at).getTime()
           : null,
         lowEffortStreak: row.low_effort_streak,
         recentQuality: row.recent_quality,
       };
     };
-    
+
     return {
       mood_state: transformMoodState(context.mood_state),
-      emotional_momentum: transformEmotionalMomentum(context.emotional_momentum),
+      emotional_momentum: transformEmotionalMomentum(
+        context.emotional_momentum
+      ),
       ongoing_threads: transformOngoingThreads(context.ongoing_threads || []),
-      intimacy_state: transformIntimacyState(context.intimacy_state)
+      intimacy_state: transformIntimacyState(context.intimacy_state),
     };
   } catch (error) {
-    console.error('[StateService] Error in getFullCharacterContext:', error);
+    console.error("[StateService] Error in getFullCharacterContext:", error);
     // Fallback to individual fetches
     const [mood, momentum, threads, intimacy] = await Promise.all([
-      getMoodState(userId).catch(() => null),
-      getEmotionalMomentum(userId).catch(() => null),
-      getOngoingThreads(userId).catch(() => []),
-      getIntimacyState(userId).catch(() => null)
+      getMoodState().catch(() => null),
+      getEmotionalMomentum().catch(() => null),
+      getOngoingThreads().catch(() => []),
+      getIntimacyState().catch(() => null),
     ]);
-    
+
     return {
       mood_state: mood,
       emotional_momentum: momentum,
       ongoing_threads: threads,
-      intimacy_state: intimacy
+      intimacy_state: intimacy,
     };
   }
 }
@@ -578,183 +597,44 @@ export async function getFullCharacterContext(userId: string): Promise<{
 // INTIMACY STATE
 // ============================================
 
-export async function saveIntimacyState(userId: string, state: IntimacyState, expectedUpdatedAt?: string): Promise<void> {
+export async function saveIntimacyState(
+  state: IntimacyState,
+  expectedUpdatedAt?: string
+): Promise<void> {
   try {
     // If expectedUpdatedAt is provided, check for race condition (optimistic concurrency)
     if (expectedUpdatedAt) {
       const { data: current, error: fetchError } = await supabase
         .from(INTIMACY_STATES_TABLE)
-        .select('updated_at')
-        .eq('user_id', userId)
+        .select("updated_at")
         .single();
-      
+
       if (!fetchError && current && current.updated_at !== expectedUpdatedAt) {
         // Race condition detected: data was modified since fetch
-        console.warn('[StateService] Race condition detected in saveIntimacyState: updated_at mismatch. Data may have been modified by another request.');
+        console.warn(
+          "[StateService] Race condition detected in saveIntimacyState: updated_at mismatch. Data may have been modified by another request."
+        );
         // For single-user prototype: Log warning but proceed (graceful degradation)
         // For production: Fetch fresh data, merge changes, and retry
       }
     }
-    
-    await supabase
-      .from(INTIMACY_STATES_TABLE)
-      .upsert({
-        user_id: userId,
+
+    await supabase.from(INTIMACY_STATES_TABLE).upsert(
+      {
+        user_id: USER_ID,
         recent_tone_modifier: state.recentToneModifier,
         vulnerability_exchange_active: state.vulnerabilityExchangeActive,
-        last_vulnerability_at: state.lastVulnerabilityAt 
-          ? new Date(state.lastVulnerabilityAt).toISOString() 
+        last_vulnerability_at: state.lastVulnerabilityAt
+          ? new Date(state.lastVulnerabilityAt).toISOString()
           : null,
         low_effort_streak: state.lowEffortStreak,
         recent_quality: state.recentQuality,
-      }, {
-        onConflict: 'user_id'
-      });
+      },
+      {
+        onConflict: "user_id",
+      }
+    );
   } catch (error) {
-    console.error('[StateService] Error saving intimacy state:', error);
+    console.error("[StateService] Error saving intimacy state:", error);
   }
-}
-
-// ============================================
-// RESET FUNCTIONS (for testing/debugging)
-// ============================================
-
-export async function resetAllState(userId: string): Promise<void> {
-  console.log(`🔄 [StateService] Resetting all state for user ${userId}`);
-  
-  await Promise.all([
-    supabase.from(MOOD_STATES_TABLE).delete().eq('user_id', userId),
-    supabase.from(EMOTIONAL_MOMENTUM_TABLE).delete().eq('user_id', userId),
-    supabase.from(ONGOING_THREADS_TABLE).delete().eq('user_id', userId),
-    supabase.from(INTIMACY_STATES_TABLE).delete().eq('user_id', userId),
-  ]);
-  
-  console.log(`✅ [StateService] All state reset for user ${userId}`);
-}
-
-// ============================================
-// MIGRATION HELPER
-// ============================================
-
-/**
- * Migrate localStorage to Supabase (run once)
- * Call this on app startup to migrate existing localStorage data
- */
-export async function migrateLocalStorageToSupabase(userId: string): Promise<void> {
-  console.log(`📦 [StateService] Checking for localStorage migration for user ${userId}...`);
-  
-  // Mood State
-  const moodStateRaw = localStorage.getItem('kayley_mood_state');
-  if (moodStateRaw) {
-    try {
-      const moodState = JSON.parse(moodStateRaw) as MoodState;
-      await saveMoodState(userId, moodState);
-      localStorage.removeItem('kayley_mood_state');
-      console.log(`✅ [StateService] Migrated mood state to Supabase`);
-    } catch {
-      console.warn('[StateService] Could not migrate mood state');
-    }
-  }
-  
-  // Emotional Momentum
-  const momentumRaw = localStorage.getItem('kayley_emotional_momentum');
-  if (momentumRaw) {
-    try {
-      const momentum = JSON.parse(momentumRaw) as EmotionalMomentum;
-      await saveEmotionalMomentum(userId, momentum);
-      localStorage.removeItem('kayley_emotional_momentum');
-      console.log(`✅ [StateService] Migrated emotional momentum to Supabase`);
-    } catch {
-      console.warn('[StateService] Could not migrate emotional momentum');
-    }
-  }
-  
-  // Ongoing Threads
-  const threadsRaw = localStorage.getItem('kayley_ongoing_threads');
-  if (threadsRaw) {
-    try {
-      const threadsState = JSON.parse(threadsRaw);
-      if (threadsState.threads) {
-        await saveAllOngoingThreads(userId, threadsState.threads);
-        localStorage.removeItem('kayley_ongoing_threads');
-        console.log(`✅ [StateService] Migrated ongoing threads to Supabase`);
-      }
-    } catch {
-      console.warn('[StateService] Could not migrate ongoing threads');
-    }
-  }
-  
-  // Intimacy State
-  const intimacyRaw = localStorage.getItem('kayley_intimacy_state');
-  if (intimacyRaw) {
-    try {
-      const intimacyState = JSON.parse(intimacyRaw) as IntimacyState;
-      await saveIntimacyState(userId, intimacyState);
-      localStorage.removeItem('kayley_intimacy_state');
-      console.log(`✅ [StateService] Migrated intimacy state to Supabase`);
-    } catch {
-      console.warn('[StateService] Could not migrate intimacy state');
-    }
-  }
-  
-  // Daily Tasks
-  const tasksRaw = localStorage.getItem('kayley_daily_tasks');
-  if (tasksRaw) {
-    try {
-      const taskState = JSON.parse(tasksRaw) as { tasks: Task[]; lastResetDate?: string };
-      if (taskState.tasks && Array.isArray(taskState.tasks) && taskState.tasks.length > 0) {
-        // Migrate each task to Supabase using direct insert to preserve dates
-        let migratedCount = 0;
-        for (const task of taskState.tasks) {
-          try {
-            // Calculate scheduled_date from createdAt timestamp (YYYY-MM-DD format)
-            const taskDate = new Date(task.createdAt);
-            const scheduledDate = taskDate.toISOString().split('T')[0];
-            
-            // Prepare task payload
-            const taskPayload: any = {
-              user_id: userId,
-              text: task.text.trim(),
-              priority: task.priority || 'low',
-              category: task.category || null,
-              scheduled_date: scheduledDate,
-              completed: task.completed || false,
-              completed_at: task.completed && task.completedAt 
-                ? new Date(task.completedAt).toISOString() 
-                : null
-            };
-            
-            // Insert directly into Supabase to preserve all fields
-            const { error: insertError } = await supabase
-              .from('daily_tasks')
-              .insert(taskPayload);
-            
-            if (insertError) {
-              console.warn(`[StateService] Could not migrate task "${task.text}":`, insertError);
-            } else {
-              migratedCount++;
-            }
-          } catch (taskError) {
-            console.warn(`[StateService] Could not migrate task "${task.text}":`, taskError);
-          }
-        }
-        
-        if (migratedCount > 0) {
-          localStorage.removeItem('kayley_daily_tasks');
-          console.log(`✅ [StateService] Migrated ${migratedCount} task(s) to Supabase`);
-        }
-      } else {
-        // Empty task list, just remove the key
-        localStorage.removeItem('kayley_daily_tasks');
-        console.log(`✅ [StateService] Removed empty task state from localStorage`);
-      }
-    } catch (error) {
-      console.warn('[StateService] Could not migrate tasks:', error);
-    }
-  }
-  
-  // Clean up old keys
-  localStorage.removeItem('kayley_last_interaction');
-  
-  console.log(`📦 [StateService] Migration check complete`);
 }

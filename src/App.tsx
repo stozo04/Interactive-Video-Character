@@ -10,14 +10,12 @@ import {
 } from './types';
 import * as dbService from './services/cacheService';
 import { supabase } from './services/supabaseClient';
-import type { AIActionResponse } from './services/aiSchema';
 import * as conversationHistoryService from './services/conversationHistoryService';
 import * as relationshipService from './services/relationshipService';
 import type { RelationshipMetrics } from './services/relationshipService';
 import type { FullMessageIntent } from './services/intentService';
 import { recordExchange } from './services/callbackDirector';
 import { getTopLoopToSurface } from './services/presenceDirector';
-import messageAnalyzer from './services/messageAnalyzer';
 import { migrateLocalStorageToSupabase } from './services/stateService';
 import { gmailService, type NewEmailPayload } from './services/gmailService';
 import { 
@@ -26,12 +24,10 @@ import {
   type NewEventPayload 
 } from './services/calendarService';
 import { generateSpeech } from './services/elevenLabsService'; // Import generateSpeech
-import { buildActionKeyMap } from './utils/actionKeyMapper'; // Phase 1 Optimization
-
+import { buildActionKeyMap } from './utils/actionKeyMapper';
 import { predictActionFromMessage } from './utils/intentUtils';
 import { processAndStoreCharacterFacts } from './services/characterFactsService';
 import { prefetchOnIdle, clearPrefetchCache } from './services/prefetchService';
-
 import ImageUploader from './components/ImageUploader';
 import VideoPlayer from './components/VideoPlayer';
 import AudioPlayer from './components/AudioPlayer';
@@ -44,8 +40,6 @@ import { LoginPage } from './components/LoginPage';
 import { TaskPanel } from './components/TaskPanel';
 import { WhiteboardView } from './components/WhiteboardView';
 import { 
-  buildWhiteboardPrompt, 
-  WHITEBOARD_MODES, 
   parseWhiteboardAction,
   WhiteboardAction 
 } from './services/whiteboardModes';
@@ -57,14 +51,11 @@ import { useAIService } from './contexts/AIServiceContext';
 import { AIChatSession, UserContent, AIChatOptions } from './services/aiService';
 import { startCleanupScheduler, stopCleanupScheduler } from './services/loopCleanupService';
 import { startIdleThoughtsScheduler, stopIdleThoughtsScheduler } from './services/idleThoughtsScheduler';
-import { GAMES_PROFILE } from './domain/characters/gamesProfile';
-import * as taskService from './services/taskService';
+import { GAMES_PROFILE } from './domain/characters/gamesProfile'; import * as taskService from './services/taskService';
 import { 
   fetchTechNews, 
-  getUnmentionedStory, 
   markStoryMentioned,
   storeLastSharedStories,
-  getRecentNewsContext 
 } from './services/newsService';
 import {
   getApplicableCheckin,
@@ -124,17 +115,6 @@ const extractJsonObject = (str: string): string | null => {
   }
 
   return null;
-};
-
-// Get user ID from environment variable
-const getUserId = (): string => {
-  const userId = import.meta.env.VITE_USER_ID;
-  
-  if (!userId) {
-    throw new Error('VITE_USER_ID environment variable is not set. Please add it to your .env file.');
-  }
-  
-  return userId;
 };
 
 const ACTION_VIDEO_BUCKET = 'character-action-videos';
@@ -240,14 +220,7 @@ const App: React.FC = () => {
   
   // Optimization 3: Cache Warming (Idle Pre-fetch)
   // This warms up the stateService and presence caches before the first message
-  const userId = useMemo(() => {
-    try {
-      return getUserId();
-    } catch (e) {
-      return null;
-    }
-  }, []);
-  useCacheWarming(userId);
+  useCacheWarming();
 
   const [currentActionId, setCurrentActionId] = useState<string | null>(null);
 
@@ -385,24 +358,12 @@ const App: React.FC = () => {
     setKayleyContext(vibes[Math.floor(Math.random() * vibes.length)]);
   }, []);
 
-  // Phase 5 Migration: LocalStorage -> Supabase
-  // Ensure user data is migrated when they log in
-  useEffect(() => {
-    try {
-      const userId = getUserId();
-      migrateLocalStorageToSupabase(userId)
-        .catch(err => console.error('❌ [Migration] Failed:', err));
-    } catch (e) {
-      // Ignore if user ID check fails (e.g. env var missing in dev)
-    }
-  }, []);
-
   // Loop Cleanup: Initialize scheduled cleanup for stale/duplicate loops
   useEffect(() => {
     try {
-      const userId = getUserId();
-      if (userId) {
-        startCleanupScheduler(userId, {
+
+
+      startCleanupScheduler({
           onComplete: (result) => {
             if (result.totalExpired > 0) {
               console.log(`🧹 Cleaned up ${result.totalExpired} stale loops`);
@@ -413,7 +374,6 @@ const App: React.FC = () => {
         return () => {
           stopCleanupScheduler();
         };
-      }
     } catch (e) {
       // Ignore if user ID check fails (e.g. env var missing in dev)
       console.log(`❌ [LoopCleanup] Error starting cleanup scheduler:`, e);
@@ -423,14 +383,14 @@ const App: React.FC = () => {
   // Idle Thoughts: Initialize scheduler to generate thoughts during user absence
   useEffect(() => {
     try {
-      const userId = getUserId();
-      if (userId) {
-        startIdleThoughtsScheduler(userId);
+
+
+      startIdleThoughtsScheduler();
 
         return () => {
           stopIdleThoughtsScheduler();
         };
-      }
+
     } catch (e) {
       // Ignore if user ID check fails (e.g. env var missing in dev)
       console.log(`❌ [IdleThoughts] Error starting idle thoughts scheduler:`, e);
@@ -510,7 +470,6 @@ const App: React.FC = () => {
            setChatHistory(prev => [...prev, { role: 'model' as const, text: displayText }]);
            
            await conversationHistoryService.appendConversationHistory(
-              userId,
              [{ role: 'user', text: '📷 [Sent an Image]' }, { role: 'model', text: displayText }],
              updatedSession?.interactionId || aiSession?.interactionId
            );
@@ -549,8 +508,7 @@ const App: React.FC = () => {
           // 3. Handle response as usual
           setChatHistory(prev => [...prev, { role: 'model' as const, text: response.text_response }]);
           
-          await conversationHistoryService.appendConversationHistory(
-            userId,
+        await conversationHistoryService.appendConversationHistory(
             [{ role: 'user', text: '📷 [Sent an Image]' }, { role: 'model', text: response.text_response }],
             updatedSession?.interactionId || aiSession?.interactionId
           );
@@ -824,7 +782,6 @@ const App: React.FC = () => {
     setIsProcessingAction(true);
 
     try {
-      const userId = getUserId();
       // 2. Send to AI (Grok/Gemini)
       // Notice we pass the systemPrompt as 'text' but with a special type or just handle it as text
       const { response, session: updatedSession, audioData } = await activeService.generateResponse(
@@ -846,7 +803,6 @@ const App: React.FC = () => {
       
       // 4. Save to DB
       await conversationHistoryService.appendConversationHistory(
-        userId,
         [{ role: 'model', text: response.text_response }],
         updatedSession.interactionId
       );
@@ -920,8 +876,6 @@ const App: React.FC = () => {
       return;
     }
 
-    const userId = getUserId();
-
     // Business Logic: Delegate to BaseAIService (the Brain)
     if (!activeService.triggerIdleBreaker) {
       console.warn('[IdleBreaker] Service does not support triggerIdleBreaker');
@@ -958,7 +912,6 @@ const App: React.FC = () => {
       
       // Save to DB
       await conversationHistoryService.appendConversationHistory(
-        userId,
         [{ role: 'model', text: response.text_response }],
         updatedSession.interactionId
       );
@@ -1082,13 +1035,8 @@ const App: React.FC = () => {
       const timeSinceInteraction = now - lastInteractionAt;
 
       if (timeSinceInteraction > PREFETCH_IDLE_TIMEOUT && !isProcessingAction && !isSpeaking) {
-        try {
-          const userId = getUserId();
-          prefetchOnIdle(userId);
-          prefetchTriggered = true;
-        } catch (e) {
-          // Ignore if userId not available
-        }
+        prefetchOnIdle();
+        prefetchTriggered = true;
       }
     };
 
@@ -1221,10 +1169,7 @@ const App: React.FC = () => {
       const updatedHistory = [...chatHistory, { role: 'model' as const, text: characterMessage }];
       setChatHistory(updatedHistory);
 
-      const userId = getUserId();
-      try {
-        await conversationHistoryService.appendConversationHistory(
-          userId,
+      await conversationHistoryService.appendConversationHistory(
           [{ role: 'model', text: characterMessage }],
           aiSession?.interactionId // Pass the current interaction ID
         );
@@ -1237,8 +1182,6 @@ const App: React.FC = () => {
             enqueueAudio(audioData);
           }
         }
-
-      } catch (error) { console.error(error); }
 
       setEmailQueue([]);
     };
@@ -1595,18 +1538,11 @@ const App: React.FC = () => {
     // Load tasks and perform daily rollover check
     // ASYNC TASK LOADING
     let currentTasks: Task[] = [];
-    try {
-      // Use session ID if available, otherwise fallback to env user ID
-      const userId = getUserId();
-      if (userId) {
-        currentTasks = await taskService.fetchTasks(userId);
-        console.log(`📋 Loaded ${currentTasks.length} task(s) from Supabase for user ${userId}`);
-      } else {
-        console.warn('⚠️ No user ID available, skipping task fetch');
-      }
-    } catch (err) {
-      console.error('Failed to fetch tasks', err);
-    }
+
+    currentTasks = await taskService.fetchTasks();
+    console.log(`📋 Loaded ${currentTasks.length} task(s) from Supabase`);
+
+
     setTasks(currentTasks);
     
     // Load snooze state
@@ -1645,8 +1581,6 @@ const App: React.FC = () => {
     setCurrentActionId(null);
     
     try {
-      const userId = getUserId();
-
       // ============================================
       // FRESH SESSION: Don't load history anymore!
       // AI uses memory tools to recall past context
@@ -1654,12 +1588,12 @@ const App: React.FC = () => {
       console.log('🧠 [App] Starting FRESH session - AI will use memory tools for context');
 
       // Still load relationship data for tone/personality
-      const relationshipData = await relationshipService.getRelationship(userId);
+      const relationshipData = await relationshipService.getRelationship();
       setRelationship(relationshipData);
       
       try {
         // 1. Check if any conversation occurred today (DB source of truth)
-        const messageCount = await conversationHistoryService.getTodaysMessageCount(userId);
+        const messageCount = await conversationHistoryService.getTodaysMessageCount();
         const hasHadConversationToday = messageCount > 0;
 
         // 2. Check if this is the first login of the day (Local state for briefing delay)
@@ -1672,7 +1606,7 @@ const App: React.FC = () => {
 
         // USER REQUIREMENT: Store the conversationId that google gemini gives per day
         // Try to restore today's Gemini interaction ID for continuity
-        const existingInteractionId = await conversationHistoryService.getTodaysInteractionId(userId);
+        const existingInteractionId = await conversationHistoryService.getTodaysInteractionId();
         if (existingInteractionId) {
           console.log(`🔗 [App] Restoring today's interaction ID: ${existingInteractionId}`);
           session.interactionId = existingInteractionId;
@@ -1701,7 +1635,7 @@ const App: React.FC = () => {
           // CONVERSATION OCCURRED TODAY: Reload all exchanges and generate informal "welcome back"
           console.log(`🧠 [App] Chat detected today (${messageCount} messages) - reloading history and generating non-greeting`);
 
-          const todayHistory = await conversationHistoryService.loadTodaysConversationHistory(userId);
+          const todayHistory = await conversationHistoryService.loadTodaysConversationHistory();
           setChatHistory(todayHistory);
 
           const { greeting: backMessage, session: updatedSession } = await activeService.generateNonGreeting(
@@ -1714,7 +1648,6 @@ const App: React.FC = () => {
 
           // Save the interaction record
           await conversationHistoryService.appendConversationHistory(
-            userId,
             [{ role: 'model', text: backMessage.text_response }],
             updatedSession.interactionId || session.interactionId // Restore interactionId here
           );
@@ -1860,8 +1793,7 @@ const App: React.FC = () => {
 
   // Task Management Handlers
   const handleTaskCreate = useCallback(async (text: string, priority?: 'low' | 'medium' | 'high') => {
-    const userId = getUserId();
-    const newTask = await taskService.createTask(userId, text, priority);
+    const newTask = await taskService.createTask(text, priority);
     if (newTask) {
       setTasks(prev => [...prev, newTask]);
 
@@ -1948,7 +1880,7 @@ const App: React.FC = () => {
     // NOTE: analyzeUserMessageBackground is now called in BaseAIService.generateResponse
     // with the pre-calculated intent, preventing duplicate detectFullIntentLLMCached calls.
     // We only record the exchange here for callback timing.
-    const startBackgroundAnalysis = (_userId: string) => {
+    const startBackgroundAnalysis = () => {
       try {
         recordExchange(); // For callback timing
       } catch (e) { console.warn('Exchange record failed', e); }
@@ -1957,7 +1889,7 @@ const App: React.FC = () => {
     // Start analysis immediately in background
     // (It performs its own async operations without blocking)
     try {
-      startBackgroundAnalysis(getUserId());
+      startBackgroundAnalysis();
     } catch (e) {
       console.error("Failed to start background analysis", e);
     }
@@ -1965,12 +1897,12 @@ const App: React.FC = () => {
     // Background (non-critical) sentiment analysis should NOT compete with the critical path.
     // We'll start it only after we've queued the AI's audio response (or displayed the text if muted).
     let sentimentPromise: Promise<any> | null = null;
-    const startBackgroundSentiment = (userId: string, intent?: FullMessageIntent) => {
+    const startBackgroundSentiment = (intent?: FullMessageIntent) => {
       if (sentimentPromise) return;
 
       sentimentPromise = relationshipService
         .analyzeMessageSentiment(message, updatedHistory, intent)
-        .then(event => relationshipService.updateRelationship(userId, event))
+        .then(event => relationshipService.updateRelationship(event))
         .catch(error => {
           console.error('Background sentiment analysis failed:', error);
           return null;
@@ -2010,8 +1942,6 @@ const App: React.FC = () => {
     }
 
     try {
-      const userId = getUserId();
-
       // ============================================
       // LLM-BASED USER FACT DETECTION
       // Facts are detected by the intent service LLM and processed after response
@@ -2088,7 +2018,7 @@ const App: React.FC = () => {
         // This uses semantic understanding from the intent service instead of regex patterns
         if (intent?.userFacts?.hasFactsToStore && intent.userFacts.facts.length > 0) {
           import('./services/memoryService').then(({ processDetectedFacts }) => {
-            processDetectedFacts(userId, intent.userFacts!.facts).catch(err =>
+            processDetectedFacts(intent.userFacts!.facts).catch(err =>
               console.warn('Failed to process LLM-detected user facts:', err)
             );
           });
@@ -2096,7 +2026,7 @@ const App: React.FC = () => {
 
         // IMPORTANT: Refresh tasks after AI response in case task_action tool was called
         // The tool modifies Supabase directly, so we need to sync UI state
-        taskService.fetchTasks(userId).then(freshTasks => {
+        taskService.fetchTasks().then(freshTasks => {
           setTasks(freshTasks);
           console.log('📋 Tasks refreshed after AI response');
         }).catch(err => {
@@ -2112,12 +2042,12 @@ const App: React.FC = () => {
         }
 
         // Detect and track Kayley's presence state (what she's wearing/doing) - background, non-blocking
-        if (response.text_response && userId) {
+        if (response.text_response) {
           detectKayleyPresence(response.text_response, message)
             .then(async (detected) => {
               if (detected && detected.confidence > 0.7) {
                 const expirationMinutes = getDefaultExpirationMinutes(detected.activity, detected.outfit);
-                await updateKayleyPresenceState(userId, {
+                await updateKayleyPresenceState({
                   outfit: detected.outfit,
                   mood: detected.mood,
                   activity: detected.activity,
@@ -2211,14 +2141,13 @@ const App: React.FC = () => {
         // Check for Task Action
         if (taskAction && taskAction.action) {
           console.log('📋 Task action detected:', taskAction);
-          const userId = getUserId();
+
           
           try {
             switch (taskAction.action) {
               case 'create':
                 if (taskAction.task_text) {
                   const newTask = await taskService.createTask(
-                    userId,
                     taskAction.task_text, 
                     taskAction.priority as 'low' | 'medium' | 'high' | undefined
                   );
@@ -2229,7 +2158,7 @@ const App: React.FC = () => {
                 
               case 'complete':
                 if (taskAction.task_text) {
-                  const foundTask = await taskService.findTaskByText(userId, taskAction.task_text);
+                  const foundTask = await taskService.findTaskByText(taskAction.task_text);
                   if (foundTask) {
                     const updated = await taskService.toggleTask(foundTask.id, foundTask.completed);
                     if (updated) setTasks(prev => prev.map(t => t.id === foundTask.id ? updated : t));
@@ -2247,7 +2176,7 @@ const App: React.FC = () => {
                 
               case 'delete':
                 if (taskAction.task_text) {
-                  const foundTask = await taskService.findTaskByText(userId, taskAction.task_text);
+                  const foundTask = await taskService.findTaskByText(taskAction.task_text);
                   if (foundTask) {
                     await taskService.deleteTask(foundTask.id);
                     setTasks(prev => prev.filter(t => t.id !== foundTask.id));
@@ -2316,7 +2245,6 @@ const App: React.FC = () => {
                 // Show confirmation
                 setChatHistory(prev => [...prev, { role: 'model' as const, text: response.text_response }]);
                 await conversationHistoryService.appendConversationHistory(
-                  userId,
                   [{ role: 'user', text: message }, { role: 'model', text: response.text_response }],
                   updatedSession?.interactionId || aiSession?.interactionId
                 );
@@ -2327,7 +2255,7 @@ const App: React.FC = () => {
                 }
 
                 // Non-critical: kick off sentiment *after* we queued audio
-                startBackgroundSentiment(userId, intent);
+                startBackgroundSentiment(intent);
                 
                 if (response.action_id) maybePlayResponseAction(response.action_id);
                 
@@ -2360,7 +2288,6 @@ const App: React.FC = () => {
               // Show confirmation
               setChatHistory(prev => [...prev, { role: 'model' as const, text: response.text_response }]);
               await conversationHistoryService.appendConversationHistory(
-                userId,
                 [{ role: 'user', text: message }, { role: 'model', text: response.text_response }],
                 updatedSession?.interactionId || aiSession?.interactionId
               );
@@ -2371,7 +2298,7 @@ const App: React.FC = () => {
               }
 
               // Non-critical: kick off sentiment *after* we queued audio
-              startBackgroundSentiment(userId, intent);
+              startBackgroundSentiment(intent);
 
               if (response.action_id) maybePlayResponseAction(response.action_id);
 
@@ -2401,7 +2328,6 @@ const App: React.FC = () => {
             
             // Save initial conversation
             await conversationHistoryService.appendConversationHistory(
-              userId,
               [{ role: 'user', text: message }, { role: 'model', text: response.text_response }],
               updatedSession?.interactionId || aiSession?.interactionId
             );
@@ -2483,7 +2409,6 @@ Let the user know in a friendly way and maybe offer to check back later.
             
             // Save initial conversation
             await conversationHistoryService.appendConversationHistory(
-              userId,
               [{ role: 'user', text: message }, { role: 'model', text: response.text_response }],
               updatedSession?.interactionId || aiSession?.interactionId
             );
@@ -2491,7 +2416,7 @@ Let the user know in a friendly way and maybe offer to check back later.
             
             // Generate the selfie image with multi-reference system
             // First, get Kayley's current presence state
-            const kayleyState = await getKayleyPresenceState(userId);
+            const kayleyState = await getKayleyPresenceState();
 
             // DEBUG: Log presence state usage
             console.log('📸 [Selfie Generation] Presence State:', {
@@ -2507,8 +2432,6 @@ Let the user know in a friendly way and maybe offer to check back later.
               scene: selfieAction.scene,
               mood: selfieAction.mood,
               outfitHint: selfieAction.outfit_hint,
-              // Enable multi-reference system
-              userId,
               userMessage: message,
               conversationHistory: chatHistory.slice(-10).map(msg => ({
                 role: msg.role === 'user' ? 'user' : 'assistant',
@@ -2559,7 +2482,7 @@ Let the user know in a friendly way and maybe offer to check back later.
             }
             
             // Non-critical: sentiment analysis
-            startBackgroundSentiment(userId, intent);
+            startBackgroundSentiment(intent);
             
             if (response.action_id) maybePlayResponseAction(response.action_id);
             
@@ -2605,8 +2528,7 @@ Let the user know in a friendly way and maybe offer to check back later.
 
              setChatHistory(prev => [...prev, { role: 'model' as const, text: displayText }]);
              
-             await conversationHistoryService.appendConversationHistory(
-                userId,
+            await conversationHistoryService.appendConversationHistory(
                [{ role: 'user', text: message }, { role: 'model', text: displayText }],
                updatedSession?.interactionId || aiSession?.interactionId
              );
@@ -2627,7 +2549,7 @@ Let the user know in a friendly way and maybe offer to check back later.
              }
 
              // Non-critical: kick off sentiment *after* we queued audio (or after text if muted)
-             startBackgroundSentiment(userId, intent);
+            startBackgroundSentiment(intent);
              
               if (response.action_id) {
                  maybePlayResponseAction(response.action_id);
@@ -2648,7 +2570,6 @@ Let the user know in a friendly way and maybe offer to check back later.
 
             setChatHistory(prev => [...prev, { role: 'model' as const, text: displayText }]);
             await conversationHistoryService.appendConversationHistory(
-              userId,
               [{ role: 'user', text: message }, { role: 'model', text: displayText }],
               updatedSession?.interactionId || aiSession?.interactionId
             );
@@ -2713,7 +2634,6 @@ Let the user know in a friendly way and maybe offer to check back later.
             setChatHistory(prev => [...prev, { role: 'model' as const, text: displayText }]);
 
             await conversationHistoryService.appendConversationHistory(
-              userId,
               [{ role: 'user', text: message }, { role: 'model', text: displayText }],
               updatedSession?.interactionId || aiSession?.interactionId
             );
@@ -2730,7 +2650,7 @@ Let the user know in a friendly way and maybe offer to check back later.
             }
 
             // Non-critical: kick off sentiment *after* we queued audio (or after text if muted)
-            startBackgroundSentiment(userId, intent);
+            startBackgroundSentiment(intent);
 
             if (response.action_id) {
               maybePlayResponseAction(response.action_id);
@@ -2750,8 +2670,7 @@ Let the user know in a friendly way and maybe offer to check back later.
             const displayText = textBeforeTag ? `${textBeforeTag}\n\n(System: ${errorText})` : errorText;
 
              setChatHistory(prev => [...prev, { role: 'model' as const, text: displayText }]);
-             await conversationHistoryService.appendConversationHistory(
-                userId,
+            await conversationHistoryService.appendConversationHistory(
                [{ role: 'user', text: message }, { role: 'model', text: displayText }],
                updatedSession?.interactionId || aiSession?.interactionId
              );
@@ -2760,8 +2679,7 @@ Let the user know in a friendly way and maybe offer to check back later.
           // 3. Handle Response (no calendar actions)
             setChatHistory(prev => [...prev, { role: 'model' as const, text: response.text_response }]);
             
-            await conversationHistoryService.appendConversationHistory(
-                userId,
+          await conversationHistoryService.appendConversationHistory(
               [{ role: 'user', text: message }, { role: 'model', text: response.text_response }],
               updatedSession?.interactionId || aiSession?.interactionId
             );
@@ -2773,7 +2691,7 @@ Let the user know in a friendly way and maybe offer to check back later.
             }
 
             // Non-critical: kick off sentiment *after* we queued audio (or after text if muted)
-          startBackgroundSentiment(userId, intent);
+          startBackgroundSentiment(intent);
 
             if (response.action_id) {
                 maybePlayResponseAction(response.action_id);
@@ -2844,15 +2762,14 @@ Let the user know in a friendly way and maybe offer to check back later.
       }
 
       // Task summary - load current tasks at briefing time
-      const userId = getUserId();
-      const currentTasks = await taskService.fetchTasks(userId);
+      const currentTasks = await taskService.fetchTasks();
       const incompleteTasks = currentTasks.filter(t => !t.completed);
       const taskSummary = incompleteTasks.length > 0
         ? `User has ${incompleteTasks.length} task(s) pending: ${incompleteTasks.slice(0, 3).map(t => t.text).join(', ')}`
         : "User's checklist is clear.";
 
       // Fetch open loop for personal continuity (e.g., "Houston trip")
-      const topLoop = await getTopLoopToSurface(userId);
+      const topLoop = await getTopLoopToSurface();
       const openLoopContext = topLoop
         ? `You've been wondering about: "${topLoop.topic}". Ask: "${topLoop.suggestedFollowup || `How did ${topLoop.topic} go?`}"`
         : "";
@@ -2937,7 +2854,7 @@ Let the user know in a friendly way and maybe offer to check back later.
       try {
         const tFacts0 = wbNow();
         const { getUserFacts } = await import('./services/memoryService');
-        const userFacts = await getUserFacts(userId, 'all');
+        const userFacts = await getUserFacts('all');
         wbLog('⏱️ [App/Whiteboard] user_facts done', {
           dtMs: Math.round(wbNow() - tFacts0),
           count: Array.isArray(userFacts) ? userFacts.length : 'n/a',

@@ -15,7 +15,6 @@
  * - All state now persisted to Supabase via stateService
  * - Local caching to avoid DB hits on every call
  * - Async-first API with sync fallbacks for backwards compatibility
- * - userId required for all state operations
  */
 
 import {
@@ -50,7 +49,6 @@ const CACHE_TTL = 60000; // 60 seconds cache TTL
 // ============================================
 
 interface CacheEntry<T> {
-  userId: string;
   data: T;
   timestamp: number;
 }
@@ -60,9 +58,8 @@ let threadsCache: CacheEntry<OngoingThread[]> | null = null;
 /**
  * Check if a cache entry is still valid
  */
-function isCacheValid<T>(cache: CacheEntry<T> | null, userId: string): boolean {
+function isCacheValid<T>(cache: CacheEntry<T> | null): boolean {
   if (!cache) return false;
-  if (cache.userId !== userId) return false;
   if (Date.now() - cache.timestamp > CACHE_TTL) return false;
   return true;
 }
@@ -410,26 +407,25 @@ No thread is pressing enough to bring up right now. Just be present.
 /**
  * Get ongoing threads from Supabase with caching and processing.
  * 
- * @param userId - User ID for Supabase lookup
  * @returns Promise resolving to processed OngoingThread array
  */
-export async function getOngoingThreadsAsync(userId: string): Promise<OngoingThread[]> {
+export async function getOngoingThreadsAsync(): Promise<OngoingThread[]> {
   // Return from cache if valid
-  if (isCacheValid(threadsCache, userId)) {
+  if (isCacheValid(threadsCache)) {
     return threadsCache!.data;
   }
   
   try {
-    const threads = await getSupabaseThreads(userId);
+    const threads = await getSupabaseThreads();
     
     // Process threads (decay, cleanup, ensure minimum)
     const processed = processThreads(threads);
     
     // Update cache
-    threadsCache = { userId, data: processed, timestamp: Date.now() };
+    threadsCache = { data: processed, timestamp: Date.now() };
     
     // Save processed threads back to Supabase (non-blocking)
-    saveAllOngoingThreads(userId, processed).catch(console.error);
+    saveAllOngoingThreads(processed).catch(console.error);
     
     return processed;
   } catch (error) {
@@ -437,7 +433,7 @@ export async function getOngoingThreadsAsync(userId: string): Promise<OngoingThr
     
     // Return minimum threads on error
     const fallback = ensureMinimumThreads([]);
-    threadsCache = { userId, data: fallback, timestamp: Date.now() };
+    threadsCache = { data: fallback, timestamp: Date.now() };
     return fallback;
   }
 }
@@ -445,19 +441,17 @@ export async function getOngoingThreadsAsync(userId: string): Promise<OngoingThr
 /**
  * Create a user-triggered thread (when user says something she'll think about)
  * 
- * @param userId - User ID for Supabase
  * @param trigger - What the user said
  * @param currentState - What she's thinking about it
  * @param intensity - How present in her mind (0.1-1.0)
  * @returns Promise resolving to the new thread
  */
 export async function createUserThreadAsync(
-  userId: string,
   trigger: string,
   currentState: string,
   intensity: number = 0.7
 ): Promise<OngoingThread> {
-  const threads = await getOngoingThreadsAsync(userId);
+  const threads = await getOngoingThreadsAsync();
   
   const newThread: OngoingThread = {
     id: generateId(),
@@ -482,10 +476,10 @@ export async function createUserThreadAsync(
   }
   
   // Update cache
-  threadsCache = { userId, data: updatedThreads, timestamp: Date.now() };
+  threadsCache = { data: updatedThreads, timestamp: Date.now() };
   
   // Save to Supabase
-  await saveAllOngoingThreads(userId, updatedThreads);
+  await saveAllOngoingThreads(updatedThreads);
   
   return newThread;
 }
@@ -493,16 +487,14 @@ export async function createUserThreadAsync(
 /**
  * Boost a thread's intensity (when it becomes relevant)
  * 
- * @param userId - User ID for Supabase
  * @param threadId - Thread to boost
  * @param amount - Amount to boost (default 0.2)
  */
 export async function boostThreadAsync(
-  userId: string,
   threadId: string,
   amount: number = 0.2
 ): Promise<void> {
-  const threads = await getOngoingThreadsAsync(userId);
+  const threads = await getOngoingThreadsAsync();
   
   const updatedThreads = threads.map(thread => {
     if (thread.id === threadId) {
@@ -515,23 +507,21 @@ export async function boostThreadAsync(
   });
   
   // Update cache
-  threadsCache = { userId, data: updatedThreads, timestamp: Date.now() };
+  threadsCache = { data: updatedThreads, timestamp: Date.now() };
   
   // Save to Supabase
-  await saveAllOngoingThreads(userId, updatedThreads);
+  await saveAllOngoingThreads(updatedThreads);
 }
 
 /**
  * Mark a thread as mentioned (to prevent over-repetition)
  * 
- * @param userId - User ID for Supabase
  * @param threadId - Thread to mark
  */
 export async function markThreadMentionedAsync(
-  userId: string,
   threadId: string
 ): Promise<void> {
-  const threads = await getOngoingThreadsAsync(userId);
+  const threads = await getOngoingThreadsAsync();
   
   const updatedThreads = threads.map(thread => {
     if (thread.id === threadId) {
@@ -546,21 +536,20 @@ export async function markThreadMentionedAsync(
   });
   
   // Update cache
-  threadsCache = { userId, data: updatedThreads, timestamp: Date.now() };
+  threadsCache = { data: updatedThreads, timestamp: Date.now() };
   
   // Save to Supabase
-  await saveAllOngoingThreads(userId, updatedThreads);
+  await saveAllOngoingThreads(updatedThreads);
 }
 
 /**
  * Get the most relevant thread to potentially surface
  * Returns null if no thread should be surfaced right now
  * 
- * @param userId - User ID for Supabase
  * @returns Promise resolving to thread or null
  */
-export async function getThreadToSurfaceAsync(userId: string): Promise<OngoingThread | null> {
-  const threads = await getOngoingThreadsAsync(userId);
+export async function getThreadToSurfaceAsync(): Promise<OngoingThread | null> {
+  const threads = await getOngoingThreadsAsync();
   return findThreadToSurface(threads);
 }
 
@@ -585,11 +574,10 @@ export function formatThreadsFromData(threads: OngoingThread[]): string {
 /**
  * Format threads for prompt context (async version)
  * 
- * @param userId - User ID for Supabase
  * @returns Promise resolving to formatted prompt string
  */
-export async function formatThreadsForPromptAsync(userId: string): Promise<string> {
-  const threads = await getOngoingThreadsAsync(userId);
+export async function formatThreadsForPromptAsync(): Promise<string> {
+  const threads = await getOngoingThreadsAsync();
   const topThread = findThreadToSurface(threads);
   return formatThreadsInternal(threads, topThread);
 }
@@ -597,14 +585,13 @@ export async function formatThreadsForPromptAsync(userId: string): Promise<strin
 /**
  * Reset threads (async version)
  * 
- * @param userId - User ID for Supabase
  */
-export async function resetThreadsAsync(userId: string): Promise<void> {
+export async function resetThreadsAsync(): Promise<void> {
   // Clear cache
   threadsCache = null;
   
   // Clear from Supabase
-  await saveAllOngoingThreads(userId, []);
+  await saveAllOngoingThreads([]);
   
   console.log('🧠 [OngoingThreads] Reset threads');
 }

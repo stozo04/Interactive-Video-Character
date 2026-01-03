@@ -82,18 +82,16 @@ export function setCalendarEventsProvider(
  * Generate an idle thought and convert it to an ongoing thread.
  * (Original Part One behavior)
  *
- * @param userId - User ID
  * @param absenceDurationHours - Hours the user has been away
  * @param kayleyMood - Current mood string
  */
 async function processIdleThought(
-  userId: string,
   absenceDurationHours: number,
   kayleyMood: string
 ): Promise<void> {
   try {
     console.log('💭 [IdleThoughts] Generating idle thought...');
-    const thought = await generateIdleThought(userId, absenceDurationHours, kayleyMood);
+    const thought = await generateIdleThought(absenceDurationHours, kayleyMood);
 
     if (!thought) {
       console.log('[IdleThoughts] No thought generated (cooldown or error)');
@@ -104,7 +102,6 @@ async function processIdleThought(
 
     // Convert to ongoing thread for proactive surfacing
     await createUserThreadAsync(
-      userId,
       'idle reflection',
       thought.content,
       IDLE_THOUGHTS_CONFIG.thoughtIntensity
@@ -127,12 +124,11 @@ async function processIdleThought(
  * 4. Check calendar for completed events (Part Two)
  * 5. Maybe generate gift message (Part Two - rare, max once/day)
  *
- * @param userId - User ID
  */
-async function processIdleTick(userId: string): Promise<void> {
+async function processIdleTick(): Promise<void> {
   try {
     // Get mood state to check absence duration
-    const moodState = await getMoodState(userId);
+    const moodState = await getMoodState();
     const now = Date.now();
     const minutesAway = (now - moodState.lastInteractionAt) / (1000 * 60);
     const hoursAway = minutesAway / 60;
@@ -152,7 +148,7 @@ async function processIdleTick(userId: string): Promise<void> {
     // ========================================
     // Only run if user has been away long enough for thought generation
     if (minutesAway >= MIN_ABSENCE_MINUTES_FOR_THOUGHT) {
-      await processIdleThought(userId, hoursAway, kayleyMood);
+      await processIdleThought(hoursAway, kayleyMood);
     }
 
     // ========================================
@@ -160,8 +156,8 @@ async function processIdleTick(userId: string): Promise<void> {
     // ========================================
     // Generate a life experience (70% chance)
     try {
-      const context = await buildExperienceContext(userId);
-      const experience = await generateKayleyExperience(userId, context);
+      const context = await buildExperienceContext();
+      const experience = await generateKayleyExperience(context);
       if (experience) {
         console.log(`🎭 [IdleScheduler] Generated experience: "${experience.content.slice(0, 40)}..."`);
       }
@@ -173,12 +169,12 @@ async function processIdleTick(userId: string): Promise<void> {
     // 3. CALENDAR AWARENESS (Part Two)
     // ========================================
     // Check for events that ended while user was away
-    const hasPending = await hasUndeliveredMessage(userId);
+    const hasPending = await hasUndeliveredMessage();
     if (!hasPending && calendarEventsProvider) {
       try {
         const events = await calendarEventsProvider();
         const lastInteractionDate = new Date(moodState.lastInteractionAt);
-        const calendarMessage = await checkCalendarForMessage(userId, events, lastInteractionDate);
+        const calendarMessage = await checkCalendarForMessage(events, lastInteractionDate);
         if (calendarMessage) {
           console.log(`📅 [IdleScheduler] Created calendar message: "${calendarMessage.messageText.slice(0, 40)}..."`);
         }
@@ -191,10 +187,10 @@ async function processIdleTick(userId: string): Promise<void> {
     // 4. GIFT MESSAGES (Part Two)
     // ========================================
     // Maybe generate a rare gift message (5% chance, max once/day)
-    const stillNoPending = await hasUndeliveredMessage(userId);
+    const stillNoPending = await hasUndeliveredMessage();
     if (!stillNoPending) {
       try {
-        const giftMessage = await maybeGenerateGiftMessage(userId, hoursAway);
+        const giftMessage = await maybeGenerateGiftMessage(hoursAway);
         if (giftMessage) {
           console.log(`🎁 [IdleScheduler] Created gift message: "${giftMessage.messageText.slice(0, 40)}..."`);
         }
@@ -221,10 +217,8 @@ async function processIdleTick(userId: string): Promise<void> {
  * - Generates Kayley experiences (Part Two)
  * - Checks calendar for completed events (Part Two)
  * - Maybe generates gift messages (Part Two)
- *
- * @param userId - User ID
  */
-export function startIdleThoughtsScheduler(userId: string): void {
+export function startIdleThoughtsScheduler(): void {
   // Stop existing scheduler if any
   stopIdleThoughtsScheduler();
 
@@ -235,14 +229,14 @@ export function startIdleThoughtsScheduler(userId: string): void {
 
   // Run once immediately on start (optional)
   if (IDLE_THOUGHTS_CONFIG.runImmediatelyOnStart) {
-    processIdleTick(userId).catch(error => {
+    processIdleTick().catch(error => {
       console.error('[IdleScheduler] Error in immediate run:', error);
     });
   }
 
   // Schedule periodic checks
   schedulerInterval = setInterval(() => {
-    processIdleTick(userId).catch(error => {
+    processIdleTick().catch(error => {
       console.error('[IdleScheduler] Error in scheduled run:', error);
     });
   }, interval);
