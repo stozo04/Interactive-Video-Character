@@ -12,10 +12,9 @@
  * This ensures state persists across devices and browser sessions.
  */
 
-import { supabase } from './supabaseClient';
-import { Task } from '../types';
-import { getPresenceContext } from './presenceDirector';
-const USER_ID = import.meta.env.VITE_USER_ID;
+import { supabase } from "./supabaseClient";
+import { getPresenceContext } from "./presenceDirector";
+const EMOTIONAL_MOMENTUM_ID = "06064180-ee6a-48d0-8cf3-bb13f1bd40e1";
 // ============================================
 // Table Names
 // ============================================
@@ -24,7 +23,8 @@ const MOOD_STATES_TABLE = "mood_states";
 const EMOTIONAL_MOMENTUM_TABLE = "emotional_momentum";
 const ONGOING_THREADS_TABLE = "ongoing_threads";
 const INTIMACY_STATES_TABLE = "intimacy_states";
-
+const MOOD_STATE_ID = "15c47464-0358-4075-ae1d-a90f36d5d9c2";
+const INTIMACY_STATES_ID = "0b53778a-6ff1-4366-ab5b-a59ac8862c00";
 // ============================================
 // Types
 // ============================================
@@ -162,7 +162,8 @@ export async function getMoodState(): Promise<MoodState> {
  */
 export async function saveMoodState(state: MoodState): Promise<void> {
   try {
-    await supabase.from(MOOD_STATES_TABLE).upsert({
+    const { error } = await supabase.from(MOOD_STATES_TABLE).upsert({
+      id: MOOD_STATE_ID, // 👈 tells Supabase which row is “the one”
       daily_energy: state.dailyEnergy,
       social_battery: state.socialBattery,
       internal_processing: state.internalProcessing,
@@ -171,6 +172,13 @@ export async function saveMoodState(state: MoodState): Promise<void> {
       last_interaction_at: new Date(state.lastInteractionAt).toISOString(),
       last_interaction_tone: state.lastInteractionTone,
     });
+
+    if (error) {
+      console.error(
+        "[StateService] Supabase upsert error in saveMoodState:",
+        error
+      );
+    }
   } catch (error) {
     console.error("[StateService] Error saving mood state:", error);
   }
@@ -218,10 +226,11 @@ export async function getEmotionalMomentum(): Promise<EmotionalMomentum> {
 
     if (error || !data) {
       const defaultMomentum = createDefaultEmotionalMomentum();
+      console.log("[DEBUG] getEmotionalMomentum payload:", defaultMomentum);
       await saveEmotionalMomentum(defaultMomentum);
       return defaultMomentum;
     }
-
+    console.log("Gates 23: momentum ", data.current_mood_leve);
     return {
       currentMoodLevel: data.current_mood_level,
       momentumDirection: data.momentum_direction,
@@ -250,38 +259,46 @@ export async function saveEmotionalMomentum(
   expectedUpdatedAt?: string
 ): Promise<void> {
   try {
-    // If expectedUpdatedAt is provided, check for race condition (optimistic concurrency)
+    console.log("[DEBUG] saveEmotionalMomentum payload:", momentum);
+    // Optimistic concurrency check
     if (expectedUpdatedAt) {
       const { data: current, error: fetchError } = await supabase
         .from(EMOTIONAL_MOMENTUM_TABLE)
         .select("updated_at")
+        .eq("id", EMOTIONAL_MOMENTUM_ID)
         .single();
 
       if (!fetchError && current && current.updated_at !== expectedUpdatedAt) {
-        // Race condition detected: data was modified since fetch
         console.warn(
           "[StateService] Race condition detected in saveEmotionalMomentum: updated_at mismatch. Data may have been modified by another request."
         );
-        // For single-user prototype: Log warning but proceed (graceful degradation)
-        // For production: Fetch fresh data, merge changes, and retry
       }
     }
 
-    await supabase.from(EMOTIONAL_MOMENTUM_TABLE).upsert({
-      current_mood_level: momentum.currentMoodLevel,
-      momentum_direction: momentum.momentumDirection,
-      positive_interaction_streak: momentum.positiveInteractionStreak,
-      recent_interaction_tones: momentum.recentInteractionTones,
-      genuine_moment_detected: momentum.genuineMomentDetected,
-      last_genuine_moment_at: momentum.lastGenuineMomentAt
-        ? new Date(momentum.lastGenuineMomentAt).toISOString()
-        : null,
-    });
+    const { error: upsertError } = await supabase
+      .from(EMOTIONAL_MOMENTUM_TABLE)
+      .upsert({
+        id: EMOTIONAL_MOMENTUM_ID,
+        current_mood_level: momentum.currentMoodLevel,
+        momentum_direction: momentum.momentumDirection,
+        positive_interaction_streak: momentum.positiveInteractionStreak,
+        recent_interaction_tones: momentum.recentInteractionTones,
+        genuine_moment_detected: momentum.genuineMomentDetected,
+        last_genuine_moment_at: momentum.lastGenuineMomentAt
+          ? new Date(momentum.lastGenuineMomentAt).toISOString()
+          : null,
+      });
+
+    if (upsertError) {
+      console.error(
+        "[StateService] Supabase upsert error in saveEmotionalMomentum:",
+        upsertError
+      );
+    }
   } catch (error) {
     console.error("[StateService] Error saving emotional momentum:", error);
   }
 }
-
 // ============================================
 // ONGOING THREADS
 // ============================================
@@ -581,6 +598,8 @@ export async function getFullCharacterContext(): Promise<{
 // INTIMACY STATE
 // ============================================
 
+const INTIMACY_STATE_ID = "0b53778a-6ff1-4366-ab5b-a59ac8862c00";
+
 export async function saveIntimacyState(
   state: IntimacyState,
   expectedUpdatedAt?: string
@@ -591,6 +610,7 @@ export async function saveIntimacyState(
       const { data: current, error: fetchError } = await supabase
         .from(INTIMACY_STATES_TABLE)
         .select("updated_at")
+        .eq("id", INTIMACY_STATE_ID) // 👈 scope to the singleton row
         .single();
 
       if (!fetchError && current && current.updated_at !== expectedUpdatedAt) {
@@ -603,16 +623,27 @@ export async function saveIntimacyState(
       }
     }
 
-    await supabase.from(INTIMACY_STATES_TABLE).upsert({
-      recent_tone_modifier: state.recentToneModifier,
-      vulnerability_exchange_active: state.vulnerabilityExchangeActive,
-      last_vulnerability_at: state.lastVulnerabilityAt
-        ? new Date(state.lastVulnerabilityAt).toISOString()
-        : null,
-      low_effort_streak: state.lowEffortStreak,
-      recent_quality: state.recentQuality,
-    });
+    const { error: upsertError } = await supabase
+      .from(INTIMACY_STATES_TABLE)
+      .upsert({
+        id: INTIMACY_STATE_ID, // 🔑 ensures we UPDATE this row, not insert new ones
+        recent_tone_modifier: state.recentToneModifier,
+        vulnerability_exchange_active: state.vulnerabilityExchangeActive,
+        last_vulnerability_at: state.lastVulnerabilityAt
+          ? new Date(state.lastVulnerabilityAt).toISOString()
+          : null,
+        low_effort_streak: state.lowEffortStreak,
+        recent_quality: state.recentQuality,
+      });
+
+    if (upsertError) {
+      console.error(
+        "[StateService] Supabase upsert error in saveIntimacyState:",
+        upsertError
+      );
+    }
   } catch (error) {
     console.error("[StateService] Error saving intimacy state:", error);
   }
 }
+

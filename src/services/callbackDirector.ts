@@ -490,12 +490,10 @@ const sessionMilestoneIds: Set<string> = new Set();
  * Get a milestone-based "Remember when..." callback opportunity.
  * Only triggers after 50+ interactions to ensure sufficient shared history.
  * 
- * @param userId - The user's ID
  * @param totalInteractions - Total number of interactions (from relationship metrics)
  * @returns Promise with milestone and formatted prompt, or null
  */
 export async function getMilestoneCallback(
-  userId: string,
   totalInteractions: number
 ): Promise<{
   milestone: RelationshipMilestone;
@@ -522,7 +520,7 @@ export async function getMilestoneCallback(
   }
   
   // Get a milestone that's eligible for callback
-  const milestone = await getMilestoneForCallback(userId, totalInteractions);
+  const milestone = await getMilestoneForCallback(totalInteractions);
   
   if (!milestone) {
     return null;
@@ -563,12 +561,10 @@ export async function markMilestoneCallbackUsed(milestoneId: string): Promise<vo
  * Get a combined callback prompt that includes both regular callbacks
  * and milestone-based "Remember when..." callbacks.
  * 
- * @param userId - The user's ID  
  * @param totalInteractions - Total number of interactions
  * @returns Combined callback prompt string
  */
 export async function getEnhancedCallbackPrompt(
-  userId: string,
   totalInteractions: number
 ): Promise<string> {
   const parts: string[] = [];
@@ -578,7 +574,7 @@ export async function getEnhancedCallbackPrompt(
   
   // Try to get a milestone callback (only if 50+ interactions)
   const milestoneCallback = totalInteractions >= 50 
-    ? await getMilestoneCallback(userId, totalInteractions)
+    ? await getMilestoneCallback(totalInteractions)
     : null;
   
   // If neither, return default
@@ -636,12 +632,9 @@ const sessionPatternIds: Set<string> = new Set();
  * Get a pattern-based "I've noticed..." callback opportunity.
  * Only surfaces patterns with sufficient confidence (60%+) that haven't been over-surfaced.
  * 
- * @param userId - The user's ID
  * @returns Promise with pattern and formatted prompt, or null
  */
-export async function getPatternCallback(
-  userId: string
-): Promise<{
+export async function getPatternCallback(): Promise<{
   pattern: UserPattern;
   prompt: string;
 } | null> {
@@ -666,7 +659,7 @@ export async function getPatternCallback(
   }
   
   // Get a pattern that's eligible for surfacing
-  const pattern = await getPatternToSurface(userId);
+  const pattern = await getPatternToSurface();
   
   if (!pattern) {
     return null;
@@ -708,10 +701,9 @@ export async function markPatternCallbackUsed(patternId: string): Promise<void> 
  * Call this after each user message to build up pattern data.
  */
 export async function trackPatternsFromMessage(
-  userId: string,
   message: string
 ): Promise<void> {
-  await analyzeMessageForPatterns(userId, message);
+  await analyzeMessageForPatterns(message);
 }
 
 /**
@@ -733,12 +725,10 @@ export function resetPatternSession(): void {
  * - Milestones are significant (30% selection when available)
  * - Regular callbacks are most common (50% selection)
  * 
- * @param userId - The user's ID
  * @param totalInteractions - Total number of interactions
  * @returns Combined callback prompt string
  */
 export async function getFullEnhancedCallbackPrompt(
-  userId: string,
   totalInteractions: number
 ): Promise<string> {
   const parts: string[] = [];
@@ -747,10 +737,10 @@ export async function getFullEnhancedCallbackPrompt(
   const regularCallback = getCallbackOpportunity();
   
   const milestoneCallback = totalInteractions >= 50 
-    ? await getMilestoneCallback(userId, totalInteractions)
+    ? await getMilestoneCallback(totalInteractions)
     : null;
   
-  const patternCallback = await getPatternCallback(userId);
+  const patternCallback = await getPatternCallback();
   
   // If nothing available
   if (!regularCallback && !milestoneCallback && !patternCallback) {

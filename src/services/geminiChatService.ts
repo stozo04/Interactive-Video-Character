@@ -29,26 +29,26 @@ import {
 
 // 1. LOAD BOTH MODELS FROM ENV
 const GEMINI_MODEL = import.meta.env.VITE_GEMINI_MODEL; // The Brain (e.g. gemini-3-flash-preview)
-const USER_ID = import.meta.env.VITE_USER_ID;
 const GEMINI_VIDEO_MODEL = import.meta.env.VITE_GEMINI_VIDEO_MODEL;
 const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
 // Feature flag for memory tools (can be disabled if issues arise)
 const ENABLE_MEMORY_TOOLS = true;
 // Feature flag for Interactions API (beta) - enables stateful conversations
 // Set VITE_USE_GEMINI_INTERACTIONS_API=true in .env to enable
-const USE_INTERACTIONS_API = import.meta.env.VITE_USE_GEMINI_INTERACTIONS_API === 'true';
+const USE_INTERACTIONS_API =
+  import.meta.env.VITE_USE_GEMINI_INTERACTIONS_API === "true";
 // Vite proxy for development (bypasses CORS)
 // Vite's proxy only works in development mode
 const USE_VITE_PROXY = import.meta.env.DEV; // true in development, false in production
-const VITE_PROXY_BASE = '/api/google'; // Matches vite.config.ts proxy path
+const VITE_PROXY_BASE = "/api/google"; // Matches vite.config.ts proxy path
 
 // Optional: Use external server-side proxy (for production or if Vite proxy doesn't work)
 // Set VITE_GEMINI_PROXY_URL=http://localhost:3001/api/gemini/interactions if you have a proxy
 const GEMINI_PROXY_URL = import.meta.env.VITE_GEMINI_PROXY_URL;
 
-if (!GEMINI_MODEL || !USER_ID || !GEMINI_VIDEO_MODEL || !GEMINI_API_KEY) {
-    console.error("Missing env vars. Ensure VITE_GEMINI_MODEL is set.");
-    // throw new Error("Missing environment variables for Gemini chat service.");
+if (!GEMINI_MODEL || !GEMINI_VIDEO_MODEL || !GEMINI_API_KEY) {
+  console.error("Missing env vars. Ensure VITE_GEMINI_MODEL is set.");
+  // throw new Error("Missing environment variables for Gemini chat service.");
 }
 
 const safetySettings = [
@@ -69,13 +69,13 @@ const safetySettings = [
  * This prevents 400 errors from ElevenLabs when AI returns malformed output after tool use.
  */
 function isValidTextForTTS(text: string | undefined | null): boolean {
-  if (!text || typeof text !== 'string') return false;
+  if (!text || typeof text !== "string") return false;
   const trimmed = text.trim();
   // Reject empty, JSON artifacts, or too-short responses
   if (trimmed.length < 2) return false;
-  if (trimmed === '{}' || trimmed === 'null' || trimmed === '[]') return false;
+  if (trimmed === "{}" || trimmed === "null" || trimmed === "[]") return false;
   // Check for mostly punctuation/whitespace (invalid speech)
-  const alphanumericChars = trimmed.replace(/[^a-zA-Z0-9]/g, '').length;
+  const alphanumericChars = trimmed.replace(/[^a-zA-Z0-9]/g, "").length;
   if (alphanumericChars < 2) return false;
   return true;
 }
@@ -84,13 +84,13 @@ function isValidTextForTTS(text: string | undefined | null): boolean {
  * Pre-fetch context data in parallel with intent detection.
  * This is an optimization to avoid waiting for intent before starting context fetch.
  */
-async function prefetchContext(userId: string): Promise<{
+async function prefetchContext(): Promise<{
   soulContext: Awaited<ReturnType<typeof getSoulLayerContextAsync>>;
   characterFacts: string;
 }> {
   const [soulContext, characterFacts] = await Promise.all([
-    getSoulLayerContextAsync(userId),
-    formatCharacterFactsForPrompt()
+    getSoulLayerContextAsync(),
+    formatCharacterFactsForPrompt(),
   ]);
 
   return { soulContext, characterFacts };
@@ -101,7 +101,6 @@ async function prefetchContext(userId: string): Promise<{
  * Now uses explicit schema field instead of pattern matching for accurate tracking.
  */
 async function logAlmostMomentIfUsed(
-  userId: string,
   aiResponse: AIActionResponse
 ): Promise<void> {
   // Check if LLM explicitly reported using an almost moment
@@ -110,14 +109,18 @@ async function logAlmostMomentIfUsed(
   const { feeling_id, stage, expression_used } = aiResponse.almost_moment_used;
 
   await recordAlmostMoment(
-    userId,
     feeling_id,
     stage,
     expression_used,
     "llm_confirmed_usage"
   );
 
-  console.log(`[AlmostMoments] Logged: ${stage} - "${expression_used.substring(0, 50)}..."`);
+  console.log(
+    `[AlmostMoments] Logged: ${stage} - "${expression_used.substring(
+      0,
+      50
+    )}..."`
+  );
 }
 
 /**
@@ -301,7 +304,10 @@ function formatInteractionInput(userMessage: UserContent): any[] {
  * @param limit - Maximum number of messages to include (default 20)
  * @returns Formatted input array with conversation context
  */
-function formatHistoryForInput(history: ChatMessage[], limit: number = 20): any[] {
+function formatHistoryForInput(
+  history: ChatMessage[],
+  limit: number = 20
+): any[] {
   if (!history || history.length === 0) {
     return [];
   }
@@ -336,7 +342,9 @@ function formatHistoryForInput(history: ChatMessage[], limit: number = 20): any[
     return [];
   }
 
-  console.log(`📜 [Gemini] Including ${chronological.length} messages as conversation context`);
+  console.log(
+    `📜 [Gemini] Including ${chronological.length} messages as conversation context`
+  );
 
   return [
     {
@@ -388,7 +396,6 @@ export class GeminiService implements IAIChatService {
 
   /**
    * Fetch user context internally - the service is self-sufficient.
-   * Always uses USER_ID (VITE_USER_ID) since this is a single-user app.
    */
   private async fetchUserContext(googleAccessToken?: string): Promise<{
     relationship: RelationshipMetrics | null;
@@ -398,12 +405,12 @@ export class GeminiService implements IAIChatService {
   }> {
     // Parallel fetch for performance
     const [relationshipData, tasksData] = await Promise.all([
-      relationshipService.getRelationship(USER_ID).catch(err => {
-        console.warn('[GeminiService] Failed to fetch relationship:', err);
+      relationshipService.getRelationship().catch((err) => {
+        console.warn("[GeminiService] Failed to fetch relationship:", err);
         return null;
       }),
-      taskService.fetchTasks(USER_ID).catch(err => {
-        console.warn('[GeminiService] Failed to fetch tasks:', err);
+      taskService.fetchTasks().catch((err) => {
+        console.warn("[GeminiService] Failed to fetch tasks:", err);
         return [] as Task[];
       }),
     ]);
@@ -412,9 +419,11 @@ export class GeminiService implements IAIChatService {
     let upcomingEvents: CalendarEvent[] = [];
     if (googleAccessToken) {
       try {
-        upcomingEvents = await calendarService.getUpcomingEvents(googleAccessToken);
+        upcomingEvents = await calendarService.getUpcomingEvents(
+          googleAccessToken
+        );
       } catch (e) {
-        console.warn('[GeminiService] Calendar fetch failed:', e);
+        console.warn("[GeminiService] Calendar fetch failed:", e);
       }
     }
 
@@ -434,8 +443,8 @@ export class GeminiService implements IAIChatService {
     // delay slightly to avoid competing with UI updates/audio playback starts
     setTimeout(() => {
       console.log(`🧪 [GeminiService] Triggering post-response pre-fetch`);
-      prefetchOnIdle(USER_ID).catch(err => {
-        console.warn('⚠️ [GeminiService] Post-response pre-fetch failed:', err);
+      prefetchOnIdle().catch((err) => {
+        console.warn("⚠️ [GeminiService] Post-response pre-fetch failed:", err);
       });
     }, 1000);
   }
@@ -534,7 +543,6 @@ export class GeminiService implements IAIChatService {
     interaction: any,
     interactionConfig: any,
     systemPrompt: string,
-    userId: string,
     history: any[],
     options?: AIChatOptions,
     maxIterations: number = 3
@@ -568,14 +576,9 @@ export class GeminiService implements IAIChatService {
             toolArgs
           );
 
-          const toolResult = await executeMemoryTool(
-            toolName,
-            toolArgs,
-            userId,
-            {
-              googleAccessToken: options?.googleAccessToken,
-            }
-          );
+          const toolResult = await executeMemoryTool(toolName, toolArgs, {
+            googleAccessToken: options?.googleAccessToken,
+          });
 
           return {
             type: "function_result",
@@ -692,7 +695,6 @@ export class GeminiService implements IAIChatService {
     options?: AIChatOptions
   ): Promise<{ response: AIActionResponse; session: AIChatSession }> {
     const ai = getAiClient();
-    const userId = USER_ID;
 
     // Format user message for Interactions API
     const userInput = formatInteractionInput(userMessage);
@@ -713,7 +715,10 @@ export class GeminiService implements IAIChatService {
       "   - Incoming session.interactionId:",
       session?.interactionId || "NONE"
     );
-    console.log("   - History messages included:", historyContext.length > 0 ? "YES" : "NO");
+    console.log(
+      "   - History messages included:",
+      historyContext.length > 0 ? "YES" : "NO"
+    );
 
     // Build interaction config
     const interactionConfig: any = {
@@ -748,7 +753,6 @@ export class GeminiService implements IAIChatService {
       interaction,
       interactionConfig,
       systemPrompt,
-      userId,
       history,
       options,
       3 // MAX_TOOL_ITERATIONS
@@ -788,7 +792,6 @@ export class GeminiService implements IAIChatService {
    * - TTS generation (sync/async/none modes)
    * - Post-response cache warming
    *
-   * ARCHITECTURE: The service fetches most context internally based on userId.
    * The caller only needs to pass minimal session-specific data.
    */
   async generateResponse(
@@ -803,7 +806,7 @@ export class GeminiService implements IAIChatService {
   }> {
     try {
       // Extract user message text for analysis
-      const userMessageText = 'text' in input ? input.text : '';
+      const userMessageText = "text" in input ? input.text : "";
       console.log("userMessageText: ", userMessageText);
 
       // Build conversation context early (for intent detection)
@@ -847,35 +850,48 @@ export class GeminiService implements IAIChatService {
 
       // 🚀 CHECK GLOBAL PREFETCH CACHE FIRST (Idle optimization)
       const cachedContext = getPrefetchedContext();
-      let prefetchedContext: {
-        soulContext: Awaited<ReturnType<typeof getSoulLayerContextAsync>>;
-        characterFacts: string;
-      } | undefined = cachedContext ? {
-        soulContext: cachedContext.soulContext,
-        characterFacts: cachedContext.characterFacts
-      } : undefined;
+      let prefetchedContext:
+        | {
+            soulContext: Awaited<ReturnType<typeof getSoulLayerContextAsync>>;
+            characterFacts: string;
+          }
+        | undefined = cachedContext
+        ? {
+            soulContext: cachedContext.soulContext,
+            characterFacts: cachedContext.characterFacts,
+          }
+        : undefined;
 
       // Start context prefetch if not cached
-      let contextPrefetchPromise: Promise<{
-        soulContext: Awaited<ReturnType<typeof getSoulLayerContextAsync>>;
-        characterFacts: string;
-      }> | undefined;
+      let contextPrefetchPromise:
+        | Promise<{
+            soulContext: Awaited<ReturnType<typeof getSoulLayerContextAsync>>;
+            characterFacts: string;
+          }>
+        | undefined;
 
       if (!prefetchedContext) {
-        contextPrefetchPromise = prefetchContext(USER_ID);
-        console.log('🚀 [GeminiService] Started context prefetch in parallel');
+        contextPrefetchPromise = prefetchContext();
+        console.log("🚀 [GeminiService] Started context prefetch in parallel");
       } else {
-        console.log('✅ [GeminiService] Using context from idle pre-fetch cache');
+        console.log(
+          "✅ [GeminiService] Using context from idle pre-fetch cache"
+        );
       }
 
       // Start intent detection
       if (trimmedMessage && trimmedMessage.length > 5) {
-        intentPromise = detectFullIntentLLMCached(trimmedMessage, conversationContext);
+        intentPromise = detectFullIntentLLMCached(
+          trimmedMessage,
+          conversationContext
+        );
         console.log("intentPromise initialized");
 
         if (isCommand) {
           // 🚀 FAST PATH: Don't wait for intent - Main LLM handles commands directly
-          console.log('⚡ [GeminiService] Command detected - skipping blocking intent analysis');
+          console.log(
+            "⚡ [GeminiService] Command detected - skipping blocking intent analysis"
+          );
         } else {
           // 🐢 NORMAL PATH: Wait for intent (needed for empathy/conversation)
           try {
@@ -888,19 +904,23 @@ export class GeminiService implements IAIChatService {
                 isGenuine: true,
                 category: preCalculatedIntent.genuineMoment.category,
                 matchedKeywords: ["LLM Instant Detection"],
-                isPositiveAffirmation: true
+                isPositiveAffirmation: true,
               };
 
               await recordInteractionAsync(
-                USER_ID,
                 preCalculatedIntent.tone,
                 userMessageText,
                 genuineMomentResult as any
               );
-              console.log('⚡ [GeminiService] Instant genuine moment reaction triggered!');
+              console.log(
+                "⚡ [GeminiService] Instant genuine moment reaction triggered!"
+              );
             }
           } catch (e) {
-            console.warn('[GeminiService] Pre-calculation of intent failed:', e);
+            console.warn(
+              "[GeminiService] Pre-calculation of intent failed:",
+              e
+            );
           }
         }
       }
@@ -909,16 +929,18 @@ export class GeminiService implements IAIChatService {
       if (contextPrefetchPromise) {
         try {
           prefetchedContext = await contextPrefetchPromise;
-          console.log('✅ [GeminiService] Context prefetch completed');
+          console.log("✅ [GeminiService] Context prefetch completed");
         } catch (e) {
-          console.warn('[GeminiService] Context prefetch failed:', e);
+          console.warn("[GeminiService] Context prefetch failed:", e);
         }
       }
 
       // ============================================
       // INTERNAL CONTEXT FETCHING
       // ============================================
-      const fetchedContext = await this.fetchUserContext(options.googleAccessToken);
+      const fetchedContext = await this.fetchUserContext(
+        options.googleAccessToken
+      );
 
       // ============================================
       // BUILD SYSTEM PROMPT
@@ -932,7 +954,6 @@ export class GeminiService implements IAIChatService {
         preCalculatedIntent?.relationshipSignals,
         preCalculatedIntent?.tone,
         preCalculatedIntent,
-        USER_ID,
         undefined, // userTimeZone
         prefetchedContext
       );
@@ -940,38 +961,48 @@ export class GeminiService implements IAIChatService {
       // ============================================
       // CALL GEMINI API
       // ============================================
-      const { response: aiResponse, session: updatedSession } = await this.callGeminiAPI(
-        systemPrompt,
-        input,
-        options.chatHistory || [],
-        session,
-        options
-      );
+      const { response: aiResponse, session: updatedSession } =
+        await this.callGeminiAPI(
+          systemPrompt,
+          input,
+          options.chatHistory || [],
+          session,
+          options
+        );
 
       // ============================================
       // POST-PROCESSING
       // ============================================
 
       // Log almost moment usage
-      logAlmostMomentIfUsed(USER_ID, aiResponse).catch((err) => {
-        console.warn('[GeminiService] Failed to log almost moment:', err);
+      logAlmostMomentIfUsed(aiResponse).catch((err) => {
+        console.warn("[GeminiService] Failed to log almost moment:", err);
       });
 
       // Store new character facts if AI generated any
       if (aiResponse.store_self_info) {
         const { category, key, value } = aiResponse.store_self_info;
-        console.log(`💾 [GeminiService] AI generated new character fact: ${category}.${key} = "${value}"`);
+        console.log(
+          `💾 [GeminiService] AI generated new character fact: ${category}.${key} = "${value}"`
+        );
 
         storeCharacterFact(category as any, key, value)
-          .then(stored => {
+          .then((stored) => {
             if (stored) {
-              console.log(`✅ [GeminiService] Character fact saved successfully: ${key}`);
+              console.log(
+                `✅ [GeminiService] Character fact saved successfully: ${key}`
+              );
             } else {
-              console.log(`📋 [GeminiService] Character fact already exists or in profile: ${key}`);
+              console.log(
+                `📋 [GeminiService] Character fact already exists or in profile: ${key}`
+              );
             }
           })
-          .catch(err => {
-            console.warn(`⚠️ [GeminiService] Failed to store character fact:`, err);
+          .catch((err) => {
+            console.warn(
+              `⚠️ [GeminiService] Failed to store character fact:`,
+              err
+            );
           });
       }
 
@@ -979,7 +1010,6 @@ export class GeminiService implements IAIChatService {
       if (userMessageText) {
         if (preCalculatedIntent) {
           analyzeUserMessageBackground(
-            USER_ID,
             userMessageText,
             interactionCount,
             conversationContext,
@@ -987,50 +1017,60 @@ export class GeminiService implements IAIChatService {
           );
         } else if (intentPromise) {
           // COMMAND BYPASS PATH: Intent is still resolving
-          intentPromise.then(resolvedIntent => {
-            if (resolvedIntent) {
+          intentPromise
+            .then((resolvedIntent) => {
+              if (resolvedIntent) {
+                analyzeUserMessageBackground(
+                  userMessageText,
+                  interactionCount,
+                  conversationContext,
+                  resolvedIntent
+                );
+                console.log(
+                  "📝 [GeminiService] Background intent analysis completed for command"
+                );
+              }
+            })
+            .catch((err) => {
+              console.warn(
+                "[GeminiService] Background intent resolution failed:",
+                err
+              );
               analyzeUserMessageBackground(
-                USER_ID,
                 userMessageText,
                 interactionCount,
                 conversationContext,
-                resolvedIntent
+                undefined
               );
-              console.log('📝 [GeminiService] Background intent analysis completed for command');
-            }
-          }).catch(err => {
-            console.warn('[GeminiService] Background intent resolution failed:', err);
-            analyzeUserMessageBackground(
-              USER_ID,
-              userMessageText,
-              interactionCount,
-              conversationContext,
-              undefined
-            );
-          });
+            });
         }
       }
 
       // Detect and mark shared idle thoughts
       if (aiResponse.text_response) {
-        detectAndMarkSharedThoughts(USER_ID, aiResponse.text_response)
-          .then(markedIds => {
+        detectAndMarkSharedThoughts(aiResponse.text_response)
+          .then((markedIds) => {
             if (markedIds.length > 0) {
-              console.log(`💭 [GeminiService] Marked ${markedIds.length} idle thought(s) as shared`);
+              console.log(
+                `💭 [GeminiService] Marked ${markedIds.length} idle thought(s) as shared`
+              );
             }
           })
-          .catch(err => {
-            console.warn('[GeminiService] Failed to detect/mark shared thoughts:', err);
+          .catch((err) => {
+            console.warn(
+              "[GeminiService] Failed to detect/mark shared thoughts:",
+              err
+            );
           });
       }
 
       // ============================================
       // TTS GENERATION
       // ============================================
-      const audioMode = options.audioMode ?? 'async';
+      const audioMode = options.audioMode ?? "async";
       console.log("audioMode: ", audioMode);
 
-      if (audioMode === 'none') {
+      if (audioMode === "none") {
         this.triggerPostResponsePrefetch();
         return {
           response: aiResponse,
@@ -1039,7 +1079,7 @@ export class GeminiService implements IAIChatService {
         };
       }
 
-      if (audioMode === 'async') {
+      if (audioMode === "async") {
         // Fire-and-forget TTS
         if (isValidTextForTTS(aiResponse.text_response)) {
           generateSpeech(aiResponse.text_response)
@@ -1047,10 +1087,13 @@ export class GeminiService implements IAIChatService {
               if (audioData) options.onAudioData?.(audioData);
             })
             .catch((err) => {
-              console.warn('🔊 [GeminiService] async TTS failed', err);
+              console.warn("🔊 [GeminiService] async TTS failed", err);
             });
         } else {
-          console.warn('⚠️ [GeminiService] Skipped async TTS: text_response was empty or invalid:', aiResponse.text_response);
+          console.warn(
+            "⚠️ [GeminiService] Skipped async TTS: text_response was empty or invalid:",
+            aiResponse.text_response
+          );
         }
 
         this.triggerPostResponsePrefetch();
@@ -1068,7 +1111,10 @@ export class GeminiService implements IAIChatService {
         audioData = await generateSpeech(aiResponse.text_response);
         console.log("audioData: ", audioData);
       } else {
-        console.warn('⚠️ [GeminiService] Skipped TTS: text_response was empty or invalid:', aiResponse.text_response);
+        console.warn(
+          "⚠️ [GeminiService] Skipped TTS: text_response was empty or invalid:",
+          aiResponse.text_response
+        );
         audioData = undefined;
       }
 
@@ -1079,7 +1125,7 @@ export class GeminiService implements IAIChatService {
         response: aiResponse,
         session: updatedSession,
         audioData,
-        intent: preCalculatedIntent
+        intent: preCalculatedIntent,
       };
     } catch (error) {
       console.error("Gemini Service Error:", error);
@@ -1096,7 +1142,6 @@ export class GeminiService implements IAIChatService {
    * Decides whether to ask about a user topic (Open Loop)
    * or share a thought (Proactive Thread).
    *
-   * Uses VITE_USER_ID internally - single user app.
    */
   async triggerIdleBreaker(
     options: {
@@ -1109,7 +1154,11 @@ export class GeminiService implements IAIChatService {
       };
     },
     session?: AIChatSession
-  ): Promise<{ response: AIActionResponse; session: AIChatSession; audioData?: string } | null> {
+  ): Promise<{
+    response: AIActionResponse;
+    session: AIChatSession;
+    audioData?: string;
+  } | null> {
     console.log(`💤 [GeminiService] Triggering idle breaker`);
 
     // STEP A: Fetch Candidates in Parallel
@@ -1119,12 +1168,15 @@ export class GeminiService implements IAIChatService {
 
     try {
       [openLoop, threads] = await Promise.all([
-        getTopLoopToSurface(USER_ID),
-        getOngoingThreadsAsync(USER_ID)
+        getTopLoopToSurface(),
+        getOngoingThreadsAsync(),
       ]);
       activeThread = selectProactiveThread(threads);
     } catch (error) {
-      console.warn('[GeminiService] Failed to fetch proactive candidates:', error);
+      console.warn(
+        "[GeminiService] Failed to fetch proactive candidates:",
+        error
+      );
     }
 
     let systemInstruction = "";
@@ -1141,40 +1193,58 @@ export class GeminiService implements IAIChatService {
 [SYSTEM EVENT: USER_IDLE - HIGH PRIORITY OPEN LOOP]
 The user has been silent for over 5 minutes.
 You have something important to ask about: "${openLoop.topic}"
-${openLoop.triggerContext ? `Context: They said: "${openLoop.triggerContext.slice(0, 100)}..."` : 'From a previous conversation'}
-Suggested ask: "${openLoop.suggestedFollowup || `How did things go with ${openLoop.topic}?`}"
+${
+  openLoop.triggerContext
+    ? `Context: They said: "${openLoop.triggerContext.slice(0, 100)}..."`
+    : "From a previous conversation"
+}
+Suggested ask: "${
+        openLoop.suggestedFollowup ||
+        `How did things go with ${openLoop.topic}?`
+      }"
 
 Bring this up naturally. This is about THEM, not you.
 Tone: Caring, curious, not demanding.
 `.trim();
       loopIdToMark = openLoop.id;
 
-    // PRIORITY 2: Proactive Thread
+      // PRIORITY 2: Proactive Thread
     } else if (activeThread) {
-      logReason = `Proactive thread: ${activeThread.currentState.slice(0, 50)}...`;
+      logReason = `Proactive thread: ${activeThread.currentState.slice(
+        0,
+        50
+      )}...`;
       systemInstruction = buildProactiveThreadPrompt(activeThread);
       threadIdToMark = activeThread.id;
 
-    // PRIORITY 3: Lower Priority Open Loop
+      // PRIORITY 3: Lower Priority Open Loop
     } else if (openLoop && openLoop.salience > 0.7) {
       logReason = `Standard loop: ${openLoop.topic} (salience: ${openLoop.salience})`;
       systemInstruction = `
 [SYSTEM EVENT: USER_IDLE - OPEN LOOP]
 The user has been silent for over 5 minutes.
 Casual check-in: "${openLoop.topic}"
-${openLoop.triggerContext ? `Context: They mentioned: "${openLoop.triggerContext.slice(0, 100)}..."` : 'From a previous conversation'}
-Suggested ask: "${openLoop.suggestedFollowup || `How did ${openLoop.topic} go?`}"
+${
+  openLoop.triggerContext
+    ? `Context: They mentioned: "${openLoop.triggerContext.slice(0, 100)}..."`
+    : "From a previous conversation"
+}
+Suggested ask: "${
+        openLoop.suggestedFollowup || `How did ${openLoop.topic} go?`
+      }"
 
 Bring this up naturally. Keep it light and conversational.
 `.trim();
       loopIdToMark = openLoop.id;
 
-    // PRIORITY 4: Generic Fallback
+      // PRIORITY 4: Generic Fallback
     } else {
       logReason = "Generic check-in";
 
       // Fetch context internally for fallback
-      const fetchedContext = await this.fetchUserContext(options.googleAccessToken);
+      const fetchedContext = await this.fetchUserContext(
+        options.googleAccessToken
+      );
       const relationshipData = fetchedContext.relationship;
       const tasksData = fetchedContext.tasks;
 
@@ -1182,14 +1252,22 @@ Bring this up naturally. Keep it light and conversational.
         ? `Relationship tier with user: ${relationshipData.relationshipTier}.`
         : "Relationship tier with user is unknown.";
 
-      const highPriorityTasks = (tasksData || []).filter(t => !t.completed && t.priority === 'high');
-      const taskContext = highPriorityTasks.length > 0
-        ? `User has ${highPriorityTasks.length} high-priority task(s): ${highPriorityTasks[0].text}. Consider gently mentioning it if appropriate.`
-        : "No urgent tasks pending.";
+      const highPriorityTasks = (tasksData || []).filter(
+        (t) => !t.completed && t.priority === "high"
+      );
+      const taskContext =
+        highPriorityTasks.length > 0
+          ? `User has ${highPriorityTasks.length} high-priority task(s): ${highPriorityTasks[0].text}. Consider gently mentioning it if appropriate.`
+          : "No urgent tasks pending.";
 
       // Check if check-ins are disabled
-      if (!options.proactiveSettings?.checkins && !options.proactiveSettings?.news) {
-        console.log("💤 [GeminiService] Check-ins and news disabled, skipping idle breaker");
+      if (
+        !options.proactiveSettings?.checkins &&
+        !options.proactiveSettings?.news
+      ) {
+        console.log(
+          "💤 [GeminiService] Check-ins and news disabled, skipping idle breaker"
+        );
         return null;
       }
 
@@ -1197,16 +1275,17 @@ Bring this up naturally. Keep it light and conversational.
       let newsContext = "";
       if (options.proactiveSettings?.news) {
         try {
-          const { fetchTechNews, getUnmentionedStory, markStoryMentioned } = await import('./newsService');
+          const { fetchTechNews, getUnmentionedStory, markStoryMentioned } =
+            await import("./newsService");
           const stories = await fetchTechNews();
           const story = getUnmentionedStory(stories);
           if (story) {
             markStoryMentioned(story.id);
-            const hostname = story.url ? new URL(story.url).hostname : '';
+            const hostname = story.url ? new URL(story.url).hostname : "";
             newsContext = `
 [OPTIONAL NEWS TO DISCUSS]
 There's an interesting tech story trending on Hacker News: "${story.title}"
-${hostname ? `(from: ${hostname})` : ''}
+${hostname ? `(from: ${hostname})` : ""}
 
 You can mention this if the conversation allows, or use it as a conversation starter.
 Translate it in your style - make it accessible and interesting!
@@ -1214,13 +1293,18 @@ Don't force it - only bring it up if it feels natural.
 `.trim();
           }
         } catch (e) {
-          console.warn('[GeminiService] Failed to fetch news for idle breaker', e);
+          console.warn(
+            "[GeminiService] Failed to fetch news for idle breaker",
+            e
+          );
         }
       }
 
       // If check-ins are off but news is on, only proceed if we have news
       if (!options.proactiveSettings?.checkins && !newsContext) {
-        console.log("💤 [GeminiService] Check-ins disabled and no news to share, skipping");
+        console.log(
+          "💤 [GeminiService] Check-ins disabled and no news to share, skipping"
+        );
         return null;
       }
 
@@ -1259,24 +1343,26 @@ Your goal: Share this news in your style - make it accessible and interesting!
 
     // STEP C: Mark the winner as surfaced/mentioned
     if (threadIdToMark) {
-      markThreadMentionedAsync(USER_ID, threadIdToMark).catch(err =>
-        console.warn('[GeminiService] Failed to mark thread as mentioned:', err)
+      markThreadMentionedAsync(threadIdToMark).catch((err) =>
+        console.warn("[GeminiService] Failed to mark thread as mentioned:", err)
       );
     }
     if (loopIdToMark) {
-      markLoopSurfaced(loopIdToMark).catch(err =>
-        console.warn('[GeminiService] Failed to mark loop as surfaced:', err)
+      markLoopSurfaced(loopIdToMark).catch((err) =>
+        console.warn("[GeminiService] Failed to mark loop as surfaced:", err)
       );
     }
 
     // STEP D: Generate the system prompt
     const [soulResult, factsResult] = await Promise.all([
-      getSoulLayerContextAsync(USER_ID),
-      formatCharacterFactsForPrompt()
+      getSoulLayerContextAsync(),
+      formatCharacterFactsForPrompt(),
     ]);
 
     // Fetch context for prompt building
-    const fetchedContext = await this.fetchUserContext(options.googleAccessToken);
+    const fetchedContext = await this.fetchUserContext(
+      options.googleAccessToken
+    );
 
     const fullSystemPrompt = await buildSystemPrompt(
       undefined, // character - not needed
@@ -1287,7 +1373,6 @@ Your goal: Share this news in your style - make it accessible and interesting!
       undefined, // relationshipSignals
       undefined, // toneIntent
       undefined, // fullIntent
-      USER_ID,
       undefined, // userTimeZone
       { soulContext: soulResult, characterFacts: factsResult }
     );
@@ -1298,7 +1383,7 @@ Your goal: Share this news in your style - make it accessible and interesting!
     // STEP E: Call the LLM
     const { response, session: updatedSession } = await this.callGeminiAPI(
       combinedSystemPrompt,
-      { type: 'text', text: '' }, // Empty trigger - she's initiating
+      { type: "text", text: "" }, // Empty trigger - she's initiating
       options.chatHistory || [],
       session
     );
@@ -1309,13 +1394,16 @@ Your goal: Share this news in your style - make it accessible and interesting!
       : undefined;
 
     if (!isValidTextForTTS(response.text_response)) {
-      console.warn('⚠️ [GeminiService] Skipped idle breaker TTS: text_response was empty or invalid:', response.text_response);
+      console.warn(
+        "⚠️ [GeminiService] Skipped idle breaker TTS: text_response was empty or invalid:",
+        response.text_response
+      );
     }
 
     return {
       response,
       session: updatedSession,
-      audioData: audioData || undefined
+      audioData: audioData || undefined,
     };
   }
 
@@ -1325,11 +1413,9 @@ Your goal: Share this news in your style - make it accessible and interesting!
 
   /**
    * Generate greeting using Interactions API.
-   * Fetches all context internally using USER_ID.
+   * Fetches all context internally
    */
-  async generateGreeting(
-    session?: AIChatSession
-  ): Promise<{
+  async generateGreeting(session?: AIChatSession): Promise<{
     greeting: AIActionResponse;
     session: AIChatSession;
     audioData?: string;
@@ -1346,7 +1432,6 @@ Your goal: Share this news in your style - make it accessible and interesting!
       undefined,
       undefined,
       undefined,
-      USER_ID,
       undefined
     );
 
@@ -1356,11 +1441,9 @@ Your goal: Share this news in your style - make it accessible and interesting!
       let hasUserFacts = false;
 
       try {
-        const userFacts = await executeMemoryTool(
-          "recall_user_info",
-          { category: "identity" },
-          USER_ID
-        );
+        const userFacts = await executeMemoryTool("recall_user_info", {
+          category: "identity",
+        });
         hasUserFacts =
           userFacts && !userFacts.includes("No stored information");
 
@@ -1379,7 +1462,7 @@ Your goal: Share this news in your style - make it accessible and interesting!
       // Fetch any open loops to ask about proactively
       let topOpenLoop = null;
       try {
-        topOpenLoop = await getTopLoopToSurface(USER_ID);
+        topOpenLoop = await getTopLoopToSurface();
         if (topOpenLoop) {
           console.log(
             `🔄 [GeminiService] Found open loop to surface: "${topOpenLoop.topic}"`
@@ -1392,14 +1475,16 @@ Your goal: Share this news in your style - make it accessible and interesting!
       // Fetch any pending message from idle time
       let pendingMessage = null;
       try {
-        pendingMessage = await getUndeliveredMessage(USER_ID);
+        pendingMessage = await getUndeliveredMessage();
         if (pendingMessage) {
           console.log(
             `💌 [GeminiService] Found pending ${pendingMessage.trigger} message to deliver`
           );
         }
       } catch (e) {
-        console.log("[GeminiService] Could not fetch pending message for greeting");
+        console.log(
+          "[GeminiService] Could not fetch pending message for greeting"
+        );
       }
 
       const greetingPrompt = buildGreetingPrompt(
@@ -1424,7 +1509,9 @@ Your goal: Share this news in your style - make it accessible and interesting!
       };
 
       if (session?.interactionId) {
-        console.log(`🔗 [GeminiService] Restoring continuity for Greeting: ${session.interactionId}`);
+        console.log(
+          `🔗 [GeminiService] Restoring continuity for Greeting: ${session.interactionId}`
+        );
         interactionConfig.previous_interaction_id = session.interactionId;
       }
 
@@ -1439,7 +1526,6 @@ Your goal: Share this news in your style - make it accessible and interesting!
         interaction,
         interactionConfig,
         systemPrompt,
-        USER_ID,
         [],
         undefined,
         2
@@ -1454,13 +1540,17 @@ Your goal: Share this news in your style - make it accessible and interesting!
       // Mark the open loop as surfaced
       if (topOpenLoop) {
         await markLoopSurfaced(topOpenLoop.id);
-        console.log(`✅ [GeminiService] Marked loop as surfaced: "${topOpenLoop.topic}"`);
+        console.log(
+          `✅ [GeminiService] Marked loop as surfaced: "${topOpenLoop.topic}"`
+        );
       }
 
       // Mark the pending message as delivered
       if (pendingMessage) {
         await markMessageDelivered(pendingMessage.id);
-        console.log(`✅ [GeminiService] Marked pending ${pendingMessage.trigger} message as delivered`);
+        console.log(
+          `✅ [GeminiService] Marked pending ${pendingMessage.trigger} message as delivered`
+        );
       }
 
       return {
@@ -1479,11 +1569,9 @@ Your goal: Share this news in your style - make it accessible and interesting!
 
   /**
    * Generate a natural "welcome back" response for returning users.
-   * Fetches all context internally using USER_ID.
+   * Fetches all context internally.
    */
-  async generateNonGreeting(
-    session?: AIChatSession
-  ): Promise<{
+  async generateNonGreeting(session?: AIChatSession): Promise<{
     greeting: AIActionResponse;
     session: AIChatSession;
     audioData?: string;
@@ -1500,7 +1588,6 @@ Your goal: Share this news in your style - make it accessible and interesting!
       undefined,
       undefined,
       undefined,
-      USER_ID,
       undefined
     );
 
@@ -1508,11 +1595,9 @@ Your goal: Share this news in your style - make it accessible and interesting!
       // Get user's name if known
       let userName: string | null = null;
       try {
-        const userFacts = await executeMemoryTool(
-          "recall_user_info",
-          { category: "identity" },
-          USER_ID
-        );
+        const userFacts = await executeMemoryTool("recall_user_info", {
+          category: "identity",
+        });
         const nameMatch = userFacts.match(/name:\s*(\w+)/i);
         if (nameMatch) {
           userName = nameMatch[1];
@@ -1535,7 +1620,9 @@ Your goal: Share this news in your style - make it accessible and interesting!
       };
 
       if (session?.interactionId) {
-        console.log(`🔗 [GeminiService] Restoring continuity for Non-Greeting: ${session.interactionId}`);
+        console.log(
+          `🔗 [GeminiService] Restoring continuity for Non-Greeting: ${session.interactionId}`
+        );
         interactionConfig.previous_interaction_id = session.interactionId;
       }
 
@@ -1550,7 +1637,6 @@ Your goal: Share this news in your style - make it accessible and interesting!
         interaction,
         interactionConfig,
         systemPrompt,
-        USER_ID,
         [],
         undefined,
         2

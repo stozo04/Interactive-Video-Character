@@ -65,7 +65,6 @@ export const fetchTasks = async (): Promise<Task[]> => {
 /**
  * Create a new task
  */
-const USER_ID = import.meta.env.VITE_USER_ID;
 export const createTask = async (
   text: string,
   priority: "low" | "medium" | "high" = "low",
@@ -109,11 +108,13 @@ export const toggleTask = async (
   taskId: string,
   currentCompleted: boolean
 ): Promise<Task | null> => {
+  console.log('toggleTask: taskId: ', taskId)
+  console.log('toggleTask: currentCompleted: ', currentCompleted)
   const updates = {
     completed: !currentCompleted,
     completed_at: !currentCompleted ? new Date().toISOString() : null,
   };
-
+console.log('toggleTask: updates: ', updates)
   const { data, error } = await supabase
     .from(TABLE_NAME)
     .update(updates)

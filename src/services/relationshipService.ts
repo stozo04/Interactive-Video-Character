@@ -136,7 +136,7 @@ interface RelationshipRow {
 /**
  * Get or create relationship for a user
  */
-const USER_ID = import.meta.env.VITE_USER_ID;
+const RELATIONSHIP_ID = "a45afaf3-565f-40f2-9876-c0adaf832547";
 export const getRelationship =
   async (): Promise<RelationshipMetrics | null> => {
     try {
@@ -271,7 +271,6 @@ export const updateRelationship = async (
       .from(RELATIONSHIPS_TABLE)
       .update({
         relationship_score: newRelationshipScore,
-        // Tier will be auto-updated by trigger
         warmth_score: newWarmthScore,
         trust_score: newTrustScore,
         playfulness_score: newPlayfulnessScore,
@@ -283,8 +282,9 @@ export const updateRelationship = async (
         is_ruptured: newIsRuptured,
         last_rupture_at: newLastRuptureAt,
         rupture_count: newRuptureCount,
-        familiarity_stage: newFamiliarity, // Explicitly set (trigger will also update as backup)
+        familiarity_stage: newFamiliarity,
       })
+      .eq("id", RELATIONSHIP_ID)
       .select()
       .single();
 
