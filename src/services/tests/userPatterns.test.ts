@@ -313,20 +313,20 @@ describe("userPatterns", () => {
   describe("recordMoodTimePattern", () => {
     it("should create new mood-time pattern", async () => {
       const monday = new Date("2024-01-08T10:00:00");
-      
+
       // Mock: no existing pattern
       mocks.maybeSingle.mockResolvedValueOnce({ data: null, error: null });
-      
+
       // Mock: successful insert
       mocks.single.mockResolvedValueOnce({
         data: {
-          id: 'pattern-1',
-          user_id: 'user-123',
-          pattern_type: 'mood_time',
-          observation: 'stressed on Mondays',
-          pattern_data: { mood: 'stressed', dayOfWeek: 1, dayName: 'Monday' },
+          id: "pattern-1",
+
+          pattern_type: "mood_time",
+          observation: "stressed on Mondays",
+          pattern_data: { mood: "stressed", dayOfWeek: 1, dayName: "Monday" },
           frequency: 1,
-          confidence: 0.30,
+          confidence: 0.3,
           first_observed: monday.toISOString(),
           last_observed: monday.toISOString(),
           has_been_surfaced: false,
@@ -336,38 +336,38 @@ describe("userPatterns", () => {
         error: null,
       });
 
-      const result = await recordMoodTimePattern('user-123', 'stressed', monday);
+      const result = await recordMoodTimePattern("stressed", monday);
 
-      expect(mocks.from).toHaveBeenCalledWith('user_patterns');
+      expect(mocks.from).toHaveBeenCalledWith("user_patterns");
       expect(result).not.toBeNull();
-      expect(result?.patternType).toBe('mood_time');
-      expect(result?.observation).toBe('stressed on Mondays');
+      expect(result?.patternType).toBe("mood_time");
+      expect(result?.observation).toBe("stressed on Mondays");
     });
 
     it("should strengthen existing pattern", async () => {
       const monday = new Date("2024-01-08T10:00:00");
-      
+
       // Mock: existing pattern found
       mocks.maybeSingle.mockResolvedValueOnce({
         data: {
-          id: 'pattern-1',
-          user_id: 'user-123',
-          pattern_type: 'mood_time',
-          observation: 'stressed on Mondays',
+          id: "pattern-1",
+
+          pattern_type: "mood_time",
+          observation: "stressed on Mondays",
           frequency: 2,
           confidence: 0.42,
         },
         error: null,
       });
-      
+
       // Mock: successful update
       selectResolvedValues.push({
         data: {
-          id: 'pattern-1',
-          user_id: 'user-123',
-          pattern_type: 'mood_time',
-          observation: 'stressed on Mondays',
-          pattern_data: { mood: 'stressed', dayOfWeek: 1 },
+          id: "pattern-1",
+
+          pattern_type: "mood_time",
+          observation: "stressed on Mondays",
+          pattern_data: { mood: "stressed", dayOfWeek: 1 },
           frequency: 3,
           confidence: 0.54,
           first_observed: new Date().toISOString(),
@@ -380,14 +380,14 @@ describe("userPatterns", () => {
       });
       mocks.single.mockResolvedValueOnce({
         data: {
-          id: 'pattern-1',
+          id: "pattern-1",
           frequency: 3,
           confidence: 0.54,
         },
         error: null,
       });
 
-      const result = await recordMoodTimePattern('user-123', 'stressed', monday);
+      const result = await recordMoodTimePattern("stressed", monday);
 
       expect(mocks.update).toHaveBeenCalled();
       expect(result).not.toBeNull();
@@ -403,13 +403,13 @@ describe("userPatterns", () => {
       mocks.maybeSingle.mockResolvedValueOnce({ data: null, error: null });
       mocks.single.mockResolvedValueOnce({
         data: {
-          id: 'pattern-2',
-          user_id: 'user-123',
-          pattern_type: 'topic_correlation',
-          observation: 'feels frustrated when discussing work',
-          pattern_data: { primaryTopic: 'work', correlatedMood: 'frustrated' },
+          id: "pattern-2",
+
+          pattern_type: "topic_correlation",
+          observation: "feels frustrated when discussing work",
+          pattern_data: { primaryTopic: "work", correlatedMood: "frustrated" },
           frequency: 1,
-          confidence: 0.30,
+          confidence: 0.3,
           first_observed: new Date().toISOString(),
           last_observed: new Date().toISOString(),
           has_been_surfaced: false,
@@ -419,24 +419,28 @@ describe("userPatterns", () => {
         error: null,
       });
 
-      const result = await recordTopicCorrelationPattern('user-123', 'work', 'frustrated');
+      const result = await recordTopicCorrelationPattern("work", "frustrated");
 
       expect(result).not.toBeNull();
-      expect(result?.patternType).toBe('topic_correlation');
-      expect(result?.observation).toContain('work');
+      expect(result?.patternType).toBe("topic_correlation");
+      expect(result?.observation).toContain("work");
     });
 
     it("should create two-topic correlation", async () => {
       mocks.maybeSingle.mockResolvedValueOnce({ data: null, error: null });
       mocks.single.mockResolvedValueOnce({
         data: {
-          id: 'pattern-3',
-          user_id: 'user-123',
-          pattern_type: 'topic_correlation',
-          observation: 'mentions family when frustrated about work',
-          pattern_data: { primaryTopic: 'family', correlatedMood: 'frustrated', secondaryTopic: 'work' },
+          id: "pattern-3",
+
+          pattern_type: "topic_correlation",
+          observation: "mentions family when frustrated about work",
+          pattern_data: {
+            primaryTopic: "family",
+            correlatedMood: "frustrated",
+            secondaryTopic: "work",
+          },
           frequency: 1,
-          confidence: 0.30,
+          confidence: 0.3,
           first_observed: new Date().toISOString(),
           last_observed: new Date().toISOString(),
           has_been_surfaced: false,
@@ -446,11 +450,15 @@ describe("userPatterns", () => {
         error: null,
       });
 
-      const result = await recordTopicCorrelationPattern('user-123', 'family', 'frustrated', 'work');
+      const result = await recordTopicCorrelationPattern(
+        "family",
+        "frustrated",
+        "work"
+      );
 
       expect(result).not.toBeNull();
-      expect(result?.observation).toContain('family');
-      expect(result?.observation).toContain('work');
+      expect(result?.observation).toContain("family");
+      expect(result?.observation).toContain("work");
     });
   });
 
@@ -463,13 +471,13 @@ describe("userPatterns", () => {
       mocks.maybeSingle.mockResolvedValueOnce({ data: null, error: null });
       mocks.single.mockResolvedValueOnce({
         data: {
-          id: 'pattern-4',
-          user_id: 'user-123',
-          pattern_type: 'behavior',
-          observation: 'checks in more when anxious',
-          pattern_data: { behavior: 'checks in more', context: 'anxious' },
+          id: "pattern-4",
+
+          pattern_type: "behavior",
+          observation: "checks in more when anxious",
+          pattern_data: { behavior: "checks in more", context: "anxious" },
           frequency: 1,
-          confidence: 0.30,
+          confidence: 0.3,
           first_observed: new Date().toISOString(),
           last_observed: new Date().toISOString(),
           has_been_surfaced: false,
@@ -479,10 +487,10 @@ describe("userPatterns", () => {
         error: null,
       });
 
-      const result = await recordBehaviorPattern('user-123', 'checks in more', 'anxious');
+      const result = await recordBehaviorPattern("checks in more", "anxious");
 
-      expect(result?.patternType).toBe('behavior');
-      expect(result?.observation).toBe('checks in more when anxious');
+      expect(result?.patternType).toBe("behavior");
+      expect(result?.observation).toBe("checks in more when anxious");
     });
   });
 
@@ -493,18 +501,18 @@ describe("userPatterns", () => {
   describe("analyzeMessageForPatterns", () => {
     it("should detect mood-time pattern from message", async () => {
       const monday = new Date("2024-01-08T10:00:00");
-      
+
       // Mock for mood-time pattern
       mocks.maybeSingle.mockResolvedValueOnce({ data: null, error: null });
       mocks.single.mockResolvedValueOnce({
         data: {
-          id: 'pattern-5',
-          user_id: 'user-123',
-          pattern_type: 'mood_time',
-          observation: 'stressed on Mondays',
+          id: "pattern-5",
+
+          pattern_type: "mood_time",
+          observation: "stressed on Mondays",
           pattern_data: {},
           frequency: 1,
-          confidence: 0.30,
+          confidence: 0.3,
           first_observed: monday.toISOString(),
           last_observed: monday.toISOString(),
           has_been_surfaced: false,
@@ -515,18 +523,16 @@ describe("userPatterns", () => {
       });
 
       const patterns = await analyzeMessageForPatterns(
-        'user-123',
         "I'm so stressed about work today",
         monday
       );
 
       expect(patterns.length).toBeGreaterThan(0);
-      expect(patterns[0].patternType).toBe('mood_time');
+      expect(patterns[0].patternType).toBe("mood_time");
     });
 
     it("should not detect patterns for neutral messages", async () => {
       const patterns = await analyzeMessageForPatterns(
-        'user-123',
         "The weather is nice today"
       );
 
@@ -541,62 +547,68 @@ describe("userPatterns", () => {
   describe("getPatternToSurface", () => {
     it("should return high-confidence pattern ready to surface", async () => {
       const oldDate = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000); // 30 days ago
-      
+
       selectResolvedValues.push({
-        data: [{
-          id: 'pattern-6',
-          user_id: 'user-123',
-          pattern_type: 'mood_time',
-          observation: 'stressed on Mondays',
-          pattern_data: { mood: 'stressed', dayName: 'Monday' },
-          frequency: 5,
-          confidence: 0.72,
-          first_observed: oldDate.toISOString(),
-          last_observed: new Date().toISOString(),
-          has_been_surfaced: false,
-          surface_count: 0,
-          created_at: oldDate.toISOString(),
-        }],
+        data: [
+          {
+            id: "pattern-6",
+
+            pattern_type: "mood_time",
+            observation: "stressed on Mondays",
+            pattern_data: { mood: "stressed", dayName: "Monday" },
+            frequency: 5,
+            confidence: 0.72,
+            first_observed: oldDate.toISOString(),
+            last_observed: new Date().toISOString(),
+            has_been_surfaced: false,
+            surface_count: 0,
+            created_at: oldDate.toISOString(),
+          },
+        ],
         error: null,
       });
 
-      const result = await getPatternToSurface('user-123');
+      const result = await getPatternToSurface();
 
       expect(result).not.toBeNull();
-      expect(result?.confidence).toBeGreaterThanOrEqual(MIN_CONFIDENCE_TO_SURFACE);
+      expect(result?.confidence).toBeGreaterThanOrEqual(
+        MIN_CONFIDENCE_TO_SURFACE
+      );
     });
 
     it("should return null when no patterns exist", async () => {
       selectResolvedValues.push({ data: [], error: null });
 
-      const result = await getPatternToSurface('user-123');
+      const result = await getPatternToSurface();
 
       expect(result).toBeNull();
     });
 
     it("should filter out recently surfaced patterns", async () => {
       const recentSurface = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000); // 3 days ago
-      
+
       selectResolvedValues.push({
-        data: [{
-          id: 'pattern-7',
-          user_id: 'user-123',
-          pattern_type: 'mood_time',
-          observation: 'stressed on Mondays',
-          pattern_data: {},
-          frequency: 5,
-          confidence: 0.72,
-          first_observed: new Date().toISOString(),
-          last_observed: new Date().toISOString(),
-          has_been_surfaced: true,
-          surface_count: 1,
-          last_surfaced_at: recentSurface.toISOString(), // Too recent
-          created_at: new Date().toISOString(),
-        }],
+        data: [
+          {
+            id: "pattern-7",
+
+            pattern_type: "mood_time",
+            observation: "stressed on Mondays",
+            pattern_data: {},
+            frequency: 5,
+            confidence: 0.72,
+            first_observed: new Date().toISOString(),
+            last_observed: new Date().toISOString(),
+            has_been_surfaced: true,
+            surface_count: 1,
+            last_surfaced_at: recentSurface.toISOString(), // Too recent
+            created_at: new Date().toISOString(),
+          },
+        ],
         error: null,
       });
 
-      const result = await getPatternToSurface('user-123');
+      const result = await getPatternToSurface();
 
       expect(result).toBeNull(); // Should be filtered out
     });
@@ -609,11 +621,10 @@ describe("userPatterns", () => {
   describe("generatePatternSurfacePrompt", () => {
     it("should generate soft prompt for mood_time pattern", () => {
       const pattern: UserPattern = {
-        id: 'pattern-8',
-        userId: 'user-123',
-        patternType: 'mood_time',
-        observation: 'stressed on Mondays',
-        patternData: { mood: 'stressed', dayName: 'Monday' },
+        id: "pattern-8",
+        patternType: "mood_time",
+        observation: "stressed on Mondays",
+        patternData: { mood: "stressed", dayName: "Monday" },
         frequency: 5,
         confidence: 0.72,
         firstObserved: new Date(),
@@ -624,23 +635,28 @@ describe("userPatterns", () => {
 
       const prompt = generatePatternSurfacePrompt(pattern);
 
-      expect(prompt).toContain('PATTERN INSIGHT');
-      expect(prompt).toContain('stressed');
-      expect(prompt).toContain('Monday');
-      expect(prompt).toContain('PATTERN_ID');
+      expect(prompt).toContain("PATTERN INSIGHT");
+      expect(prompt).toContain("stressed");
+      expect(prompt).toContain("Monday");
+      expect(prompt).toContain("PATTERN_ID");
       // Should contain soft language
-      expect(prompt.toLowerCase()).toMatch(/(i've noticed|it seems like|might be imagining)/);
+      expect(prompt.toLowerCase()).toMatch(
+        /(i've noticed|it seems like|might be imagining)/
+      );
     });
 
     it("should generate prompt for topic_correlation pattern", () => {
       const pattern: UserPattern = {
-        id: 'pattern-9',
-        userId: 'user-123',
-        patternType: 'topic_correlation',
-        observation: 'mentions family when frustrated about work',
-        patternData: { primaryTopic: 'family', correlatedMood: 'frustrated', secondaryTopic: 'work' },
+        id: "pattern-9",
+        patternType: "topic_correlation",
+        observation: "mentions family when frustrated about work",
+        patternData: {
+          primaryTopic: "family",
+          correlatedMood: "frustrated",
+          secondaryTopic: "work",
+        },
         frequency: 3,
-        confidence: 0.60,
+        confidence: 0.6,
         firstObserved: new Date(),
         lastObserved: new Date(),
         hasBeenSurfaced: false,
@@ -649,17 +665,16 @@ describe("userPatterns", () => {
 
       const prompt = generatePatternSurfacePrompt(pattern);
 
-      expect(prompt).toContain('family');
-      expect(prompt).toContain('work');
-      expect(prompt).toContain('CRITICAL');
+      expect(prompt).toContain("family");
+      expect(prompt).toContain("work");
+      expect(prompt).toContain("CRITICAL");
     });
 
     it("should include guidance for natural surfacing", () => {
       const pattern: UserPattern = {
-        id: 'pattern-10',
-        userId: 'user-123',
-        patternType: 'behavior',
-        observation: 'checks in more when anxious',
+        id: "pattern-10",
+        patternType: "behavior",
+        observation: "checks in more when anxious",
         patternData: {},
         frequency: 4,
         confidence: 0.65,
@@ -671,9 +686,9 @@ describe("userPatterns", () => {
 
       const prompt = generatePatternSurfacePrompt(pattern);
 
-      expect(prompt).toContain('SOFT language');
-      expect(prompt).toContain('HOW TO SURFACE');
-      expect(prompt).toContain('SKIP IT entirely');
+      expect(prompt).toContain("SOFT language");
+      expect(prompt).toContain("HOW TO SURFACE");
+      expect(prompt).toContain("SKIP IT entirely");
     });
   });
 
@@ -686,10 +701,10 @@ describe("userPatterns", () => {
       selectResolvedValues.push({
         data: [
           {
-            id: 'pattern-11',
-            user_id: 'user-123',
-            pattern_type: 'mood_time',
-            observation: 'stressed on Mondays',
+            id: "pattern-11",
+
+            pattern_type: "mood_time",
+            observation: "stressed on Mondays",
             pattern_data: {},
             frequency: 5,
             confidence: 0.72,
@@ -700,10 +715,10 @@ describe("userPatterns", () => {
             created_at: new Date().toISOString(),
           },
           {
-            id: 'pattern-12',
-            user_id: 'user-123',
-            pattern_type: 'topic_correlation',
-            observation: 'mentions family when stressed about work',
+            id: "pattern-12",
+
+            pattern_type: "topic_correlation",
+            observation: "mentions family when stressed about work",
             pattern_data: {},
             frequency: 3,
             confidence: 0.54,
@@ -717,17 +732,17 @@ describe("userPatterns", () => {
         error: null,
       });
 
-      const patterns = await getPatterns('user-123');
+      const patterns = await getPatterns();
 
       expect(patterns.length).toBe(2);
-      expect(patterns[0].patternType).toBe('mood_time');
+      expect(patterns[0].patternType).toBe("mood_time");
       expect(patterns[1].hasBeenSurfaced).toBe(true);
     });
 
     it("should return empty array for no patterns", async () => {
       selectResolvedValues.push({ data: [], error: null });
 
-      const patterns = await getPatterns('user-123');
+      const patterns = await getPatterns();
 
       expect(patterns).toEqual([]);
     });
@@ -742,10 +757,10 @@ describe("userPatterns", () => {
       selectResolvedValues.push({
         data: [
           {
-            id: 'pattern-13',
-            user_id: 'user-123',
-            pattern_type: 'mood_time',
-            observation: 'stressed on Mondays',
+            id: "pattern-13",
+
+            pattern_type: "mood_time",
+            observation: "stressed on Mondays",
             pattern_data: {},
             frequency: 5,
             confidence: 0.72,
@@ -756,10 +771,10 @@ describe("userPatterns", () => {
             created_at: new Date().toISOString(),
           },
           {
-            id: 'pattern-14',
-            user_id: 'user-123',
-            pattern_type: 'topic_correlation',
-            observation: 'mentions mom when frustrated',
+            id: "pattern-14",
+
+            pattern_type: "topic_correlation",
+            observation: "mentions mom when frustrated",
             pattern_data: {},
             frequency: 2,
             confidence: 0.42,
@@ -773,12 +788,12 @@ describe("userPatterns", () => {
         error: null,
       });
 
-      const stats = await getPatternStats('user-123');
+      const stats = await getPatternStats();
 
       expect(stats.totalPatterns).toBe(2);
       expect(stats.surfacedCount).toBe(1);
-      expect(stats.patternTypes).toContain('mood_time');
-      expect(stats.patternTypes).toContain('topic_correlation');
+      expect(stats.patternTypes).toContain("mood_time");
+      expect(stats.patternTypes).toContain("topic_correlation");
       expect(stats.highConfidenceCount).toBe(1); // Only one >= 0.60
     });
   });
@@ -790,7 +805,7 @@ describe("userPatterns", () => {
   describe("Constants", () => {
     it("should have correct thresholds", () => {
       expect(MIN_OBSERVATIONS_TO_SURFACE).toBe(3);
-      expect(MIN_CONFIDENCE_TO_SURFACE).toBe(0.60);
+      expect(MIN_CONFIDENCE_TO_SURFACE).toBe(0.6);
       expect(MAX_SURFACE_COUNT).toBe(2);
     });
 
@@ -802,16 +817,16 @@ describe("userPatterns", () => {
     });
 
     it("should have mood indicators", () => {
-      expect(Object.keys(MOOD_INDICATORS)).toContain('stressed');
-      expect(Object.keys(MOOD_INDICATORS)).toContain('happy');
-      expect(Object.keys(MOOD_INDICATORS)).toContain('sad');
-      expect(Object.keys(MOOD_INDICATORS)).toContain('anxious');
+      expect(Object.keys(MOOD_INDICATORS)).toContain("stressed");
+      expect(Object.keys(MOOD_INDICATORS)).toContain("happy");
+      expect(Object.keys(MOOD_INDICATORS)).toContain("sad");
+      expect(Object.keys(MOOD_INDICATORS)).toContain("anxious");
     });
 
     it("should have topic categories", () => {
-      expect(Object.keys(TOPIC_CATEGORIES)).toContain('work');
-      expect(Object.keys(TOPIC_CATEGORIES)).toContain('family');
-      expect(Object.keys(TOPIC_CATEGORIES)).toContain('relationships');
+      expect(Object.keys(TOPIC_CATEGORIES)).toContain("work");
+      expect(Object.keys(TOPIC_CATEGORIES)).toContain("family");
+      expect(Object.keys(TOPIC_CATEGORIES)).toContain("relationships");
     });
   });
 
@@ -822,9 +837,9 @@ describe("userPatterns", () => {
   describe("Type Exports", () => {
     it("exports PatternType correctly", () => {
       const types: PatternType[] = [
-        'mood_time',
-        'topic_correlation',
-        'behavior',
+        "mood_time",
+        "topic_correlation",
+        "behavior",
       ];
 
       expect(types.length).toBe(3);
@@ -832,10 +847,9 @@ describe("userPatterns", () => {
 
     it("exports UserPattern type correctly", () => {
       const mockPattern: UserPattern = {
-        id: 'test-id',
-        userId: 'user-id',
-        patternType: 'mood_time',
-        observation: 'stressed on Mondays',
+        id: "test-id",
+        patternType: "mood_time",
+        observation: "stressed on Mondays",
         frequency: 5,
         confidence: 0.72,
         firstObserved: new Date(),
@@ -844,8 +858,8 @@ describe("userPatterns", () => {
         surfaceCount: 0,
       };
 
-      expect(mockPattern.id).toBe('test-id');
-      expect(mockPattern.patternType).toBe('mood_time');
+      expect(mockPattern.id).toBe("test-id");
+      expect(mockPattern.patternType).toBe("mood_time");
     });
   });
 });

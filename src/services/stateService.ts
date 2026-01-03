@@ -162,21 +162,15 @@ export async function getMoodState(): Promise<MoodState> {
  */
 export async function saveMoodState(state: MoodState): Promise<void> {
   try {
-    await supabase.from(MOOD_STATES_TABLE).upsert(
-      {
-        user_id: USER_ID,
-        daily_energy: state.dailyEnergy,
-        social_battery: state.socialBattery,
-        internal_processing: state.internalProcessing,
-        calculated_at: new Date(state.calculatedAt).toISOString(),
-        daily_seed: state.dailySeed,
-        last_interaction_at: new Date(state.lastInteractionAt).toISOString(),
-        last_interaction_tone: state.lastInteractionTone,
-      },
-      {
-        onConflict: "user_id",
-      }
-    );
+    await supabase.from(MOOD_STATES_TABLE).upsert({
+      daily_energy: state.dailyEnergy,
+      social_battery: state.socialBattery,
+      internal_processing: state.internalProcessing,
+      calculated_at: new Date(state.calculatedAt).toISOString(),
+      daily_seed: state.dailySeed,
+      last_interaction_at: new Date(state.lastInteractionAt).toISOString(),
+      last_interaction_tone: state.lastInteractionTone,
+    });
   } catch (error) {
     console.error("[StateService] Error saving mood state:", error);
   }
@@ -273,22 +267,16 @@ export async function saveEmotionalMomentum(
       }
     }
 
-    await supabase.from(EMOTIONAL_MOMENTUM_TABLE).upsert(
-      {
-        user_id: USER_ID,
-        current_mood_level: momentum.currentMoodLevel,
-        momentum_direction: momentum.momentumDirection,
-        positive_interaction_streak: momentum.positiveInteractionStreak,
-        recent_interaction_tones: momentum.recentInteractionTones,
-        genuine_moment_detected: momentum.genuineMomentDetected,
-        last_genuine_moment_at: momentum.lastGenuineMomentAt
-          ? new Date(momentum.lastGenuineMomentAt).toISOString()
-          : null,
-      },
-      {
-        onConflict: "user_id",
-      }
-    );
+    await supabase.from(EMOTIONAL_MOMENTUM_TABLE).upsert({
+      current_mood_level: momentum.currentMoodLevel,
+      momentum_direction: momentum.momentumDirection,
+      positive_interaction_streak: momentum.positiveInteractionStreak,
+      recent_interaction_tones: momentum.recentInteractionTones,
+      genuine_moment_detected: momentum.genuineMomentDetected,
+      last_genuine_moment_at: momentum.lastGenuineMomentAt
+        ? new Date(momentum.lastGenuineMomentAt).toISOString()
+        : null,
+    });
   } catch (error) {
     console.error("[StateService] Error saving emotional momentum:", error);
   }
@@ -338,7 +326,6 @@ export async function saveOngoingThread(thread: OngoingThread): Promise<void> {
     await supabase.from(ONGOING_THREADS_TABLE).upsert(
       {
         id: thread.id,
-        user_id: USER_ID,
         theme: thread.theme,
         current_state: thread.currentState,
         intensity: thread.intensity,
@@ -377,7 +364,6 @@ export async function saveAllOngoingThreads(
     if (threads.length > 0) {
       const rows = threads.map((thread) => ({
         id: thread.id,
-        user_id: USER_ID,
         theme: thread.theme,
         current_state: thread.currentState,
         intensity: thread.intensity,
@@ -479,9 +465,7 @@ export async function getFullCharacterContext(): Promise<{
   intimacy_state: IntimacyState | null;
 }> {
   try {
-    const { data, error } = await supabase.rpc("get_full_character_context", {
-      user_id: USER_ID,
-    });
+    const { data, error } = await supabase.rpc("get_full_character_context");
 
     if (error) {
       console.error(
@@ -619,21 +603,15 @@ export async function saveIntimacyState(
       }
     }
 
-    await supabase.from(INTIMACY_STATES_TABLE).upsert(
-      {
-        user_id: USER_ID,
-        recent_tone_modifier: state.recentToneModifier,
-        vulnerability_exchange_active: state.vulnerabilityExchangeActive,
-        last_vulnerability_at: state.lastVulnerabilityAt
-          ? new Date(state.lastVulnerabilityAt).toISOString()
-          : null,
-        low_effort_streak: state.lowEffortStreak,
-        recent_quality: state.recentQuality,
-      },
-      {
-        onConflict: "user_id",
-      }
-    );
+    await supabase.from(INTIMACY_STATES_TABLE).upsert({
+      recent_tone_modifier: state.recentToneModifier,
+      vulnerability_exchange_active: state.vulnerabilityExchangeActive,
+      last_vulnerability_at: state.lastVulnerabilityAt
+        ? new Date(state.lastVulnerabilityAt).toISOString()
+        : null,
+      low_effort_streak: state.lowEffortStreak,
+      recent_quality: state.recentQuality,
+    });
   } catch (error) {
     console.error("[StateService] Error saving intimacy state:", error);
   }

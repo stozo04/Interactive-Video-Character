@@ -229,13 +229,12 @@ export interface SessionReflection {
  */
 export interface IdleThought {
   id: string;
-  userId: string;
 
   // Thought content
   thoughtType: IdleThoughtType;
-  content: string;                   // The actual thought/dream
-  associatedMemory?: string;         // What triggered this
-  emotionalTone: string;             // wistful, excited, anxious, warm, etc.
+  content: string; // The actual thought/dream
+  associatedMemory?: string; // What triggered this
+  emotionalTone: string; // wistful, excited, anxious, warm, etc.
 
   // Dream-specific
   isRecurring: boolean;
@@ -243,12 +242,12 @@ export interface IdleThought {
 
   // Relationship to user
   involvesUser: boolean;
-  userRoleInThought?: string;        // "companion", "hero", "absent", etc.
+  userRoleInThought?: string; // "companion", "hero", "absent", etc.
 
   // Proactive use
   canShareWithUser: boolean;
   idealConversationMood?: ConversationalMood;
-  naturalIntro?: string;             // "I had the weirdest dream about..."
+  naturalIntro?: string; // "I had the weirdest dream about..."
 
   // Lifecycle
   generatedAt: Date;

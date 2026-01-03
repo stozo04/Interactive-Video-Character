@@ -30,7 +30,6 @@ export type PatternType =
 
 export interface UserPattern {
   id: string;
-  userId: string;
   patternType: PatternType;
   observation: string;
   patternData?: Record<string, unknown>;
@@ -45,7 +44,6 @@ export interface UserPattern {
 
 interface PatternRow {
   id: string;
-  user_id: string;
   pattern_type: PatternType;
   observation: string;
   pattern_data?: Record<string, unknown>;
@@ -179,7 +177,6 @@ export function getDayOfWeek(date: Date = new Date()): { dayNumber: number; dayN
  * Called when we detect a mood and want to track if it correlates with time.
  */
 export async function recordMoodTimePattern(
-  userId: string,
   mood: string,
   date: Date = new Date()
 ): Promise<UserPattern | null> {
@@ -198,7 +195,7 @@ export async function recordMoodTimePattern(
     hour: date.getHours(),
   };
   
-  return await recordPattern(userId, 'mood_time', observation, patternData);
+  return await recordPattern('mood_time', observation, patternData);
 }
 
 /**
@@ -206,7 +203,6 @@ export async function recordMoodTimePattern(
  * Called when we detect multiple topics together with a mood.
  */
 export async function recordTopicCorrelationPattern(
-  userId: string,
   primaryTopic: string,
   correlatedMood: string,
   secondaryTopic?: string
@@ -225,7 +221,7 @@ export async function recordTopicCorrelationPattern(
     secondaryTopic,
   };
   
-  return await recordPattern(userId, 'topic_correlation', observation, patternData);
+  return await recordPattern('topic_correlation', observation, patternData);
 }
 
 /**
@@ -233,7 +229,6 @@ export async function recordTopicCorrelationPattern(
  * Called when we notice behavioral trends.
  */
 export async function recordBehaviorPattern(
-  userId: string,
   behavior: string,
   context: string
 ): Promise<UserPattern | null> {
@@ -245,14 +240,13 @@ export async function recordBehaviorPattern(
     context,
   };
   
-  return await recordPattern(userId, 'behavior', observation, patternData);
+  return await recordPattern('behavior', observation, patternData);
 }
 
 /**
  * Core function to record or update a pattern.
  */
 async function recordPattern(
-  userId: string,
   patternType: PatternType,
   observation: string,
   patternData: Record<string, unknown>
@@ -262,7 +256,6 @@ async function recordPattern(
     const { data: existing, error: checkError } = await supabase
       .from(PATTERNS_TABLE)
       .select('*')
-      .eq('user_id', userId)
       .eq('pattern_type', patternType)
       .eq('observation', observation)
       .maybeSingle();
@@ -302,7 +295,6 @@ async function recordPattern(
     const { data: inserted, error: insertError } = await supabase
       .from(PATTERNS_TABLE)
       .insert({
-        user_id: userId,
         pattern_type: patternType,
         observation,
         pattern_data: patternData,
@@ -342,14 +334,12 @@ async function recordPattern(
  * If provided, uses LLM-detected topics with emotional context,
  * falling back to keyword detection if not available.
  * 
- * @param userId - The user's ID  
  * @param message - The user's message text
  * @param date - Date for time-based pattern tracking (defaults to now)
  * @param toneResult - Optional ToneIntent from Phase 2 LLM detection
  * @param topicResult - Optional TopicIntent from Phase 4 LLM detection
  */
 export async function analyzeMessageForPatterns(
-  userId: string,
   message: string,
   date: Date = new Date(),
   toneResult?: ToneIntent,
@@ -394,7 +384,7 @@ export async function analyzeMessageForPatterns(
   
   // Record mood-time pattern if mood detected
   if (mood) {
-    const pattern = await recordMoodTimePattern(userId, mood, date);
+    const pattern = await recordMoodTimePattern(mood, date);
     if (pattern) {
       detectedPatterns.push(pattern);
     }
@@ -405,7 +395,7 @@ export async function analyzeMessageForPatterns(
       // Get topic-specific emotion from LLM if available
       const topicMood = emotionalContext[topic] || mood;
       
-      const pattern = await recordTopicCorrelationPattern(userId, topic, topicMood);
+      const pattern = await recordTopicCorrelationPattern(topic, topicMood);
       if (pattern) {
         detectedPatterns.push(pattern);
       }
@@ -413,7 +403,7 @@ export async function analyzeMessageForPatterns(
     
     // If multiple topics, record correlation between them
     if (topics.length >= 2) {
-      const pattern = await recordTopicCorrelationPattern(userId, topics[0], mood, topics[1]);
+      const pattern = await recordTopicCorrelationPattern(topics[0], mood, topics[1]);
       if (pattern) {
         detectedPatterns.push(pattern);
       }
@@ -423,7 +413,7 @@ export async function analyzeMessageForPatterns(
     for (const topic of topics) {
       const topicEmotion = emotionalContext[topic];
       if (topicEmotion) {
-        const pattern = await recordTopicCorrelationPattern(userId, topic, topicEmotion);
+        const pattern = await recordTopicCorrelationPattern(topic, topicEmotion);
         if (pattern) {
           detectedPatterns.push(pattern);
         }
@@ -464,14 +454,13 @@ function mapEmotionToMoodPattern(emotion: PrimaryEmotion): string | null {
  * Get a pattern that's ready to be surfaced to the user.
  * Only returns patterns with sufficient confidence that haven't been over-surfaced.
  */
-export async function getPatternToSurface(userId: string): Promise<UserPattern | null> {
+export async function getPatternToSurface(): Promise<UserPattern | null> {
   try {
     const minSurfaceDate = new Date(Date.now() - MIN_DAYS_BETWEEN_SURFACING * 24 * 60 * 60 * 1000);
     
     const { data, error } = await supabase
       .from(PATTERNS_TABLE)
       .select('*')
-      .eq('user_id', userId)
       .gte('confidence', MIN_CONFIDENCE_TO_SURFACE)
       .gte('frequency', MIN_OBSERVATIONS_TO_SURFACE)
       .lt('surface_count', MAX_SURFACE_COUNT)
@@ -621,12 +610,11 @@ PATTERN_ID: ${pattern.id}
 /**
  * Get all patterns for a user.
  */
-export async function getPatterns(userId: string): Promise<UserPattern[]> {
+export async function getPatterns(): Promise<UserPattern[]> {
   try {
     const { data, error } = await supabase
       .from(PATTERNS_TABLE)
       .select('*')
-      .eq('user_id', userId)
       .order('confidence', { ascending: false });
     
     if (error) {
@@ -644,13 +632,13 @@ export async function getPatterns(userId: string): Promise<UserPattern[]> {
 /**
  * Get pattern statistics for debugging.
  */
-export async function getPatternStats(userId: string): Promise<{
+export async function getPatternStats(): Promise<{
   totalPatterns: number;
   surfacedCount: number;
   patternTypes: PatternType[];
   highConfidenceCount: number;
 }> {
-  const patterns = await getPatterns(userId);
+  const patterns = await getPatterns();
   
   return {
     totalPatterns: patterns.length,
@@ -663,14 +651,13 @@ export async function getPatternStats(userId: string): Promise<{
 /**
  * Delete all patterns for a user (for testing/reset).
  */
-export async function clearPatterns(userId: string): Promise<void> {
+export async function clearPatterns(): Promise<void> {
   try {
     await supabase
       .from(PATTERNS_TABLE)
-      .delete()
-      .eq('user_id', userId);
+      .delete();
     
-    console.log(`🗑️ [UserPatterns] Cleared patterns for user: ${userId}`);
+    console.log(`🗑️ [UserPatterns] Cleared patterns`);
   } catch (error) {
     console.error('[UserPatterns] Error clearing patterns:', error);
   }
@@ -683,7 +670,6 @@ export async function clearPatterns(userId: string): Promise<void> {
 function mapPatternRowToDomain(row: PatternRow): UserPattern {
   return {
     id: row.id,
-    userId: row.user_id,
     patternType: row.pattern_type,
     observation: row.observation,
     patternData: row.pattern_data,

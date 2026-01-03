@@ -143,34 +143,37 @@ describe("Phase 4: Intimacy State Supabase Migration", () => {
 
   describe("getIntimacyStateAsync", () => {
     it("should fetch intimacy state from Supabase with userId", async () => {
-      const result = await getIntimacyStateAsync(testUserId);
-      
-      expect(mockGetIntimacyState).toHaveBeenCalledWith(testUserId);
+      const result = await getIntimacyStateAsync();
+
+      // Function now uses single-user context (no userId parameter)
+      expect(mockGetIntimacyState).toHaveBeenCalled();
       expect(result).toEqual(defaultIntimacyState);
     });
 
     it("should cache result and avoid repeat DB calls", async () => {
       // First call - hits Supabase
-      await getIntimacyStateAsync(testUserId);
+      await getIntimacyStateAsync();
       expect(mockGetIntimacyState).toHaveBeenCalledTimes(1);
-      
+
       // Second call - should use cache
-      await getIntimacyStateAsync(testUserId);
+      await getIntimacyStateAsync();
       expect(mockGetIntimacyState).toHaveBeenCalledTimes(1); // Still 1
     });
 
-    it("should fetch fresh data for different userId", async () => {
-      await getIntimacyStateAsync(testUserId);
-      await getIntimacyStateAsync("different-user");
-      
-      expect(mockGetIntimacyState).toHaveBeenCalledTimes(2);
+    it("should fetch fresh data each time (single user)", async () => {
+      await getIntimacyStateAsync();
+      await getIntimacyStateAsync();
+
+      // Both calls should use the same cached result (cache is per-user)
+      // Even though we clear cache between tests, within a test the cache persists
+      expect(mockGetIntimacyState).toHaveBeenCalledTimes(1);
     });
 
     it("should handle Supabase errors gracefully", async () => {
       mockGetIntimacyState.mockRejectedValueOnce(new Error("DB error"));
-      
-      const result = await getIntimacyStateAsync(testUserId);
-      
+
+      const result = await getIntimacyStateAsync();
+
       // Should return default state on error
       expect(result).toEqual(defaultIntimacyState);
     });
@@ -187,9 +190,9 @@ describe("Phase 4: Intimacy State Supabase Migration", () => {
         recentToneModifier: 0.3,
         recentQuality: 0.8,
       };
-      
+
       await storeIntimacyStateAsync(newState);
-      
+
       expect(mockSaveIntimacyState).toHaveBeenCalledWith(newState);
     });
 
@@ -198,13 +201,13 @@ describe("Phase 4: Intimacy State Supabase Migration", () => {
         ...defaultIntimacyState,
         lowEffortStreak: 3,
       };
-      
+
       await storeIntimacyStateAsync(newState);
-      
+
       // Cache should be updated, so next get should not hit DB
       mockGetIntimacyState.mockClear();
-      const retrieved = await getIntimacyStateAsync(testUserId);
-      
+      const retrieved = await getIntimacyStateAsync();
+
       expect(mockGetIntimacyState).not.toHaveBeenCalled();
       expect(retrieved.lowEffortStreak).toBe(3);
     });
@@ -217,9 +220,9 @@ describe("Phase 4: Intimacy State Supabase Migration", () => {
   describe("recordMessageQualityAsync", () => {
     it("should update low effort streak for short messages", async () => {
       await recordMessageQualityAsync("ok");
-      
+
       expect(mockSaveIntimacyState).toHaveBeenCalled();
-      const savedState = mockSaveIntimacyState.mock.calls[0][1];
+      const savedState = mockSaveIntimacyState.mock.calls[0][0];
       expect(savedState.lowEffortStreak).toBe(1);
     });
 
@@ -229,26 +232,32 @@ describe("Phase 4: Intimacy State Supabase Migration", () => {
         ...defaultIntimacyState,
         lowEffortStreak: 3,
       });
-      
-      await recordMessageQualityAsync("I've been thinking a lot about what you said earlier, and I really appreciate your perspective on this.");
-      
-      const savedState = mockSaveIntimacyState.mock.calls[0][1];
+
+      await recordMessageQualityAsync(
+        "I've been thinking a lot about what you said earlier, and I really appreciate your perspective on this."
+      );
+
+      const savedState = mockSaveIntimacyState.mock.calls[0][0];
       expect(savedState.lowEffortStreak).toBe(0);
     });
 
     it("should activate vulnerability exchange for vulnerable messages", async () => {
-      await recordMessageQualityAsync("I'm scared about sharing this with you, but I trust you");
-      
-      const savedState = mockSaveIntimacyState.mock.calls[0][1];
+      await recordMessageQualityAsync(
+        "I'm scared about sharing this with you, but I trust you"
+      );
+
+      const savedState = mockSaveIntimacyState.mock.calls[0][0];
       expect(savedState.vulnerabilityExchangeActive).toBe(true);
       expect(savedState.lastVulnerabilityAt).not.toBeNull();
     });
 
     it("should update recent quality with rolling average", async () => {
       // Start with default 0.5 quality - use a message that qualifies as high effort (contains 'honestly')
-      await recordMessageQualityAsync("Honestly, this is a really thoughtful message that I wanted to share with you about my thoughts");
-      
-      const savedState = mockSaveIntimacyState.mock.calls[0][1];
+      await recordMessageQualityAsync(
+        "Honestly, this is a really thoughtful message that I wanted to share with you about my thoughts"
+      );
+
+      const savedState = mockSaveIntimacyState.mock.calls[0][0];
       // Quality should be shifted from 0.5 baseline (high effort adds 0.2)
       // Rolling average: 0.5 * 0.7 + 0.7 * 0.3 = 0.35 + 0.21 = 0.56
       expect(savedState.recentQuality).toBeGreaterThan(0.5);
@@ -262,28 +271,32 @@ describe("Phase 4: Intimacy State Supabase Migration", () => {
   describe("analyzeMessageQuality", () => {
     it("should detect low effort messages", () => {
       const result = analyzeMessageQuality("ok");
-      
+
       expect(result.isLowEffort).toBe(true);
       expect(result.quality).toBeLessThan(0.5);
     });
 
     it("should detect high effort messages", () => {
-      const result = analyzeMessageQuality("I've been thinking about this for a while, and honestly I believe that taking time to reflect is important");
-      
+      const result = analyzeMessageQuality(
+        "I've been thinking about this for a while, and honestly I believe that taking time to reflect is important"
+      );
+
       expect(result.isHighEffort).toBe(true);
       expect(result.quality).toBeGreaterThan(0.5);
     });
 
     it("should detect vulnerable messages", () => {
-      const result = analyzeMessageQuality("I'm afraid to say this, but I feel like I need your support");
-      
+      const result = analyzeMessageQuality(
+        "I'm afraid to say this, but I feel like I need your support"
+      );
+
       expect(result.isVulnerable).toBe(true);
       expect(result.quality).toBeGreaterThan(0.5);
     });
 
     it("should handle empty messages", () => {
       const result = analyzeMessageQuality("");
-      
+
       expect(result.quality).toBeLessThanOrEqual(0.5);
       expect(result.isLowEffort).toBe(true);
     });
@@ -296,22 +309,17 @@ describe("Phase 4: Intimacy State Supabase Migration", () => {
   describe("calculateIntimacyProbabilityAsync", () => {
     it("should calculate probability based on relationship tier", async () => {
       const probability = await calculateIntimacyProbabilityAsync(
-        testUserId,
         mockRelationship,
         0.5
       );
-      
+
       expect(probability).toBeGreaterThan(0);
       expect(probability).toBeLessThanOrEqual(1);
     });
 
     it("should return very low probability for null relationship", async () => {
-      const probability = await calculateIntimacyProbabilityAsync(
-        testUserId,
-        null,
-        0.5
-      );
-      
+      const probability = await calculateIntimacyProbabilityAsync(null, 0.5);
+
       expect(probability).toBeLessThanOrEqual(0.15);
     });
 
@@ -320,10 +328,16 @@ describe("Phase 4: Intimacy State Supabase Migration", () => {
         ...mockRelationship,
         isRuptured: true,
       };
-      
-      const normalProb = await calculateIntimacyProbabilityAsync(mockRelationship, 0.5);
-      const rupturedProb = await calculateIntimacyProbabilityAsync(rupturedRelationship, 0.5);
-      
+
+      const normalProb = await calculateIntimacyProbabilityAsync(
+        mockRelationship,
+        0.5
+      );
+      const rupturedProb = await calculateIntimacyProbabilityAsync(
+        rupturedRelationship,
+        0.5
+      );
+
       expect(rupturedProb).toBeLessThan(normalProb);
     });
 
@@ -335,15 +349,21 @@ describe("Phase 4: Intimacy State Supabase Migration", () => {
         lastVulnerabilityAt: Date.now() - 1000 * 60 * 5, // 5 minutes ago
       });
       clearIntimacyCache();
-      
-      const vulnProb = await calculateIntimacyProbabilityAsync(mockRelationship, 0.5);
-      
+
+      const vulnProb = await calculateIntimacyProbabilityAsync(
+        mockRelationship,
+        0.5
+      );
+
       // Reset for normal comparison
       clearIntimacyCache();
       mockGetIntimacyState.mockResolvedValueOnce(defaultIntimacyState);
-      
-      const normalProb = await calculateIntimacyProbabilityAsync(mockRelationship, 0.5);
-      
+
+      const normalProb = await calculateIntimacyProbabilityAsync(
+        mockRelationship,
+        0.5
+      );
+
       expect(vulnProb).toBeGreaterThan(normalProb);
     });
   });
@@ -360,8 +380,8 @@ describe("Phase 4: Intimacy State Supabase Migration", () => {
         shouldFlirtMomentOccurAsync(mockRelationship, 0.5, "neutral"),
         shouldFlirtMomentOccurAsync(mockRelationship, 0.5, "neutral"),
       ]);
-      
-      results.forEach(result => {
+
+      results.forEach((result) => {
         expect(typeof result).toBe("boolean");
       });
     });
@@ -374,10 +394,14 @@ describe("Phase 4: Intimacy State Supabase Migration", () => {
         recentQuality: 0.9,
       });
       clearIntimacyCache();
-      
+
       // With play bid multiplier (1.5x), it should be more likely to return true
       // We can't deterministically test random, but we can verify the function works
-      const result = await shouldFlirtMomentOccurAsync(mockRelationship, 0.5, "play");
+      const result = await shouldFlirtMomentOccurAsync(
+        mockRelationship,
+        0.5,
+        "play"
+      );
       expect(typeof result).toBe("boolean");
     });
   });
@@ -388,8 +412,11 @@ describe("Phase 4: Intimacy State Supabase Migration", () => {
 
   describe("getIntimacyContextForPromptAsync", () => {
     it("should return formatted intimacy guidance string", async () => {
-      const context = await getIntimacyContextForPromptAsync(mockRelationship, 0.5);
-      
+      const context = await getIntimacyContextForPromptAsync(
+        mockRelationship,
+        0.5
+      );
+
       expect(typeof context).toBe("string");
       expect(context).toContain("INTIMACY LEVEL");
     });
@@ -401,9 +428,12 @@ describe("Phase 4: Intimacy State Supabase Migration", () => {
         lastVulnerabilityAt: Date.now() - 1000 * 60 * 5,
       });
       clearIntimacyCache();
-      
-      const context = await getIntimacyContextForPromptAsync(mockRelationship, 0.5);
-      
+
+      const context = await getIntimacyContextForPromptAsync(
+        mockRelationship,
+        0.5
+      );
+
       expect(context).toContain("VULNERABILITY EXCHANGE ACTIVE");
     });
 
@@ -413,9 +443,12 @@ describe("Phase 4: Intimacy State Supabase Migration", () => {
         lowEffortStreak: 3,
       });
       clearIntimacyCache();
-      
-      const context = await getIntimacyContextForPromptAsync(mockRelationship, 0.5);
-      
+
+      const context = await getIntimacyContextForPromptAsync(
+        mockRelationship,
+        0.5
+      );
+
       expect(context).toContain("LOW EFFORT DETECTED");
     });
   });
@@ -426,24 +459,24 @@ describe("Phase 4: Intimacy State Supabase Migration", () => {
 
   describe("resetIntimacyStateAsync", () => {
     it("should save default intimacy state to Supabase", async () => {
-      await resetIntimacyStateAsync(testUserId);
-      
+      await resetIntimacyStateAsync();
+
       expect(mockSaveIntimacyState).toHaveBeenCalled();
-      const savedState = mockSaveIntimacyState.mock.calls[0][1];
+      const savedState = mockSaveIntimacyState.mock.calls[0][0];
       expect(savedState.recentToneModifier).toBe(0);
       expect(savedState.lowEffortStreak).toBe(0);
     });
 
     it("should clear the local cache", async () => {
       // Prime cache
-      await getIntimacyStateAsync(testUserId);
+      await getIntimacyStateAsync();
       expect(mockGetIntimacyState).toHaveBeenCalledTimes(1);
-      
+
       // Reset
-      await resetIntimacyStateAsync(testUserId);
-      
+      await resetIntimacyStateAsync();
+
       // Next call should hit DB again
-      await getIntimacyStateAsync(testUserId);
+      await getIntimacyStateAsync();
       expect(mockGetIntimacyState).toHaveBeenCalledTimes(2);
     });
   });
@@ -455,23 +488,26 @@ describe("Phase 4: Intimacy State Supabase Migration", () => {
   describe("Cache Management", () => {
     it("clearIntimacyCache should reset all cached data", async () => {
       // Prime cache
-      await getIntimacyStateAsync(testUserId);
+      await getIntimacyStateAsync();
       expect(mockGetIntimacyState).toHaveBeenCalledTimes(1);
-      
+
       // Clear cache
       clearIntimacyCache();
-      
+
       // Next call should hit DB again
-      await getIntimacyStateAsync(testUserId);
+      await getIntimacyStateAsync();
       expect(mockGetIntimacyState).toHaveBeenCalledTimes(2);
     });
 
-    it("should invalidate cache when userId changes", async () => {
-      await getIntimacyStateAsync(testUserId);
-      await getIntimacyStateAsync("different-user");
-      
-      // Both should have hit the DB
-      expect(mockGetIntimacyState).toHaveBeenCalledTimes(2);
+    it("should reuse cache for single user", async () => {
+      // Clear mock to start fresh
+      mockGetIntimacyState.mockClear();
+
+      await getIntimacyStateAsync();
+      await getIntimacyStateAsync();
+
+      // With caching, second call shouldn't hit DB
+      expect(mockGetIntimacyState).toHaveBeenCalledTimes(1);
     });
   });
 

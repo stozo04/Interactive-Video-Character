@@ -16,7 +16,6 @@ import type { RelationshipMetrics } from './services/relationshipService';
 import type { FullMessageIntent } from './services/intentService';
 import { recordExchange } from './services/callbackDirector';
 import { getTopLoopToSurface } from './services/presenceDirector';
-import { migrateLocalStorageToSupabase } from './services/stateService';
 import { gmailService, type NewEmailPayload } from './services/gmailService';
 import { 
   calendarService, 
@@ -67,92 +66,14 @@ import {
 import { generateCompanionSelfie } from './services/imageGenerationService';
 import { detectKayleyPresence } from './services/kayleyPresenceDetector';
 import { getKayleyPresenceState, updateKayleyPresenceState, getDefaultExpirationMinutes } from './services/kayleyPresenceService';
-// Business logic moved to BaseAIService.ts (Clean Architecture)
-
-// Helper to sanitize text for comparison
-const sanitizeText = (value: string): string =>
-  value
-    .toLowerCase()
-    .replace(/[^a-z0-9\s]/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-
-// Helper to extract a single JSON object from a string (finds matching braces)
-const extractJsonObject = (str: string): string | null => {
-  const firstBrace = str.indexOf('{');
-  if (firstBrace === -1) return null;
-
-  let depth = 0;
-  let inString = false;
-  let escape = false;
-
-  for (let i = firstBrace; i < str.length; i++) {
-    const char = str[i];
-
-    if (escape) {
-      escape = false;
-      continue;
-    }
-
-    if (char === '\\') {
-      escape = true;
-      continue;
-    }
-
-    if (char === '"' && !escape) {
-      inString = !inString;
-      continue;
-    }
-
-    if (!inString) {
-      if (char === '{') depth++;
-      if (char === '}') depth--;
-
-      if (depth === 0) {
-        return str.substring(firstBrace, i + 1);
-      }
-    }
-  }
-
-  return null;
-};
+// Utility imports (Phase 1 extraction)
+import { sanitizeText, isQuestionMessage } from './utils/textUtils';
+import { extractJsonObject } from './utils/jsonUtils';
+import { randomFromArray, shuffleArray } from './utils/arrayUtils';
 
 const ACTION_VIDEO_BUCKET = 'character-action-videos';
 const IDLE_ACTION_DELAY_MIN_MS = 10_000;
 const IDLE_ACTION_DELAY_MAX_MS = 45_000;
-
-const randomFromArray = <T,>(items: T[]): T => {
-  if (items.length === 0) {
-    throw new Error('Cannot select a random item from an empty array.');
-  }
-  const index = Math.floor(Math.random() * items.length);
-  return items[index];
-};
-
-const shuffleArray = <T,>(array: T[]): T[] => {
-    const newArr = [...array];
-    for (let i = newArr.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
-        [newArr[i], newArr[j]] = [newArr[j], newArr[i]];
-    }
-    return newArr;
-};
-
-const QUESTION_STARTERS = [
-  'who','what','when','where','why','how',
-  'do','does','did','can','could','would','will','is','are','am','was','were',
-  'should','shall','have','has','had'
-];
-
-const isQuestionMessage = (message: string): boolean => {
-  const trimmed = message.trim();
-  if (!trimmed) return false;
-  if (trimmed.endsWith('?')) return true;
-  const normalized = sanitizeText(trimmed);
-  if (!normalized) return false;
-  const firstWord = normalized.split(' ')[0];
-  return QUESTION_STARTERS.includes(firstWord);
-};
 
 const TALKING_KEYWORDS = ['talk', 'talking', 'speak', 'chat', 'answer', 'respond'];
 const isTalkingAction = (action: CharacterAction): boolean => {

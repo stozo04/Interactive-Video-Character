@@ -109,8 +109,20 @@ const MESSAGES: ChatMessage[] = [
   { role: "model", text: "General Kenobi" },
 ];
 const DB_ROWS = [
-  { id: '1', character_id: CHARACTER_ID, user_id: USER_ID, message_role: 'user', message_text: 'Hello there', created_at: '2024-01-01T00:00:00Z' },
-  { id: '2', character_id: CHARACTER_ID, user_id: USER_ID, message_role: 'model', message_text: 'General Kenobi', created_at: '2024-01-01T00:00:01Z' },
+  {
+    id: "1",
+    character_id: CHARACTER_ID,
+    message_role: "user",
+    message_text: "Hello there",
+    created_at: "2024-01-01T00:00:00Z",
+  },
+  {
+    id: "2",
+    character_id: CHARACTER_ID,
+    message_role: "model",
+    message_text: "General Kenobi",
+    created_at: "2024-01-01T00:00:01Z",
+  },
 ];
 
 describe("conversationHistoryService", () => {

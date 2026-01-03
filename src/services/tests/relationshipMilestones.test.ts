@@ -126,14 +126,14 @@ describe("relationshipMilestones", () => {
     it("should create a new milestone when it doesn't exist", async () => {
       // Mock: no existing milestone
       mocks.maybeSingle.mockResolvedValueOnce({ data: null, error: null });
-      
+
       // Mock: successful insert
       mocks.single.mockResolvedValueOnce({
         data: {
-          id: 'test-milestone-1',
-          user_id: 'user-123',
-          milestone_type: 'first_vulnerability',
-          description: 'First time opening up',
+          id: "test-milestone-1",
+
+          milestone_type: "first_vulnerability",
+          description: "First time opening up",
           occurred_at: new Date().toISOString(),
           has_been_referenced: false,
           reference_count: 0,
@@ -143,29 +143,27 @@ describe("relationshipMilestones", () => {
       });
 
       const result = await recordMilestone(
-        'user-123',
-        'first_vulnerability',
-        'First time opening up',
-        'I never told anyone...'
+        "first_vulnerability",
+        "First time opening up",
+        "I never told anyone..."
       );
 
-      expect(mocks.from).toHaveBeenCalledWith('relationship_milestones');
+      expect(mocks.from).toHaveBeenCalledWith("relationship_milestones");
       expect(mocks.insert).toHaveBeenCalled();
       expect(result).not.toBeNull();
-      expect(result?.milestoneType).toBe('first_vulnerability');
+      expect(result?.milestoneType).toBe("first_vulnerability");
     });
 
     it("should not create duplicate milestones", async () => {
       // Mock: milestone already exists
       mocks.maybeSingle.mockResolvedValueOnce({
-        data: { id: 'existing-milestone' },
+        data: { id: "existing-milestone" },
         error: null,
       });
 
       const result = await recordMilestone(
-        'user-123',
-        'first_vulnerability',
-        'Second vulnerability'
+        "first_vulnerability",
+        "Second vulnerability"
       );
 
       expect(result).toBeNull();
@@ -176,14 +174,10 @@ describe("relationshipMilestones", () => {
       // Mock: database error
       mocks.maybeSingle.mockResolvedValueOnce({
         data: null,
-        error: { code: 'PGRST000', message: 'Database error' },
+        error: { code: "PGRST000", message: "Database error" },
       });
 
-      const result = await recordMilestone(
-        'user-123',
-        'first_joke',
-        'Funny moment'
-      );
+      const result = await recordMilestone("first_joke", "Funny moment");
 
       expect(result).toBeNull();
     });
@@ -197,20 +191,20 @@ describe("relationshipMilestones", () => {
     it("should return all milestones for a user", async () => {
       const mockMilestones = [
         {
-          id: 'ms-1',
-          user_id: 'user-123',
-          milestone_type: 'first_vulnerability',
-          description: 'Opened up',
+          id: "ms-1",
+
+          milestone_type: "first_vulnerability",
+          description: "Opened up",
           occurred_at: new Date().toISOString(),
           has_been_referenced: false,
           reference_count: 0,
           created_at: new Date().toISOString(),
         },
         {
-          id: 'ms-2',
-          user_id: 'user-123',
-          milestone_type: 'first_joke',
-          description: 'First laugh',
+          id: "ms-2",
+
+          milestone_type: "first_joke",
+          description: "First laugh",
           occurred_at: new Date().toISOString(),
           has_been_referenced: true,
           reference_count: 1,
@@ -221,18 +215,18 @@ describe("relationshipMilestones", () => {
 
       selectResolvedValues.push({ data: mockMilestones, error: null });
 
-      const result = await getMilestones('user-123');
+      const result = await getMilestones();
 
-      expect(mocks.from).toHaveBeenCalledWith('relationship_milestones');
+      expect(mocks.from).toHaveBeenCalledWith("relationship_milestones");
       expect(result.length).toBe(2);
-      expect(result[0].milestoneType).toBe('first_vulnerability');
+      expect(result[0].milestoneType).toBe("first_vulnerability");
       expect(result[1].hasBeenReferenced).toBe(true);
     });
 
     it("should return empty array when no milestones exist", async () => {
       selectResolvedValues.push({ data: [], error: null });
 
-      const result = await getMilestones('user-123');
+      const result = await getMilestones();
 
       expect(result).toEqual([]);
     });
@@ -244,7 +238,7 @@ describe("relationshipMilestones", () => {
 
   describe("getMilestoneForCallback", () => {
     it("should return null when totalInteractions < 50", async () => {
-      const result = await getMilestoneForCallback('user-123', 30);
+      const result = await getMilestoneForCallback(30);
 
       expect(result).toBeNull();
       expect(mocks.from).not.toHaveBeenCalled();
@@ -252,48 +246,52 @@ describe("relationshipMilestones", () => {
 
     it("should return eligible milestone when interactions >= 50", async () => {
       const oldDate = new Date(Date.now() - 48 * 60 * 60 * 1000); // 48 hours ago
-      
+
       selectResolvedValues.push({
-        data: [{
-          id: 'ms-1',
-          user_id: 'user-123',
-          milestone_type: 'first_vulnerability',
-          description: 'Opened up',
-          occurred_at: oldDate.toISOString(),
-          has_been_referenced: false,
-          reference_count: 0,
-          created_at: oldDate.toISOString(),
-        }],
+        data: [
+          {
+            id: "ms-1",
+
+            milestone_type: "first_vulnerability",
+            description: "Opened up",
+            occurred_at: oldDate.toISOString(),
+            has_been_referenced: false,
+            reference_count: 0,
+            created_at: oldDate.toISOString(),
+          },
+        ],
         error: null,
       });
 
-      const result = await getMilestoneForCallback('user-123', 55);
+      const result = await getMilestoneForCallback(55);
 
-      expect(mocks.from).toHaveBeenCalledWith('relationship_milestones');
+      expect(mocks.from).toHaveBeenCalledWith("relationship_milestones");
       expect(result).not.toBeNull();
-      expect(result?.milestoneType).toBe('first_vulnerability');
+      expect(result?.milestoneType).toBe("first_vulnerability");
     });
 
     it("should filter out recently referenced milestones", async () => {
       const oldDate = new Date(Date.now() - 48 * 60 * 60 * 1000);
       const recentRef = new Date(Date.now() - 2 * 60 * 60 * 1000); // 2 hours ago (< 72 hours min)
-      
+
       selectResolvedValues.push({
-        data: [{
-          id: 'ms-1',
-          user_id: 'user-123',
-          milestone_type: 'first_vulnerability',
-          description: 'Opened up',
-          occurred_at: oldDate.toISOString(),
-          has_been_referenced: true,
-          reference_count: 1,
-          last_referenced_at: recentRef.toISOString(),
-          created_at: oldDate.toISOString(),
-        }],
+        data: [
+          {
+            id: "ms-1",
+
+            milestone_type: "first_vulnerability",
+            description: "Opened up",
+            occurred_at: oldDate.toISOString(),
+            has_been_referenced: true,
+            reference_count: 1,
+            last_referenced_at: recentRef.toISOString(),
+            created_at: oldDate.toISOString(),
+          },
+        ],
         error: null,
       });
 
-      const result = await getMilestoneForCallback('user-123', 60);
+      const result = await getMilestoneForCallback(60);
 
       expect(result).toBeNull();
     });
@@ -309,10 +307,10 @@ describe("relationshipMilestones", () => {
       mocks.maybeSingle.mockResolvedValueOnce({ data: null, error: null });
       mocks.single.mockResolvedValueOnce({
         data: {
-          id: 'test-ms',
-          user_id: 'user-123',
-          milestone_type: 'first_vulnerability',
-          description: 'First time opening up emotionally',
+          id: "test-ms",
+
+          milestone_type: "first_vulnerability",
+          description: "First time opening up emotionally",
           occurred_at: new Date().toISOString(),
           has_been_referenced: false,
           reference_count: 0,
@@ -322,23 +320,22 @@ describe("relationshipMilestones", () => {
       });
 
       const result = await detectMilestoneInMessage(
-        'user-123',
         "I've never told anyone this, but...",
         10
       );
 
       expect(result).not.toBeNull();
-      expect(result?.milestoneType).toBe('first_vulnerability');
+      expect(result?.milestoneType).toBe("first_vulnerability");
     });
 
     it("should detect joke/humor patterns", async () => {
       mocks.maybeSingle.mockResolvedValueOnce({ data: null, error: null });
       mocks.single.mockResolvedValueOnce({
         data: {
-          id: 'test-ms',
-          user_id: 'user-123',
-          milestone_type: 'first_joke',
-          description: 'First shared laugh together',
+          id: "test-ms",
+
+          milestone_type: "first_joke",
+          description: "First shared laugh together",
           occurred_at: new Date().toISOString(),
           has_been_referenced: false,
           reference_count: 0,
@@ -348,22 +345,21 @@ describe("relationshipMilestones", () => {
       });
 
       const result = await detectMilestoneInMessage(
-        'user-123',
         "Hahaha that's so funny, you crack me up!",
         15
       );
 
-      expect(result?.milestoneType).toBe('first_joke');
+      expect(result?.milestoneType).toBe("first_joke");
     });
 
     it("should detect support seeking patterns", async () => {
       mocks.maybeSingle.mockResolvedValueOnce({ data: null, error: null });
       mocks.single.mockResolvedValueOnce({
         data: {
-          id: 'test-ms',
-          user_id: 'user-123',
-          milestone_type: 'first_support',
-          description: 'First time seeking support or advice',
+          id: "test-ms",
+
+          milestone_type: "first_support",
+          description: "First time seeking support or advice",
           occurred_at: new Date().toISOString(),
           has_been_referenced: false,
           reference_count: 0,
@@ -373,22 +369,21 @@ describe("relationshipMilestones", () => {
       });
 
       const result = await detectMilestoneInMessage(
-        'user-123',
         "I need help with something, can you listen?",
         20
       );
 
-      expect(result?.milestoneType).toBe('first_support');
+      expect(result?.milestoneType).toBe("first_support");
     });
 
     it("should detect interaction count milestones", async () => {
       mocks.maybeSingle.mockResolvedValueOnce({ data: null, error: null });
       mocks.single.mockResolvedValueOnce({
         data: {
-          id: 'test-ms',
-          user_id: 'user-123',
-          milestone_type: 'interaction_50',
-          description: 'Reached 50 conversations together',
+          id: "test-ms",
+
+          milestone_type: "interaction_50",
+          description: "Reached 50 conversations together",
           occurred_at: new Date().toISOString(),
           has_been_referenced: false,
           reference_count: 0,
@@ -397,18 +392,13 @@ describe("relationshipMilestones", () => {
         error: null,
       });
 
-      const result = await detectMilestoneInMessage(
-        'user-123',
-        "Hey there!",
-        50
-      );
+      const result = await detectMilestoneInMessage("Hey there!", 50);
 
-      expect(result?.milestoneType).toBe('interaction_50');
+      expect(result?.milestoneType).toBe("interaction_50");
     });
 
     it("should not detect anything for normal messages", async () => {
       const result = await detectMilestoneInMessage(
-        'user-123',
         "The weather is nice today",
         25
       );
@@ -424,13 +414,13 @@ describe("relationshipMilestones", () => {
   describe("checkAnniversaryMilestones", () => {
     it("should detect 1-week anniversary", async () => {
       const firstInteraction = new Date(Date.now() - 8 * 24 * 60 * 60 * 1000); // 8 days ago
-      
+
       mocks.maybeSingle.mockResolvedValueOnce({ data: null, error: null });
       mocks.single.mockResolvedValueOnce({
         data: {
-          id: 'test-ms',
-          user_id: 'user-123',
-          milestone_type: 'anniversary_week',
+          id: "test-ms",
+
+          milestone_type: "anniversary_week",
           description: "It's been a week since we first talked",
           occurred_at: new Date().toISOString(),
           has_been_referenced: false,
@@ -440,20 +430,20 @@ describe("relationshipMilestones", () => {
         error: null,
       });
 
-      const result = await checkAnniversaryMilestones('user-123', firstInteraction);
+      const result = await checkAnniversaryMilestones(firstInteraction);
 
-      expect(result?.milestoneType).toBe('anniversary_week');
+      expect(result?.milestoneType).toBe("anniversary_week");
     });
 
     it("should detect 1-month anniversary", async () => {
       const firstInteraction = new Date(Date.now() - 35 * 24 * 60 * 60 * 1000); // 35 days ago
-      
+
       mocks.maybeSingle.mockResolvedValueOnce({ data: null, error: null });
       mocks.single.mockResolvedValueOnce({
         data: {
-          id: 'test-ms',
-          user_id: 'user-123',
-          milestone_type: 'anniversary_month',
+          id: "test-ms",
+
+          milestone_type: "anniversary_month",
           description: "It's been a month since we first met",
           occurred_at: new Date().toISOString(),
           has_been_referenced: false,
@@ -463,15 +453,15 @@ describe("relationshipMilestones", () => {
         error: null,
       });
 
-      const result = await checkAnniversaryMilestones('user-123', firstInteraction);
+      const result = await checkAnniversaryMilestones(firstInteraction);
 
-      expect(result?.milestoneType).toBe('anniversary_month');
+      expect(result?.milestoneType).toBe("anniversary_month");
     });
 
     it("should return null for recent relationships", async () => {
       const firstInteraction = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000); // 2 days ago
 
-      const result = await checkAnniversaryMilestones('user-123', firstInteraction);
+      const result = await checkAnniversaryMilestones(firstInteraction);
 
       expect(result).toBeNull();
     });
@@ -484,14 +474,14 @@ describe("relationshipMilestones", () => {
   describe("detectReturnAfterBreak", () => {
     it("should detect return after 3+ days", async () => {
       const lastInteraction = new Date(Date.now() - 5 * 24 * 60 * 60 * 1000); // 5 days ago
-      
+
       mocks.maybeSingle.mockResolvedValueOnce({ data: null, error: null });
       mocks.single.mockResolvedValueOnce({
         data: {
-          id: 'test-ms',
-          user_id: 'user-123',
-          milestone_type: 'first_return',
-          description: 'Came back after 5 days',
+          id: "test-ms",
+
+          milestone_type: "first_return",
+          description: "Came back after 5 days",
           occurred_at: new Date().toISOString(),
           has_been_referenced: false,
           reference_count: 0,
@@ -500,15 +490,15 @@ describe("relationshipMilestones", () => {
         error: null,
       });
 
-      const result = await detectReturnAfterBreak('user-123', lastInteraction);
+      const result = await detectReturnAfterBreak(lastInteraction);
 
-      expect(result?.milestoneType).toBe('first_return');
+      expect(result?.milestoneType).toBe("first_return");
     });
 
     it("should not detect for recent interactions", async () => {
       const lastInteraction = new Date(Date.now() - 1 * 24 * 60 * 60 * 1000); // 1 day ago
 
-      const result = await detectReturnAfterBreak('user-123', lastInteraction);
+      const result = await detectReturnAfterBreak(lastInteraction);
 
       expect(result).toBeNull();
     });
@@ -521,10 +511,9 @@ describe("relationshipMilestones", () => {
   describe("generateMilestoneCallbackPrompt", () => {
     it("should generate prompt for vulnerability milestone", () => {
       const milestone: RelationshipMilestone = {
-        id: 'ms-1',
-        userId: 'user-123',
-        milestoneType: 'first_vulnerability',
-        description: 'First time opening up emotionally',
+        id: "ms-1",
+        milestoneType: "first_vulnerability",
+        description: "First time opening up emotionally",
         occurredAt: new Date(Date.now() - 72 * 60 * 60 * 1000), // 3 days ago
         hasBeenReferenced: false,
         referenceCount: 0,
@@ -532,19 +521,20 @@ describe("relationshipMilestones", () => {
 
       const prompt = generateMilestoneCallbackPrompt(milestone);
 
-      expect(prompt).toContain('REMEMBER WHEN');
-      expect(prompt).toContain('First time opening up emotionally');
-      expect(prompt).toContain('CRITICAL');
+      expect(prompt).toContain("REMEMBER WHEN");
+      expect(prompt).toContain("First time opening up emotionally");
+      expect(prompt).toContain("CRITICAL");
       // Template is randomly selected, so check for any valid content
-      expect(prompt.toLowerCase()).toMatch(/(vulnerability|trust|opened up|personal)/i);
+      expect(prompt.toLowerCase()).toMatch(
+        /(vulnerability|trust|opened up|personal)/i
+      );
     });
 
     it("should generate prompt for joke milestone", () => {
       const milestone: RelationshipMilestone = {
-        id: 'ms-2',
-        userId: 'user-123',
-        milestoneType: 'first_joke',
-        description: 'First shared laugh together',
+        id: "ms-2",
+        milestoneType: "first_joke",
+        description: "First shared laugh together",
         occurredAt: new Date(Date.now() - 24 * 60 * 60 * 1000), // 1 day ago
         hasBeenReferenced: false,
         referenceCount: 0,
@@ -552,16 +542,15 @@ describe("relationshipMilestones", () => {
 
       const prompt = generateMilestoneCallbackPrompt(milestone);
 
-      expect(prompt).toContain('First shared laugh');
+      expect(prompt).toContain("First shared laugh");
       expect(prompt).toMatch(/(laugh|joke|funny)/i);
     });
 
     it("should include correct time description", () => {
       const recentMilestone: RelationshipMilestone = {
-        id: 'ms-3',
-        userId: 'user-123',
-        milestoneType: 'first_support',
-        description: 'Asked for help',
+        id: "ms-3",
+        milestoneType: "first_support",
+        description: "Asked for help",
         occurredAt: new Date(Date.now() - 12 * 60 * 60 * 1000), // 12 hours ago
         hasBeenReferenced: false,
         referenceCount: 0,
@@ -569,7 +558,7 @@ describe("relationshipMilestones", () => {
 
       const prompt = generateMilestoneCallbackPrompt(recentMilestone);
 
-      expect(prompt).toContain('earlier');
+      expect(prompt).toContain("earlier");
     });
   });
 
@@ -582,20 +571,20 @@ describe("relationshipMilestones", () => {
       selectResolvedValues.push({
         data: [
           {
-            id: 'ms-1',
-            user_id: 'user-123',
-            milestone_type: 'first_vulnerability',
-            description: 'Test',
+            id: "ms-1",
+
+            milestone_type: "first_vulnerability",
+            description: "Test",
             occurred_at: new Date().toISOString(),
             has_been_referenced: true,
             reference_count: 1,
             created_at: new Date().toISOString(),
           },
           {
-            id: 'ms-2',
-            user_id: 'user-123',
-            milestone_type: 'first_joke',
-            description: 'Test',
+            id: "ms-2",
+
+            milestone_type: "first_joke",
+            description: "Test",
             occurred_at: new Date().toISOString(),
             has_been_referenced: false,
             reference_count: 0,
@@ -605,12 +594,12 @@ describe("relationshipMilestones", () => {
         error: null,
       });
 
-      const stats = await getMilestoneStats('user-123');
+      const stats = await getMilestoneStats();
 
       expect(stats.totalMilestones).toBe(2);
       expect(stats.referencedCount).toBe(1);
-      expect(stats.milestoneTypes).toContain('first_vulnerability');
-      expect(stats.milestoneTypes).toContain('first_joke');
+      expect(stats.milestoneTypes).toContain("first_vulnerability");
+      expect(stats.milestoneTypes).toContain("first_joke");
     });
   });
 
@@ -621,16 +610,16 @@ describe("relationshipMilestones", () => {
   describe("Type Exports", () => {
     it("exports MilestoneType correctly", () => {
       const types: MilestoneType[] = [
-        'first_vulnerability',
-        'first_joke',
-        'first_support',
-        'first_deep_talk',
-        'first_return',
-        'breakthrough_moment',
-        'anniversary_week',
-        'anniversary_month',
-        'interaction_50',
-        'interaction_100',
+        "first_vulnerability",
+        "first_joke",
+        "first_support",
+        "first_deep_talk",
+        "first_return",
+        "breakthrough_moment",
+        "anniversary_week",
+        "anniversary_month",
+        "interaction_50",
+        "interaction_100",
       ];
 
       expect(types.length).toBe(10);
@@ -638,17 +627,16 @@ describe("relationshipMilestones", () => {
 
     it("exports RelationshipMilestone type correctly", () => {
       const mockMilestone: RelationshipMilestone = {
-        id: 'test-id',
-        userId: 'user-id',
-        milestoneType: 'first_vulnerability',
-        description: 'Test description',
+        id: "test-id",
+        milestoneType: "first_vulnerability",
+        description: "Test description",
         occurredAt: new Date(),
         hasBeenReferenced: false,
         referenceCount: 0,
       };
 
-      expect(mockMilestone.id).toBe('test-id');
-      expect(mockMilestone.milestoneType).toBe('first_vulnerability');
+      expect(mockMilestone.id).toBe("test-id");
+      expect(mockMilestone.milestoneType).toBe("first_vulnerability");
     });
   });
 });

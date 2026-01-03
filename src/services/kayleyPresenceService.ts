@@ -72,23 +72,17 @@ export async function updateKayleyPresenceState(updates: {
   // Fetch existing state to merge
   const existing = await getKayleyPresenceState();
 
-  const { error } = await supabase.from("kayley_presence_state").upsert(
-    {
-      user_id: USER_ID,
-      current_outfit: updates.outfit ?? existing?.currentOutfit ?? null,
-      current_mood: updates.mood ?? existing?.currentMood ?? null,
-      current_activity: updates.activity ?? existing?.currentActivity ?? null,
-      current_location: updates.location ?? existing?.currentLocation ?? null,
-      last_mentioned_at: now.toISOString(),
-      expires_at: expiresAt?.toISOString() ?? null,
-      confidence: updates.confidence ?? 1.0,
-      source_message_id: updates.sourceMessageId,
-      updated_at: now.toISOString(),
-    },
-    {
-      onConflict: "user_id",
-    }
-  );
+  const { error } = await supabase.from("kayley_presence_state").upsert({
+    current_outfit: updates.outfit ?? existing?.currentOutfit ?? null,
+    current_mood: updates.mood ?? existing?.currentMood ?? null,
+    current_activity: updates.activity ?? existing?.currentActivity ?? null,
+    current_location: updates.location ?? existing?.currentLocation ?? null,
+    last_mentioned_at: now.toISOString(),
+    expires_at: expiresAt?.toISOString() ?? null,
+    confidence: updates.confidence ?? 1.0,
+    source_message_id: updates.sourceMessageId,
+    updated_at: now.toISOString(),
+  });
 
   if (error) {
     console.error("[KayleyPresence] Error updating state:", error);

@@ -100,18 +100,16 @@ const IGNORE_KEYWORDS = [
  * 1. An important event just ended
  * 2. No message is already waiting
  *
- * @param userId - User ID
  * @param events - Recent calendar events
  * @param lastInteractionAt - When user last interacted (to calculate absence)
  * @returns The created pending message input, or null
  */
 export async function checkCalendarForMessage(
-  userId: string,
   events: CalendarEvent[],
   lastInteractionAt: Date
 ): Promise<CreatePendingMessageInput | null> {
   // Don't create if there's already a pending message
-  const hasPending = await hasUndeliveredMessage(userId);
+  const hasPending = await hasUndeliveredMessage();
   if (hasPending) {
     console.log('[CalendarAwareness] Skipping - already has pending message');
     return null;
@@ -138,8 +136,8 @@ export async function checkCalendarForMessage(
   console.log(`[CalendarAwareness] Creating message for "${importantEvent.event.summary}"`);
 
   // Create the pending message
-  const pendingMessage = await createPendingMessage(userId, message);
-
+  const pendingMessage = await createPendingMessage(message);
+  // GATES: What do we do with this
   return message;
 }
 

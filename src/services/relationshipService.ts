@@ -114,7 +114,6 @@ export function detectRupture(
 
 interface RelationshipRow {
   id: string;
-  user_id: string;
   relationship_score: number;
   relationship_tier: string;
   warmth_score: number;
@@ -161,7 +160,6 @@ export const getRelationship =
       const { data: newData, error: createError } = await supabase
         .from(RELATIONSHIPS_TABLE)
         .insert({
-          user_id: USER_ID,
           relationship_score: 0.0,
           relationship_tier: "acquaintance",
           warmth_score: 0.0,

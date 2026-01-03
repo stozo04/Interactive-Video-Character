@@ -23,7 +23,6 @@ export interface MemorySearchResult {
 
 export interface UserFact {
   id: string;
-  user_id: string;
   category: 'identity' | 'preference' | 'relationship' | 'context';
   fact_key: string;
   fact_value: string;
@@ -237,7 +236,7 @@ export const getUserFacts = async (
 const USER_ID = import.meta.env.VITE_USER_ID;
 /**
  * Store a new fact about the user or update an existing one.
- * Uses UPSERT to handle conflicts on (user_id, category, fact_key).
+ * Uses UPSERT to handle conflicts on (category, fact_key).
  * 
  * @param category - Fact category
  * @param key - Fact key (e.g., 'name', 'job')
@@ -260,7 +259,6 @@ export const storeUserFact = async (
     const { error } = await supabase
       .from(USER_FACTS_TABLE)
       .upsert({
-        user_id: USER_ID,
         category,
         fact_key: key,
         fact_value: value,
@@ -268,7 +266,7 @@ export const storeUserFact = async (
         confidence,
         updated_at: now
       }, {
-        onConflict: 'user_id,category,fact_key'
+        onConflict: 'category,fact_key'
       });
 
     if (error) {

@@ -161,7 +161,6 @@ export async function generateIdleThought(
 
   const thought: IdleThought = {
     id: crypto.randomUUID(),
-    userId: USER_ID,
     thoughtType,
     content,
     associatedMemory,
@@ -181,7 +180,6 @@ export async function generateIdleThought(
   try {
     const { error } = await supabase.from(IDLE_THOUGHTS_TABLE).insert({
       id: thought.id,
-      user_id: thought.userId,
       thought_type: thought.thoughtType,
       content: thought.content,
       associated_memory: thought.associatedMemory,
@@ -515,7 +513,6 @@ function selectUserRole(thoughtType: IdleThoughtType): string {
 function mapRowToThought(row: any): IdleThought {
   return {
     id: row.id,
-    userId: row.user_id,
     thoughtType: row.thought_type as IdleThoughtType,
     content: row.content,
     associatedMemory: row.associated_memory,

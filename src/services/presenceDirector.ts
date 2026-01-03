@@ -35,10 +35,9 @@ export type LoopType =
   | 'pattern_observation'; // "I noticed you tend to X when Y"
 
 export type LoopStatus = 'active' | 'surfaced' | 'resolved' | 'expired' | 'dismissed';
-const USER_ID = import.meta.env.VITE_USER_ID;
+
 export interface OpenLoop {
   id: string;
-  userId: string;
   loopType: LoopType;
   topic: string;
   triggerContext?: string;
@@ -574,7 +573,6 @@ export async function createOpenLoop(
     const { data, error } = await supabase
       .from(PRESENCE_CONTEXTS_TABLE)
       .insert({
-        user_id: USER_ID,
         loop_type: loopType,
         topic,
         trigger_context: options.triggerContext || null,
@@ -1108,7 +1106,7 @@ export async function getPresenceContext(): Promise<PresenceContext> {
 /**
  * Select the highest priority loop to surface from pre-fetched active loops.
  * This is the same logic as getTopLoopToSurface but without the DB call.
- * 
+ *
  * @param loops - Pre-fetched active loops
  * @returns The top loop to surface, or null
  */
@@ -1116,32 +1114,38 @@ function selectTopLoopFromActive(loops: OpenLoop[]): OpenLoop | null {
   if (loops.length === 0) {
     return null;
   }
-  
+
   const now = Date.now();
   const minSurfaceGap = MIN_HOURS_BETWEEN_SURFACES * 60 * 60 * 1000;
-  
+
   // Filter loops that are eligible to surface
-  const eligibleLoops = loops.filter(loop => {
+  const eligibleLoops = loops.filter((loop) => {
     // Already surfaced too many times
     if (loop.surfaceCount >= loop.maxSurfaces) return false;
-    
+
     // Surfaced too recently
-    if (loop.lastSurfacedAt && now - loop.lastSurfacedAt.getTime() < minSurfaceGap) return false;
-    
+    if (
+      loop.lastSurfacedAt &&
+      now - loop.lastSurfacedAt.getTime() < minSurfaceGap
+    )
+      return false;
+
     // Time-awareness check for pending_event loops
     // Don't ask "how was it?" for future events!
     if (!shouldAskHowItWent(loop)) {
-      console.log(`⏰ [PresenceDirector] Skipping "${loop.topic}" - event hasn't happened yet`);
+      console.log(
+        `⏰ [PresenceDirector] Skipping "${loop.topic}" - event hasn't happened yet`
+      );
       return false;
     }
-    
+
     return true;
   });
-  
+
   if (eligibleLoops.length === 0) {
     return null;
   }
-  
+
   // Return highest salience loop
   return eligibleLoops.sort((a, b) => b.salience - a.salience)[0];
 }
@@ -1166,12 +1170,16 @@ This makes you feel REAL. You remember things and ask about them FIRST.
   if (topLoop) {
     // Time-aware prompting
     const followUpType = getFollowUpType(topLoop);
-    
-    if (followUpType === 'reminder') {
+
+    if (followUpType === "reminder") {
       // Event is upcoming - remind, don't ask how it went
       section += `UPCOMING EVENT TO MENTION:
 You know they have "${topLoop.topic}" coming up!
-- Context: ${topLoop.triggerContext ? `They mentioned: "${topLoop.triggerContext.slice(0, 100)}..."` : 'From their calendar'}
+- Context: ${
+        topLoop.triggerContext
+          ? `They mentioned: "${topLoop.triggerContext.slice(0, 100)}..."`
+          : "From their calendar"
+      }
 
 💡 You can:
 - Wish them luck: "Good luck with ${topLoop.topic}!"
@@ -1186,8 +1194,14 @@ You know they have "${topLoop.topic}" coming up!
       section += `OPEN LOOP TO ASK ABOUT:
 You have something to naturally follow up on! Consider asking:
 - Topic: "${topLoop.topic}"
-- Context: ${topLoop.triggerContext ? `They said: "${topLoop.triggerContext.slice(0, 100)}..."` : 'From a previous conversation'}
-- Suggested ask: "${topLoop.suggestedFollowup || `How did things go with ${topLoop.topic}?`}"
+- Context: ${
+        topLoop.triggerContext
+          ? `They said: "${topLoop.triggerContext.slice(0, 100)}..."`
+          : "From a previous conversation"
+      }
+- Suggested ask: "${
+        topLoop.suggestedFollowup || `How did things go with ${topLoop.topic}?`
+      }"
 
 💡 Work this into your greeting or early in conversation. Don't be robotic about it.
    Good: "Oh hey! Wait, how did your [thing] go??"
@@ -1197,7 +1211,10 @@ You have something to naturally follow up on! Consider asking:
     }
   } else if (activeLoops.length > 0) {
     section += `THINGS ON YOUR MIND ABOUT THEM:
-${activeLoops.slice(0, 2).map(loop => `- ${loop.topic}`).join('\n')}
+${activeLoops
+  .slice(0, 2)
+  .map((loop) => `- ${loop.topic}`)
+  .join("\n")}
 
 These aren't urgent to ask about, but you're aware of them.
 
@@ -1209,19 +1226,23 @@ These aren't urgent to ask about, but you're aware of them.
   }
 
   // Opinions Section
-  const mentionableOpinions = opinions.filter(o => o.canMention).slice(0, 6);
+  const mentionableOpinions = opinions.filter((o) => o.canMention).slice(0, 6);
   if (mentionableOpinions.length > 0) {
     section += `YOUR OPINIONS (Layer these in naturally when relevant):
 
 LIKES:
-${mentionableOpinions.filter(o => o.category === 'likes').slice(0, 3).map(o => 
-  `- ${o.topic}: ${o.sentiment}`
-).join('\n')}
+${mentionableOpinions
+  .filter((o) => o.category === "likes")
+  .slice(0, 3)
+  .map((o) => `- ${o.topic}: ${o.sentiment}`)
+  .join("\n")}
 
 DISLIKES:
-${mentionableOpinions.filter(o => o.category === 'dislikes').slice(0, 3).map(o => 
-  `- ${o.sentiment}`
-).join('\n')}
+${mentionableOpinions
+  .filter((o) => o.category === "dislikes")
+  .slice(0, 3)
+  .map((o) => `- ${o.sentiment}`)
+  .join("\n")}
 
 💡 These are YOUR real opinions. When topics come up, share them authentically.
    Not: "I don't have preferences."
@@ -1247,20 +1268,25 @@ ${mentionableOpinions.filter(o => o.category === 'dislikes').slice(0, 3).map(o =
 function mapRowToLoop(row: any): OpenLoop {
   return {
     id: row.id,
-    userId: row.user_id,
     loopType: row.loop_type,
     topic: row.topic,
     triggerContext: row.trigger_context,
     suggestedFollowup: row.suggested_followup,
     createdAt: new Date(row.created_at),
-    shouldSurfaceAfter: row.should_surface_after ? new Date(row.should_surface_after) : undefined,
-    lastSurfacedAt: row.last_surfaced_at ? new Date(row.last_surfaced_at) : undefined,
+    shouldSurfaceAfter: row.should_surface_after
+      ? new Date(row.should_surface_after)
+      : undefined,
+    lastSurfacedAt: row.last_surfaced_at
+      ? new Date(row.last_surfaced_at)
+      : undefined,
     expiresAt: row.expires_at ? new Date(row.expires_at) : undefined,
     status: row.status,
     salience: row.salience,
     surfaceCount: row.surface_count,
     maxSurfaces: row.max_surfaces,
-    eventDateTime: row.event_datetime ? new Date(row.event_datetime) : undefined
+    eventDateTime: row.event_datetime
+      ? new Date(row.event_datetime)
+      : undefined,
   };
 }
 
