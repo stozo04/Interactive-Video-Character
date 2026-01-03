@@ -35,7 +35,7 @@ export type LoopType =
   | 'pattern_observation'; // "I noticed you tend to X when Y"
 
 export type LoopStatus = 'active' | 'surfaced' | 'resolved' | 'expired' | 'dismissed';
-
+const USER_ID = import.meta.env.VITE_USER_ID;
 export interface OpenLoop {
   id: string;
   userId: string;
@@ -56,10 +56,10 @@ export interface OpenLoop {
 }
 
 export interface Opinion {
-  category: 'likes' | 'dislikes';
+  category: "likes" | "dislikes";
   topic: string;
   sentiment: string;
-  canMention: boolean;  // Whether it's appropriate to bring up proactively
+  canMention: boolean; // Whether it's appropriate to bring up proactively
 }
 
 export interface PresenceContext {
@@ -77,9 +77,9 @@ export interface PresenceContext {
 // Constants
 // ============================================
 
-const PRESENCE_CONTEXTS_TABLE = 'presence_contexts';
-const MIN_HOURS_BETWEEN_SURFACES = 4;  // Don't ask about same thing too frequently
-const MAX_LOOPS_IN_CONTEXT = 3;        // Don't overwhelm with too many things to ask about
+const PRESENCE_CONTEXTS_TABLE = "presence_contexts";
+const MIN_HOURS_BETWEEN_SURFACES = 4; // Don't ask about same thing too frequently
+const MAX_LOOPS_IN_CONTEXT = 3; // Don't overwhelm with too many things to ask about
 
 // ============================================
 // Opinion Parser
@@ -89,64 +89,77 @@ const MAX_LOOPS_IN_CONTEXT = 3;        // Don't overwhelm with too many things t
  * Parse Section 12 (Preferences & Opinions) from the character profile.
  * This is done dynamically so we don't hardcode opinions.
  */
-export function parseCharacterOpinions(profileText: string = KAYLEY_FULL_PROFILE): Opinion[] {
+export function parseCharacterOpinions(
+  profileText: string = KAYLEY_FULL_PROFILE
+): Opinion[] {
   const opinions: Opinion[] = [];
-  
+
   // Find Section 12 in the profile
-  const section12Match = profileText.match(/##\s*12\.\s*Preferences\s*&\s*Opinions([\s\S]*?)(?=##\s*13\.|$)/i);
-  
+  const section12Match = profileText.match(
+    /##\s*12\.\s*Preferences\s*&\s*Opinions([\s\S]*?)(?=##\s*13\.|$)/i
+  );
+
   if (!section12Match) {
-    console.warn('[PresenceDirector] Could not find Section 12 in character profile');
+    console.warn(
+      "[PresenceDirector] Could not find Section 12 in character profile"
+    );
     return opinions;
   }
-  
+
   const section12Content = section12Match[1];
-  
+
   // Parse Likes section
   const likesMatch = section12Content.match(/###\s*Likes([\s\S]*?)(?=###|$)/i);
   if (likesMatch) {
     const likesContent = likesMatch[1];
-    const likeItems = likesContent.match(/[-•]\s*\*\*([^:*]+)\*\*:\s*([^\n]+)/g);
-    
+    const likeItems = likesContent.match(
+      /[-•]\s*\*\*([^:*]+)\*\*:\s*([^\n]+)/g
+    );
+
     if (likeItems) {
       for (const item of likeItems) {
         const match = item.match(/[-•]\s*\*\*([^:*]+)\*\*:\s*(.+)/);
         if (match) {
           opinions.push({
-            category: 'likes',
+            category: "likes",
             topic: match[1].trim(),
             sentiment: match[2].trim(),
-            canMention: true  // Likes are generally safe to mention
+            canMention: true, // Likes are generally safe to mention
           });
         }
       }
     }
   }
-  
+
   // Parse Dislikes section
-  const dislikesMatch = section12Content.match(/###\s*Dislikes([\s\S]*?)(?=###|$)/i);
+  const dislikesMatch = section12Content.match(
+    /###\s*Dislikes([\s\S]*?)(?=###|$)/i
+  );
   if (dislikesMatch) {
     const dislikesContent = dislikesMatch[1];
     // Dislikes are often just bullet points without bold headers
     const dislikeItems = dislikesContent.match(/[-•]\s*([^\n]+)/g);
-    
+
     if (dislikeItems) {
       for (const item of dislikeItems) {
-        const text = item.replace(/^[-•]\s*/, '').trim();
-        if (text.length > 5) {  // Skip very short entries
+        const text = item.replace(/^[-•]\s*/, "").trim();
+        if (text.length > 5) {
+          // Skip very short entries
           opinions.push({
-            category: 'dislikes',
+            category: "dislikes",
             topic: text,
             sentiment: text,
             // Dislikes can be mentioned but more carefully
-            canMention: !text.toLowerCase().includes('people who')  // Don't mention criticisms of people
+            canMention: !text.toLowerCase().includes("people who"), // Don't mention criticisms of people
           });
         }
       }
     }
   }
-  
-  console.log(`[PresenceDirector] Parsed ${opinions.length} opinions from character profile`);
+
+  console.log(
+    `[PresenceDirector] Parsed ${opinions.length} opinions from character profile`
+  );
   return opinions;
 }
 
@@ -157,7 +170,11 @@ const OPINIONS_CACHE_TTL = 1000 * 60 * 60; // 1 hour
 
 export function getCharacterOpinions(forceRefresh: boolean = false): Opinion[] {
   const now = Date.now();
-  if (forceRefresh || !cachedOpinions || (now - opinionsCacheTimestamp > OPINIONS_CACHE_TTL)) {
+  if (
+    forceRefresh ||
+    !cachedOpinions ||
+    now - opinionsCacheTimestamp > OPINIONS_CACHE_TTL
+  ) {
     cachedOpinions = parseCharacterOpinions();
     opinionsCacheTimestamp = now;
   }
@@ -171,52 +188,52 @@ export function getCharacterOpinions(forceRefresh: boolean = false): Opinion[] {
 export function findRelevantOpinion(userMessage: string): Opinion | null {
   const opinions = getCharacterOpinions();
   const messageLower = userMessage.toLowerCase();
-  
+
   // Look for topic matches
   for (const opinion of opinions) {
     const topicWords = opinion.topic.toLowerCase().split(/\s+/);
-    const matchCount = topicWords.filter(word => 
-      word.length > 3 && messageLower.includes(word)
+    const matchCount = topicWords.filter(
+      (word) => word.length > 3 && messageLower.includes(word)
     ).length;
-    
+
     // If at least 2 significant words match, it's relevant
     if (matchCount >= 2 || (topicWords.length <= 2 && matchCount >= 1)) {
       return opinion;
     }
   }
-  
+
   // Check specific keywords
   const keywordMap: Record<string, string[]> = {
-    'weather': ['Weather', 'Season'],
-    'rain': ['Weather'],
-    'fall': ['Season'],
-    'spring': ['Season'],
-    'food': ['Food', 'Drinks'],
-    'coffee': ['Drinks'],
-    'matcha': ['Drinks'],
-    'brunch': ['Food'],
-    'sushi': ['Food'],
-    'work': ['Activities'],
-    'tech': ['Tech'],
-    'app': ['Tech'],
-    'ai': ['Tech'],
-    'hustle': ['Hustle culture'],
-    'burnout': ['Hustle culture'],
-    'gatekeep': ['Gatekeeping'],
-    'drama': ['Group chats'],
+    weather: ["Weather", "Season"],
+    rain: ["Weather"],
+    fall: ["Season"],
+    spring: ["Season"],
+    food: ["Food", "Drinks"],
+    coffee: ["Drinks"],
+    matcha: ["Drinks"],
+    brunch: ["Food"],
+    sushi: ["Food"],
+    work: ["Activities"],
+    tech: ["Tech"],
+    app: ["Tech"],
+    ai: ["Tech"],
+    hustle: ["Hustle culture"],
+    burnout: ["Hustle culture"],
+    gatekeep: ["Gatekeeping"],
+    drama: ["Group chats"],
   };
-  
+
   for (const [keyword, topicNames] of Object.entries(keywordMap)) {
     if (messageLower.includes(keyword)) {
-      const matchingOpinion = opinions.find(o => 
-        topicNames.some(t => o.topic.toLowerCase().includes(t.toLowerCase()))
+      const matchingOpinion = opinions.find((o) =>
+        topicNames.some((t) => o.topic.toLowerCase().includes(t.toLowerCase()))
       );
       if (matchingOpinion) {
         return matchingOpinion;
       }
     }
   }
-  
+
   return null;
 }
 
@@ -229,54 +246,60 @@ export function findRelevantOpinion(userMessage: string): Opinion | null {
  * Uses fuzzy matching to catch variations like "Holiday Parties" vs "Holiday party"
  */
 function isSimilarTopic(existingTopic: string, newTopic: string): boolean {
-  const normalize = (s: string) => s.toLowerCase().trim()
-    .replace(/[^a-z0-9\s]/g, '')  // Remove punctuation
-    .replace(/\s+/g, ' ')          // Normalize whitespace
-    .replace(/ies\b/g, 'y')        // Normalize "ies" plurals (parties -> party)
-    .replace(/s\b/g, '');          // Remove trailing 's' (meetings -> meeting)
-  
+  const normalize = (s: string) =>
+    s
+      .toLowerCase()
+      .trim()
+      .replace(/[^a-z0-9\s]/g, "") // Remove punctuation
+      .replace(/\s+/g, " ") // Normalize whitespace
+      .replace(/ies\b/g, "y") // Normalize "ies" plurals (parties -> party)
+      .replace(/s\b/g, ""); // Remove trailing 's' (meetings -> meeting)
+
   const existing = normalize(existingTopic);
   const incoming = normalize(newTopic);
-  
+
   // Exact match after normalization
   if (existing === incoming) return true;
-  
+
   // One contains the other (e.g., "holiday party" vs "holiday parties")
   if (existing.includes(incoming) || incoming.includes(existing)) return true;
-  
+
   // Check word overlap (e.g., "Holiday Parties" vs "party tonight")
-  const existingWords = new Set(existing.split(' ').filter(w => w.length > 2));
-  const incomingWords = new Set(incoming.split(' ').filter(w => w.length > 2));
-  
+  const existingWords = new Set(
+    existing.split(" ").filter((w) => w.length > 2)
+  );
+  const incomingWords = new Set(
+    incoming.split(" ").filter((w) => w.length > 2)
+  );
+
   // Skip if either has no meaningful words
   if (existingWords.size === 0 || incomingWords.size === 0) return false;
-  
+
   // If there's significant word overlap, consider them similar
-  const overlap = [...existingWords].filter(w => incomingWords.has(w));
-  const overlapRatio = overlap.length / Math.min(existingWords.size, incomingWords.size);
-  
-  return overlapRatio >= 0.5;  // 50% word overlap = similar
+  const overlap = [...existingWords].filter((w) => incomingWords.has(w));
+  const overlapRatio =
+    overlap.length / Math.min(existingWords.size, incomingWords.size);
+
+  return overlapRatio >= 0.5; // 50% word overlap = similar
 }
 
 /**
  * Find an existing loop with a similar topic.
  */
-async function findSimilarLoop(userId: string, topic: string): Promise<OpenLoop | null> {
+async function findSimilarLoop(topic: string): Promise<OpenLoop | null> {
   try {
     // Get all active and surfaced loops (not resolved/dismissed/expired)
     const { data, error } = await supabase
       .from(PRESENCE_CONTEXTS_TABLE)
-      .select('*')
-      .eq('user_id', userId)
-      .in('status', ['active', 'surfaced']);
-    
+      .select("*")
+      .in("status", ["active", "surfaced"]);
+
     if (error || !data) return null;
-    
+
     const loops = data.map(mapRowToLoop);
-    return loops.find(loop => isSimilarTopic(loop.topic, topic)) || null;
-    
+    return loops.find((loop) => isSimilarTopic(loop.topic, topic)) || null;
   } catch (error) {
-    console.error('[PresenceDirector] Error finding similar loop:', error);
+    console.error("[PresenceDirector] Error finding similar loop:", error);
     return null;
   }
 }
@@ -294,17 +317,17 @@ const MIN_MINUTES_AFTER_EVENT = 30;
  */
 export function isEventInFuture(eventDateTime: Date | undefined): boolean {
   if (!eventDateTime) return false;
-  
+
   const now = Date.now();
   const eventTime = eventDateTime.getTime();
-  
+
   // Event is in future if it hasn't started yet
   return eventTime > now;
 }
 
 /**
  * Determine if we should ask "how did it go?" for this loop.
- * 
+ *
  * Rules:
  * - For pending_event with eventDateTime: only after event + buffer time
  * - For pending_event without eventDateTime: allow (backwards compatibility)
@@ -312,38 +335,38 @@ export function isEventInFuture(eventDateTime: Date | undefined): boolean {
  */
 export function shouldAskHowItWent(loop: OpenLoop): boolean {
   // Non-event loops can always be asked about
-  if (loop.loopType !== 'pending_event') {
+  if (loop.loopType !== "pending_event") {
     return true;
   }
-  
+
   // No event time stored? Allow for backwards compatibility
   if (!loop.eventDateTime) {
     return true;
   }
-  
+
   const now = Date.now();
   const eventTime = loop.eventDateTime.getTime();
   const bufferMs = MIN_MINUTES_AFTER_EVENT * 60 * 1000;
-  
+
   // Only ask "how was it?" after event + buffer time
-  return now > (eventTime + bufferMs);
+  return now > eventTime + bufferMs;
 }
 
 /**
  * Get the appropriate follow-up type for a loop.
- * 
+ *
  * @returns 'reminder' if event is upcoming, 'followup' if event has passed
  */
-export function getFollowUpType(loop: OpenLoop): 'reminder' | 'followup' {
-  if (loop.loopType !== 'pending_event') {
-    return 'followup';
+export function getFollowUpType(loop: OpenLoop): "reminder" | "followup" {
+  if (loop.loopType !== "pending_event") {
+    return "followup";
   }
-  
+
   if (!loop.eventDateTime) {
-    return 'followup';
+    return "followup";
   }
-  
-  return isEventInFuture(loop.eventDateTime) ? 'reminder' : 'followup';
+
+  return isEventInFuture(loop.eventDateTime) ? "reminder" : "followup";
 }
 
 // ============================================
@@ -359,52 +382,51 @@ const MAX_SALIENCE = 1.0;
 /**
  * Calculate the new salience after boost.
  * Uses diminishing returns for multiple mentions.
- * 
+ *
  * @param currentSalience - Current salience value
  * @param mentionCount - Number of times topic was mentioned (1-based)
  * @returns New salience value (capped at MAX_SALIENCE)
  */
-export function calculateSalienceBoost(currentSalience: number, mentionCount: number): number {
+export function calculateSalienceBoost(
+  currentSalience: number,
+  mentionCount: number
+): number {
   // Diminishing returns: 0.1, 0.05, 0.025, etc.
   let totalBoost = 0;
   for (let i = 0; i < mentionCount; i++) {
     totalBoost += BASE_SALIENCE_BOOST / Math.pow(2, i);
   }
-  
+
   return Math.min(currentSalience + totalBoost, MAX_SALIENCE);
 }
 
 /**
  * Find active loops that match any of the given topics.
- * 
- * @param userId - The user's ID
+ *
  * @param topics - Array of topics to match against
  * @returns Array of matching loops
  */
 export async function findLoopsMatchingTopics(
-  userId: string, 
   topics: string[]
 ): Promise<OpenLoop[]> {
   if (topics.length === 0) return [];
-  
+
   try {
     const { data, error } = await supabase
       .from(PRESENCE_CONTEXTS_TABLE)
-      .select('*')
-      .eq('user_id', userId)
-      .in('status', ['active', 'surfaced']);
-    
+      .select("*")
+      .in("status", ["active", "surfaced"]);
+
     if (error || !data) return [];
-    
+
     const loops = data.map(mapRowToLoop);
-    
+
     // Find loops where topic matches any of the mentioned topics
-    return loops.filter(loop => 
-      topics.some(topic => isSimilarTopic(loop.topic, topic))
+    return loops.filter((loop) =>
+      topics.some((topic) => isSimilarTopic(loop.topic, topic))
     );
-    
   } catch (error) {
-    console.error('[PresenceDirector] Error finding matching loops:', error);
+    console.error("[PresenceDirector] Error finding matching loops:", error);
     return [];
   }
 }
@@ -412,46 +434,51 @@ export async function findLoopsMatchingTopics(
 /**
  * Boost salience for loops matching mentioned topics.
  * Call this when user's message mentions topics related to existing loops.
- * 
- * @param userId - The user's ID
+ *
  * @param message - The user's message (for logging)
  * @param topics - Topics detected in the message
  * @returns Number of loops boosted
  */
 export async function boostSalienceForMentionedTopics(
-  userId: string,
   message: string,
   topics: string[]
 ): Promise<number> {
   if (topics.length === 0) return 0;
-  
+
   try {
-    const matchingLoops = await findLoopsMatchingTopics(userId, topics);
-    
+    const matchingLoops = await findLoopsMatchingTopics(topics);
+
     if (matchingLoops.length === 0) return 0;
-    
+
     let boostedCount = 0;
-    
+
     for (const loop of matchingLoops) {
       // Count how many of the mentioned topics match this loop
-      const matchCount = topics.filter(t => isSimilarTopic(loop.topic, t)).length;
+      const matchCount = topics.filter((t) =>
+        isSimilarTopic(loop.topic, t)
+      ).length;
       const newSalience = calculateSalienceBoost(loop.salience, matchCount);
-      
+
       if (newSalience > loop.salience) {
         await supabase
           .from(PRESENCE_CONTEXTS_TABLE)
           .update({ salience: newSalience })
-          .eq('id', loop.id);
-        
-        console.log(`📈 [PresenceDirector] Boosted "${loop.topic}" salience: ${loop.salience.toFixed(2)} → ${newSalience.toFixed(2)} (mentioned in: "${message.slice(0, 50)}...")`);
+          .eq("id", loop.id);
+
+        console.log(
+          `📈 [PresenceDirector] Boosted "${
+            loop.topic
+          }" salience: ${loop.salience.toFixed(2)} → ${newSalience.toFixed(
+            2
+          )} (mentioned in: "${message.slice(0, 50)}...")`
+        );
         boostedCount++;
       }
     }
-    
+
     return boostedCount;
-    
   } catch (error) {
-    console.error('[PresenceDirector] Error boosting salience:', error);
+    console.error("[PresenceDirector] Error boosting salience:", error);
     return 0;
   }
 }
@@ -464,7 +491,6 @@ export async function boostSalienceForMentionedTopics(
  * Create a new open loop to follow up on.
  */
 export async function createOpenLoop(
-  userId: string,
   loopType: LoopType,
   topic: string,
   options: {
@@ -482,95 +508,103 @@ export async function createOpenLoop(
     // ============================================
     // FIX #1: Check for existing similar loop
     // ============================================
-    const existingLoop = await findSimilarLoop(userId, topic);
-    
+    const existingLoop = await findSimilarLoop(topic);
+
     if (existingLoop) {
-      console.log(`🔄 [PresenceDirector] Similar loop already exists: "${existingLoop.topic}" ≈ "${topic}"`);
-      
+      console.log(
+        `🔄 [PresenceDirector] Similar loop already exists: "${existingLoop.topic}" ≈ "${topic}"`
+      );
+
       // Update salience if new one is higher
       const newSalience = options.salience ?? 0.5;
       if (newSalience > existingLoop.salience) {
         await supabase
           .from(PRESENCE_CONTEXTS_TABLE)
-          .update({ 
+          .update({
             salience: newSalience,
-            trigger_context: options.triggerContext || existingLoop.triggerContext
+            trigger_context:
+              options.triggerContext || existingLoop.triggerContext,
           })
-          .eq('id', existingLoop.id);
-        
-        console.log(`📈 [PresenceDirector] Updated salience: ${existingLoop.salience} → ${newSalience}`);
+          .eq("id", existingLoop.id);
+
+        console.log(
+          `📈 [PresenceDirector] Updated salience: ${existingLoop.salience} → ${newSalience}`
+        );
         existingLoop.salience = newSalience;
       }
-      
-      return existingLoop;  // Return existing instead of creating duplicate
+
+      return existingLoop; // Return existing instead of creating duplicate
     }
     // ============================================
-    
+
     const now = new Date();
-    
+
     // Default surface time based on loop type
     let defaultSurfaceAfter: Date;
     let defaultExpiry: Date;
-    
+
     switch (loopType) {
-      case 'pending_event':
+      case "pending_event":
         // Surface after the event would have happened (default: next greeting)
         defaultSurfaceAfter = options.shouldSurfaceAfter || now;
-        defaultExpiry = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);  // 7 days
+        defaultExpiry = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000); // 7 days
         break;
-      case 'emotional_followup':
+      case "emotional_followup":
         // Give them some time before checking in
-        defaultSurfaceAfter = new Date(now.getTime() + 24 * 60 * 60 * 1000);  // 1 day
-        defaultExpiry = new Date(now.getTime() + 5 * 24 * 60 * 60 * 1000);   // 5 days
+        defaultSurfaceAfter = new Date(now.getTime() + 24 * 60 * 60 * 1000); // 1 day
+        defaultExpiry = new Date(now.getTime() + 5 * 24 * 60 * 60 * 1000); // 5 days
         break;
-      case 'commitment_check':
+      case "commitment_check":
         // Check in after a reasonable time
-        defaultSurfaceAfter = new Date(now.getTime() + 48 * 60 * 60 * 1000);  // 2 days
-        defaultExpiry = new Date(now.getTime() + 14 * 24 * 60 * 60 * 1000);  // 2 weeks
+        defaultSurfaceAfter = new Date(now.getTime() + 48 * 60 * 60 * 1000); // 2 days
+        defaultExpiry = new Date(now.getTime() + 14 * 24 * 60 * 60 * 1000); // 2 weeks
         break;
-      case 'curiosity_thread':
+      case "curiosity_thread":
         // Can surface soon
-        defaultSurfaceAfter = new Date(now.getTime() + 4 * 60 * 60 * 1000);   // 4 hours
-        defaultExpiry = new Date(now.getTime() + 3 * 24 * 60 * 60 * 1000);    // 3 days
+        defaultSurfaceAfter = new Date(now.getTime() + 4 * 60 * 60 * 1000); // 4 hours
+        defaultExpiry = new Date(now.getTime() + 3 * 24 * 60 * 60 * 1000); // 3 days
         break;
-      case 'pattern_observation':
+      case "pattern_observation":
         // Give time to observe pattern
-        defaultSurfaceAfter = new Date(now.getTime() + 72 * 60 * 60 * 1000);  // 3 days
-        defaultExpiry = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);   // 30 days
+        defaultSurfaceAfter = new Date(now.getTime() + 72 * 60 * 60 * 1000); // 3 days
+        defaultExpiry = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000); // 30 days
         break;
     }
-    
+
     const { data, error } = await supabase
       .from(PRESENCE_CONTEXTS_TABLE)
       .insert({
-        user_id: userId,
+        user_id: USER_ID,
         loop_type: loopType,
         topic,
         trigger_context: options.triggerContext || null,
         suggested_followup: options.suggestedFollowup || null,
-        should_surface_after: (options.shouldSurfaceAfter || defaultSurfaceAfter).toISOString(),
+        should_surface_after: (
+          options.shouldSurfaceAfter || defaultSurfaceAfter
+        ).toISOString(),
         expires_at: (options.expiresAt || defaultExpiry).toISOString(),
         salience: options.salience ?? 0.5,
         source_message_id: options.sourceMessageId || null,
         source_calendar_event_id: options.sourceCalendarEventId || null,
         event_datetime: options.eventDateTime?.toISOString() || null,
-        status: 'active',
+        status: "active",
         surface_count: 0,
-        max_surfaces: loopType === 'pending_event' ? 2 : 3
+        max_surfaces: loopType === "pending_event" ? 2 : 3,
       })
       .select()
       .single();
-    
+
     if (error) {
-      console.error('[PresenceDirector] Failed to create open loop:', error);
+      console.error("[PresenceDirector] Failed to create open loop:", error);
       return null;
     }
-    
-    console.log(`[PresenceDirector] Created open loop: ${loopType} - "${topic}"`);
+
+    console.log(
+      `[PresenceDirector] Created open loop: ${loopType} - "${topic}"`
+    );
     return mapRowToLoop(data);
-    
   } catch (error) {
-    console.error('[PresenceDirector] Error creating open loop:', error);
+    console.error("[PresenceDirector] Error creating open loop:", error);
     return null;
   }
 }
@@ -578,29 +612,27 @@ export async function createOpenLoop(
 /**
  * Get active open loops that are ready to potentially surface.
  */
-export async function getActiveLoops(userId: string): Promise<OpenLoop[]> {
+export async function getActiveLoops(): Promise<OpenLoop[]> {
   try {
     const now = new Date().toISOString();
-    
+
     const { data, error } = await supabase
       .from(PRESENCE_CONTEXTS_TABLE)
-      .select('*')
-      .eq('user_id', userId)
-      .eq('status', 'active')
-      .lte('should_surface_after', now)
+      .select("*")
+      .eq("status", "active")
+      .lte("should_surface_after", now)
       .or(`expires_at.is.null,expires_at.gt.${now}`)
-      .order('salience', { ascending: false })
+      .order("salience", { ascending: false })
       .limit(MAX_LOOPS_IN_CONTEXT);
-    
+
     if (error) {
-      console.error('[PresenceDirector] Failed to get active loops:', error);
+      console.error("[PresenceDirector] Failed to get active loops:", error);
       return [];
     }
-    
+
     return (data || []).map(mapRowToLoop);
-    
   } catch (error) {
-    console.error('[PresenceDirector] Error getting active loops:', error);
+    console.error("[PresenceDirector] Error getting active loops:", error);
     return [];
   }
 }
@@ -608,27 +640,31 @@ export async function getActiveLoops(userId: string): Promise<OpenLoop[]> {
 /**
  * Get the highest priority loop to surface now.
  */
-export async function getTopLoopToSurface(userId: string): Promise<OpenLoop | null> {
-  const loops = await getActiveLoops(userId);
-  
+export async function getTopLoopToSurface(): Promise<OpenLoop | null> {
+  const loops = await getActiveLoops();
+
   if (loops.length === 0) {
     return null;
   }
-  
+
   const now = Date.now();
   const minSurfaceGap = MIN_HOURS_BETWEEN_SURFACES * 60 * 60 * 1000;
-  
+
   // Filter loops that haven't been surfaced too recently
-  const eligibleLoops = loops.filter(loop => {
+  const eligibleLoops = loops.filter((loop) => {
     if (loop.surfaceCount >= loop.maxSurfaces) return false;
-    if (loop.lastSurfacedAt && now - loop.lastSurfacedAt.getTime() < minSurfaceGap) return false;
+    if (
+      loop.lastSurfacedAt &&
+      now - loop.lastSurfacedAt.getTime() < minSurfaceGap
+    )
+      return false;
     return true;
   });
-  
+
   if (eligibleLoops.length === 0) {
     return null;
   }
-  
+
   // Return highest salience loop
   return eligibleLoops.sort((a, b) => b.salience - a.salience)[0];
 }
@@ -640,26 +676,27 @@ export async function markLoopSurfaced(loopId: string): Promise<void> {
   try {
     const { data: loop } = await supabase
       .from(PRESENCE_CONTEXTS_TABLE)
-      .select('surface_count, max_surfaces')
-      .eq('id', loopId)
+      .select("surface_count, max_surfaces")
+      .eq("id", loopId)
       .single();
-    
+
     const newCount = (loop?.surface_count || 0) + 1;
     const maxSurfaces = loop?.max_surfaces || 2;
-    
+
     await supabase
       .from(PRESENCE_CONTEXTS_TABLE)
       .update({
         last_surfaced_at: new Date().toISOString(),
         surface_count: newCount,
-        status: newCount >= maxSurfaces ? 'expired' : 'surfaced'
+        status: newCount >= maxSurfaces ? "expired" : "surfaced",
       })
-      .eq('id', loopId);
-    
-    console.log(`[PresenceDirector] Marked loop ${loopId} as surfaced (${newCount}/${maxSurfaces})`);
-    
+      .eq("id", loopId);
+
+    console.log(
+      `[PresenceDirector] Marked loop ${loopId} as surfaced (${newCount}/${maxSurfaces})`
+    );
   } catch (error) {
-    console.error('[PresenceDirector] Error marking loop surfaced:', error);
+    console.error("[PresenceDirector] Error marking loop surfaced:", error);
   }
 }
 
@@ -670,13 +707,12 @@ export async function resolveLoop(loopId: string): Promise<void> {
   try {
     await supabase
       .from(PRESENCE_CONTEXTS_TABLE)
-      .update({ status: 'resolved' })
-      .eq('id', loopId);
-    
+      .update({ status: "resolved" })
+      .eq("id", loopId);
+
     console.log(`[PresenceDirector] Resolved loop ${loopId}`);
-    
   } catch (error) {
-    console.error('[PresenceDirector] Error resolving loop:', error);
+    console.error("[PresenceDirector] Error resolving loop:", error);
   }
 }
 
@@ -687,60 +723,65 @@ export async function dismissLoop(loopId: string): Promise<void> {
   try {
     await supabase
       .from(PRESENCE_CONTEXTS_TABLE)
-      .update({ status: 'dismissed' })
-      .eq('id', loopId);
-    
+      .update({ status: "dismissed" })
+      .eq("id", loopId);
+
     console.log(`[PresenceDirector] Dismissed loop ${loopId}`);
-    
   } catch (error) {
-    console.error('[PresenceDirector] Error dismissing loop:', error);
+    console.error("[PresenceDirector] Error dismissing loop:", error);
   }
 }
 
 /**
  * Dismiss all loops related to a topic.
  * Call this when user contradicts/denies something.
- * 
+ *
  * Example: User says "I don't have a party" → dismiss all party-related loops
- * 
- * @param userId - The user's ID
+ *
  * @param topic - The topic to dismiss (fuzzy matched)
  * @returns Number of loops dismissed
  */
-export async function dismissLoopsByTopic(userId: string, topic: string): Promise<number> {
+export async function dismissLoopsByTopic(topic: string): Promise<number> {
   try {
     // Get all active/surfaced loops
     const { data, error } = await supabase
       .from(PRESENCE_CONTEXTS_TABLE)
-      .select('*')
-      .eq('user_id', userId)
-      .in('status', ['active', 'surfaced']);
-    
+      .select("*")
+      .in("status", ["active", "surfaced"]);
+
     if (error || !data) return 0;
-    
+
     const loops = data.map(mapRowToLoop);
-    const matchingLoops = loops.filter(loop => 
-      isSimilarTopic(loop.topic, topic) && 
-      (loop.status === 'active' || loop.status === 'surfaced')
+    const matchingLoops = loops.filter(
+      (loop) =>
+        isSimilarTopic(loop.topic, topic) &&
+        (loop.status === "active" || loop.status === "surfaced")
     );
-    
+
     if (matchingLoops.length === 0) {
-      console.log(`[PresenceDirector] No loops found matching topic "${topic}"`);
+      console.log(
+        `[PresenceDirector] No loops found matching topic "${topic}"`
+      );
       return 0;
     }
-    
+
     // Dismiss all matching loops
-    const ids = matchingLoops.map(l => l.id);
+    const ids = matchingLoops.map((l) => l.id);
     await supabase
       .from(PRESENCE_CONTEXTS_TABLE)
-      .update({ status: 'dismissed' })
-      .in('id', ids);
-    
-    console.log(`🚫 [PresenceDirector] Dismissed ${matchingLoops.length} loops matching "${topic}": ${matchingLoops.map(l => l.topic).join(', ')}`);
+      .update({ status: "dismissed" })
+      .in("id", ids);
+
+    console.log(
+      `🚫 [PresenceDirector] Dismissed ${
+        matchingLoops.length
+      } loops matching "${topic}": ${matchingLoops
+        .map((l) => l.topic)
+        .join(", ")}`
+    );
     return matchingLoops.length;
-    
   } catch (error) {
-    console.error('[PresenceDirector] Error dismissing loops by topic:', error);
+    console.error("[PresenceDirector] Error dismissing loops by topic:", error);
     return 0;
   }
 }
@@ -748,19 +789,17 @@ export async function dismissLoopsByTopic(userId: string, topic: string): Promis
 /**
  * Expire old loops.
  */
-export async function expireOldLoops(userId: string): Promise<void> {
+export async function expireOldLoops(): Promise<void> {
   try {
     const now = new Date().toISOString();
-    
+
     await supabase
       .from(PRESENCE_CONTEXTS_TABLE)
-      .update({ status: 'expired' })
-      .eq('user_id', userId)
-      .eq('status', 'active')
-      .lt('expires_at', now);
-    
+      .update({ status: "expired" })
+      .eq("status", "active")
+      .lt("expires_at", now);
   } catch (error) {
-    console.error('[PresenceDirector] Error expiring old loops:', error);
+    console.error("[PresenceDirector] Error expiring old loops:", error);
   }
 }
 
@@ -771,11 +810,10 @@ export async function expireOldLoops(userId: string): Promise<void> {
 /**
  * Analyze a user message for potential open loops to create.
  * This should be called after each user message.
- * 
+ *
  * Phase 5: Now uses LLM-based detection as the primary method,
  * with regex patterns as fallback when LLM fails or returns nothing.
- * 
- * @param userId - The user's ID
+ *
  * @param userMessage - The user's message to analyze
  * @param llmCall - DEPRECATED: no longer used, LLM detection now uses intentService
  * @param conversationContext - Optional context for LLM detection
@@ -783,82 +821,94 @@ export async function expireOldLoops(userId: string): Promise<void> {
 /**
  * Analyze a user message for potential open loops to create.
  * This should be called after each user message.
- * 
+ *
  * Phase 5: Now uses LLM-based detection as the primary method,
  * with regex patterns as fallback when LLM fails or returns nothing.
- * 
+ *
  * Phase 7 Update: Accepts 'providedIntent' from the Unified Intent System
  * to avoid redundant LLM calls.
- * 
- * @param userId - The user's ID
+ *
  * @param userMessage - The user's message to analyze
  * @param llmCall - DEPRECATED: no longer used
  * @param conversationContext - Optional context for LLM detection
  * @param providedIntent - PRE-CALCULATED intent from the unified system (optimization)
  */
 export async function detectOpenLoops(
-  userId: string,
   userMessage: string,
   llmCall?: (prompt: string) => Promise<string>,
   conversationContext?: ConversationContext,
   providedIntent?: OpenLoopIntent
 ): Promise<OpenLoop[]> {
   const createdLoops: OpenLoop[] = [];
-  
+
   // Skip very short messages
   if (userMessage.length < 15) {
     return createdLoops;
   }
-  
+
   // Phase 5/7: Try LLM-based detection (either provided or internal)
   let llmResult: OpenLoopIntent | null = null;
-  
+
   try {
     // If we have a pre-calculated intent, use it!
     if (providedIntent) {
       llmResult = providedIntent;
     } else {
       // Otherwise, make the internal call (Phase 5 behavior)
-      llmResult = await detectOpenLoopsLLMCached(userMessage, conversationContext);
+      llmResult = await detectOpenLoopsLLMCached(
+        userMessage,
+        conversationContext
+      );
     }
-    
-    if (llmResult && llmResult.hasFollowUp && llmResult.loopType && llmResult.topic) {
+
+    if (
+      llmResult &&
+      llmResult.hasFollowUp &&
+      llmResult.loopType &&
+      llmResult.topic
+    ) {
       // Convert LLM result to open loop
       const loop = await createOpenLoop(
-        userId, 
-        llmResult.loopType as LoopType,  // LoopTypeIntent maps directly to LoopType
-        llmResult.topic, 
+        llmResult.loopType as LoopType, // LoopTypeIntent maps directly to LoopType
+        llmResult.topic,
         {
           triggerContext: userMessage.slice(0, 200),
           suggestedFollowup: llmResult.suggestedFollowUp || undefined,
           salience: llmResult.salience,
           shouldSurfaceAfter: mapTimeframeToSurfaceDate(llmResult.timeframe),
-          eventDateTime: llmResult.eventDateTime ? new Date(llmResult.eventDateTime) : undefined
+          eventDateTime: llmResult.eventDateTime
+            ? new Date(llmResult.eventDateTime)
+            : undefined,
         }
       );
       if (loop) {
         createdLoops.push(loop);
-        console.log(`🔄 [PresenceDirector] Created open loop via LLM: ${llmResult.loopType} - "${llmResult.topic}"`);
+        console.log(
+          `🔄 [PresenceDirector] Created open loop via LLM: ${llmResult.loopType} - "${llmResult.topic}"`
+        );
         return createdLoops; // Return early - LLM result is preferred
       }
     }
   } catch (error) {
-    console.warn('[PresenceDirector] LLM open loop detection failed, falling back to regex:', error);
+    console.warn(
+      "[PresenceDirector] LLM open loop detection failed, falling back to regex:",
+      error
+    );
     // Fall through to regex detection below
   }
-  
+
   // Fallback: Simple pattern-based detection (fast, used when LLM fails or returns nothing)
   const simpleLoops = detectSimplePatterns(userMessage);
-  
+
   for (const detected of simpleLoops) {
-    const loop = await createOpenLoop(userId, detected.type, detected.topic, {
+    const loop = await createOpenLoop(detected.type, detected.topic, {
       triggerContext: userMessage.slice(0, 200),
       suggestedFollowup: detected.followup,
-      salience: detected.salience
+      salience: detected.salience,
     });
     if (loop) createdLoops.push(loop);
   }
-  
+
   return createdLoops;
 }
 
@@ -866,25 +916,27 @@ export async function detectOpenLoops(
  * Convert LLM-inferred timeframe to a Date for shouldSurfaceAfter.
  * This enables context-aware scheduling of follow-ups.
  */
-function mapTimeframeToSurfaceDate(timeframe: FollowUpTimeframe | null): Date | undefined {
+function mapTimeframeToSurfaceDate(
+  timeframe: FollowUpTimeframe | null
+): Date | undefined {
   if (!timeframe) return undefined;
-  
+
   const now = new Date();
-  
+
   switch (timeframe) {
-    case 'today':
+    case "today":
       // Surface after 2 hours (give event time to happen)
       return new Date(now.getTime() + 2 * 60 * 60 * 1000);
-    case 'tomorrow':
+    case "tomorrow":
       // Surface next day
       return new Date(now.getTime() + 24 * 60 * 60 * 1000);
-    case 'this_week':
+    case "this_week":
       // Surface after 2 days
       return new Date(now.getTime() + 48 * 60 * 60 * 1000);
-    case 'soon':
+    case "soon":
       // Surface after 3 days
       return new Date(now.getTime() + 72 * 60 * 60 * 1000);
-    case 'later':
+    case "later":
       // Surface after 1 week
       return new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
     default:
@@ -902,71 +954,108 @@ interface DetectedPattern {
 function detectSimplePatterns(message: string): DetectedPattern[] {
   const patterns: DetectedPattern[] = [];
   const messageLower = message.toLowerCase();
-  
+
   // Pending event patterns - using \w+ to limit to word characters and avoid false positives like "good feeling"
   const eventPatterns = [
-    { regex: /(?:have|got) (?:a|an|my) (\w+(?:\s+\w+)?) (?:tomorrow|later|tonight|this week)/i, type: 'pending_event' as LoopType },
-    { regex: /(?:presentation|interview|meeting|date|exam|test) (?:is |on |at )?(?:tomorrow|later|tonight)/i, type: 'pending_event' as LoopType },
-    { regex: /going to (?:try|do|have|take) (\w+(?:\s+\w+)?) (?:tomorrow|later|soon)/i, type: 'pending_event' as LoopType },
+    {
+      regex:
+        /(?:have|got) (?:a|an|my) (\w+(?:\s+\w+)?) (?:tomorrow|later|tonight|this week)/i,
+      type: "pending_event" as LoopType,
+    },
+    {
+      regex:
+        /(?:presentation|interview|meeting|date|exam|test) (?:is |on |at )?(?:tomorrow|later|tonight)/i,
+      type: "pending_event" as LoopType,
+    },
+    {
+      regex:
+        /going to (?:try|do|have|take) (\w+(?:\s+\w+)?) (?:tomorrow|later|soon)/i,
+      type: "pending_event" as LoopType,
+    },
   ];
-  
+
   for (const pattern of eventPatterns) {
     const match = message.match(pattern.regex);
     if (match) {
       patterns.push({
         type: pattern.type,
         topic: match[1] || match[0].slice(0, 50),
-        followup: `How did your ${match[1] || 'thing'} go?`,
-        salience: 0.7
+        followup: `How did your ${match[1] || "thing"} go?`,
+        salience: 0.7,
       });
-      break;  // Only one event per message
+      break; // Only one event per message
     }
   }
-  
+
   // Emotional state patterns
   const emotionalPatterns = [
-    { regex: /(?:i'm|i am) (?:really |so |a bit |kind of )?(?:stressed|anxious|worried|nervous|scared)/i, followup: 'How are you feeling now?', salience: 0.8 },
-    { regex: /(?:i'm|i am) (?:really |so )?(?:excited|nervous) about (.+)/i, followup: 'How did things go with that?', salience: 0.7 },
-    { regex: /(?:having|had) a (?:rough|hard|tough|bad) (?:day|week|time)/i, followup: 'How are things going now?', salience: 0.75 },
+    {
+      regex:
+        /(?:i'm|i am) (?:really |so |a bit |kind of )?(?:stressed|anxious|worried|nervous|scared)/i,
+      followup: "How are you feeling now?",
+      salience: 0.8,
+    },
+    {
+      regex: /(?:i'm|i am) (?:really |so )?(?:excited|nervous) about (.+)/i,
+      followup: "How did things go with that?",
+      salience: 0.7,
+    },
+    {
+      regex: /(?:having|had) a (?:rough|hard|tough|bad) (?:day|week|time)/i,
+      followup: "How are things going now?",
+      salience: 0.75,
+    },
   ];
-  
+
   for (const pattern of emotionalPatterns) {
     const match = message.match(pattern.regex);
     if (match) {
       patterns.push({
-        type: 'emotional_followup',
-        topic: match[1] || 'how you were feeling',
+        type: "emotional_followup",
+        topic: match[1] || "how you were feeling",
         followup: pattern.followup,
-        salience: pattern.salience
+        salience: pattern.salience,
       });
       break;
     }
   }
-  
+
   // Commitment patterns
   const commitmentPatterns = [
-    { regex: /(?:i'm going to|i'll|i will|gonna) (?:try to |start |finally )?(.+)/i, salience: 0.5 },
+    {
+      regex:
+        /(?:i'm going to|i'll|i will|gonna) (?:try to |start |finally )?(.+)/i,
+      salience: 0.5,
+    },
     { regex: /(?:i need to|i should|i have to) (.+)/i, salience: 0.4 },
     { regex: /thinking about (?:starting|trying|doing) (.+)/i, salience: 0.4 },
   ];
-  
+
   for (const pattern of commitmentPatterns) {
     const match = message.match(pattern.regex);
     if (match && match[1] && match[1].length > 5 && match[1].length < 50) {
       // Filter out common non-commitments
-      const nonCommitments = ['go', 'sleep', 'eat', 'relax', 'chill', 'watch', 'leave'];
-      if (!nonCommitments.some(nc => match[1].toLowerCase().startsWith(nc))) {
+      const nonCommitments = [
+        "go",
+        "sleep",
+        "eat",
+        "relax",
+        "chill",
+        "watch",
+        "leave",
+      ];
+      if (!nonCommitments.some((nc) => match[1].toLowerCase().startsWith(nc))) {
         patterns.push({
-          type: 'commitment_check',
+          type: "commitment_check",
           topic: match[1].trim(),
           followup: `Did you end up ${match[1].trim()}?`,
-          salience: pattern.salience
+          salience: pattern.salience,
         });
         break;
       }
     }
   }
-  
+
   return patterns;
 }
 
@@ -980,35 +1069,39 @@ function detectSimplePatterns(message: string): DetectedPattern[] {
 /**
  * Get the complete presence context for prompt generation.
  * Call this when building the system prompt or greeting.
- * 
+ *
  * OPTIMIZED: Parallel reads, background writes
  */
-export async function getPresenceContext(userId: string): Promise<PresenceContext> {
+export async function getPresenceContext(): Promise<PresenceContext> {
   // 🔥 FIRE-AND-FORGET: Expiry is a write operation that doesn't affect this response
   // Don't block the read path waiting for cleanup
-  expireOldLoops(userId).catch(err => 
-    console.warn('[PresenceDirector] Background expiry failed:', err)
+  expireOldLoops().catch((err) =>
+    console.warn("[PresenceDirector] Background expiry failed:", err)
   );
-  
+
   // 🚀 PARALLEL: Run all read operations simultaneously
   // Note: getTopLoopToSurface internally calls getActiveLoops, so we fetch once
   // and derive the top loop locally to avoid duplicate DB calls
   const [activeLoops, opinions] = await Promise.all([
-    getActiveLoops(userId),
-    Promise.resolve(getCharacterOpinions())  // Sync, wrapped for consistency
+    getActiveLoops(),
+    Promise.resolve(getCharacterOpinions()), // Sync, wrapped for consistency
   ]);
-  
+
   // Derive top loop from active loops (avoids second DB call)
   const topLoop = selectTopLoopFromActive(activeLoops);
-  
+
   // Build the prompt section (CPU-only, fast)
-  const promptSection = buildPresencePromptSection(activeLoops, topLoop, opinions);
-  
+  const promptSection = buildPresencePromptSection(
+    activeLoops,
+    topLoop,
+    opinions
+  );
+
   return {
     activeLoops,
     topLoop,
     opinions,
-    promptSection
+    promptSection,
   };
 }
 

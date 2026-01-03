@@ -13,14 +13,13 @@ const PREFETCH_TTL = 60000; // 60 seconds
 /**
  * Pre-fetches context data and stores it in a global cache.
  * 
- * @param userId - The user's ID
  */
-export async function prefetchOnIdle(userId: string): Promise<void> {
+export async function prefetchOnIdle(): Promise<void> {
   console.log('🚀 [PrefetchService] Pre-fetching context on idle...');
   
   try {
     const [soulContext, characterFacts] = await Promise.all([
-      getSoulLayerContextAsync(userId),
+      getSoulLayerContextAsync(),
       formatCharacterFactsForPrompt()
     ]);
     

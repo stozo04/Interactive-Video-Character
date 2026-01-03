@@ -137,74 +137,72 @@ interface RelationshipRow {
 /**
  * Get or create relationship for a user
  */
-export const getRelationship = async (
-  userId: string
-): Promise<RelationshipMetrics | null> => {
-  try {
-    // Try to get existing relationship
-    const { data, error } = await supabase
-      .from(RELATIONSHIPS_TABLE)
-      .select('*')
-      .eq('user_id', userId)
-      .maybeSingle();
+const USER_ID = import.meta.env.VITE_USER_ID;
+export const getRelationship =
+  async (): Promise<RelationshipMetrics | null> => {
+    try {
+      // Try to get existing relationship
+      const { data, error } = await supabase
+        .from(RELATIONSHIPS_TABLE)
+        .select("*")
+        .maybeSingle();
 
-    if (error && error.code !== 'PGRST116') {
-      console.error('Error fetching relationship:', error);
+      if (error && error.code !== "PGRST116") {
+        console.error("Error fetching relationship:", error);
+        return null;
+      }
+
+      if (data) {
+        return mapRelationshipRowToMetrics(data as RelationshipRow);
+      }
+
+      // Create new relationship if it doesn't exist
+      const now = new Date().toISOString();
+      const { data: newData, error: createError } = await supabase
+        .from(RELATIONSHIPS_TABLE)
+        .insert({
+          user_id: USER_ID,
+          relationship_score: 0.0,
+          relationship_tier: "acquaintance",
+          warmth_score: 0.0,
+          trust_score: 0.0,
+          playfulness_score: 0.0,
+          stability_score: 0.0,
+          familiarity_stage: "early",
+          total_interactions: 0,
+          positive_interactions: 0,
+          negative_interactions: 0,
+          first_interaction_at: now,
+          last_interaction_at: now,
+          is_ruptured: false,
+          rupture_count: 0,
+        })
+        .select()
+        .single();
+
+      if (createError) {
+        console.error("Error creating relationship:", createError);
+        return null;
+      }
+
+      return mapRelationshipRowToMetrics(newData as RelationshipRow);
+    } catch (error) {
+      console.error("Unexpected error in getRelationship:", error);
       return null;
     }
-
-    if (data) {
-      return mapRelationshipRowToMetrics(data as RelationshipRow);
-    }
-
-    // Create new relationship if it doesn't exist
-    const now = new Date().toISOString();
-    const { data: newData, error: createError } = await supabase
-      .from(RELATIONSHIPS_TABLE)
-      .insert({
-        user_id: userId,
-        relationship_score: 0.0,
-        relationship_tier: 'acquaintance',
-        warmth_score: 0.0,
-        trust_score: 0.0,
-        playfulness_score: 0.0,
-        stability_score: 0.0,
-        familiarity_stage: 'early',
-        total_interactions: 0,
-        positive_interactions: 0,
-        negative_interactions: 0,
-        first_interaction_at: now,
-        last_interaction_at: now,
-        is_ruptured: false,
-        rupture_count: 0,
-      })
-      .select()
-      .single();
-
-    if (createError) {
-      console.error('Error creating relationship:', createError);
-      return null;
-    }
-
-    return mapRelationshipRowToMetrics(newData as RelationshipRow);
-  } catch (error) {
-    console.error('Unexpected error in getRelationship:', error);
-    return null;
-  }
-};
+  };
 
 /**
  * Update relationship based on an event
  */
 export const updateRelationship = async (
-  userId: string,
   event: RelationshipEvent
 ): Promise<RelationshipMetrics | null> => {
   try {
     // Get current relationship
-    const current = await getRelationship(userId);
+    const current = await getRelationship();
     if (!current) {
-      console.error('Could not get relationship for update');
+      console.error("Could not get relationship for update");
       return null;
     }
 
@@ -238,11 +236,11 @@ export const updateRelationship = async (
     // Update interaction counts
     const newTotalInteractions = current.totalInteractions + 1;
     const newPositiveInteractions =
-      event.eventType === 'positive'
+      event.eventType === "positive"
         ? current.positiveInteractions + 1
         : current.positiveInteractions;
     const newNegativeInteractions =
-      event.eventType === 'negative'
+      event.eventType === "negative"
         ? current.negativeInteractions + 1
         : current.negativeInteractions;
 
@@ -253,14 +251,21 @@ export const updateRelationship = async (
     );
 
     // Check for rupture
-    const isRupture = detectRupture(event, current.relationshipScore, newRelationshipScore);
-    const newIsRuptured = isRupture ? true : 
-      (event.eventType === 'repair' ? false : current.isRuptured);
-    const newRuptureCount = isRupture 
-      ? current.ruptureCount + 1 
+    const isRupture = detectRupture(
+      event,
+      current.relationshipScore,
+      newRelationshipScore
+    );
+    const newIsRuptured = isRupture
+      ? true
+      : event.eventType === "repair"
+      ? false
+      : current.isRuptured;
+    const newRuptureCount = isRupture
+      ? current.ruptureCount + 1
       : current.ruptureCount;
-    const newLastRuptureAt = isRupture 
-      ? new Date().toISOString() 
+    const newLastRuptureAt = isRupture
+      ? new Date().toISOString()
       : current.lastRuptureAt?.toISOString() || null;
 
     // Update relationship
@@ -282,17 +287,16 @@ export const updateRelationship = async (
         rupture_count: newRuptureCount,
         familiarity_stage: newFamiliarity, // Explicitly set (trigger will also update as backup)
       })
-      .eq('user_id', userId)
       .select()
       .single();
 
     if (error) {
-      console.error('Error updating relationship:', error);
+      console.error("Error updating relationship:", error);
       return null;
     }
 
     if (!data) {
-      console.warn('updateRelationship received null data from update');
+      console.warn("updateRelationship received null data from update");
       return null;
     }
 
@@ -309,7 +313,7 @@ export const updateRelationship = async (
     // Record pattern insights (if mood + action present)
     if (event.userMood && event.actionType) {
       await recordPatternObservation(data.id, {
-        insightType: 'pattern' as InsightType,
+        insightType: "pattern" as InsightType,
         key: buildInsightKey(event.userMood, event.actionType),
         observedAt: new Date().toISOString(),
       });
@@ -317,7 +321,7 @@ export const updateRelationship = async (
 
     return mapRelationshipRowToMetrics(data as RelationshipRow);
   } catch (error) {
-    console.error('Unexpected error in updateRelationship:', error);
+    console.error("Unexpected error in updateRelationship:", error);
     return null;
   }
 };
@@ -336,11 +340,11 @@ export const analyzeMessageSentiment = async (
     if (intent) {
       const tone = intent.tone;
       const sentimentVal = tone.sentiment; // -1 to 1
-      
+
       // Map -1..1 to 'positive'|'neutral'|'negative'
-      let sentiment: 'positive' | 'neutral' | 'negative' = 'neutral';
-      if (sentimentVal > 0.2) sentiment = 'positive';
-      else if (sentimentVal < -0.2) sentiment = 'negative';
+      let sentiment: "positive" | "neutral" | "negative" = "neutral";
+      if (sentimentVal > 0.2) sentiment = "positive";
+      else if (sentimentVal < -0.2) sentiment = "negative";
 
       // Map 0..1 intensity to 1..10
       const intensity = Math.max(1, Math.round(tone.intensity * 10));
@@ -349,23 +353,32 @@ export const analyzeMessageSentiment = async (
       const userMood = tone.primaryEmotion;
 
       // Calculate score changes
-      const scoreChanges = calculateScoreChanges(sentiment, intensity, message, userMood);
+      const scoreChanges = calculateScoreChanges(
+        sentiment,
+        intensity,
+        message,
+        userMood
+      );
 
       return {
         eventType: sentiment,
-        source: 'chat',
+        source: "chat",
         sentimentTowardCharacter: sentiment,
         sentimentIntensity: intensity,
         userMood,
         ...scoreChanges,
         userMessage: message,
-        notes: `Unified Intent: ${tone.primaryEmotion} (sentiment: ${tone.sentiment.toFixed(2)}, intensity: ${tone.intensity.toFixed(2)})`
+        notes: `Unified Intent: ${
+          tone.primaryEmotion
+        } (sentiment: ${tone.sentiment.toFixed(
+          2
+        )}, intensity: ${tone.intensity.toFixed(2)})`,
       };
     }
 
     // Prepare context (last 3 messages)
-    const recentMessages = conversationContext.slice(-3).map(msg => ({
-      role: msg.role === 'user' ? 'user' : 'assistant',
+    const recentMessages = conversationContext.slice(-3).map((msg) => ({
+      role: msg.role === "user" ? "user" : "assistant",
       content: msg.text,
     }));
 
@@ -388,7 +401,9 @@ Return ONLY valid JSON (no markdown, no code blocks):
 
     // Use Gemini for sentiment analysis
     if (!GEMINI_API_KEY) {
-      console.warn('VITE_GEMINI_API_KEY not set, falling back to keyword matching.');
+      console.warn(
+        "VITE_GEMINI_API_KEY not set, falling back to keyword matching."
+      );
       return fallbackSentimentAnalysis(message, conversationContext);
     }
 
@@ -396,23 +411,33 @@ Return ONLY valid JSON (no markdown, no code blocks):
 
     const result = await genAI.models.generateContent({
       model: GEMINI_MODEL,
-      contents: [{ role: 'user', parts: [{ text: analysisPrompt }] }],
-      config: { responseMimeType: "application/json" }
+      contents: [{ role: "user", parts: [{ text: analysisPrompt }] }],
+      config: { responseMimeType: "application/json" },
     });
 
     const responseText = result.text || "{}";
     const analysis = JSON.parse(responseText);
 
-    const sentiment = analysis.sentiment || 'neutral';
+    const sentiment = analysis.sentiment || "neutral";
     const intensity = Math.max(1, Math.min(10, analysis.intensity || 5));
     const userMood = analysis.user_mood || null;
 
     // Calculate score changes based on sentiment, intensity, and interaction type
-    const scoreChanges = calculateScoreChanges(sentiment, intensity, message, userMood);
+    const scoreChanges = calculateScoreChanges(
+      sentiment,
+      intensity,
+      message,
+      userMood
+    );
 
     return {
-      eventType: sentiment === 'positive' ? 'positive' : sentiment === 'negative' ? 'negative' : 'neutral',
-      source: 'chat',
+      eventType:
+        sentiment === "positive"
+          ? "positive"
+          : sentiment === "negative"
+          ? "negative"
+          : "neutral",
+      source: "chat",
       sentimentTowardCharacter: sentiment,
       sentimentIntensity: intensity,
       userMood,
@@ -420,9 +445,8 @@ Return ONLY valid JSON (no markdown, no code blocks):
       userMessage: message,
       notes: analysis.reasoning || undefined,
     };
-
   } catch (error) {
-    console.error('Error in sentiment analysis:', error);
+    console.error("Error in sentiment analysis:", error);
     return fallbackSentimentAnalysis(message, conversationContext);
   }
 };
@@ -436,67 +460,110 @@ function fallbackSentimentAnalysis(
   conversationContext: ChatMessage[]
 ): RelationshipEvent {
   const lowerMessage = message.toLowerCase();
-  let sentiment: 'positive' | 'neutral' | 'negative' = 'neutral';
+  let sentiment: "positive" | "neutral" | "negative" = "neutral";
   let intensity = 5;
 
   // Positive indicators
   const positiveKeywords = [
-    'love', 'amazing', 'great', 'wonderful', 'best', 'awesome', 'fantastic',
-    'thank', 'thanks', 'appreciate', 'helpful', 'kind', 'nice', 'sweet',
-    'perfect', 'excellent', 'brilliant', 'beautiful', 'gorgeous', 'cute'
+    "love",
+    "amazing",
+    "great",
+    "wonderful",
+    "best",
+    "awesome",
+    "fantastic",
+    "thank",
+    "thanks",
+    "appreciate",
+    "helpful",
+    "kind",
+    "nice",
+    "sweet",
+    "perfect",
+    "excellent",
+    "brilliant",
+    "beautiful",
+    "gorgeous",
+    "cute",
   ];
-  
-  const positiveCount = positiveKeywords.filter(kw => lowerMessage.includes(kw)).length;
-  
+
+  const positiveCount = positiveKeywords.filter((kw) =>
+    lowerMessage.includes(kw)
+  ).length;
+
   // Negative indicators
   const negativeKeywords = [
-    'hate', 'stupid', 'dumb', 'annoying', 'boring', 'bad', 'worst',
-    'terrible', 'awful', 'horrible', 'suck', 'useless', 'waste'
+    "hate",
+    "stupid",
+    "dumb",
+    "annoying",
+    "boring",
+    "bad",
+    "worst",
+    "terrible",
+    "awful",
+    "horrible",
+    "suck",
+    "useless",
+    "waste",
   ];
-  
-  const negativeCount = negativeKeywords.filter(kw => lowerMessage.includes(kw)).length;
+
+  const negativeCount = negativeKeywords.filter((kw) =>
+    lowerMessage.includes(kw)
+  ).length;
 
   // Pattern matching
   const lovePattern = /i\s+(love|adore|like)\s+(you|talking|chatting)/i;
-  const hatePattern = /i\s+(hate|dislike|don'?t\s+like)\s+(you|talking|chatting)/i;
+  const hatePattern =
+    /i\s+(hate|dislike|don'?t\s+like)\s+(you|talking|chatting)/i;
   const apologyPattern = /(sorry|apologize|my\s+bad|my\s+fault)/i;
 
   // Determine sentiment and intensity
   if (lovePattern.test(message)) {
-    sentiment = 'positive';
+    sentiment = "positive";
     intensity = 9;
   } else if (hatePattern.test(message)) {
-    sentiment = 'negative';
+    sentiment = "negative";
     intensity = 9;
   } else if (apologyPattern.test(message)) {
-    sentiment = 'positive';
+    sentiment = "positive";
     intensity = 6;
   } else if (positiveCount > 0) {
-    sentiment = 'positive';
+    sentiment = "positive";
     intensity = Math.min(7, 3 + positiveCount);
   } else if (negativeCount > 0) {
-    sentiment = 'negative';
+    sentiment = "negative";
     intensity = Math.min(9, 5 + negativeCount);
   } else {
     // Engagement analysis
     if (message.length < 5 && conversationContext.length > 2) {
-      sentiment = 'negative';
+      sentiment = "negative";
       intensity = 2;
-    } else if (message.includes('?')) {
-      sentiment = 'positive';
+    } else if (message.includes("?")) {
+      sentiment = "positive";
       intensity = 3;
     } else {
-      sentiment = 'neutral';
+      sentiment = "neutral";
       intensity = 5;
     }
   }
 
   // Use enhanced calculateScoreChanges for nuanced dimension updates
-  const scoreChanges = calculateScoreChanges(sentiment, intensity, message, null);
+  const scoreChanges = calculateScoreChanges(
+    sentiment,
+    intensity,
+    message,
+    null
+  );
 
   return {
-    eventType: sentiment === 'positive' ? 'positive' : sentiment === 'negative' ? 'negative' : 'neutral',
-    source: 'chat',
+    eventType:
+      sentiment === "positive"
+        ? "positive"
+        : sentiment === "negative"
+        ? "negative"
+        : "neutral",
+    source: "chat",
     sentimentTowardCharacter: sentiment,
     sentimentIntensity: intensity,
     ...scoreChanges,
@@ -522,7 +589,7 @@ function fallbackSentimentAnalysis(
  * This matches the user's 12-month curve expectation.
  */
 export function calculateScoreChanges(
-  sentiment: 'positive' | 'neutral' | 'negative',
+  sentiment: "positive" | "neutral" | "negative",
   intensity: number,
   message: string,
   userMood?: string | null
@@ -536,15 +603,27 @@ export function calculateScoreChanges(
   const baseMultiplier = intensity / 10; // Scale by intensity (0.1 to 1.0)
 
   // Detect interaction type for nuanced dimension updates
-  const isCompliment = /(amazing|great|wonderful|love|awesome|fantastic|perfect|excellent|brilliant|beautiful)/i.test(message);
-  const isApology = /(sorry|apologize|my\s+bad|my\s+fault|forgive)/i.test(message);
-  const isJokeOrBanter = /(haha|hahaha|lol|lmao|funny|joke|tease|sassy)/i.test(message) || message.includes('😄') || message.includes('😂');
-  const isPersonalShare = /(i\s+(feel|think|want|need|wish|hope)|my\s+(day|life|work|family|friend))/i.test(message);
-  const isQuestion = message.includes('?');
+  const isCompliment =
+    /(amazing|great|wonderful|love|awesome|fantastic|perfect|excellent|brilliant|beautiful)/i.test(
+      message
+    );
+  const isApology = /(sorry|apologize|my\s+bad|my\s+fault|forgive)/i.test(
+    message
+  );
+  const isJokeOrBanter =
+    /(haha|hahaha|lol|lmao|funny|joke|tease|sassy)/i.test(message) ||
+    message.includes("😄") ||
+    message.includes("😂");
+  const isPersonalShare =
+    /(i\s+(feel|think|want|need|wish|hope)|my\s+(day|life|work|family|friend))/i.test(
+      message
+    );
+  const isQuestion = message.includes("?");
   const isEngagement = message.length > 20 && isQuestion;
-  const isDismissive = /(whatever|just|only|don'?t\s+care|doesn'?t\s+matter)/i.test(message);
+  const isDismissive =
+    /(whatever|just|only|don'?t\s+care|doesn'?t\s+matter)/i.test(message);
 
-  if (sentiment === 'positive') {
+  if (sentiment === "positive") {
     // BASE: +0.15 to +0.5 points (HALVED from v2 for realistic progression)
     let scoreChange = Math.round((0.15 + 0.35 * baseMultiplier) * 10) / 10;
     let warmthChange = Math.round((0.05 + 0.15 * baseMultiplier) * 10) / 10; // +0.05 to +0.2
@@ -590,7 +669,7 @@ export function calculateScoreChanges(
       playfulnessChange: Math.round(playfulnessChange * 10) / 10,
       stabilityChange: Math.round(stabilityChange * 10) / 10,
     };
-  } else if (sentiment === 'negative') {
+  } else if (sentiment === "negative") {
     // Negative is 2-3x stronger than positive (easier to destroy than build)
     // BASE: -0.5 to -3.0 points (unchanged - destruction should be faster)
     let scoreChange = Math.round(-(0.5 + 2.5 * baseMultiplier) * 10) / 10;
@@ -639,8 +718,6 @@ export function calculateScoreChanges(
   };
 }
 
-
-
 /**
  * Calculate relationship tier from score.
  *
@@ -656,25 +733,25 @@ export function calculateScoreChanges(
  * and meaningful, requiring sustained positive interaction over months.
  */
 function getRelationshipTier(score: number): string {
-  if (score <= -50) return 'adversarial';
-  if (score <= -10) return 'neutral_negative';
-  if (score < 10) return 'acquaintance';
-  if (score < 50) return 'friend';
-  if (score < 100) return 'close_friend';
-  return 'deeply_loving';
+  if (score <= -50) return "adversarial";
+  if (score <= -10) return "neutral_negative";
+  if (score < 10) return "acquaintance";
+  if (score < 50) return "friend";
+  if (score < 100) return "close_friend";
+  return "deeply_loving";
 }
 
 function calculateFamiliarityStage(
   totalInteractions: number,
   firstInteractionAt: Date | null
-): 'early' | 'developing' | 'established' {
+): "early" | "developing" | "established" {
   const daysSince = firstInteractionAt
     ? (Date.now() - firstInteractionAt.getTime()) / (1000 * 60 * 60 * 24)
     : 0;
 
-  if (totalInteractions < 5 || daysSince < 2) return 'early';
-  if (totalInteractions < 25 || daysSince < 14) return 'developing';
-  return 'established';
+  if (totalInteractions < 5 || daysSince < 2) return "early";
+  if (totalInteractions < 25 || daysSince < 14) return "developing";
+  return "established";
 }
 
 async function logRelationshipEvent(
@@ -706,13 +783,13 @@ async function logRelationshipEvent(
       notes: event.notes,
     });
   } catch (error) {
-    console.error('Error logging relationship event:', error);
+    console.error("Error logging relationship event:", error);
   }
 }
 
 async function recordPatternObservation(
   relationshipId: string,
-  input: Omit<UpsertRelationshipInsightInput, 'relationshipId'>
+  input: Omit<UpsertRelationshipInsightInput, "relationshipId">
 ): Promise<void> {
   try {
     const baseInput: UpsertRelationshipInsightInput = {
@@ -722,13 +799,13 @@ async function recordPatternObservation(
 
     const { data: existingRow, error } = await supabase
       .from(RELATIONSHIP_INSIGHTS_TABLE)
-      .select('*')
-      .eq('relationship_id', relationshipId)
-      .eq('key', baseInput.key)
+      .select("*")
+      .eq("relationship_id", relationshipId)
+      .eq("key", baseInput.key)
       .maybeSingle();
 
-    if (error && error.code !== 'PGRST116') {
-      console.error('Failed to load existing insight:', error);
+    if (error && error.code !== "PGRST116") {
+      console.error("Failed to load existing insight:", error);
       return;
     }
 
@@ -752,11 +829,13 @@ async function recordPatternObservation(
 
     const parsed = relationshipInsightRowSchema.safeParse(existingRow);
     if (!parsed.success) {
-      console.error('Invalid insight row:', parsed.error);
+      console.error("Invalid insight row:", parsed.error);
       return;
     }
 
-    const existing = mapInsightRowToDomain(parsed.data as RelationshipInsightRow);
+    const existing = mapInsightRowToDomain(
+      parsed.data as RelationshipInsightRow
+    );
     const updated = applyObservationToInsight(existing, baseInput);
 
     const updatePayload = {
@@ -769,13 +848,15 @@ async function recordPatternObservation(
     await supabase
       .from(RELATIONSHIP_INSIGHTS_TABLE)
       .update(updatePayload)
-      .eq('id', updated.id);
+      .eq("id", updated.id);
   } catch (error) {
-    console.error('Unexpected error in recordPatternObservation:', error);
+    console.error("Unexpected error in recordPatternObservation:", error);
   }
 }
 
-function mapRelationshipRowToMetrics(row: RelationshipRow): RelationshipMetrics {
+function mapRelationshipRowToMetrics(
+  row: RelationshipRow
+): RelationshipMetrics {
   return {
     id: row.id,
     relationshipScore: row.relationship_score,
@@ -788,8 +869,12 @@ function mapRelationshipRowToMetrics(row: RelationshipRow): RelationshipMetrics 
     totalInteractions: row.total_interactions,
     positiveInteractions: row.positive_interactions,
     negativeInteractions: row.negative_interactions,
-    firstInteractionAt: row.first_interaction_at ? new Date(row.first_interaction_at) : null,
-    lastInteractionAt: row.last_interaction_at ? new Date(row.last_interaction_at) : null,
+    firstInteractionAt: row.first_interaction_at
+      ? new Date(row.first_interaction_at)
+      : null,
+    lastInteractionAt: row.last_interaction_at
+      ? new Date(row.last_interaction_at)
+      : null,
     isRuptured: row.is_ruptured,
     lastRuptureAt: row.last_rupture_at ? new Date(row.last_rupture_at) : null,
     ruptureCount: row.rupture_count,
@@ -806,9 +891,8 @@ function clamp(value: number, min: number, max: number): number {
 // Flirt is probabilistic and contextual, not gated.
 // Closeness is fragile - can dip from bad interactions.
 // Intimacy is earned in moments, not just time.
-// 
+//
 // Phase 4: Migrated to Supabase via stateService
-// - Async-primary functions with userId parameter
 // - Local caching with CacheEntry<T> pattern
 // - Sync fallbacks for backwards compatibility
 
@@ -820,7 +904,6 @@ export type IntimacyState = SupabaseIntimacyState;
 // ============================================
 
 interface CacheEntry<T> {
-  userId: string;
   data: T;
   timestamp: number;
 }
@@ -833,15 +916,8 @@ let intimacyCache: CacheEntry<IntimacyState> | null = null;
 // For production with high read volume, consider keeping cache but with shorter TTL.
 const CACHE_TTL = 30000; // 30 seconds
 
-/**
- * Check if cache is valid for the given userId
- */
-function isCacheValid(cache: CacheEntry<IntimacyState> | null, userId: string): boolean {
-  return (
-    cache !== null &&
-    cache.userId === userId &&
-    Date.now() - cache.timestamp < CACHE_TTL
-  );
+function isCacheValid(cache: CacheEntry<IntimacyState> | null): boolean {
+  return cache !== null && Date.now() - cache.timestamp < CACHE_TTL;
 }
 
 /**
@@ -858,20 +934,20 @@ export function clearIntimacyCache(): void {
 /**
  * Get intimacy state from Supabase with caching
  */
-export async function getIntimacyStateAsync(userId: string): Promise<IntimacyState> {
+export async function getIntimacyStateAsync(): Promise<IntimacyState> {
   // Return from cache if fresh
-  if (isCacheValid(intimacyCache, userId)) {
+  if (isCacheValid(intimacyCache)) {
     return intimacyCache!.data;
   }
 
   try {
-    const state = await getSupabaseIntimacyState(userId);
-    intimacyCache = { userId, data: state, timestamp: Date.now() };
+    const state = await getSupabaseIntimacyState();
+    intimacyCache = { data: state, timestamp: Date.now() };
     return state;
   } catch (error) {
-    console.error('[IntimacySystem] Error getting intimacy state:', error);
+    console.error("[IntimacySystem] Error getting intimacy state:", error);
     const defaultState = createDefaultIntimacyState();
-    intimacyCache = { userId, data: defaultState, timestamp: Date.now() };
+    intimacyCache = { data: defaultState, timestamp: Date.now() };
     return defaultState;
   }
 }
@@ -879,45 +955,52 @@ export async function getIntimacyStateAsync(userId: string): Promise<IntimacySta
 /**
  * Store intimacy state to Supabase and update cache
  */
-export async function storeIntimacyStateAsync(userId: string, state: IntimacyState): Promise<void> {
+export async function storeIntimacyStateAsync(
+  state: IntimacyState
+): Promise<void> {
   // Update cache immediately
-  intimacyCache = { userId, data: state, timestamp: Date.now() };
-  
+  intimacyCache = { data: state, timestamp: Date.now() };
+
   try {
-    await saveSupabaseIntimacyState(userId, state);
+    await saveSupabaseIntimacyState(state);
   } catch (error) {
-    console.error('[IntimacySystem] Error saving intimacy state:', error);
+    console.error("[IntimacySystem] Error saving intimacy state:", error);
   }
 }
 
 /**
  * Record message quality and update intimacy state (async)
  */
-export async function recordMessageQualityAsync(userId: string, message: string): Promise<void> {
-  const state = await getIntimacyStateAsync(userId);
+export async function recordMessageQualityAsync(
+  message: string
+): Promise<void> {
+  const state = await getIntimacyStateAsync();
   const analysis = analyzeMessageQuality(message);
-  
+
   // Update low effort streak
   if (analysis.isLowEffort) {
     state.lowEffortStreak++;
   } else {
     state.lowEffortStreak = 0;
   }
-  
+
   // Update recent quality (rolling average)
   state.recentQuality = state.recentQuality * 0.7 + analysis.quality * 0.3;
-  
+
   // Update vulnerability exchange
   if (analysis.isVulnerable) {
     state.vulnerabilityExchangeActive = true;
     state.lastVulnerabilityAt = Date.now();
   } else {
     // Vulnerability exchange expires after 30 minutes
-    if (state.lastVulnerabilityAt && Date.now() - state.lastVulnerabilityAt > 30 * 60 * 1000) {
+    if (
+      state.lastVulnerabilityAt &&
+      Date.now() - state.lastVulnerabilityAt > 30 * 60 * 1000
+    ) {
       state.vulnerabilityExchangeActive = false;
     }
   }
-  
+
   // Update tone modifier based on quality
   const qualityImpact = (analysis.quality - 0.5) * 0.2;
   state.recentToneModifier = clamp(
@@ -925,8 +1008,8 @@ export async function recordMessageQualityAsync(userId: string, message: string)
     -0.5,
     0.5
   );
-  
-  await storeIntimacyStateAsync(userId, state);
+
+  await storeIntimacyStateAsync(state);
 }
 
 /**
@@ -934,15 +1017,18 @@ export async function recordMessageQualityAsync(userId: string, message: string)
  * Returns a 0-1 probability of Kayley being open to intimacy/flirtation
  */
 export async function calculateIntimacyProbabilityAsync(
-  userId: string,
   relationship: RelationshipMetrics | null,
   moodFlirtThreshold: number = 0.5
 ): Promise<number> {
   if (!relationship) return 0.1; // Very low for unknown users
-  
-  const state = await getIntimacyStateAsync(userId);
-  
-  return calculateIntimacyProbabilityWithState(relationship, moodFlirtThreshold, state);
+
+  const state = await getIntimacyStateAsync();
+
+  return calculateIntimacyProbabilityWithState(
+    relationship,
+    moodFlirtThreshold,
+    state
+  );
 }
 
 /**
@@ -950,26 +1036,28 @@ export async function calculateIntimacyProbabilityAsync(
  * Uses probability to make it feel natural, not gated
  */
 export async function shouldFlirtMomentOccurAsync(
-  userId: string,
   relationship: RelationshipMetrics | null,
   moodFlirtThreshold: number = 0.5,
-  bidType: string = 'neutral'
+  bidType: string = "neutral"
 ): Promise<boolean> {
-  const probability = await calculateIntimacyProbabilityAsync(userId, relationship, moodFlirtThreshold);
-  
+  const probability = await calculateIntimacyProbabilityAsync(
+    relationship,
+    moodFlirtThreshold
+  );
+
   // Bid type multipliers
   const bidMultipliers: Record<string, number> = {
-    play: 1.5,      // Play bids increase flirt chance
-    comfort: 0.7,   // Comfort bids - less flirty, more supportive
+    play: 1.5, // Play bids increase flirt chance
+    comfort: 0.7, // Comfort bids - less flirty, more supportive
     validation: 1.2,
     challenge: 0.8,
     attention: 1.3, // Attention bids can be flirty
-    escape: 0.5,    // Escape bids - not the time
+    escape: 0.5, // Escape bids - not the time
     neutral: 1.0,
   };
-  
+
   const adjustedProbability = probability * (bidMultipliers[bidType] || 1.0);
-  
+
   return Math.random() < adjustedProbability;
 }
 
@@ -977,24 +1065,27 @@ export async function shouldFlirtMomentOccurAsync(
  * Get intimacy context for prompt injection (async)
  */
 export async function getIntimacyContextForPromptAsync(
-  userId: string,
   relationship: RelationshipMetrics | null,
   moodFlirtThreshold: number = 0.5
 ): Promise<string> {
-  const state = await getIntimacyStateAsync(userId);
-  const probability = calculateIntimacyProbabilityWithState(relationship, moodFlirtThreshold, state);
-  
+  const state = await getIntimacyStateAsync();
+  const probability = calculateIntimacyProbabilityWithState(
+    relationship,
+    moodFlirtThreshold,
+    state
+  );
+
   return formatIntimacyGuidance(probability, state);
 }
 
 /**
  * Reset intimacy state (async)
  */
-export async function resetIntimacyStateAsync(userId: string): Promise<void> {
+export async function resetIntimacyStateAsync(): Promise<void> {
   const defaultState = createDefaultIntimacyState();
   intimacyCache = null; // Clear cache so next fetch hits DB
-  await saveSupabaseIntimacyState(userId, defaultState);
-  console.log('💕 [IntimacySystem] Reset intimacy state for user:', userId);
+  await saveSupabaseIntimacyState(defaultState);
+  console.log("💕 [IntimacySystem] Reset intimacy state");
 }
 
 // ============================================

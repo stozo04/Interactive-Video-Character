@@ -22,15 +22,14 @@ export interface KayleyPresenceState {
 /**
  * Get Kayley's current presence state for a user
  */
-export async function getKayleyPresenceState(userId: string): Promise<KayleyPresenceState | null> {
+export async function getKayleyPresenceState(): Promise<KayleyPresenceState | null> {
   const { data, error } = await supabase
-    .from('kayley_presence_state')
-    .select('*')
-    .eq('user_id', userId)
+    .from("kayley_presence_state")
+    .select("*")
     .maybeSingle();
 
   if (error) {
-    console.error('[KayleyPresence] Error fetching state:', error);
+    console.error("[KayleyPresence] Error fetching state:", error);
     return null;
   }
 
@@ -38,7 +37,7 @@ export async function getKayleyPresenceState(userId: string): Promise<KayleyPres
 
   // Check if expired
   if (data.expires_at && new Date() > new Date(data.expires_at)) {
-    console.log('[KayleyPresence] State expired, returning null');
+    console.log("[KayleyPresence] State expired, returning null");
     return null;
   }
 
@@ -52,34 +51,30 @@ export async function getKayleyPresenceState(userId: string): Promise<KayleyPres
     confidence: data.confidence,
   };
 }
-
+const USER_ID = import.meta.env.VITE_USER_ID;
 /**
  * Update Kayley's presence state
  */
-export async function updateKayleyPresenceState(
-  userId: string,
-  updates: {
-    outfit?: string;
-    mood?: string;
-    activity?: string;
-    location?: string;
-    expirationMinutes?: number;  // How long until this state expires
-    confidence?: number;
-    sourceMessageId?: string;
-  }
-): Promise<void> {
+export async function updateKayleyPresenceState(updates: {
+  outfit?: string;
+  mood?: string;
+  activity?: string;
+  location?: string;
+  expirationMinutes?: number; // How long until this state expires
+  confidence?: number;
+  sourceMessageId?: string;
+}): Promise<void> {
   const now = new Date();
   const expiresAt = updates.expirationMinutes
     ? new Date(now.getTime() + updates.expirationMinutes * 60 * 1000)
     : null;
 
   // Fetch existing state to merge
-  const existing = await getKayleyPresenceState(userId);
+  const existing = await getKayleyPresenceState();
 
-  const { error } = await supabase
-    .from('kayley_presence_state')
-    .upsert({
-      user_id: userId,
+  const { error } = await supabase.from("kayley_presence_state").upsert(
+    {
+      user_id: USER_ID,
       current_outfit: updates.outfit ?? existing?.currentOutfit ?? null,
       current_mood: updates.mood ?? existing?.currentMood ?? null,
       current_activity: updates.activity ?? existing?.currentActivity ?? null,
@@ -89,14 +84,16 @@ export async function updateKayleyPresenceState(
       confidence: updates.confidence ?? 1.0,
       source_message_id: updates.sourceMessageId,
       updated_at: now.toISOString(),
-    }, {
-      onConflict: 'user_id',
-    });
+    },
+    {
+      onConflict: "user_id",
+    }
+  );
 
   if (error) {
-    console.error('[KayleyPresence] Error updating state:', error);
+    console.error("[KayleyPresence] Error updating state:", error);
   } else {
-    console.log('[KayleyPresence] State updated:', {
+    console.log("[KayleyPresence] State updated:", {
       outfit: updates.outfit,
       mood: updates.mood,
       activity: updates.activity,
@@ -108,19 +105,16 @@ export async function updateKayleyPresenceState(
 /**
  * Clear Kayley's presence state (mark as expired)
  */
-export async function clearKayleyPresenceState(userId: string): Promise<void> {
-  const { error } = await supabase
-    .from('kayley_presence_state')
-    .update({
-      expires_at: new Date().toISOString(),  // Expire immediately
-      updated_at: new Date().toISOString(),
-    })
-    .eq('user_id', userId);
+export async function clearKayleyPresenceState(g): Promise<void> {
+  const { error } = await supabase.from("kayley_presence_state").update({
+    expires_at: new Date().toISOString(), // Expire immediately
+    updated_at: new Date().toISOString(),
+  });
 
   if (error) {
-    console.error('[KayleyPresence] Error clearing state:', error);
+    console.error("[KayleyPresence] Error clearing state:", error);
   } else {
-    console.log('[KayleyPresence] State cleared');
+    console.log("[KayleyPresence] State cleared");
   }
 }
 

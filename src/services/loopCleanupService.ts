@@ -131,12 +131,10 @@ function isSimilarTopic(topic1: string, topic2: string): boolean {
 /**
  * Expire loops older than the configured maximum age.
  * 
- * @param userId - The user's ID
  * @param options - Optional overrides
  * @returns Result with count of expired loops
  */
 export async function expireOldLoops(
-  userId: string,
   options: { maxAgeDays?: number } = {}
 ): Promise<CleanupResult> {
   const maxAgeDays = options.maxAgeDays ?? CLEANUP_CONFIG.maxLoopAgeDays;
@@ -149,7 +147,6 @@ export async function expireOldLoops(
     const { data: oldLoops, error: fetchError } = await supabase
       .from(PRESENCE_CONTEXTS_TABLE)
       .select('id, topic, created_at')
-      .eq('user_id', userId)
       .in('status', ['active', 'surfaced'])
       .lt('created_at', cutoffDate.toISOString());
     
@@ -194,16 +191,14 @@ export async function expireOldLoops(
  * Expire duplicate loops, keeping the most recent one per topic.
  * Uses fuzzy matching to catch variations like "Holiday Party" vs "holiday parties".
  * 
- * @param userId - The user's ID
  * @returns Result with count of expired duplicates
  */
-export async function expireDuplicateLoops(userId: string): Promise<DuplicateCleanupResult> {
+export async function expireDuplicateLoops(): Promise<DuplicateCleanupResult> {
   try {
     // Fetch all active/surfaced loops
     const { data: loops, error: fetchError } = await supabase
       .from(PRESENCE_CONTEXTS_TABLE)
       .select('id, topic, created_at, salience')
-      .eq('user_id', userId)
       .in('status', ['active', 'surfaced'])
       .order('created_at', { ascending: false });
     
@@ -290,12 +285,10 @@ export async function expireDuplicateLoops(userId: string): Promise<DuplicateCle
  * Cap the number of active loops per user.
  * Expires lowest-salience loops first, preferring older loops on tie.
  * 
- * @param userId - The user's ID
  * @param maxLoops - Maximum number of loops to keep
  * @returns Result with count of expired loops
  */
 export async function capActiveLoops(
-  userId: string,
   maxLoops: number = CLEANUP_CONFIG.maxActiveLoops
 ): Promise<CapCleanupResult> {
   try {
@@ -303,7 +296,6 @@ export async function capActiveLoops(
     const { data: loops, error: fetchError } = await supabase
       .from(PRESENCE_CONTEXTS_TABLE)
       .select('id, topic, salience, created_at')
-      .eq('user_id', userId)
       .in('status', ['active', 'surfaced']);
     
     if (fetchError) {
@@ -375,29 +367,27 @@ export async function capActiveLoops(
  * 2. Expire duplicates
  * 3. Cap active loops
  * 
- * @param userId - The user's ID
  * @param options - Optional configuration overrides
  * @returns Full cleanup result with all steps
  */
 export async function runScheduledCleanup(
-  userId: string,
   options: Partial<typeof CLEANUP_CONFIG> = {}
 ): Promise<FullCleanupResult> {
   const config = { ...CLEANUP_CONFIG, ...options };
   const startTime = Date.now();
   
-  console.log(`🧹 [LoopCleanup] Starting scheduled cleanup for user ${userId}`);
+  console.log(`🧹 [LoopCleanup] Starting scheduled cleanup`);
   
   // Step 1: Expire old loops
-  const expireOldResult = await expireOldLoops(userId, { 
+  const expireOldResult = await expireOldLoops({ 
     maxAgeDays: config.maxLoopAgeDays 
   });
   
   // Step 2: Expire duplicates
-  const expireDuplicatesResult = await expireDuplicateLoops(userId);
+  const expireDuplicatesResult = await expireDuplicateLoops();
   
   // Step 3: Cap active loops
-  const capLoopsResult = await capActiveLoops(userId, config.maxActiveLoops);
+  const capLoopsResult = await capActiveLoops(config.maxActiveLoops);
   
   const totalExpired = 
     expireOldResult.expiredCount + 
@@ -430,16 +420,14 @@ export async function runScheduledCleanup(
  * Get cleanup statistics for a user.
  * Useful for debugging and monitoring loop health.
  * 
- * @param userId - The user's ID
  * @returns Cleanup statistics
  */
-export async function getCleanupStats(userId: string): Promise<CleanupStats> {
+export async function getCleanupStats(): Promise<CleanupStats> {
   try {
     // Get counts by status
     const { data: statusCounts, error: countError } = await supabase
       .from(PRESENCE_CONTEXTS_TABLE)
       .select('status')
-      .eq('user_id', userId);
     
     if (countError || !statusCounts) {
       console.error('[LoopCleanup] Error getting stats:', countError);
@@ -475,7 +463,6 @@ export async function getCleanupStats(userId: string): Promise<CleanupStats> {
     const { data: oldest } = await supabase
       .from(PRESENCE_CONTEXTS_TABLE)
       .select('created_at')
-      .eq('user_id', userId)
       .in('status', ['active', 'surfaced'])
       .order('created_at', { ascending: true })
       .limit(1)
@@ -485,7 +472,6 @@ export async function getCleanupStats(userId: string): Promise<CleanupStats> {
     const { data: activeLoops } = await supabase
       .from(PRESENCE_CONTEXTS_TABLE)
       .select('topic')
-      .eq('user_id', userId)
       .in('status', ['active', 'surfaced']);
     
     let duplicateCount = 0;
@@ -532,11 +518,9 @@ interface SchedulerOptions {
  * Start the cleanup scheduler.
  * Runs cleanup at configured intervals.
  * 
- * @param userId - The user's ID
  * @param options - Scheduler options
  */
 export function startCleanupScheduler(
-  userId: string,
   options: SchedulerOptions = {}
 ): void {
   const intervalMs = options.intervalMs ?? CLEANUP_CONFIG.cleanupIntervalMs;
@@ -548,14 +532,14 @@ export function startCleanupScheduler(
   
   // Run immediately on start if configured
   if (CLEANUP_CONFIG.cleanupOnInit) {
-    runScheduledCleanup(userId).then(result => {
+    runScheduledCleanup().then(result => {
       options.onComplete?.(result);
     });
   }
   
   // Schedule periodic cleanup
   cleanupInterval = setInterval(async () => {
-    const result = await runScheduledCleanup(userId);
+    const result = await runScheduledCleanup();
     options.onComplete?.(result);
   }, intervalMs);
 }
@@ -574,12 +558,11 @@ export function stopCleanupScheduler(): void {
 /**
  * Manually trigger cleanup now.
  * 
- * @param userId - The user's ID
  * @returns Cleanup result
  */
-export async function triggerCleanupNow(userId: string): Promise<FullCleanupResult> {
+export async function triggerCleanupNow(): Promise<FullCleanupResult> {
   console.log('[LoopCleanup] Manual cleanup triggered');
-  return runScheduledCleanup(userId);
+  return runScheduledCleanup();
 }
 
 // ============================================

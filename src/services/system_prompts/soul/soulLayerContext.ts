@@ -41,7 +41,6 @@ export interface SpontaneityOptions {
 
 /**
  * Calculate the full soul layer context including async presence data.
- * Requires userId for Supabase state retrieval.
  *
  * This function makes parallel async calls to optimize latency:
  * - Fetches unified character context (mood state, threads) in one call
@@ -49,12 +48,10 @@ export interface SpontaneityOptions {
  * - Optionally integrates spontaneity (if options provided)
  * - Falls back to individual fetches on failure
  *
- * @param userId - The user ID for Supabase state retrieval
  * @param spontaneityOptions - Optional options for spontaneity integration
  * @returns Promise<SoulLayerContext> containing moodKnobs, threadsPrompt, callbackPrompt, presenceContext, and optionally spontaneityIntegration
  */
 export async function getSoulLayerContextAsync(
-  userId: string,
   spontaneityOptions?: SpontaneityOptions
 ): Promise<SoulLayerContext> {
   // Sync operation - no network call needed
@@ -68,8 +65,8 @@ export async function getSoulLayerContextAsync(
   try {
     // 🚀 PARALLEL: Fire both major async operations simultaneously
     const [fullContext, presenceResult] = await Promise.all([
-      getFullCharacterContext(userId),
-      getPresenceContext(userId).catch((error) => {
+      getFullCharacterContext(),
+      getPresenceContext().catch((error) => {
         console.warn("[PromptUtils] Failed to get presence context:", error);
         return undefined;
       }),
@@ -84,7 +81,7 @@ export async function getSoulLayerContextAsync(
         fullContext.emotional_momentum
       );
     } else {
-      moodKnobs = await getMoodAsync(userId);
+      moodKnobs = await getMoodAsync();
     }
 
     // 🚀 OPTIMIZATION: Format threads directly from fetched data
@@ -93,7 +90,7 @@ export async function getSoulLayerContextAsync(
       threadsPrompt = formatThreadsFromData(fullContext.ongoing_threads);
     } else {
       // Fallback if threads not in unified response
-      threadsPrompt = await formatThreadsForPromptAsync(userId);
+      threadsPrompt = await formatThreadsForPromptAsync();
     }
   } catch (error) {
     console.warn(
@@ -103,9 +100,9 @@ export async function getSoulLayerContextAsync(
 
     // 🚀 PARALLEL FALLBACK: Run all fallbacks in parallel
     const [moodKnobsResult, threadsResult, presenceResult] = await Promise.all([
-      getMoodAsync(userId),
-      formatThreadsForPromptAsync(userId),
-      getPresenceContext(userId).catch(() => undefined),
+      getMoodAsync(),
+      formatThreadsForPromptAsync(),
+      getPresenceContext().catch(() => undefined),
     ]);
 
     moodKnobs = moodKnobsResult;
@@ -118,7 +115,6 @@ export async function getSoulLayerContextAsync(
   if (spontaneityOptions) {
     try {
       spontaneityIntegration = await integrateSpontaneity(
-        userId,
         spontaneityOptions.conversationalMood,
         moodKnobs,
         spontaneityOptions.relationshipTier,

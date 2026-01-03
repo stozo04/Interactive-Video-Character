@@ -36,18 +36,18 @@ import type { KayleyMood } from "../moodKnobs";
 
 /**
  * Get pending shares from database (placeholder for now)
- * TODO: Implement actual database fetch from Supabase
+ * TODO: GATES!!! Implement actual database fetch from Supabase
  */
-async function getPendingShares(_userId: string): Promise<PendingShare[]> {
+async function getPendingShares(): Promise<PendingShare[]> {
   // Placeholder - will be implemented with Supabase table
   return [];
 }
 
 /**
  * Get last spontaneous selfie timestamp (placeholder for now)
- * TODO: Implement actual database fetch from Supabase
+ * TODO:GATES  Implement actual database fetch from Supabase
  */
-async function getLastSpontaneousSelfie(_userId: string): Promise<Date | null> {
+async function getLastSpontaneousSelfie(): Promise<Date | null> {
   // Placeholder - will be implemented with Supabase table
   return null;
 }
@@ -116,7 +116,6 @@ function buildSelfieContext(
  * 5. Finds relevant associations to suggest
  * 6. Determines if a spontaneous selfie should be suggested
  *
- * @param userId - The user ID
  * @param conversationalMood - Current mood of the conversation
  * @param moodKnobs - Character's mood knobs (for energy level, etc.)
  * @param relationshipTier - Current relationship tier
@@ -131,7 +130,6 @@ function buildSelfieContext(
  * @returns SpontaneityIntegration with prompt sections and suggestions
  */
 export async function integrateSpontaneity(
-  userId: string,
   conversationalMood: ConversationalMood,
   moodKnobs: KayleyMood,
   relationshipTier: string,
@@ -149,8 +147,8 @@ export async function integrateSpontaneity(
 
   // Fetch pending shares and last selfie time in parallel
   const [pendingShares, lastSpontaneousSelfie] = await Promise.all([
-    getPendingShares(userId),
-    getLastSpontaneousSelfie(userId),
+    getPendingShares(),
+    getLastSpontaneousSelfie(),
   ]);
 
   // Build full spontaneity context
