@@ -16,7 +16,10 @@
       "Bash(git stash:*)",
       "Bash(git mv:*)",
       "Bash(git rm:*)",
-      "Bash(perl -i -pe:*)"
+      "Bash(perl -i -pe:*)",
+      "Bash(while read file)",
+      "Bash(do grep -l '\"\"test-user\"\"\\\\|\"\"user-123\"\"\\\\|userId' \"$file\")",
+      "Bash(done)"
     ]
   }
 }

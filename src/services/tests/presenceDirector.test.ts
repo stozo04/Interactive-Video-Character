@@ -268,87 +268,82 @@ describe("presenceDirector", () => {
       // Mock successful insert
       mocks.single.mockResolvedValueOnce({
         data: {
-          id: 'test-loop-1',
-          user_id: 'user-123',
-          loop_type: 'pending_event',
-          topic: 'presentation',
-          status: 'active',
+          id: "test-loop-1",
+
+          loop_type: "pending_event",
+          topic: "presentation",
+          status: "active",
           salience: 0.7,
           surface_count: 0,
           max_surfaces: 2,
-          created_at: new Date().toISOString()
+          created_at: new Date().toISOString(),
         },
-        error: null
+        error: null,
       });
 
       const loops = await detectOpenLoops(
-        'user-123',
-        'I have a presentation tomorrow and I am so nervous'
+        "I have a presentation tomorrow and I am so nervous"
       );
 
-      expect(mocks.from).toHaveBeenCalledWith('presence_contexts');
+      expect(mocks.from).toHaveBeenCalledWith("presence_contexts");
       expect(mocks.insert).toHaveBeenCalled();
     });
 
     it("should detect emotional state patterns", async () => {
       mocks.single.mockResolvedValueOnce({
         data: {
-          id: 'test-loop-2',
-          user_id: 'user-123',
-          loop_type: 'emotional_followup',
-          topic: 'how you were feeling',
-          status: 'active',
+          id: "test-loop-2",
+
+          loop_type: "emotional_followup",
+          topic: "how you were feeling",
+          status: "active",
           salience: 0.8,
           surface_count: 0,
           max_surfaces: 3,
-          created_at: new Date().toISOString()
+          created_at: new Date().toISOString(),
         },
-        error: null
+        error: null,
       });
 
       const loops = await detectOpenLoops(
-        'user-123',
         "I'm really stressed about everything going on"
       );
 
-      expect(mocks.from).toHaveBeenCalledWith('presence_contexts');
+      expect(mocks.from).toHaveBeenCalledWith("presence_contexts");
     });
 
     it("should detect commitment patterns", async () => {
       mocks.single.mockResolvedValueOnce({
         data: {
-          id: 'test-loop-3',
-          user_id: 'user-123',
-          loop_type: 'commitment_check',
-          topic: 'start meditating',
-          status: 'active',
+          id: "test-loop-3",
+
+          loop_type: "commitment_check",
+          topic: "start meditating",
+          status: "active",
           salience: 0.5,
           surface_count: 0,
           max_surfaces: 3,
-          created_at: new Date().toISOString()
+          created_at: new Date().toISOString(),
         },
-        error: null
+        error: null,
       });
 
-      await detectOpenLoops(
-        'user-123',
-        "I'm going to try to start meditating this week"
-      );
+      await detectOpenLoops("I'm going to try to start meditating this week");
 
-      expect(mocks.from).toHaveBeenCalledWith('presence_contexts');
+      expect(mocks.from).toHaveBeenCalledWith("presence_contexts");
     });
 
     it("should skip very short messages", async () => {
-      const loops = await detectOpenLoops('user-123', 'hi');
-      
+      const loops = await detectOpenLoops("hi");
+
       expect(loops).toEqual([]);
       expect(mocks.insert).not.toHaveBeenCalled();
     });
 
     it("should not detect common non-commitments", async () => {
       // "I'm going to go sleep" should NOT create a commitment loop
-      await detectOpenLoops('user-123', "I'm going to go sleep now");
-      
+      await detectOpenLoops("I'm going to go sleep now");
+
       // The insert should not be called for "go sleep"
       // (depends on implementation, but the test documents expected behavior)
     });
@@ -362,28 +357,31 @@ describe("presenceDirector", () => {
     it("should extract event topics correctly", async () => {
       // This tests the pattern matching logic
       const patterns = [
-        { input: "I have a big interview tomorrow", expectedTopic: "interview" },
+        {
+          input: "I have a big interview tomorrow",
+          expectedTopic: "interview",
+        },
         { input: "Got a date tonight, wish me luck", expectedTopic: "date" },
-        { input: "My exam is later today", expectedTopic: "exam" }
+        { input: "My exam is later today", expectedTopic: "exam" },
       ];
 
       for (const pattern of patterns) {
         mocks.single.mockResolvedValueOnce({
           data: {
             id: `test-${Date.now()}`,
-            user_id: 'user-123',
-            loop_type: 'pending_event',
+
+            loop_type: "pending_event",
             topic: pattern.expectedTopic,
-            status: 'active',
+            status: "active",
             salience: 0.7,
             surface_count: 0,
             max_surfaces: 2,
-            created_at: new Date().toISOString()
+            created_at: new Date().toISOString(),
           },
-          error: null
+          error: null,
         });
 
-        await detectOpenLoops('user-123', pattern.input);
+        await detectOpenLoops(pattern.input);
       }
     });
   });

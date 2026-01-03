@@ -72,7 +72,6 @@ export const createTask = async (
   category?: string
 ): Promise<Task | null> => {
   const newTaskPayload = {
-    user_id: USER_ID,
     text: text.trim(),
     priority,
     category,

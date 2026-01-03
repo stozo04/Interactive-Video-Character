@@ -29,16 +29,17 @@ vi.mock("../supabaseClient", () => {
   const mocks = globalMocks;
 
   const createSelectChain = () => ({
+    maybeSingle: mocks.maybeSingle,
     eq: vi.fn((column: string, value: any) => {
       mocks.eq(column, value);
-      return {
-        maybeSingle: mocks.maybeSingle,
-      };
+      return createSelectChain(); // Return chainable select chain
     }),
   });
 
   const createUpsertChain = () => ({
-    then: vi.fn((resolve: any) => Promise.resolve({ data: null, error: null }).then(resolve)),
+    then: vi.fn((resolve: any) =>
+      Promise.resolve({ data: null, error: null }).then(resolve)
+    ),
   });
 
   const mockSupabase = {
@@ -85,7 +86,7 @@ describe("Kayley Presence Tracking - Integration Tests", () => {
       // Mock successful state storage
       globalMocks.maybeSingle.mockResolvedValue({ data: null, error: null });
 
-      await updateKayleyPresenceState("test-user", {
+      await updateKayleyPresenceState({
         outfit: detected?.outfit,
         activity: detected?.activity,
         mood: detected?.mood,
@@ -100,7 +101,6 @@ describe("Kayley Presence Tracking - Integration Tests", () => {
       const futureDate = new Date(Date.now() + 1000 * 60 * 120); // 2 hours from now
       globalMocks.maybeSingle.mockResolvedValue({
         data: {
-          user_id: "test-user",
           current_outfit: "just got back from the gym",
           current_mood: null,
           current_activity: null,
@@ -139,14 +139,19 @@ describe("Kayley Presence Tracking - Integration Tests", () => {
 
       // Should select messy_bun due to +30 gym boost
       expect(result.referenceId).toContain("messy_bun");
-      expect(result.reasoning.some(r => r.includes("presence match (gym → messy bun)"))).toBe(true);
+      expect(
+        result.reasoning.some((r) =>
+          r.includes("presence match (gym → messy bun)")
+        )
+      ).toBe(true);
     });
   });
 
   describe("End-to-End: Getting Ready Flow", () => {
     it("should detect getting ready, store state, and boost dressed_up selection", async () => {
       // STEP 1: Kayley mentions getting ready
-      const kayleyResponse = "Just getting ready for dinner! Trying to look presentable 😊";
+      const kayleyResponse =
+        "Just getting ready for dinner! Trying to look presentable 😊";
       const detected = detectKayleyPresenceHeuristic(kayleyResponse);
 
       expect(detected).not.toBeNull();
@@ -163,7 +168,6 @@ describe("Kayley Presence Tracking - Integration Tests", () => {
       const futureDate = new Date(Date.now() + 1000 * 60 * 15);
       globalMocks.maybeSingle.mockResolvedValue({
         data: {
-          user_id: "test-user",
           current_outfit: null,
           current_mood: null,
           current_activity: "getting ready",
@@ -201,7 +205,11 @@ describe("Kayley Presence Tracking - Integration Tests", () => {
 
       // Should select dressed_up due to +25 getting ready boost
       expect(result.referenceId).toContain("dressed_up");
-      expect(result.reasoning.some(r => r.includes("presence match (getting ready → dressed up)"))).toBe(true);
+      expect(
+        result.reasoning.some((r) =>
+          r.includes("presence match (getting ready → dressed up)")
+        )
+      ).toBe(true);
     });
   });
 
@@ -238,7 +246,9 @@ describe("Kayley Presence Tracking - Integration Tests", () => {
       expect(result.referenceId).toBeTruthy();
       expect(result.reasoning.length).toBeGreaterThan(0);
       // Should NOT have presence boost
-      expect(result.reasoning.some(r => r.includes("presence match"))).toBe(false);
+      expect(result.reasoning.some((r) => r.includes("presence match"))).toBe(
+        false
+      );
     });
   });
 
@@ -249,7 +259,6 @@ describe("Kayley Presence Tracking - Integration Tests", () => {
 
       globalMocks.maybeSingle.mockResolvedValue({
         data: {
-          user_id: "test-user",
           current_outfit: "just got back from the gym",
           current_mood: null,
           current_activity: null,
@@ -268,7 +277,8 @@ describe("Kayley Presence Tracking - Integration Tests", () => {
 
   describe("Real-World Scenarios", () => {
     it("should handle pickle jar battle scenario", () => {
-      const kayleyResponse = "I'm actually in the middle of a battle with a pickle jar right now and losing badly, but let me snap a quick one for you... 📸✨";
+      const kayleyResponse =
+        "I'm actually in the middle of a battle with a pickle jar right now and losing badly, but let me snap a quick one for you... 📸✨";
 
       // Heuristic won't detect this (needs LLM)
       const heuristicResult = detectKayleyPresenceHeuristic(kayleyResponse);
@@ -279,13 +289,17 @@ describe("Kayley Presence Tracking - Integration Tests", () => {
     });
 
     it("should handle post-workout energized state", () => {
-      const kayleyResponse = "Just got back from the gym! Feeling energized and ready to tackle the day 💪";
+      const kayleyResponse =
+        "Just got back from the gym! Feeling energized and ready to tackle the day 💪";
 
       const detected = detectKayleyPresenceHeuristic(kayleyResponse);
       expect(detected?.outfit).toBe("just got back from the gym");
 
       // Expiration should be 2 hours
-      const expiration = getDefaultExpirationMinutes(detected?.activity, detected?.outfit);
+      const expiration = getDefaultExpirationMinutes(
+        detected?.activity,
+        detected?.outfit
+      );
       expect(expiration).toBe(120);
     });
 
@@ -297,7 +311,10 @@ describe("Kayley Presence Tracking - Integration Tests", () => {
       expect(detected?.activity).toBe("relaxing");
 
       // Activity "relaxing" doesn't have special expiration, should be default 120 min
-      const expiration = getDefaultExpirationMinutes(detected?.activity, detected?.outfit);
+      const expiration = getDefaultExpirationMinutes(
+        detected?.activity,
+        detected?.outfit
+      );
       expect(expiration).toBe(120);
     });
   });

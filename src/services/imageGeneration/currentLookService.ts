@@ -4,13 +4,12 @@ import { supabase } from '../supabaseClient';
 import { CurrentLookState } from './types';
 
 /**
- * Get the current locked look state for a user
+ * Get the current locked look
  */
-export async function getCurrentLookState(userId: string): Promise<CurrentLookState | null> {
+export async function getCurrentLookState(): Promise<CurrentLookState | null> {
   const { data, error } = await supabase
     .from('current_look_state')
     .select('*')
-    .eq('user_id', userId)
     .eq('is_current_look', true)
     .maybeSingle();
 
@@ -42,7 +41,6 @@ export async function getCurrentLookState(userId: string): Promise<CurrentLookSt
  * Lock a new current look (set hairstyle for the session/day)
  */
 export async function lockCurrentLook(
-  userId: string,
   referenceImageId: string,
   hairstyle: string,
   lockReason: 'session_start' | 'first_selfie_of_day' | 'explicit_now_selfie',
@@ -55,7 +53,6 @@ export async function lockCurrentLook(
   const { error } = await supabase
     .from('current_look_state')
     .upsert({
-      user_id: userId,
       hairstyle,
       reference_image_id: referenceImageId,
       locked_at: now.toISOString(),
@@ -63,8 +60,6 @@ export async function lockCurrentLook(
       lock_reason: lockReason,
       is_current_look: true,
       updated_at: now.toISOString(),
-    }, {
-      onConflict: 'user_id',
     });
 
   if (error) {
@@ -77,14 +72,13 @@ export async function lockCurrentLook(
 /**
  * Unlock current look (force expiration)
  */
-export async function unlockCurrentLook(userId: string): Promise<void> {
+export async function unlockCurrentLook(): Promise<void> {
   await supabase
     .from('current_look_state')
     .update({
       is_current_look: false,
       updated_at: new Date().toISOString(),
     })
-    .eq('user_id', userId);
 
   console.log('[CurrentLook] Unlocked current look');
 }
@@ -93,7 +87,6 @@ export async function unlockCurrentLook(userId: string): Promise<void> {
  * Get recent selfie generation history for anti-repetition
  */
 export async function getRecentSelfieHistory(
-  userId: string,
   limit: number = 10
 ): Promise<Array<{
   referenceImageId: string;
@@ -103,7 +96,6 @@ export async function getRecentSelfieHistory(
   const { data, error } = await supabase
     .from('selfie_generation_history')
     .select('reference_image_id, generated_at, scene')
-    .eq('user_id', userId)
     .order('generated_at', { ascending: false })
     .limit(limit);
 
@@ -123,7 +115,6 @@ export async function getRecentSelfieHistory(
  * Record a selfie generation in history
  */
 export async function recordSelfieGeneration(
-  userId: string,
   referenceImageId: string,
   hairstyle: string,
   outfitStyle: string,
@@ -136,7 +127,6 @@ export async function recordSelfieGeneration(
   const { error } = await supabase
     .from('selfie_generation_history')
     .insert({
-      user_id: userId,
       reference_image_id: referenceImageId,
       hairstyle,
       outfit_style: outfitStyle,

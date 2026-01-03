@@ -18,10 +18,9 @@ import { supabase } from '../supabaseClient';
 export type MessageTrigger = 'calendar' | 'gift' | 'urgent';
 export type MessageType = 'text' | 'photo';
 export type MessagePriority = 'low' | 'normal' | 'high';
-
+const USER_ID = import.meta.env.VITE_USER_ID;
 export interface PendingMessage {
   id: string;
-  userId: string;
   messageText: string;
   messageType: MessageType;
   selfieUrl?: string;
@@ -50,7 +49,7 @@ export interface CreatePendingMessageInput {
 // Constants
 // ============================================================================
 
-const PENDING_MESSAGES_TABLE = 'pending_messages';
+const PENDING_MESSAGES_TABLE = "pending_messages";
 
 // ============================================================================
 // Core Functions
@@ -61,7 +60,6 @@ const PENDING_MESSAGES_TABLE = 'pending_messages';
  * This will be shown when they return to the app.
  */
 export async function createPendingMessage(
-  userId: string,
   input: CreatePendingMessageInput
 ): Promise<PendingMessage> {
   const id = crypto.randomUUID();
@@ -69,21 +67,19 @@ export async function createPendingMessage(
 
   const message: PendingMessage = {
     id,
-    userId,
     messageText: input.messageText,
-    messageType: input.messageType || 'text',
+    messageType: input.messageType || "text",
     selfieUrl: input.selfieUrl,
     trigger: input.trigger,
     triggerEventId: input.triggerEventId,
     triggerEventTitle: input.triggerEventTitle,
-    priority: input.priority || 'normal',
+    priority: input.priority || "normal",
     createdAt: now,
     metadata: input.metadata,
   };
 
   const { error } = await supabase.from(PENDING_MESSAGES_TABLE).insert({
     id: message.id,
-    user_id: message.userId,
     message_text: message.messageText,
     message_type: message.messageType,
     selfie_url: message.selfieUrl,
@@ -96,11 +92,11 @@ export async function createPendingMessage(
   });
 
   if (error) {
-    console.error('[PendingMessage] Error creating message:', error);
+    console.error("[PendingMessage] Error creating message:", error);
     throw error;
   }
 
-  console.log(`[PendingMessage] Created ${message.trigger} message for user ${userId}`);
+  console.log(`[PendingMessage] Created ${message.trigger} message`);
   return message;
 }
 
@@ -108,18 +104,20 @@ export async function createPendingMessage(
  * Get the next undelivered message for a user.
  * Returns the highest priority message, or null if none waiting.
  */
-export async function getUndeliveredMessage(userId: string): Promise<PendingMessage | null> {
+export async function getUndeliveredMessage(): Promise<PendingMessage | null> {
   const { data, error } = await supabase
     .from(PENDING_MESSAGES_TABLE)
-    .select('*')
-    .eq('user_id', userId)
-    .is('delivered_at', null)
-    .order('priority', { ascending: false }) // high > normal > low
-    .order('created_at', { ascending: true }) // oldest first
+    .select("*")
+    .is("delivered_at", null)
+    .order("priority", { ascending: false }) // high > normal > low
+    .order("created_at", { ascending: true }) // oldest first
     .limit(1);
 
   if (error) {
-    console.error('[PendingMessage] Error fetching undelivered message:', error);
+    console.error(
+      "[PendingMessage] Error fetching undelivered message:",
+      error
+    );
     return null;
   }
 
@@ -133,15 +131,17 @@ export async function getUndeliveredMessage(userId: string): Promise<PendingMess
 /**
  * Check if there's any undelivered message waiting.
  */
-export async function hasUndeliveredMessage(userId: string): Promise<boolean> {
+export async function hasUndeliveredMessage(): Promise<boolean> {
   const { count, error } = await supabase
     .from(PENDING_MESSAGES_TABLE)
-    .select('id', { count: 'exact', head: true })
-    .eq('user_id', userId)
-    .is('delivered_at', null);
+    .select("id", { count: "exact", head: true })
+    .is("delivered_at", null);
 
   if (error) {
-    console.error('[PendingMessage] Error checking undelivered messages:', error);
+    console.error(
+      "[PendingMessage] Error checking undelivered messages:",
+      error
+    );
     return false;
   }
 
@@ -155,10 +155,13 @@ export async function markMessageDelivered(messageId: string): Promise<void> {
   const { error } = await supabase
     .from(PENDING_MESSAGES_TABLE)
     .update({ delivered_at: new Date().toISOString() })
-    .eq('id', messageId);
+    .eq("id", messageId);
 
   if (error) {
-    console.error('[PendingMessage] Error marking message as delivered:', error);
+    console.error(
+      "[PendingMessage] Error marking message as delivered:",
+      error
+    );
     throw error;
   }
 
@@ -170,32 +173,34 @@ export async function markMessageDelivered(messageId: string): Promise<void> {
  */
 export async function recordMessageReaction(
   messageId: string,
-  reaction: 'positive' | 'neutral' | 'negative'
+  reaction: "positive" | "neutral" | "negative"
 ): Promise<void> {
   const { error } = await supabase
     .from(PENDING_MESSAGES_TABLE)
     .update({ reaction })
-    .eq('id', messageId);
+    .eq("id", messageId);
 
   if (error) {
-    console.error('[PendingMessage] Error recording reaction:', error);
+    console.error("[PendingMessage] Error recording reaction:", error);
   }
 }
 
 /**
  * Get all undelivered messages for a user (for display purposes).
  */
-export async function getAllUndeliveredMessages(userId: string): Promise<PendingMessage[]> {
+export async function getAllUndeliveredMessages(): Promise<PendingMessage[]> {
   const { data, error } = await supabase
     .from(PENDING_MESSAGES_TABLE)
-    .select('*')
-    .eq('user_id', userId)
-    .is('delivered_at', null)
-    .order('priority', { ascending: false })
-    .order('created_at', { ascending: true });
+    .select("*")
+    .is("delivered_at", null)
+    .order("priority", { ascending: false })
+    .order("created_at", { ascending: true });
 
   if (error) {
-    console.error('[PendingMessage] Error fetching all undelivered messages:', error);
+    console.error(
+      "[PendingMessage] Error fetching all undelivered messages:",
+      error
+    );
     return [];
   }
 
@@ -206,19 +211,18 @@ export async function getAllUndeliveredMessages(userId: string): Promise<Pending
  * Clean up old delivered messages.
  * Called periodically to keep the table small.
  */
-export async function cleanupDeliveredMessages(userId: string): Promise<void> {
+export async function cleanupDeliveredMessages(): Promise<void> {
   const sevenDaysAgo = new Date();
   sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
 
   const { error } = await supabase
     .from(PENDING_MESSAGES_TABLE)
     .delete()
-    .eq('user_id', userId)
-    .not('delivered_at', 'is', null)
-    .lt('delivered_at', sevenDaysAgo.toISOString());
+    .not("delivered_at", "is", null)
+    .lt("delivered_at", sevenDaysAgo.toISOString());
 
   if (error) {
-    console.error('[PendingMessage] Error cleaning up old messages:', error);
+    console.error("[PendingMessage] Error cleaning up old messages:", error);
   }
 }
 
@@ -229,7 +233,6 @@ export async function cleanupDeliveredMessages(userId: string): Promise<void> {
 function mapRowToMessage(row: Record<string, unknown>): PendingMessage {
   return {
     id: row.id as string,
-    userId: row.user_id as string,
     messageText: row.message_text as string,
     messageType: row.message_type as MessageType,
     selfieUrl: row.selfie_url as string | undefined,
@@ -238,7 +241,9 @@ function mapRowToMessage(row: Record<string, unknown>): PendingMessage {
     triggerEventTitle: row.trigger_event_title as string | undefined,
     priority: row.priority as MessagePriority,
     createdAt: new Date(row.created_at as string),
-    deliveredAt: row.delivered_at ? new Date(row.delivered_at as string) : undefined,
+    deliveredAt: row.delivered_at
+      ? new Date(row.delivered_at as string)
+      : undefined,
     reaction: row.reaction as string | undefined,
     metadata: row.metadata as Record<string, unknown> | undefined,
   };

@@ -27,23 +27,26 @@ vi.mock("../supabaseClient", () => {
   const mocks = globalMocks;
 
   const createSelectChain = () => ({
+    maybeSingle: mocks.maybeSingle,
     eq: vi.fn((column: string, value: any) => {
       mocks.eq(column, value);
-      return {
-        maybeSingle: mocks.maybeSingle,
-      };
+      return createSelectChain(); // Return chainable select chain
     }),
   });
 
   const createUpsertChain = () => ({
-    then: vi.fn((resolve: any) => Promise.resolve({ data: null, error: null }).then(resolve)),
+    then: vi.fn((resolve: any) =>
+      Promise.resolve({ data: null, error: null }).then(resolve)
+    ),
   });
 
   const createUpdateChain = () => ({
     eq: vi.fn((column: string, value: any) => {
       mocks.eq(column, value);
       return {
-        then: vi.fn((resolve: any) => Promise.resolve({ data: null, error: null }).then(resolve)),
+        then: vi.fn((resolve: any) =>
+          Promise.resolve({ data: null, error: null }).then(resolve)
+        ),
       };
     }),
   });
@@ -82,19 +85,18 @@ describe("kayleyPresenceService", () => {
     it("should return null when no state exists", async () => {
       globalMocks.maybeSingle.mockResolvedValue({ data: null, error: null });
 
-      const result = await getKayleyPresenceState("test-user");
+      const result = await getKayleyPresenceState();
 
       expect(result).toBeNull();
       expect(globalMocks.from).toHaveBeenCalledWith("kayley_presence_state");
       expect(globalMocks.select).toHaveBeenCalledWith("*");
-      expect(globalMocks.eq).toHaveBeenCalledWith("user_id", "test-user");
+      expect(globalMocks.maybeSingle).toHaveBeenCalled();
     });
 
     it("should return null when state is expired", async () => {
       const expiredDate = new Date(Date.now() - 1000 * 60 * 60); // 1 hour ago
       globalMocks.maybeSingle.mockResolvedValue({
         data: {
-          user_id: "test-user",
           current_outfit: "in my pajamas",
           current_mood: "tired",
           current_activity: "relaxing",
@@ -106,7 +108,7 @@ describe("kayleyPresenceService", () => {
         error: null,
       });
 
-      const result = await getKayleyPresenceState("test-user");
+      const result = await getKayleyPresenceState();
 
       expect(result).toBeNull();
     });
@@ -117,7 +119,6 @@ describe("kayleyPresenceService", () => {
 
       globalMocks.maybeSingle.mockResolvedValue({
         data: {
-          user_id: "test-user",
           current_outfit: "in my gym clothes",
           current_mood: "energized",
           current_activity: "working out",
@@ -129,7 +130,7 @@ describe("kayleyPresenceService", () => {
         error: null,
       });
 
-      const result = await getKayleyPresenceState("test-user");
+      const result = await getKayleyPresenceState();
 
       expect(result).not.toBeNull();
       expect(result?.currentOutfit).toBe("in my gym clothes");
@@ -144,7 +145,6 @@ describe("kayleyPresenceService", () => {
 
       globalMocks.maybeSingle.mockResolvedValue({
         data: {
-          user_id: "test-user",
           current_outfit: "in my favorite hoodie",
           current_mood: null,
           current_activity: null,
@@ -156,7 +156,7 @@ describe("kayleyPresenceService", () => {
         error: null,
       });
 
-      const result = await getKayleyPresenceState("test-user");
+      const result = await getKayleyPresenceState();
 
       expect(result).not.toBeNull();
       expect(result?.currentOutfit).toBe("in my favorite hoodie");
@@ -169,7 +169,7 @@ describe("kayleyPresenceService", () => {
         error: { message: "Database error" },
       });
 
-      const result = await getKayleyPresenceState("test-user");
+      const result = await getKayleyPresenceState();
 
       expect(result).toBeNull();
     });
@@ -179,7 +179,7 @@ describe("kayleyPresenceService", () => {
     it("should upsert new state with all fields", async () => {
       globalMocks.maybeSingle.mockResolvedValue({ data: null, error: null });
 
-      await updateKayleyPresenceState("test-user", {
+      await updateKayleyPresenceState({
         outfit: "in my pajamas",
         mood: "sleepy",
         activity: "getting ready for bed",
@@ -194,7 +194,6 @@ describe("kayleyPresenceService", () => {
       const upsertCall = globalMocks.upsert.mock.calls[0];
       const upsertData = upsertCall[0];
 
-      expect(upsertData.user_id).toBe("test-user");
       expect(upsertData.current_outfit).toBe("in my pajamas");
       expect(upsertData.current_mood).toBe("sleepy");
       expect(upsertData.current_activity).toBe("getting ready for bed");
@@ -209,7 +208,6 @@ describe("kayleyPresenceService", () => {
 
       globalMocks.maybeSingle.mockResolvedValue({
         data: {
-          user_id: "test-user",
           current_outfit: "in my gym clothes",
           current_mood: "energized",
           current_activity: null,
@@ -221,7 +219,7 @@ describe("kayleyPresenceService", () => {
         error: null,
       });
 
-      await updateKayleyPresenceState("test-user", {
+      await updateKayleyPresenceState({
         activity: "working out",
         expirationMinutes: 120,
       });
@@ -241,7 +239,7 @@ describe("kayleyPresenceService", () => {
     it("should set expiration to null when expirationMinutes not provided", async () => {
       globalMocks.maybeSingle.mockResolvedValue({ data: null, error: null });
 
-      await updateKayleyPresenceState("test-user", {
+      await updateKayleyPresenceState({
         outfit: "in casual clothes",
       });
 
@@ -254,11 +252,10 @@ describe("kayleyPresenceService", () => {
 
   describe("clearKayleyPresenceState", () => {
     it("should set expires_at to now", async () => {
-      await clearKayleyPresenceState("test-user");
+      await clearKayleyPresenceState();
 
       expect(globalMocks.from).toHaveBeenCalledWith("kayley_presence_state");
       expect(globalMocks.update).toHaveBeenCalled();
-      expect(globalMocks.eq).toHaveBeenCalledWith("user_id", "test-user");
 
       const updateCall = globalMocks.update.mock.calls[0];
       const updateData = updateCall[0];
@@ -281,14 +278,24 @@ describe("kayleyPresenceService", () => {
     });
 
     it("should return 120 min for gym/workout outfits", () => {
-      expect(getDefaultExpirationMinutes(undefined, "just got back from the gym")).toBe(120);
-      expect(getDefaultExpirationMinutes(undefined, "in my workout clothes")).toBe(120);
+      expect(
+        getDefaultExpirationMinutes(undefined, "just got back from the gym")
+      ).toBe(120);
+      expect(
+        getDefaultExpirationMinutes(undefined, "in my workout clothes")
+      ).toBe(120);
     });
 
     it("should return 240 min for outfit mentions", () => {
-      expect(getDefaultExpirationMinutes(undefined, "wearing my favorite dress")).toBe(240);
-      expect(getDefaultExpirationMinutes(undefined, "dressed up for dinner")).toBe(240);
-      expect(getDefaultExpirationMinutes(undefined, "in my new outfit")).toBe(240);
+      expect(
+        getDefaultExpirationMinutes(undefined, "wearing my favorite dress")
+      ).toBe(240);
+      expect(
+        getDefaultExpirationMinutes(undefined, "dressed up for dinner")
+      ).toBe(240);
+      expect(getDefaultExpirationMinutes(undefined, "in my new outfit")).toBe(
+        240
+      );
     });
 
     it("should return 120 min as default", () => {
@@ -298,7 +305,9 @@ describe("kayleyPresenceService", () => {
 
     it("should prioritize activity over outfit for expiration", () => {
       // Quick activity should override outfit's longer duration
-      expect(getDefaultExpirationMinutes("making coffee", "wearing my dress")).toBe(15);
+      expect(
+        getDefaultExpirationMinutes("making coffee", "wearing my dress")
+      ).toBe(15);
     });
   });
 });

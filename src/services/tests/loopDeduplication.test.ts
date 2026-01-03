@@ -139,84 +139,82 @@ describe("Loop Deduplication", () => {
   describe("createOpenLoop - deduplication", () => {
     it("should return existing loop when similar topic exists", async () => {
       const existingLoop: OpenLoop = {
-        id: 'existing-loop-1',
-        userId: 'user-123',
-        loopType: 'pending_event',
-        topic: 'Holiday Party',
-        status: 'active',
+        id: "existing-loop-1",
+        loopType: "pending_event",
+        topic: "Holiday Party",
+        status: "active",
         salience: 0.6,
         createdAt: new Date(),
         surfaceCount: 0,
-        maxSurfaces: 2
+        maxSurfaces: 2,
       };
 
       // Mock: findSimilarLoop should return existing loop
       selectResolvedValues.push({
-        data: [{
-          id: 'existing-loop-1',
-          user_id: 'user-123',
-          loop_type: 'pending_event',
-          topic: 'Holiday Party',
-          status: 'active',
-          salience: 0.6,
-          created_at: new Date().toISOString(),
-          surface_count: 0,
-          max_surfaces: 2
-        }],
-        error: null
+        data: [
+          {
+            id: "existing-loop-1",
+
+            loop_type: "pending_event",
+            topic: "Holiday Party",
+            status: "active",
+            salience: 0.6,
+            created_at: new Date().toISOString(),
+            surface_count: 0,
+            max_surfaces: 2,
+          },
+        ],
+        error: null,
       });
 
       // Try to create a similar loop
       const result = await createOpenLoop(
-        'user-123',
-        'pending_event',
-        'holiday party', // Similar but different case
+        "pending_event",
+        "holiday party", // Similar but different case
         { salience: 0.7 }
       );
 
       // Should return existing loop, not create new one
       expect(result).not.toBeNull();
-      expect(result?.id).toBe('existing-loop-1');
+      expect(result?.id).toBe("existing-loop-1");
       // Should not call insert
       expect(globalMocks.insert).not.toHaveBeenCalled();
     });
 
     it("should update salience if new one is higher", async () => {
       const existingLoop: OpenLoop = {
-        id: 'existing-loop-1',
-        userId: 'user-123',
-        loopType: 'pending_event',
-        topic: 'meeting',
-        status: 'active',
+        id: "existing-loop-1",
+        loopType: "pending_event",
+        topic: "meeting",
+        status: "active",
         salience: 0.5,
         createdAt: new Date(),
         surfaceCount: 0,
-        maxSurfaces: 2
+        maxSurfaces: 2,
       };
 
       // Mock: find similar loop
       selectResolvedValues.push({
-        data: [{
-          id: 'existing-loop-1',
-          user_id: 'user-123',
-          loop_type: 'pending_event',
-          topic: 'meeting',
-          status: 'active',
-          salience: 0.5,
-          created_at: new Date().toISOString(),
-          surface_count: 0,
-          max_surfaces: 2
-        }],
-        error: null
+        data: [
+          {
+            id: "existing-loop-1",
+
+            loop_type: "pending_event",
+            topic: "meeting",
+            status: "active",
+            salience: 0.5,
+            created_at: new Date().toISOString(),
+            surface_count: 0,
+            max_surfaces: 2,
+          },
+        ],
+        error: null,
       });
 
       // Try to create with higher salience
-      const result = await createOpenLoop(
-        'user-123',
-        'pending_event',
-        'meeting tomorrow',
-        { salience: 0.8 }
-      );
+      const result = await createOpenLoop("pending_event", "meeting tomorrow", {
+        salience: 0.8,
+      });
 
       // Should update salience
       expect(globalMocks.update).toHaveBeenCalled();
@@ -227,96 +225,91 @@ describe("Loop Deduplication", () => {
       // Mock: no similar loops found
       selectResolvedValues.push({
         data: [],
-        error: null
+        error: null,
       });
 
       // Mock: successful insert
       insertResolvedValues.push({
         data: {
-          id: 'new-loop-1',
-          user_id: 'user-123',
-          loop_type: 'pending_event',
-          topic: 'interview',
-          status: 'active',
+          id: "new-loop-1",
+
+          loop_type: "pending_event",
+          topic: "interview",
+          status: "active",
           salience: 0.7,
           created_at: new Date().toISOString(),
           surface_count: 0,
-          max_surfaces: 2
+          max_surfaces: 2,
         },
-        error: null
+        error: null,
       });
 
-      const result = await createOpenLoop(
-        'user-123',
-        'pending_event',
-        'interview',
-        { salience: 0.7 }
-      );
+      const result = await createOpenLoop("pending_event", "interview", {
+        salience: 0.7,
+      });
 
       expect(result).not.toBeNull();
-      expect(result?.topic).toBe('interview');
+      expect(result?.topic).toBe("interview");
       expect(globalMocks.insert).toHaveBeenCalled();
     });
 
     it("should handle topic variations (parties vs party)", async () => {
       // Mock: existing loop with "Holiday Parties"
       selectResolvedValues.push({
-        data: [{
-          id: 'existing-loop-1',
-          user_id: 'user-123',
-          loop_type: 'pending_event',
-          topic: 'Holiday Parties',
-          status: 'active',
-          salience: 0.6,
-          created_at: new Date().toISOString(),
-          surface_count: 0,
-          max_surfaces: 2
-        }],
-        error: null
+        data: [
+          {
+            id: "existing-loop-1",
+
+            loop_type: "pending_event",
+            topic: "Holiday Parties",
+            status: "active",
+            salience: 0.6,
+            created_at: new Date().toISOString(),
+            surface_count: 0,
+            max_surfaces: 2,
+          },
+        ],
+        error: null,
       });
 
       // Try to create "Holiday Party" (singular)
-      const result = await createOpenLoop(
-        'user-123',
-        'pending_event',
-        'Holiday Party',
-        { salience: 0.5 }
-      );
+      const result = await createOpenLoop("pending_event", "Holiday Party", {
+        salience: 0.5,
+      });
 
       // Should return existing loop (topics are similar)
       expect(result).not.toBeNull();
-      expect(result?.id).toBe('existing-loop-1');
+      expect(result?.id).toBe("existing-loop-1");
       expect(globalMocks.insert).not.toHaveBeenCalled();
     });
 
     it("should handle word overlap matching", async () => {
       // Mock: existing loop with "party tonight"
       selectResolvedValues.push({
-        data: [{
-          id: 'existing-loop-1',
-          user_id: 'user-123',
-          loop_type: 'pending_event',
-          topic: 'party tonight',
-          status: 'active',
-          salience: 0.6,
-          created_at: new Date().toISOString(),
-          surface_count: 0,
-          max_surfaces: 2
-        }],
-        error: null
+        data: [
+          {
+            id: "existing-loop-1",
+
+            loop_type: "pending_event",
+            topic: "party tonight",
+            status: "active",
+            salience: 0.6,
+            created_at: new Date().toISOString(),
+            surface_count: 0,
+            max_surfaces: 2,
+          },
+        ],
+        error: null,
       });
 
       // Try to create "Holiday Party" (has word overlap: "party")
-      const result = await createOpenLoop(
-        'user-123',
-        'pending_event',
-        'Holiday Party',
-        { salience: 0.5 }
-      );
+      const result = await createOpenLoop("pending_event", "Holiday Party", {
+        salience: 0.5,
+      });
 
       // Should match based on word overlap
       expect(result).not.toBeNull();
-      expect(result?.id).toBe('existing-loop-1');
+      expect(result?.id).toBe("existing-loop-1");
     });
   });
 
@@ -326,32 +319,32 @@ describe("Loop Deduplication", () => {
       selectResolvedValues.push({
         data: [
           {
-            id: 'loop-1',
-            user_id: 'user-123',
-            loop_type: 'pending_event',
-            topic: 'Holiday Party',
-            status: 'active',
+            id: "loop-1",
+
+            loop_type: "pending_event",
+            topic: "Holiday Party",
+            status: "active",
             salience: 0.6,
             created_at: new Date().toISOString(),
             surface_count: 0,
-            max_surfaces: 2
+            max_surfaces: 2,
           },
           {
-            id: 'loop-2',
-            user_id: 'user-123',
-            loop_type: 'pending_event',
-            topic: 'party tonight',
-            status: 'active',
+            id: "loop-2",
+
+            loop_type: "pending_event",
+            topic: "party tonight",
+            status: "active",
             salience: 0.5,
             created_at: new Date().toISOString(),
             surface_count: 0,
-            max_surfaces: 2
-          }
+            max_surfaces: 2,
+          },
         ],
-        error: null
+        error: null,
       });
 
-      const dismissedCount = await dismissLoopsByTopic('user-123', 'party');
+      const dismissedCount = await dismissLoopsByTopic("party");
 
       expect(dismissedCount).toBe(2);
       expect(globalMocks.update).toHaveBeenCalled();
@@ -361,10 +354,10 @@ describe("Loop Deduplication", () => {
       // Mock: no matching loops
       selectResolvedValues.push({
         data: [],
-        error: null
+        error: null,
       });
 
-      const dismissedCount = await dismissLoopsByTopic('user-123', 'nonexistent topic');
+      const dismissedCount = await dismissLoopsByTopic("nonexistent topic");
 
       expect(dismissedCount).toBe(0);
       expect(globalMocks.update).not.toHaveBeenCalled();
@@ -373,22 +366,24 @@ describe("Loop Deduplication", () => {
     it("should handle fuzzy topic matching", async () => {
       // Mock: loop with "Holiday Parties"
       selectResolvedValues.push({
-        data: [{
-          id: 'loop-1',
-          user_id: 'user-123',
-          loop_type: 'pending_event',
-          topic: 'Holiday Parties',
-          status: 'active',
-          salience: 0.6,
-          created_at: new Date().toISOString(),
-          surface_count: 0,
-          max_surfaces: 2
-        }],
-        error: null
+        data: [
+          {
+            id: "loop-1",
+
+            loop_type: "pending_event",
+            topic: "Holiday Parties",
+            status: "active",
+            salience: 0.6,
+            created_at: new Date().toISOString(),
+            surface_count: 0,
+            max_surfaces: 2,
+          },
+        ],
+        error: null,
       });
 
       // Dismiss with "party" (singular)
-      const dismissedCount = await dismissLoopsByTopic('user-123', 'party');
+      const dismissedCount = await dismissLoopsByTopic("party");
 
       expect(dismissedCount).toBe(1);
       expect(globalMocks.update).toHaveBeenCalled();
@@ -399,43 +394,43 @@ describe("Loop Deduplication", () => {
       selectResolvedValues.push({
         data: [
           {
-            id: 'loop-1',
-            user_id: 'user-123',
-            loop_type: 'pending_event',
-            topic: 'party',
-            status: 'active',
+            id: "loop-1",
+
+            loop_type: "pending_event",
+            topic: "party",
+            status: "active",
             salience: 0.6,
             created_at: new Date().toISOString(),
             surface_count: 0,
-            max_surfaces: 2
+            max_surfaces: 2,
           },
           {
-            id: 'loop-2',
-            user_id: 'user-123',
-            loop_type: 'pending_event',
-            topic: 'party',
-            status: 'surfaced',
+            id: "loop-2",
+
+            loop_type: "pending_event",
+            topic: "party",
+            status: "surfaced",
             salience: 0.5,
             created_at: new Date().toISOString(),
             surface_count: 1,
-            max_surfaces: 2
+            max_surfaces: 2,
           },
           {
-            id: 'loop-3',
-            user_id: 'user-123',
-            loop_type: 'pending_event',
-            topic: 'party',
-            status: 'resolved', // Should not be dismissed
+            id: "loop-3",
+
+            loop_type: "pending_event",
+            topic: "party",
+            status: "resolved", // Should not be dismissed
             salience: 0.4,
             created_at: new Date().toISOString(),
             surface_count: 2,
-            max_surfaces: 2
-          }
+            max_surfaces: 2,
+          },
         ],
-        error: null
+        error: null,
       });
 
-      const dismissedCount = await dismissLoopsByTopic('user-123', 'party');
+      const dismissedCount = await dismissLoopsByTopic("party");
 
       // Should dismiss 2 (active + surfaced), not the resolved one
       expect(dismissedCount).toBe(2);

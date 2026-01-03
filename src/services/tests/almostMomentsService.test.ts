@@ -42,7 +42,6 @@ import {
 
 const baseFeeling: UnsaidFeeling = {
   id: "feeling-1",
-  userId: "user-1",
   type: "romantic",
   intensity: 0.5,
   suppressionCount: 2,

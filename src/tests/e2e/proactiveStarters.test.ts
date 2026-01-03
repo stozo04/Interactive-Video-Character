@@ -89,7 +89,7 @@ describe('Proactive Conversation Starters E2E', () => {
 
     // 5. Verify thread can be marked as mentioned (mock the save)
     mockGetOngoingThreads.mockResolvedValue([eligibleThread]);
-    await markThreadMentionedAsync(testUserId, activeThread!.id);
+    await markThreadMentionedAsync(, activeThread!.id);
     expect(mockSaveAllOngoingThreads).toHaveBeenCalled();
   });
 
@@ -97,7 +97,6 @@ describe('Proactive Conversation Starters E2E', () => {
     // 1. Create high-salience open loop (salience > 0.7)
     const highPriorityLoop: OpenLoop = {
       id: 'loop1',
-      userId: testUserId,
       loopType: 'pending_event',
       topic: 'How did your doctor appointment go?',
       salience: 0.9, // High priority
@@ -127,8 +126,8 @@ describe('Proactive Conversation Starters E2E', () => {
     mockGetOngoingThreads.mockResolvedValue([highIntensityThread]);
 
     // 3. Execute priority router logic
-    const openLoop = await getTopLoopToSurface(testUserId);
-    const threads = await getOngoingThreadsAsync(testUserId);
+    const openLoop = await getTopLoopToSurface();
+    const threads = await getOngoingThreadsAsync();
     const activeThread = selectProactiveThread(threads);
 
     // 4. Verify: Open loop wins
@@ -143,7 +142,6 @@ describe('Proactive Conversation Starters E2E', () => {
   it('should use thread when open loop salience is low', async () => {
     const lowPriorityLoop: OpenLoop = {
       id: 'loop1',
-      userId: testUserId,
       loopType: 'curiosity_thread',
       topic: 'Random follow-up',
       salience: 0.5, // Low priority
@@ -169,7 +167,7 @@ describe('Proactive Conversation Starters E2E', () => {
     (getTopLoopToSurface as any).mockResolvedValue(lowPriorityLoop);
     
     // Test Priority Router logic directly
-    const openLoop = await getTopLoopToSurface(testUserId);
+    const openLoop = await getTopLoopToSurface();
     const activeThread = selectProactiveThread([highIntensityThread]);
 
     // Verify: Thread wins because open loop is low priority

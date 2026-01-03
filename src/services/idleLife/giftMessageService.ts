@@ -38,7 +38,6 @@ export type GiftType = 'selfie' | 'thought';
 
 export interface GiftMessageHistory {
   id: string;
-  userId: string;
   giftType: GiftType;
   messageText: string;
   selfieUrl?: string;
@@ -49,26 +48,26 @@ export interface GiftMessageHistory {
 // Constants
 // ============================================================================
 
-const GIFT_MESSAGE_HISTORY_TABLE = 'gift_message_history';
+const GIFT_MESSAGE_HISTORY_TABLE = "gift_message_history";
 const GIFT_MESSAGE_CHANCE = 0.05; // 5% chance
 const MIN_HOURS_BETWEEN_GIFTS = 24; // Max once per day
 
 // Selfie gift messages (paired with a selfie)
 const SELFIE_GIFT_MESSAGES = [
-  'Thought you might need this to get through your afternoon',
-  'Hey. Just because.',
-  'Figured you could use a smile. Here you go.',
-  'No reason. Just wanted to.',
-  'For you.',
+  "Thought you might need this to get through your afternoon",
+  "Hey. Just because.",
+  "Figured you could use a smile. Here you go.",
+  "No reason. Just wanted to.",
+  "For you.",
 ];
 
 // Thought gift messages (text only, intriguing)
 const THOUGHT_GIFT_MESSAGES = [
-  'Okay I have to tell you what just happened. Get back here.',
-  'I just saw something that reminded me of that story you told me. Random but it made me smile.',
-  'You\'re not going to believe what I just did.',
-  'Something happened and you\'re the first person I wanted to tell.',
-  'Okay random but I just had a thought and I need your opinion.',
+  "Okay I have to tell you what just happened. Get back here.",
+  "I just saw something that reminded me of that story you told me. Random but it made me smile.",
+  "You're not going to believe what I just did.",
+  "Something happened and you're the first person I wanted to tell.",
+  "Okay random but I just had a thought and I need your opinion.",
 ];
 
 // ============================================================================
@@ -79,12 +78,10 @@ const THOUGHT_GIFT_MESSAGES = [
  * Maybe generate a gift message.
  * Called during idle time with very low probability.
  *
- * @param userId - User ID
  * @param hoursAway - How long user has been away
  * @returns The pending message input, or null if no gift generated
  */
 export async function maybeGenerateGiftMessage(
-  userId: string,
   hoursAway: number
 ): Promise<CreatePendingMessageInput | null> {
   // Roll the dice - 5% chance
@@ -93,37 +90,37 @@ export async function maybeGenerateGiftMessage(
   }
 
   // Check if we already sent a gift today
-  const canSendGift = await canSendGiftToday(userId);
+  const canSendGift = await canSendGiftToday();
   if (!canSendGift) {
-    console.log('[GiftMessage] Already sent gift today, skipping');
+    console.log("[GiftMessage] Already sent gift today, skipping");
     return null;
   }
 
   // Check if there's already a pending message
-  const hasPending = await hasUndeliveredMessage(userId);
+  const hasPending = await hasUndeliveredMessage();
   if (hasPending) {
-    console.log('[GiftMessage] Already has pending message, skipping gift');
+    console.log("[GiftMessage] Already has pending message, skipping gift");
     return null;
   }
 
   // Decide gift type (60% selfie, 40% thought)
-  const giftType: GiftType = Math.random() < 0.6 ? 'selfie' : 'thought';
+  const giftType: GiftType = Math.random() < 0.6 ? "selfie" : "thought";
 
   let message: CreatePendingMessageInput;
 
-  if (giftType === 'selfie') {
-    message = await generateSelfieGift(userId);
+  if (giftType === "selfie") {
+    message = await generateSelfieGift();
   } else {
     message = generateThoughtGift();
   }
 
   // Record the gift in history
-  await recordGiftMessage(userId, giftType, message.messageText, message.selfieUrl);
+  await recordGiftMessage(giftType, message.messageText, message.selfieUrl);
 
   // Create the pending message
-  await createPendingMessage(userId, message);
+  await createPendingMessage(message);
 
-  console.log(`[GiftMessage] Generated ${giftType} gift for user ${userId}`);
+  console.log(`[GiftMessage] Generated ${giftType} gift`);
 
   return message;
 }
@@ -131,25 +128,26 @@ export async function maybeGenerateGiftMessage(
 /**
  * Check if we can send a gift today (enforces once-per-day limit).
  */
-export async function canSendGiftToday(userId: string): Promise<boolean> {
+export async function canSendGiftToday(): Promise<boolean> {
   try {
     const twentyFourHoursAgo = new Date();
-    twentyFourHoursAgo.setHours(twentyFourHoursAgo.getHours() - MIN_HOURS_BETWEEN_GIFTS);
+    twentyFourHoursAgo.setHours(
+      twentyFourHoursAgo.getHours() - MIN_HOURS_BETWEEN_GIFTS
+    );
 
     const { count, error } = await supabase
       .from(GIFT_MESSAGE_HISTORY_TABLE)
-      .select('id', { count: 'exact', head: true })
-      .eq('user_id', userId)
-      .gte('sent_at', twentyFourHoursAgo.toISOString());
+      .select("id", { count: "exact", head: true })
+      .gte("sent_at", twentyFourHoursAgo.toISOString());
 
     if (error) {
-      console.error('[GiftMessage] Error checking gift history:', error);
+      console.error("[GiftMessage] Error checking gift history:", error);
       return true; // Default to allowing if error
     }
 
     return (count || 0) === 0;
   } catch (error) {
-    console.error('[GiftMessage] Error in canSendGiftToday:', error);
+    console.error("[GiftMessage] Error in canSendGiftToday:", error);
     return true;
   }
 }
@@ -157,13 +155,12 @@ export async function canSendGiftToday(userId: string): Promise<boolean> {
 /**
  * Get the last gift message sent to a user.
  */
-export async function getLastGiftMessage(userId: string): Promise<GiftMessageHistory | null> {
+export async function getLastGiftMessage(): Promise<GiftMessageHistory | null> {
   try {
     const { data, error } = await supabase
       .from(GIFT_MESSAGE_HISTORY_TABLE)
-      .select('*')
-      .eq('user_id', userId)
-      .order('sent_at', { ascending: false })
+      .select("*")
+      .order("sent_at", { ascending: false })
       .limit(1);
 
     if (error || !data || data.length === 0) {
@@ -172,14 +169,13 @@ export async function getLastGiftMessage(userId: string): Promise<GiftMessageHis
 
     return {
       id: data[0].id,
-      userId: data[0].user_id,
       giftType: data[0].gift_type as GiftType,
       messageText: data[0].message_text,
       selfieUrl: data[0].selfie_url,
       sentAt: new Date(data[0].sent_at),
     };
   } catch (error) {
-    console.error('[GiftMessage] Error getting last gift:', error);
+    console.error("[GiftMessage] Error getting last gift:", error);
     return null;
   }
 }
@@ -192,23 +188,25 @@ export async function getLastGiftMessage(userId: string): Promise<GiftMessageHis
  * Generate a selfie gift message.
  * Note: Actual selfie generation happens when the message is delivered.
  */
-async function generateSelfieGift(userId: string): Promise<CreatePendingMessageInput> {
+async function generateSelfieGift(): Promise<CreatePendingMessageInput> {
   const messageText =
-    SELFIE_GIFT_MESSAGES[Math.floor(Math.random() * SELFIE_GIFT_MESSAGES.length)];
+    SELFIE_GIFT_MESSAGES[
+      Math.floor(Math.random() * SELFIE_GIFT_MESSAGES.length)
+    ];
 
   // We don't generate the actual selfie here - that happens at delivery time
   // to ensure freshness. We just set up the message with metadata.
   return {
     messageText,
-    messageType: 'photo',
-    trigger: 'gift',
-    priority: 'low',
+    messageType: "photo",
+    trigger: "gift",
+    priority: "low",
     metadata: {
-      giftType: 'selfie',
+      giftType: "selfie",
       selfieParams: {
-        scene: 'casual selfie at home',
-        mood: 'warm smile',
-        trigger: 'gift_message',
+        scene: "casual selfie at home",
+        mood: "warm smile",
+        trigger: "gift_message",
       },
     },
   };
@@ -219,15 +217,17 @@ async function generateSelfieGift(userId: string): Promise<CreatePendingMessageI
  */
 function generateThoughtGift(): CreatePendingMessageInput {
   const messageText =
-    THOUGHT_GIFT_MESSAGES[Math.floor(Math.random() * THOUGHT_GIFT_MESSAGES.length)];
+    THOUGHT_GIFT_MESSAGES[
+      Math.floor(Math.random() * THOUGHT_GIFT_MESSAGES.length)
+    ];
 
   return {
     messageText,
-    messageType: 'text',
-    trigger: 'gift',
-    priority: 'low',
+    messageType: "text",
+    trigger: "gift",
+    priority: "low",
     metadata: {
-      giftType: 'thought',
+      giftType: "thought",
     },
   };
 }
@@ -235,8 +235,8 @@ function generateThoughtGift(): CreatePendingMessageInput {
 /**
  * Record a gift message in history (for daily limit enforcement).
  */
+const USER_ID = import.meta.env.VITE_USER_ID;
 async function recordGiftMessage(
-  userId: string,
   giftType: GiftType,
   messageText: string,
   selfieUrl?: string
@@ -244,7 +244,6 @@ async function recordGiftMessage(
   try {
     const { error } = await supabase.from(GIFT_MESSAGE_HISTORY_TABLE).insert({
       id: crypto.randomUUID(),
-      user_id: userId,
       gift_type: giftType,
       message_text: messageText,
       selfie_url: selfieUrl,
@@ -252,17 +251,17 @@ async function recordGiftMessage(
     });
 
     if (error) {
-      console.error('[GiftMessage] Error recording gift:', error);
+      console.error("[GiftMessage] Error recording gift:", error);
     }
   } catch (error) {
-    console.error('[GiftMessage] Error in recordGiftMessage:', error);
+    console.error("[GiftMessage] Error in recordGiftMessage:", error);
   }
 }
 
 /**
  * Clean up old gift message history.
  */
-export async function cleanupGiftHistory(userId: string): Promise<void> {
+export async function cleanupGiftHistory(): Promise<void> {
   try {
     const thirtyDaysAgo = new Date();
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
@@ -270,13 +269,12 @@ export async function cleanupGiftHistory(userId: string): Promise<void> {
     const { error } = await supabase
       .from(GIFT_MESSAGE_HISTORY_TABLE)
       .delete()
-      .eq('user_id', userId)
-      .lt('sent_at', thirtyDaysAgo.toISOString());
+      .lt("sent_at", thirtyDaysAgo.toISOString());
 
     if (error) {
-      console.error('[GiftMessage] Error cleaning up history:', error);
+      console.error("[GiftMessage] Error cleaning up history:", error);
     }
   } catch (error) {
-    console.error('[GiftMessage] Error in cleanupGiftHistory:', error);
+    console.error("[GiftMessage] Error in cleanupGiftHistory:", error);
   }
 }

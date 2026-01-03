@@ -17,14 +17,14 @@ vi.mock('../supabaseClient', () => ({
 describe('taskService', () => {
   const mockTasks = [
     {
-      id: '1',
-      user_id: 'user-123',
-      text: 'Test task',
+      id: "1",
+
+      text: "Test task",
       completed: false,
-      priority: 'low',
+      priority: "low",
       created_at: new Date().toISOString(),
-      scheduled_date: new Date().toISOString().split('T')[0]
-    }
+      scheduled_date: new Date().toISOString().split("T")[0],
+    },
   ];
 
   beforeEach(() => {

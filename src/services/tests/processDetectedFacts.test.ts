@@ -24,11 +24,17 @@ describe('processDetectedFacts', () => {
   const mockGetUserFactsResponse = (facts: Array<{ category: string; fact_key: string; fact_value: string }>) => {
     mockFrom.mockImplementation((table: string) => {
       if (table === 'user_facts') {
+        const orderResult = {
+          // For when category === 'all', can be awaited directly
+          [Symbol.toStringTag]: 'Promise',
+          then: (resolve: any) => Promise.resolve({ data: facts, error: null }).then(resolve),
+          catch: (reject: any) => Promise.resolve({ data: facts, error: null }).catch(reject),
+          // For when category !== 'all', can call .eq()
+          eq: () => Promise.resolve({ data: facts, error: null }),
+        };
         return {
           select: () => ({
-            eq: () => ({
-              order: () => Promise.resolve({ data: facts, error: null }),
-            }),
+            order: () => orderResult,
           }),
           upsert: () => Promise.resolve({ error: null }),
         };
@@ -43,11 +49,17 @@ describe('processDetectedFacts', () => {
 
     mockFrom.mockImplementation((table: string) => {
       if (table === 'user_facts') {
+        const orderResult = {
+          // For when category === 'all', can be awaited directly
+          [Symbol.toStringTag]: 'Promise',
+          then: (resolve: any) => Promise.resolve({ data: existingFacts, error: null }).then(resolve),
+          catch: (reject: any) => Promise.resolve({ data: existingFacts, error: null }).catch(reject),
+          // For when category !== 'all', can call .eq()
+          eq: () => Promise.resolve({ data: existingFacts, error: null }),
+        };
         return {
           select: () => ({
-            eq: () => ({
-              order: () => Promise.resolve({ data: existingFacts, error: null }),
-            }),
+            order: () => orderResult,
           }),
           upsert: (data: any) => {
             upsertCalls.push(data);

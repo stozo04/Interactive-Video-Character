@@ -160,7 +160,7 @@ This plan transforms the image generation service from using a single static ref
 │                                                                         │
 │  INSERT/UPDATE current_look_state:                                     │
 │  ┌────────────────────────────────────────────────────────────────┐    │
-│  │ user_id: "user-123"                                            │    │
+│  │ user_id:                                             │    │
 │  │ hairstyle: "messy_bun"                                         │    │
 │  │ reference_image_id: "messy_bun_casual"                         │    │
 │  │ locked_at: NOW                                                 │    │
@@ -234,7 +234,7 @@ This plan transforms the image generation service from using a single static ref
 │                                                                         │
 │  INSERT into selfie_generation_history:                                │
 │  ┌────────────────────────────────────────────────────────────────┐    │
-│  │ user_id: "user-123"                                            │    │
+│  │ user_id:                                             │    │
 │  │ reference_image_id: "messy_bun_casual"                         │    │
 │  │ hairstyle: "messy_bun"                                         │    │
 │  │ outfit_style: "casual"                                         │    │
