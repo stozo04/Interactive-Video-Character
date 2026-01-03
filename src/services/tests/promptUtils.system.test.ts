@@ -88,11 +88,9 @@ import { buildSystemPrompt } from '../promptUtils';
 
 describe('buildSystemPrompt with Proactive Threads', () => {
   const mockCharacter: CharacterProfile = {
-    id: 'test-char',
-    name: 'Test Character',
-    displayName: 'Test',
-    description: 'Test character',
-    videoUrl: '',
+    id: "test-char",
+    name: "Test Character",
+    displayName: "Test",
     actions: [],
   };
 

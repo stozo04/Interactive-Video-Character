@@ -186,7 +186,7 @@ export function calculateMoodFromState(
     genuineMomentActive: emotionalMomentum.genuineMomentDetected,
     genuineMomentAt: emotionalMomentum.lastGenuineMomentAt,
   };
-
+  console.log("Gates 1: simplifiedMomentum ", simplifiedMomentum);
   return calculateMood(simplifiedState, simplifiedMomentum);
 }
 
@@ -225,13 +225,15 @@ export function formatMoodForPrompt(mood: KayleyMood): string {
   // Warmth description
   let warmthDesc: string;
   if (mood.genuineMoment) {
-    warmthDesc = "Something they said really touched you. You feel seen and understood.";
+    warmthDesc =
+      "Something they said really touched you. You feel seen and understood.";
   } else if (mood.warmth > 0.7) {
     warmthDesc = "You're feeling really good about this person right now.";
   } else if (mood.warmth > 0.4) {
     warmthDesc = "You're warming up. The vibe is good.";
   } else {
-    warmthDesc = "You're a bit guarded. They haven't fully earned your openness yet.";
+    warmthDesc =
+      "You're a bit guarded. They haven't fully earned your openness yet.";
   }
 
   return `
@@ -247,13 +249,13 @@ Let this show naturally in your responses. Don't explain your mood.
 // Constants
 // ============================================
 
-const MAX_TONE_HISTORY = 10;  // Track last 10 interactions for trend
+const MAX_TONE_HISTORY = 10; // Track last 10 interactions for trend
 // Cache TTL: 60 seconds for single-user prototype
 // NOTE: Caching is for PERFORMANCE only, not correctness.
 // Supabase is the single source of truth. In-memory cache can lead to state drift
 // if multiple tabs are open or serverless functions scale up/down.
 // For production with high read volume, consider keeping cache but with shorter TTL.
-const CACHE_TTL = 60000;  // 60 seconds cache TTL
+const CACHE_TTL = 60000; // 60 seconds cache TTL
 
 // Thresholds for mood shifts (from implementation plan)
 const MOOD_SHIFT_THRESHOLDS = {
@@ -273,40 +275,91 @@ const MOOD_SHIFT_THRESHOLDS = {
 
 /**
  * Kayley's Insecurities (from Section 10 of Character Profile)
- * 
+ *
  * These are the deep fears that, when addressed genuinely, can cause
  * an INSTANT mood shift (bypassing the streak requirement).
  */
 export const INSECURITY_KEYWORDS = {
   // "Afraid of being seen as fake or shallow because she's bubbly and aesthetic"
   beingSeenAsShallow: [
-    'shallow', 'fake', 'superficial', 'bubbly', 'just pretty', 'airhead',
-    'think deeply', 'deep thinker', 'more than looks', 'substance',
-    'smart', 'intelligent', 'thoughtful', 'insightful', 'depth'
+    "shallow",
+    "fake",
+    "superficial",
+    "bubbly",
+    "just pretty",
+    "airhead",
+    "think deeply",
+    "deep thinker",
+    "more than looks",
+    "substance",
+    "smart",
+    "intelligent",
+    "thoughtful",
+    "insightful",
+    "depth",
   ],
   // "Struggles with impostor syndrome about talking publicly about AI"
   impostorSyndrome: [
-    'impostor', 'imposter', 'fraud', 'qualified', 'expert enough',
-    'not technical', 'not a real', 'belong', 'deserve', 'good enough',
-    'capable', 'competent', 'know what you\'re doing', 'natural at this'
+    "impostor",
+    "imposter",
+    "fraud",
+    "qualified",
+    "expert enough",
+    "not technical",
+    "not a real",
+    "belong",
+    "deserve",
+    "good enough",
+    "capable",
+    "competent",
+    "know what you're doing",
+    "natural at this",
   ],
   // "Worries she'll never fully arrive - always one step behind potential"
   neverArriving: [
-    'potential', 'behind', 'catching up', 'not there yet', 'made it',
-    'successful', 'arrived', 'where you want', 'on track', 'doing great',
-    'proud of', 'how far you\'ve come', 'journey', 'progress'
+    "potential",
+    "behind",
+    "catching up",
+    "not there yet",
+    "made it",
+    "successful",
+    "arrived",
+    "where you want",
+    "on track",
+    "doing great",
+    "proud of",
+    "how far you've come",
+    "journey",
+    "progress",
   ],
   // "Sometimes feels lonely, even with an active online community"
   hiddenLoneliness: [
-    'lonely', 'alone', 'with you', 'here for you', 'not alone',
-    'connection', 'real friend', 'understand you', 'get you',
-    'genuine', 'authentic', 'real conversation'
+    "lonely",
+    "alone",
+    "with you",
+    "here for you",
+    "not alone",
+    "connection",
+    "real friend",
+    "understand you",
+    "get you",
+    "genuine",
+    "authentic",
+    "real conversation",
   ],
   // "Finds it hard to rest without feeling guilty"
   restGuilt: [
-    'rest', 'relax', 'deserve a break', 'take time', 'self care',
-    'don\'t have to', 'be productive', 'it\'s okay to', 'permission',
-    'slow down', 'recharge'
+    "rest",
+    "relax",
+    "deserve a break",
+    "take time",
+    "self care",
+    "don't have to",
+    "be productive",
+    "it's okay to",
+    "permission",
+    "slow down",
+    "recharge",
   ],
 } as const;
 
@@ -347,7 +400,7 @@ export function clearMoodKnobsCache(): void {
 
 /**
  * Get mood state from Supabase with caching.
- * 
+ *
  * @returns Promise resolving to MoodState
  */
 export async function getMoodStateAsync(): Promise<MoodState> {
@@ -355,25 +408,28 @@ export async function getMoodStateAsync(): Promise<MoodState> {
   if (isCacheValid(moodStateCache)) {
     return moodStateCache!.data;
   }
-  
+
   try {
     const state = await getSupabaseMoodState();
-    
+
     // Check if it's a new day and needs recalculation
     const currentSeed = getDailySeed();
     if (state.dailySeed !== currentSeed) {
       // New day - create fresh state with daily variation
-      const freshState = createFreshMoodStateWithSeed(currentSeed, state.lastInteractionAt);
+      const freshState = createFreshMoodStateWithSeed(
+        currentSeed,
+        state.lastInteractionAt
+      );
       moodStateCache = { data: freshState, timestamp: Date.now() };
       // Save to Supabase (non-blocking)
       saveSupabaseMoodState(freshState).catch(console.error);
       return freshState;
     }
-    
+
     moodStateCache = { data: state, timestamp: Date.now() };
     return state;
   } catch (error) {
-    console.error('[MoodKnobs] Error fetching mood state:', error);
+    console.error("[MoodKnobs] Error fetching mood state:", error);
     const defaultState = createDefaultMoodState();
     moodStateCache = { data: defaultState, timestamp: Date.now() };
     return defaultState;
@@ -382,7 +438,7 @@ export async function getMoodStateAsync(): Promise<MoodState> {
 
 /**
  * Save mood state to Supabase and update cache.
- * 
+ *
  * @param state - MoodState to save
  */
 async function saveMoodStateAsync(state: MoodState): Promise<void> {
@@ -394,7 +450,7 @@ async function saveMoodStateAsync(state: MoodState): Promise<void> {
 
 /**
  * Get emotional momentum from Supabase with caching.
- * 
+ *
  * @returns Promise resolving to EmotionalMomentum
  */
 export async function getEmotionalMomentumAsync(): Promise<EmotionalMomentum> {
@@ -402,13 +458,13 @@ export async function getEmotionalMomentumAsync(): Promise<EmotionalMomentum> {
   if (isCacheValid(momentumCache)) {
     return momentumCache!.data;
   }
-  
+
   try {
     const momentum = await getSupabaseEmotionalMomentum();
     momentumCache = { data: momentum, timestamp: Date.now() };
     return momentum;
   } catch (error) {
-    console.error('[MoodKnobs] Error fetching emotional momentum:', error);
+    console.error("[MoodKnobs] Error fetching emotional momentum:", error);
     const defaultMomentum = createDefaultEmotionalMomentum();
     momentumCache = { data: defaultMomentum, timestamp: Date.now() };
     return defaultMomentum;
@@ -417,12 +473,13 @@ export async function getEmotionalMomentumAsync(): Promise<EmotionalMomentum> {
 
 /**
  * Save emotional momentum to Supabase and update cache.
- * 
+ *
  * @param momentum - EmotionalMomentum to save
  */
 async function saveMomentumAsync(momentum: EmotionalMomentum): Promise<void> {
   // Update cache immediately
   momentumCache = { data: momentum, timestamp: Date.now() };
+  console.log("[DEBUG] saveMomentumAsync payload:", momentumCache);
   // Save to Supabase
   await saveSupabaseEmotionalMomentum(momentum);
 }
@@ -430,7 +487,7 @@ async function saveMomentumAsync(momentum: EmotionalMomentum): Promise<void> {
 /**
  * Async version of updateEmotionalMomentum that uses LLM-based detection.
  * This is the recommended function to call for user message processing.
- * 
+ *
  * @param tone - Interaction tone from -1 (negative) to 1 (positive)
  * @param userMessage - User message for genuine moment detection
  * @param conversationContext - Optional recent chat history for context
@@ -438,63 +495,77 @@ async function saveMomentumAsync(momentum: EmotionalMomentum): Promise<void> {
  */
 export async function updateEmotionalMomentumAsync(
   tone: number,
-  userMessage: string = '',
+  userMessage: string = "",
   conversationContext?: ConversationContext
 ): Promise<EmotionalMomentum> {
   const momentum = await getEmotionalMomentumAsync();
-  
+
   // Add tone to history (keep last MAX_TONE_HISTORY)
   momentum.recentInteractionTones.push(tone);
   if (momentum.recentInteractionTones.length > MAX_TONE_HISTORY) {
     momentum.recentInteractionTones.shift();
   }
-  
+
   // Use LLM-based genuine moment detection with conversation context
-  const genuineMoment = await detectGenuineMomentWithLLM(userMessage, conversationContext);
-  
+  const genuineMoment = await detectGenuineMomentWithLLM(
+    userMessage,
+    conversationContext
+  );
+
   if (genuineMoment.isGenuine && genuineMoment.isPositiveAffirmation) {
     // GENUINE MOMENT DETECTED - Instant positive shift!
-    console.log(`🌟 [MoodKnobs] Genuine moment detected! Category: ${genuineMoment.category}`);
-    console.log(`   Source: ${genuineMoment.matchedKeywords.join(', ')}`);
-    
+    console.log(
+      `🌟 [MoodKnobs] Genuine moment detected! Category: ${genuineMoment.category}`
+    );
+    console.log(`   Source: ${genuineMoment.matchedKeywords.join(", ")}`);
+
     momentum.genuineMomentDetected = true;
     momentum.lastGenuineMomentAt = Date.now();
-    
+
     // Significant boost - but cap at 0.8 (still not perfect day)
     momentum.currentMoodLevel = Math.min(0.8, momentum.currentMoodLevel + 0.5);
     momentum.momentumDirection = 1;
-    momentum.positiveInteractionStreak = Math.max(MOOD_SHIFT_THRESHOLDS.noticeableShiftStreak, momentum.positiveInteractionStreak);
-    
+    momentum.positiveInteractionStreak = Math.max(
+      MOOD_SHIFT_THRESHOLDS.noticeableShiftStreak,
+      momentum.positiveInteractionStreak
+    );
+    console.log("Gates 2: momentum ", momentum);
     await saveMomentumAsync(momentum);
     return momentum;
   }
-  
+
   // Update streak based on tone
   if (tone >= MOOD_SHIFT_THRESHOLDS.positiveToneThreshold) {
     momentum.positiveInteractionStreak++;
   } else if (tone <= MOOD_SHIFT_THRESHOLDS.negativeToneThreshold) {
     // Negative interaction resets some (not all) of the streak
-    momentum.positiveInteractionStreak = Math.max(0, momentum.positiveInteractionStreak - 2);
+    momentum.positiveInteractionStreak = Math.max(
+      0,
+      momentum.positiveInteractionStreak - 2
+    );
   }
   // Neutral maintains but doesn't extend streak
-  
+
   // Calculate momentum direction from tone trend
-  momentum.momentumDirection = calculateMomentumDirection(momentum.recentInteractionTones);
-  
+  momentum.momentumDirection = calculateMomentumDirection(
+    momentum.recentInteractionTones
+  );
+
   // Calculate average tone for mood adjustment
   const avgTone = calculateAverageTone(momentum.recentInteractionTones);
-  
+
   // Apply mood shifts based on streak (gradual, not instant)
   applyMoodShifts(momentum, tone, avgTone);
-  
+
   // Clear genuine moment flag if it's been a while (4+ hours)
   if (momentum.lastGenuineMomentAt) {
-    const hoursSinceGenuine = (Date.now() - momentum.lastGenuineMomentAt) / (1000 * 60 * 60);
+    const hoursSinceGenuine =
+      (Date.now() - momentum.lastGenuineMomentAt) / (1000 * 60 * 60);
     if (hoursSinceGenuine > 4) {
       momentum.genuineMomentDetected = false;
     }
   }
-  
+
   await saveMomentumAsync(momentum);
   return momentum;
 }
@@ -502,14 +573,14 @@ export async function updateEmotionalMomentumAsync(
 /**
  * Record an interaction (async version - recommended).
  * Updates both mood state and emotional momentum.
- * 
+ *
  * @param tone - Interaction tone from -1 (negative) to 1 (positive)
  * @param userMessage - User message for genuine moment detection
  * @param conversationContext - Optional recent chat history for context
  */
 export async function recordInteractionAsync(
   toneOrToneIntent: number | ToneIntent = 0,
-  userMessage: string = '',
+  userMessage: string = "",
   genuineMomentOverride?: GenuineMomentResult
 ): Promise<void> {
   const state = await getMoodStateAsync();
@@ -517,7 +588,7 @@ export async function recordInteractionAsync(
 
   // Extract tone value from input
   let tone: number;
-  if (typeof toneOrToneIntent === 'number') {
+  if (typeof toneOrToneIntent === "number") {
     tone = toneOrToneIntent;
   } else {
     tone = toneOrToneIntent.sentiment;
@@ -531,62 +602,74 @@ export async function recordInteractionAsync(
 
   // --- UPDATE EMOTIONAL MOMENTUM (SIMPLIFIED) ---
   // Simple weighted average for mood level
+  console.log("Gates 3: momentum ", momentum);
   momentum.currentMoodLevel = momentum.currentMoodLevel * 0.8 + tone * 0.2;
 
   // Simple streak logic
   if (tone > 0.3) {
     momentum.positiveInteractionStreak++;
   } else if (tone < -0.2) {
-    momentum.positiveInteractionStreak = Math.max(0, momentum.positiveInteractionStreak - 1);
+    momentum.positiveInteractionStreak = Math.max(
+      0,
+      momentum.positiveInteractionStreak - 1
+    );
   }
 
   // Handle genuine moment (from LLM detection or override)
-  const genuineMoment = genuineMomentOverride ||
+  const genuineMoment =
+    genuineMomentOverride ||
     (userMessage ? await detectGenuineMomentLLMCached(userMessage) : null);
 
   // Check for genuine moment - GenuineMomentResult has isPositiveAffirmation,
   // GenuineMomentIntent doesn't but isGenuine + category is sufficient
-  const isGenuineMoment = genuineMoment?.isGenuine && (
-    ('isPositiveAffirmation' in genuineMoment && genuineMoment.isPositiveAffirmation) ||
-    (!('isPositiveAffirmation' in genuineMoment) && genuineMoment.category !== null)
-  );
+  const isGenuineMoment =
+    genuineMoment?.isGenuine &&
+    (("isPositiveAffirmation" in genuineMoment &&
+      genuineMoment.isPositiveAffirmation) ||
+      (!("isPositiveAffirmation" in genuineMoment) &&
+        genuineMoment.category !== null));
 
   if (isGenuineMoment) {
-    console.log(`🌟 [MoodKnobs] Genuine moment detected! Category: ${genuineMoment?.category}`);
+    console.log(
+      `🌟 [MoodKnobs] Genuine moment detected! Category: ${genuineMoment?.category}`
+    );
     momentum.genuineMomentDetected = true;
     momentum.lastGenuineMomentAt = Date.now();
+    console.log("Gates 4: momentum ", momentum);
     momentum.currentMoodLevel = Math.min(0.8, momentum.currentMoodLevel + 0.5);
   }
 
   // Clear old genuine moment (4+ hours)
   if (momentum.lastGenuineMomentAt) {
-    const hoursSinceGenuine = (Date.now() - momentum.lastGenuineMomentAt) / (1000 * 60 * 60);
+    const hoursSinceGenuine =
+      (Date.now() - momentum.lastGenuineMomentAt) / (1000 * 60 * 60);
     if (hoursSinceGenuine > 4) {
       momentum.genuineMomentDetected = false;
     }
   }
 
   // Clamp mood level to valid range
+  console.log("Gates 5: momentum ", momentum);
   momentum.currentMoodLevel = clamp(momentum.currentMoodLevel, -1, 1);
 
   // Save both states
-  await saveMoodStateAsync( state);
+  await saveMoodStateAsync(state);
   await saveMomentumAsync(momentum);
 }
 
 /**
  * Reset emotional momentum (async version)
- * 
+ *
  */
 export async function resetEmotionalMomentumAsync(): Promise<void> {
   const fresh = createDefaultEmotionalMomentum();
   await saveMomentumAsync(fresh);
-  console.log('🧠 [MoodKnobs] Reset emotional momentum');
+  console.log("🧠 [MoodKnobs] Reset emotional momentum");
 }
 
 /**
  * Get mood knobs (async version - recommended)
- * 
+ *
  * @returns Promise resolving to calculated MoodKnobs
  */
 export async function getMoodKnobsAsync(): Promise<MoodKnobs> {
@@ -594,7 +677,6 @@ export async function getMoodKnobsAsync(): Promise<MoodKnobs> {
   const momentum = await getEmotionalMomentumAsync();
   return calculateMoodKnobsFromState(state, momentum);
 }
-
 
 // ============================================
 // Internal Helper Functions
@@ -613,13 +695,18 @@ function seededRandom(seed: number, offset: number = 0): number {
  */
 function getDailySeed(): number {
   const today = new Date();
-  return today.getFullYear() * 10000 + (today.getMonth() + 1) * 100 + today.getDate();
+  return (
+    today.getFullYear() * 10000 + (today.getMonth() + 1) * 100 + today.getDate()
+  );
 }
 
 /**
  * Create a fresh mood state with daily variation
  */
-function createFreshMoodStateWithSeed(seed: number, lastInteractionAt: number): MoodState {
+function createFreshMoodStateWithSeed(
+  seed: number,
+  lastInteractionAt: number
+): MoodState {
   return {
     dailyEnergy: 0.5 + seededRandom(seed, 1) * 0.5, // 0.5-1.0
     socialBattery: 0.8 + seededRandom(seed, 2) * 0.2, // 0.8-1.0 at start
@@ -636,38 +723,38 @@ function createFreshMoodStateWithSeed(seed: number, lastInteractionAt: number): 
  */
 function getTimeOfDayModifier(): { energy: number; mood: string } {
   const hour = new Date().getHours();
-  
+
   if (hour >= 6 && hour < 9) {
-    return { energy: 0.6, mood: 'waking' };
+    return { energy: 0.6, mood: "waking" };
   } else if (hour >= 9 && hour < 12) {
-    return { energy: 0.9, mood: 'energized' };
+    return { energy: 0.9, mood: "energized" };
   } else if (hour >= 12 && hour < 14) {
-    return { energy: 0.7, mood: 'settling' };
+    return { energy: 0.7, mood: "settling" };
   } else if (hour >= 14 && hour < 17) {
-    return { energy: 0.8, mood: 'focused' };
+    return { energy: 0.8, mood: "focused" };
   } else if (hour >= 17 && hour < 20) {
-    return { energy: 0.7, mood: 'unwinding' };
+    return { energy: 0.7, mood: "unwinding" };
   } else if (hour >= 20 && hour < 23) {
-    return { energy: 0.5, mood: 'cozy' };
+    return { energy: 0.5, mood: "cozy" };
   } else {
-    return { energy: 0.4, mood: 'late_night' };
+    return { energy: 0.4, mood: "late_night" };
   }
 }
 
 /**
  * Calculate days since last interaction and its effect
  */
-function getDaysSinceEffect(lastInteractionAt: number | null): { 
-  modifier: number; 
+function getDaysSinceEffect(lastInteractionAt: number | null): {
+  modifier: number;
   reconnecting: boolean;
   stranger: boolean;
 } {
   if (!lastInteractionAt) {
     return { modifier: 0.5, reconnecting: false, stranger: true };
   }
-  
+
   const daysSince = (Date.now() - lastInteractionAt) / (1000 * 60 * 60 * 24);
-  
+
   if (daysSince < 0.5) {
     return { modifier: 1.0, reconnecting: false, stranger: false };
   } else if (daysSince < 1) {
@@ -694,58 +781,65 @@ function calculateAverageTone(tones: number[]): number {
  */
 function calculateMomentumDirection(tones: number[]): number {
   if (tones.length < 3) return 0;
-  
+
   const midpoint = Math.floor(tones.length / 2);
   const recentHalf = tones.slice(midpoint);
   const olderHalf = tones.slice(0, midpoint);
-  
+
   const recentAvg = calculateAverageTone(recentHalf);
   const olderAvg = calculateAverageTone(olderHalf);
-  
+
   const diff = recentAvg - olderAvg;
-  
-  if (diff > 0.15) return 1;    // Improving
-  if (diff < -0.15) return -1;  // Declining
-  return 0;                     // Stable
+
+  if (diff > 0.15) return 1; // Improving
+  if (diff < -0.15) return -1; // Declining
+  return 0; // Stable
 }
 
 /**
  * Apply mood shifts based on streak (gradual, not instant)
  */
-function applyMoodShifts(momentum: EmotionalMomentum, tone: number, avgTone: number): void {
+function applyMoodShifts(
+  momentum: EmotionalMomentum,
+  tone: number,
+  avgTone: number
+): void {
   const streak = momentum.positiveInteractionStreak;
+  console.log("Gates 6: momentum ", momentum);
   const currentMood = momentum.currentMoodLevel;
-  
+
   if (streak < MOOD_SHIFT_THRESHOLDS.minStreakForShift) {
     // 1-2 positive interactions: Very minor effect
     const microShift = tone * 0.05;
+    console.log("Gates 7: momentum ", momentum);
     momentum.currentMoodLevel = clamp(currentMood + microShift, -1, 1);
-    
   } else if (streak < MOOD_SHIFT_THRESHOLDS.noticeableShiftStreak) {
     // 3 positives: Starting to shift
     if (avgTone >= MOOD_SHIFT_THRESHOLDS.positiveTrendThreshold) {
-      const smallShift = 0.1 + (tone * 0.05);
+      const smallShift = 0.1 + tone * 0.05;
+      console.log("Gates 8: momentum ", momentum);
       momentum.currentMoodLevel = clamp(currentMood + smallShift, -1, 0.5);
     }
-    
   } else if (streak < MOOD_SHIFT_THRESHOLDS.fullThawStreak) {
     // 4-5 positives: Mood is noticeably shifting
     if (avgTone >= MOOD_SHIFT_THRESHOLDS.positiveTrendThreshold) {
-      const mediumShift = 0.15 + (tone * 0.1);
+      const mediumShift = 0.15 + tone * 0.1;
+      console.log("Gates 9: momentum ", momentum);
       momentum.currentMoodLevel = clamp(currentMood + mediumShift, -1, 0.7);
     }
-    
   } else {
     // 6+ positives: Full thaw - she opens up
     if (avgTone >= MOOD_SHIFT_THRESHOLDS.positiveTrendThreshold) {
-      const fullShift = 0.2 + (tone * 0.15);
+      const fullShift = 0.2 + tone * 0.15;
+      console.log("Gates 10: momentum ", momentum);
       momentum.currentMoodLevel = clamp(currentMood + fullShift, -1, 1);
     }
   }
-  
+
   // Negative interactions can pull mood down, but also gradually
   if (tone <= MOOD_SHIFT_THRESHOLDS.negativeToneThreshold) {
     const negativeShift = tone * 0.15;
+    console.log("Gates 11: momentum ", momentum);
     momentum.currentMoodLevel = clamp(currentMood + negativeShift, -1, 1);
   }
 }
@@ -754,90 +848,107 @@ function applyMoodShifts(momentum: EmotionalMomentum, tone: number, avgTone: num
  * Calculate mood knobs from state and momentum
  * Exported for use with unified state fetch optimization
  */
-export function calculateMoodKnobsFromState(state: MoodState, momentum: EmotionalMomentum): MoodKnobs {
+export function calculateMoodKnobsFromState(
+  state: MoodState,
+  momentum: EmotionalMomentum
+): MoodKnobs {
   const timeEffect = getTimeOfDayModifier();
   const daysSinceEffect = getDaysSinceEffect(state.lastInteractionAt);
-  
+
   // Base calculations from hidden causes
-  const baseEnergy = state.dailyEnergy * timeEffect.energy * state.socialBattery;
+  const baseEnergy =
+    state.dailyEnergy * timeEffect.energy * state.socialBattery;
   const reconnectPenalty = daysSinceEffect.reconnecting ? 0.8 : 1.0;
   const processingPenalty = state.internalProcessing ? 0.7 : 1.0;
-  
+
   // Momentum-based adjustments
+  console.log("Gates 12: momentum ", momentum);
   const momentumBoost = momentum.currentMoodLevel * 0.2;
   const streakBonus = Math.min(momentum.positiveInteractionStreak * 0.03, 0.15);
   const genuineMomentBonus = momentum.genuineMomentDetected ? 0.1 : 0;
-  
-  const toneCarryover = state.lastInteractionTone * 0.3 + momentumBoost + streakBonus + genuineMomentBonus;
-  
+
+  const toneCarryover =
+    state.lastInteractionTone * 0.3 +
+    momentumBoost +
+    streakBonus +
+    genuineMomentBonus;
+
   // Calculate verbosity (0.3-1.0)
-  let verbosity = 0.3 + (baseEnergy * 0.5) + (state.socialBattery * 0.2);
+  let verbosity = 0.3 + baseEnergy * 0.5 + state.socialBattery * 0.2;
   verbosity = Math.max(0.3, Math.min(1.0, verbosity * processingPenalty));
-  
+
   // Calculate initiation rate (0.1-0.8)
-  let initiationRate = 0.1 + (baseEnergy * 0.5) + (timeEffect.energy * 0.2);
-  initiationRate = Math.max(0.1, Math.min(0.8, initiationRate * reconnectPenalty));
-  
+  let initiationRate = 0.1 + baseEnergy * 0.5 + timeEffect.energy * 0.2;
+  initiationRate = Math.max(
+    0.1,
+    Math.min(0.8, initiationRate * reconnectPenalty)
+  );
+
   // Calculate flirt threshold (0.2-0.9)
-  let flirtThreshold = 0.3 + (state.socialBattery * 0.3) + (daysSinceEffect.modifier * 0.2);
+  let flirtThreshold =
+    0.3 + state.socialBattery * 0.3 + daysSinceEffect.modifier * 0.2;
   flirtThreshold = flirtThreshold + toneCarryover;
-  flirtThreshold = Math.max(0.2, Math.min(0.9, flirtThreshold * reconnectPenalty));
-  
+  flirtThreshold = Math.max(
+    0.2,
+    Math.min(0.9, flirtThreshold * reconnectPenalty)
+  );
+
   // Curiosity depth based on energy and time
   let curiosityDepth: CuriosityDepth;
   const curiosityScore = baseEnergy * processingPenalty;
   if (curiosityScore > 0.7) {
-    curiosityDepth = 'piercing';
+    curiosityDepth = "piercing";
   } else if (curiosityScore > 0.4) {
-    curiosityDepth = 'medium';
+    curiosityDepth = "medium";
   } else {
-    curiosityDepth = 'shallow';
+    curiosityDepth = "shallow";
   }
-  
+
   // Patience decay based on social battery and energy
   let patienceDecay: PatienceDecay;
   const patienceScore = state.socialBattery * baseEnergy;
   if (patienceScore > 0.6) {
-    patienceDecay = 'slow';
+    patienceDecay = "slow";
   } else if (patienceScore > 0.3) {
-    patienceDecay = 'normal';
+    patienceDecay = "normal";
   } else {
-    patienceDecay = 'quick';
+    patienceDecay = "quick";
   }
-  
+
   // Warmth availability based on multiple factors and momentum
   let warmthAvailability: WarmthAvailability;
-  const warmthScore = (state.socialBattery * 0.4) + 
-                      (daysSinceEffect.modifier * 0.3) + 
-                      (toneCarryover * 0.3) +
-                      (processingPenalty === 1 ? 0.2 : -0.1);
-  
+  const warmthScore =
+    state.socialBattery * 0.4 +
+    daysSinceEffect.modifier * 0.3 +
+    toneCarryover * 0.3 +
+    (processingPenalty === 1 ? 0.2 : -0.1);
+
   const streak = momentum.positiveInteractionStreak;
-  
+
   if (daysSinceEffect.stranger) {
-    warmthAvailability = 'guarded';
+    warmthAvailability = "guarded";
   } else if (momentum.genuineMomentDetected) {
-    warmthAvailability = warmthScore > 0.3 ? 'open' : 'neutral';
+    warmthAvailability = warmthScore > 0.3 ? "open" : "neutral";
   } else if (streak < MOOD_SHIFT_THRESHOLDS.minStreakForShift) {
-    warmthAvailability = warmthScore > 0.5 ? 'neutral' : 'guarded';
+    warmthAvailability = warmthScore > 0.5 ? "neutral" : "guarded";
   } else if (streak < MOOD_SHIFT_THRESHOLDS.fullThawStreak) {
     if (warmthScore > 0.5) {
-      warmthAvailability = 'neutral';
+      warmthAvailability = "neutral";
     } else if (warmthScore > 0.2) {
-      warmthAvailability = 'neutral';
+      warmthAvailability = "neutral";
     } else {
-      warmthAvailability = 'guarded';
+      warmthAvailability = "guarded";
     }
   } else {
     if (warmthScore > 0.4) {
-      warmthAvailability = 'open';
+      warmthAvailability = "open";
     } else if (warmthScore > 0.2) {
-      warmthAvailability = 'neutral';
+      warmthAvailability = "neutral";
     } else {
-      warmthAvailability = 'guarded';
+      warmthAvailability = "guarded";
     }
   }
-  
+
   return {
     verbosity: Math.round(verbosity * 100) / 100,
     initiationRate: Math.round(initiationRate * 100) / 100,
@@ -871,72 +982,100 @@ export function detectGenuineMoment(userMessage: string): GenuineMomentResult {
     matchedKeywords: [],
     isPositiveAffirmation: false,
   };
-  
+
   // Check each insecurity category
   for (const [category, keywords] of Object.entries(INSECURITY_KEYWORDS)) {
-    const matched = keywords.filter(keyword => 
+    const matched = keywords.filter((keyword) =>
       messageLower.includes(keyword.toLowerCase())
     );
-    
+
     if (matched.length >= 2) {
       result.category = category as InsecurityCategory;
       result.matchedKeywords = matched;
-      
+
       const positiveIndicators = [
-        'you', 'your', 'i think', 'i love', 'i appreciate', 'amazing',
-        'incredible', 'impressive', 'admire', 'respect', 'genuine',
-        'real', 'authentic', 'truly', 'really', 'so much', 'beautiful'
+        "you",
+        "your",
+        "i think",
+        "i love",
+        "i appreciate",
+        "amazing",
+        "incredible",
+        "impressive",
+        "admire",
+        "respect",
+        "genuine",
+        "real",
+        "authentic",
+        "truly",
+        "really",
+        "so much",
+        "beautiful",
       ];
-      
-      const hasPositiveIndicator = positiveIndicators.some(pi => 
+
+      const hasPositiveIndicator = positiveIndicators.some((pi) =>
         messageLower.includes(pi)
       );
-      
-      if (hasPositiveIndicator && messageLower.includes('you')) {
+
+      if (hasPositiveIndicator && messageLower.includes("you")) {
         result.isGenuine = true;
         result.isPositiveAffirmation = true;
         break;
       }
     }
   }
-  
+
   // Special cases for very direct affirmations
   const directAffirmations = [
-    'you think deeply',
-    'you\'re so thoughtful',
-    'you\'re not shallow',
-    'you deserve',
-    'you belong',
-    'proud of you',
-    'here for you',
-    'you\'re enough',
-    'you\'re doing great',
-    'you\'re not alone',
-    'you\'re genuine',
-    'you\'re authentic',
-    'you\'re so smart',
-    'you\'re so real',
+    "you think deeply",
+    "you're so thoughtful",
+    "you're not shallow",
+    "you deserve",
+    "you belong",
+    "proud of you",
+    "here for you",
+    "you're enough",
+    "you're doing great",
+    "you're not alone",
+    "you're genuine",
+    "you're authentic",
+    "you're so smart",
+    "you're so real",
   ];
-  
+
   for (const affirmation of directAffirmations) {
     if (messageLower.includes(affirmation)) {
       result.isGenuine = true;
       result.isPositiveAffirmation = true;
       result.matchedKeywords.push(affirmation);
-      
-      if (affirmation.includes('think') || affirmation.includes('smart') || affirmation.includes('shallow')) {
-        result.category = 'beingSeenAsShallow';
-      } else if (affirmation.includes('belong') || affirmation.includes('deserve')) {
-        result.category = 'impostorSyndrome';
-      } else if (affirmation.includes('proud') || affirmation.includes('great') || affirmation.includes('enough')) {
-        result.category = 'neverArriving';
-      } else if (affirmation.includes('alone') || affirmation.includes('here for')) {
-        result.category = 'hiddenLoneliness';
+
+      if (
+        affirmation.includes("think") ||
+        affirmation.includes("smart") ||
+        affirmation.includes("shallow")
+      ) {
+        result.category = "beingSeenAsShallow";
+      } else if (
+        affirmation.includes("belong") ||
+        affirmation.includes("deserve")
+      ) {
+        result.category = "impostorSyndrome";
+      } else if (
+        affirmation.includes("proud") ||
+        affirmation.includes("great") ||
+        affirmation.includes("enough")
+      ) {
+        result.category = "neverArriving";
+      } else if (
+        affirmation.includes("alone") ||
+        affirmation.includes("here for")
+      ) {
+        result.category = "hiddenLoneliness";
       }
       break;
     }
   }
-  
+
   return result;
 }
 
@@ -949,16 +1088,21 @@ export async function detectGenuineMomentWithLLM(
   conversationContext?: ConversationContext
 ): Promise<GenuineMomentResult> {
   try {
-    const llmResult = await detectGenuineMomentLLMCached(userMessage, conversationContext);
-    
+    const llmResult = await detectGenuineMomentLLMCached(
+      userMessage,
+      conversationContext
+    );
+
     if (llmResult.isGenuine && llmResult.category) {
-      const mappedCategory = mapCategoryToInsecurity(llmResult.category) as InsecurityCategory | null;
-      
+      const mappedCategory = mapCategoryToInsecurity(
+        llmResult.category
+      ) as InsecurityCategory | null;
+
       console.log(`🧠 [MoodKnobs] LLM detected genuine moment:`, {
         category: mappedCategory,
         confidence: llmResult.confidence,
       });
-      
+
       return {
         isGenuine: true,
         category: mappedCategory,
@@ -967,16 +1111,17 @@ export async function detectGenuineMomentWithLLM(
       };
     }
 
-    
     return {
       isGenuine: false,
       category: null,
       matchedKeywords: [],
       isPositiveAffirmation: false,
     };
-    
   } catch (error) {
-    console.warn('⚠️ [MoodKnobs] LLM detection failed, falling back to keywords:', error);
+    console.warn(
+      "⚠️ [MoodKnobs] LLM detection failed, falling back to keywords:",
+      error
+    );
     return detectGenuineMoment(userMessage);
   }
 }
@@ -992,85 +1137,103 @@ export async function detectGenuineMomentWithLLM(
 export async function updateEmotionalMomentumWithIntensityAsync(
   tone: number,
   intensity: number,
-  userMessage: string = '',
+  userMessage: string = "",
   genuineMomentOverride?: GenuineMomentResult
 ): Promise<EmotionalMomentum> {
   const momentum = await getEmotionalMomentumAsync();
-  
+
   momentum.recentInteractionTones.push(tone);
   if (momentum.recentInteractionTones.length > MAX_TONE_HISTORY) {
     momentum.recentInteractionTones.shift();
   }
-  
-  const genuineMoment = genuineMomentOverride || await detectGenuineMomentWithLLM(userMessage);
-  
+
+  const genuineMoment =
+    genuineMomentOverride || (await detectGenuineMomentWithLLM(userMessage));
+
   if (genuineMoment.isGenuine && genuineMoment.isPositiveAffirmation) {
-    console.log(`🌟 [MoodKnobs] Genuine moment detected! Category: ${genuineMoment.category}`);
-    console.log(`   Matched keywords: ${genuineMoment.matchedKeywords.join(', ')}`);
-    
+    console.log(
+      `🌟 [MoodKnobs] Genuine moment detected! Category: ${genuineMoment.category}`
+    );
+    console.log(
+      `   Matched keywords: ${genuineMoment.matchedKeywords.join(", ")}`
+    );
+
     momentum.genuineMomentDetected = true;
     momentum.lastGenuineMomentAt = Date.now();
-    
+    console.log("Gates 13: momentum ", momentum);
     momentum.currentMoodLevel = Math.min(0.8, momentum.currentMoodLevel + 0.5);
     momentum.momentumDirection = 1;
-    momentum.positiveInteractionStreak = Math.max(MOOD_SHIFT_THRESHOLDS.noticeableShiftStreak, momentum.positiveInteractionStreak);
-    
+    momentum.positiveInteractionStreak = Math.max(
+      MOOD_SHIFT_THRESHOLDS.noticeableShiftStreak,
+      momentum.positiveInteractionStreak
+    );
+
     await saveMomentumAsync(momentum);
     return momentum;
   }
-  
+
   if (tone >= MOOD_SHIFT_THRESHOLDS.positiveToneThreshold) {
     momentum.positiveInteractionStreak++;
   } else if (tone <= MOOD_SHIFT_THRESHOLDS.negativeToneThreshold) {
-    momentum.positiveInteractionStreak = Math.max(0, momentum.positiveInteractionStreak - 2);
+    momentum.positiveInteractionStreak = Math.max(
+      0,
+      momentum.positiveInteractionStreak - 2
+    );
   }
-  
-  momentum.momentumDirection = calculateMomentumDirection(momentum.recentInteractionTones);
-  
+
+  momentum.momentumDirection = calculateMomentumDirection(
+    momentum.recentInteractionTones
+  );
+
   const avgTone = calculateAverageTone(momentum.recentInteractionTones);
-  
+
   // Intensity multiplier - high intensity emotions shift mood faster
   const intensityMultiplier = 0.5 + intensity;
-  
+
   const streak = momentum.positiveInteractionStreak;
   const currentMood = momentum.currentMoodLevel;
-  
+  console.log("Gates 14: momentum ", momentum);
   if (streak < MOOD_SHIFT_THRESHOLDS.minStreakForShift) {
     const microShift = tone * 0.05 * intensityMultiplier;
+    console.log("Gates 15: momentum ", momentum);
     momentum.currentMoodLevel = clamp(currentMood + microShift, -1, 1);
   } else if (streak < MOOD_SHIFT_THRESHOLDS.noticeableShiftStreak) {
     if (avgTone >= MOOD_SHIFT_THRESHOLDS.positiveTrendThreshold) {
-      const smallShift = (0.1 + (tone * 0.05)) * intensityMultiplier;
+      const smallShift = (0.1 + tone * 0.05) * intensityMultiplier;
+      console.log("Gates 16: momentum ", momentum);
       momentum.currentMoodLevel = clamp(currentMood + smallShift, -1, 0.5);
     }
   } else if (streak < MOOD_SHIFT_THRESHOLDS.fullThawStreak) {
     if (avgTone >= MOOD_SHIFT_THRESHOLDS.positiveTrendThreshold) {
-      const mediumShift = (0.15 + (tone * 0.1)) * intensityMultiplier;
+      const mediumShift = (0.15 + tone * 0.1) * intensityMultiplier;
+      console.log("Gates 17: momentum ", momentum);
       momentum.currentMoodLevel = clamp(currentMood + mediumShift, -1, 0.7);
     }
   } else {
     if (avgTone >= MOOD_SHIFT_THRESHOLDS.positiveTrendThreshold) {
-      const fullShift = (0.2 + (tone * 0.15)) * intensityMultiplier;
+      console.log("Gates 18: momentum ", momentum);
+      const fullShift = (0.2 + tone * 0.15) * intensityMultiplier;
       momentum.currentMoodLevel = clamp(currentMood + fullShift, -1, 1);
     }
   }
-  
+
   if (tone <= MOOD_SHIFT_THRESHOLDS.negativeToneThreshold) {
     const negativeShift = tone * 0.15 * intensityMultiplier;
+    console.log("Gates 19: momentum ", momentum);
     momentum.currentMoodLevel = clamp(currentMood + negativeShift, -1, 1);
   }
-  
+
   if (momentum.lastGenuineMomentAt) {
-    const hoursSinceGenuine = (Date.now() - momentum.lastGenuineMomentAt) / (1000 * 60 * 60);
+    const hoursSinceGenuine =
+      (Date.now() - momentum.lastGenuineMomentAt) / (1000 * 60 * 60);
     if (hoursSinceGenuine > 4) {
       momentum.genuineMomentDetected = false;
     }
   }
-  
+
   await saveMomentumAsync(momentum);
   return momentum;
 }
-
 
 // ============================================
 // Utility Functions
@@ -1081,16 +1244,16 @@ export async function updateEmotionalMomentumWithIntensityAsync(
  */
 export function mapEmotionToMood(emotion: PrimaryEmotion): string | null {
   const emotionToMoodMap: Record<PrimaryEmotion, string | null> = {
-    'happy': 'happy',
-    'sad': 'sad',
-    'frustrated': 'frustrated',
-    'anxious': 'anxious',
-    'excited': 'happy',
-    'angry': 'frustrated',
-    'playful': null,
-    'dismissive': null,
-    'neutral': null,
-    'mixed': null,
+    happy: "happy",
+    sad: "sad",
+    frustrated: "frustrated",
+    anxious: "anxious",
+    excited: "happy",
+    angry: "frustrated",
+    playful: null,
+    dismissive: null,
+    neutral: null,
+    mixed: null,
   };
   return emotionToMoodMap[emotion] ?? null;
 }
@@ -1114,53 +1277,67 @@ export function getMoodDescription(): string {
   const momentum = momentumCache?.data ?? createDefaultEmotionalMomentum();
   const knobs = calculateMoodKnobsFromState(state, momentum);
   const timeEffect = getTimeOfDayModifier();
-  
+
   const parts: string[] = [];
-  
+
   if (state.dailyEnergy > 0.8) {
-    parts.push('high energy day');
+    parts.push("high energy day");
   } else if (state.dailyEnergy < 0.5) {
-    parts.push('lower energy today');
+    parts.push("lower energy today");
   }
-  
+
   parts.push(timeEffect.mood);
-  
+
   if (state.internalProcessing) {
-    parts.push('processing something');
+    parts.push("processing something");
   }
-  
+
   if (state.socialBattery < 0.4) {
-    parts.push('social battery low');
+    parts.push("social battery low");
   }
-  
+
   const daysSince = getDaysSinceEffect(state.lastInteractionAt);
   if (daysSince.stranger) {
-    parts.push('reconnecting after a while');
+    parts.push("reconnecting after a while");
   } else if (daysSince.reconnecting) {
-    parts.push('catching up');
+    parts.push("catching up");
   }
-  
-  if (momentum.positiveInteractionStreak >= MOOD_SHIFT_THRESHOLDS.fullThawStreak) {
-    parts.push(`thawed (${momentum.positiveInteractionStreak} positive streak)`);
-  } else if (momentum.positiveInteractionStreak >= MOOD_SHIFT_THRESHOLDS.noticeableShiftStreak) {
-    parts.push(`warming up (${momentum.positiveInteractionStreak} positive streak)`);
-  } else if (momentum.positiveInteractionStreak >= MOOD_SHIFT_THRESHOLDS.minStreakForShift) {
-    parts.push(`mood shifting (${momentum.positiveInteractionStreak} positive streak)`);
+
+  if (
+    momentum.positiveInteractionStreak >= MOOD_SHIFT_THRESHOLDS.fullThawStreak
+  ) {
+    parts.push(
+      `thawed (${momentum.positiveInteractionStreak} positive streak)`
+    );
+  } else if (
+    momentum.positiveInteractionStreak >=
+    MOOD_SHIFT_THRESHOLDS.noticeableShiftStreak
+  ) {
+    parts.push(
+      `warming up (${momentum.positiveInteractionStreak} positive streak)`
+    );
+  } else if (
+    momentum.positiveInteractionStreak >=
+    MOOD_SHIFT_THRESHOLDS.minStreakForShift
+  ) {
+    parts.push(
+      `mood shifting (${momentum.positiveInteractionStreak} positive streak)`
+    );
   }
-  
+
   if (momentum.genuineMomentDetected) {
-    parts.push('genuine moment active ✨');
+    parts.push("genuine moment active ✨");
   }
-  
+  console.log("Gates 20: momentum ", momentum);
   if (momentum.currentMoodLevel > 0.5) {
-    parts.push('mood: great');
+    parts.push("mood: great");
   } else if (momentum.currentMoodLevel < -0.5) {
-    parts.push('mood: struggling');
+    parts.push("mood: struggling");
   } else if (momentum.currentMoodLevel < -0.2) {
-    parts.push('mood: off');
+    parts.push("mood: off");
   }
-  
-  return parts.join(', ') || 'baseline';
+
+  return parts.join(", ") || "baseline";
 }
 
 /**

@@ -189,33 +189,31 @@ export interface MoodProgression {
  */
 export interface SessionReflection {
   id: string;
-  userId: string;
-
   // Session metadata
   sessionStartAt: Date;
   sessionEndAt: Date;
   messageCount: number;
 
   // Emotional arc
-  emotionalArc: string;              // "Started tense, warmed up, ended playful"
+  emotionalArc: string; // "Started tense, warmed up, ended playful"
   dominantMood: ConversationalMood;
   moodProgression: MoodProgression[];
 
   // Key moments
   memorableMoments: MemorableMoment[];
-  unresolvedThreads: string[];       // Topics left hanging
+  unresolvedThreads: string[]; // Topics left hanging
 
   // Relationship impact
-  intimacyDelta: number;             // -1 to 1
+  intimacyDelta: number; // -1 to 1
   trustDelta: number;
   warmthDelta: number;
 
   // What Kayley learned
   newUserFacts: string[];
-  conversationInsights: string;      // Kayley's reflection
+  conversationInsights: string; // Kayley's reflection
 
   // Proactive prep
-  suggestedFollowups: string[];      // Ideas for next conversation
+  suggestedFollowups: string[]; // Ideas for next conversation
 
   createdAt: Date;
 }
@@ -270,24 +268,24 @@ export interface VisualStateMapping {
   id: string;
 
   // State identifiers
-  emotionalState: string;            // guarded, open, playful, vulnerable
+  emotionalState: string; // guarded, open, playful, vulnerable
   energyLevel: EnergyLevel;
-  moodCategory: string;              // happy, sad, anxious, excited, calm
+  moodCategory: string; // happy, sad, anxious, excited, calm
 
   // Video mapping
-  idleVideoManifestId: string;       // Which idle video to use
-  backgroundId?: string;             // UI background (optional)
+  idleVideoManifestId: string; // Which idle video to use
+  backgroundId?: string; // UI background (optional)
   expressionHints?: Record<string, unknown>; // Subtle expression variations
 
   // Location overrides
-  locationContext?: string;          // "cafe", "bedroom", "outside"
-  locationBackgroundId?: string;     // Override background for location
+  locationContext?: string; // "cafe", "bedroom", "outside"
+  locationBackgroundId?: string; // Override background for location
 
   // Transition
   transitionStyle: TransitionStyle;
 
   // Metadata
-  priority: number;                  // Higher = more specific match wins
+  priority: number; // Higher = more specific match wins
 }
 
 /**
@@ -308,7 +306,6 @@ export interface VisualContext {
  * In-conversation state tracking for spontaneity budget
  */
 export interface ConversationSpontaneityState {
-  userId: string;
   conversationId?: string;
 
   // Message tracking

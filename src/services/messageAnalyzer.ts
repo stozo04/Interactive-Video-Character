@@ -359,7 +359,6 @@ export async function detectRelationshipSignalsWithLLM(
  * Now uses LLM-based detection with conversation context for accurate tone
  * interpretation (e.g., "You suck!!" after good news is playful, not hostile).
  * 
- * @param userId - The user's ID
  * @param message - The user's message text
  * @param interactionCount - Total number of interactions with this user
  * @param llmCall - Optional LLM function for advanced loop detection
@@ -367,7 +366,6 @@ export async function detectRelationshipSignalsWithLLM(
  * @returns Analysis results including any detected patterns/loops/milestones
  */
 export async function analyzeUserMessage(
-  userId: string,
   message: string,
   interactionCount: number = 0,
   llmCall?: (prompt: string) => Promise<string>,
@@ -547,7 +545,6 @@ export async function analyzeUserMessage(
       intentToCheck.contradiction.confidence > 0.6) {
     
     const dismissedCount = await dismissLoopsByTopic(
-      userId, 
       intentToCheck.contradiction.topic
     );
     
@@ -577,7 +574,6 @@ export async function analyzeUserMessage(
     const allTopics = [...new Set([...mentionedTopics, ...contextualTopics])];
     
     const boostedCount = await boostSalienceForMentionedTopics(
-      userId,
       message,
       allTopics
     );
@@ -592,14 +588,13 @@ export async function analyzeUserMessage(
   // ============================================
 
   const relationship = await relationshipService
-    .getRelationship(userId)
+    .getRelationship()
     .catch(() => null);
 
   // Run all background updates in parallel to maximize performance
   const [createdLoops, recordedMilestone, detectedPatterns] = await Promise.all([
     // Phase 5: Create open loops
     detectOpenLoops(
-      userId, 
       message, 
       llmCall, 
       conversationContext,
@@ -607,14 +602,13 @@ export async function analyzeUserMessage(
     ),
     
     // Phase 6: Milestone detection
-    detectMilestoneInMessage(userId, message, interactionCount, relationshipSignalResult),
+    detectMilestoneInMessage(message, interactionCount, relationshipSignalResult),
     
     // Phase 3: Cross-session patterns
-    analyzeMessageForPatterns(userId, message, new Date(), toneResult, topicResult),
+    analyzeMessageForPatterns(message, new Date(), toneResult, topicResult),
     
     // Phase 7: Emotional momentum update
     recordInteractionAsync(
-      userId,
       toneResult, 
       message,
       {
@@ -626,12 +620,11 @@ export async function analyzeUserMessage(
     ),
 
     // Phase 7: Probabilistic intimacy / stats
-    relationshipService.recordMessageQualityAsync(userId, message),
+    relationshipService.recordMessageQualityAsync(message),
 
     // Almost Moments: Generate new unsaid feelings (rare)
     relationship
       ? maybeGenerateNewFeeling(
-          userId,
           relationship.warmthScore,
           relationship.trustScore,
           relationship.relationshipTier
@@ -685,13 +678,11 @@ export async function analyzeUserMessage(
  * Lightweight version for quick integration - doesn't wait for results.
  * Use this in the chat flow to avoid adding latency.
  * 
- * @param userId - The user's ID
  * @param message - The user's message text
  * @param interactionCount - Total number of interactions with this user
  * @param conversationContext - Optional recent chat history for LLM context
  */
 export async function analyzeUserMessageBackground(
-  userId: string,
   message: string,
   interactionCount: number,
   conversationContext?: ConversationContext,
@@ -699,7 +690,6 @@ export async function analyzeUserMessageBackground(
 ): Promise<void> {
   // Fire and forget - don't await this in the main thread
   analyzeUserMessage(
-    userId, 
     message, 
     interactionCount, 
     undefined, 

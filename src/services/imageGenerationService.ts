@@ -139,9 +139,6 @@ export interface SelfieRequest {
   mood?: string;
   outfitHint?: string;
   referenceImageBase64?: string; // Manual override (for backward compatibility)
-
-  // MULTI-REFERENCE SYSTEM (optional - enables dynamic selection)
-  userId?: string;
   userMessage?: string; // User's message that triggered selfie
   conversationHistory?: Array<{ role: string; content: string }>; // Recent messages
   presenceOutfit?: string; // From presence_contexts table
@@ -158,14 +155,6 @@ export interface SelfieResult {
 
 /**
  * Generate a "selfie" image of the AI companion in a given scene
- *
- * If userId is provided, uses the multi-reference system with:
- * - Current look locking for 24h consistency
- * - LLM-based temporal detection (old photo vs current)
- * - Multi-factor scoring (scene, mood, time, season, calendar, etc.)
- * - Anti-repetition tracking with same-scene exception
- *
- * If userId is NOT provided, uses legacy single reference for backward compatibility.
  */
 export async function generateCompanionSelfie(
   request: SelfieRequest
@@ -197,14 +186,14 @@ export async function generateCompanionSelfie(
       temporalPhrases: [],
     };
 
-    if (request.userId && request.userMessage && request.conversationHistory) {
+    if (request.userMessage && request.conversationHistory) {
       console.log(
         "📸 [ImageGen] Using multi-reference system with dynamic selection"
       );
 
       try {
         // STEP 1: Get current look state
-        const currentLookState = await getCurrentLookState(request.userId);
+        const currentLookState = await getCurrentLookState();
         console.log("📸 [ImageGen] Current look state:", currentLookState);
 
         // STEP 2: Detect temporal context (old photo vs current)
@@ -216,7 +205,7 @@ export async function generateCompanionSelfie(
         console.log("📸 [ImageGen] Temporal context:", temporalContext);
 
         // STEP 3: Get recent selfie history for anti-repetition
-        const recentHistory = await getRecentSelfieHistory(request.userId, 10);
+        const recentHistory = await getRecentSelfieHistory(10);
 
         // STEP 4: Build reference selection context
         const selectionContext: ReferenceSelectionContext = {
@@ -255,7 +244,6 @@ export async function generateCompanionSelfie(
           (!currentLookState || new Date() > currentLookState.expiresAt)
         ) {
           await lockCurrentLook(
-            request.userId,
             selectedReferenceId,
             selectedHairstyle,
             "explicit_now_selfie",
@@ -275,7 +263,7 @@ export async function generateCompanionSelfie(
     } else {
       // Legacy behavior: use manual override or default reference
       console.log(
-        "📸 [ImageGen] Using legacy single reference (no userId provided)"
+        "📸 !!!!!!!!!!!!!!!  [ImageGen] Using legacy single reference (no userId provided)"
       );
       selectedReferenceBase64 =
         request.referenceImageBase64 || referenceImageRaw;
@@ -287,8 +275,11 @@ export async function generateCompanionSelfie(
 
     // 1. Clean scene description - remove hairstyle TYPE mentions only (keep style variations like "in a bun")
     const cleanedScene = request.scene
-      .replace(/with (perfectly |super |really )?(straight|curly|wavy) hair(?! (up|down|in a bun|in a ponytail))/gi, '')
-      .replace(/(straight|curly|wavy)[\s-]haired?/gi, '')
+      .replace(
+        /with (perfectly |super |really )?(straight|curly|wavy) hair(?! (up|down|in a bun|in a ponytail))/gi,
+        ""
+      )
+      .replace(/(straight|curly|wavy)[\s-]haired?/gi, "")
       .trim();
 
     // 2. Build the prompt
@@ -349,14 +340,19 @@ export async function generateCompanionSelfie(
 
     // --- AUTO-SAVE TO LOCAL FILESYSTEM (Development only) ---
     try {
-      fetch('/api/save-selfie', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+      fetch("/api/save-selfie", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           imageBase64: generatedPart.inlineData.data,
-          scene: request.scene
-        })
-      }).catch(e => console.warn("📸 [ImageGen] Auto-save failed (expected if not in dev):", e));
+          scene: request.scene,
+        }),
+      }).catch((e) =>
+        console.warn(
+          "📸 [ImageGen] Auto-save failed (expected if not in dev):",
+          e
+        )
+      );
     } catch (e) {
       console.warn("📸 [ImageGen] Auto-save error:", e);
     }
@@ -364,28 +360,26 @@ export async function generateCompanionSelfie(
     // ====================================
     // RECORD GENERATION IN HISTORY
     // ====================================
-    if (request.userId) {
-      try {
-        await recordSelfieGeneration(
-          request.userId,
-          selectedReferenceId,
-          selectedHairstyle,
-          selectedOutfitStyle,
-          request.scene,
-          request.mood,
-          temporalContext.isOldPhoto,
-          temporalContext.referenceDate,
-          {
-            reasoning: selectionReasoning,
-            season: getCurrentSeason(),
-            timeOfDay: getTimeOfDay(),
-          }
-        );
-        console.log("📸 [ImageGen] Recorded generation in history");
-      } catch (error) {
-        console.error("❌ [ImageGen] Error recording generation:", error);
-        // Non-fatal, continue
-      }
+
+    try {
+      await recordSelfieGeneration(
+        selectedReferenceId,
+        selectedHairstyle,
+        selectedOutfitStyle,
+        request.scene,
+        request.mood,
+        temporalContext.isOldPhoto,
+        temporalContext.referenceDate,
+        {
+          reasoning: selectionReasoning,
+          season: getCurrentSeason(),
+          timeOfDay: getTimeOfDay(),
+        }
+      );
+      console.log("📸 [ImageGen] Recorded generation in history");
+    } catch (error) {
+      console.error("❌ [ImageGen] Error recording generation:", error);
+      // Non-fatal, continue
     }
 
     return {

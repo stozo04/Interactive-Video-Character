@@ -95,7 +95,7 @@ export const buildSystemPrompt = async (
   relationshipSignals?: RelationshipSignalIntent | null,
   toneIntent?: ToneIntent | null,
   fullIntent?: FullMessageIntent | null,
-  userId?: string,
+
   userTimeZone?: string,
   // 🚀 NEW: Optional pre-fetched context to avoid duplicate fetches
   prefetchedContext?: {
@@ -105,9 +105,6 @@ export const buildSystemPrompt = async (
 ): Promise<string> => {
   const name = character?.name || "Kayley Adams";
   const display = character?.displayName || "Kayley";
-
-  // 🚀 OPTIMIZATION: Use pre-fetched context if available, otherwise fetch
-  const effectiveUserId = userId || import.meta.env.VITE_USER_ID;
 
   let soulContext: SoulLayerContext;
   let characterFactsPrompt: string;
@@ -121,7 +118,7 @@ export const buildSystemPrompt = async (
     // Fallback: Fetch if not pre-fetched (still in parallel for safety)
     console.log("⚠️ [buildSystemPrompt] No pre-fetched context, fetching now");
     [soulContext, characterFactsPrompt] = await Promise.all([
-      getSoulLayerContextAsync(effectiveUserId),
+      getSoulLayerContextAsync(),
       formatCharacterFactsForPrompt(),
     ]);
   }
@@ -134,26 +131,22 @@ export const buildSystemPrompt = async (
   const effectiveToneIntent = fullIntent?.tone || toneIntent;
 
   let almostMomentsPrompt = "";
-  if (relationship && effectiveUserId) {
+  if (relationship) {
     try {
-      const almostMoments = await integrateAlmostMoments(
-        effectiveUserId,
-        relationship,
-        {
-          conversationDepth: deriveConversationDepth(
-            effectiveRelationshipSignals,
-            effectiveToneIntent
-          ),
-          recentSweetMoment: deriveRecentSweetMoment(
-            effectiveRelationshipSignals,
-            effectiveToneIntent
-          ),
-          vulnerabilityExchangeActive: deriveVulnerabilityExchangeActive(
-            effectiveRelationshipSignals
-          ),
-          allowGeneration: false,
-        }
-      );
+      const almostMoments = await integrateAlmostMoments(relationship, {
+        conversationDepth: deriveConversationDepth(
+          effectiveRelationshipSignals,
+          effectiveToneIntent
+        ),
+        recentSweetMoment: deriveRecentSweetMoment(
+          effectiveRelationshipSignals,
+          effectiveToneIntent
+        ),
+        vulnerabilityExchangeActive: deriveVulnerabilityExchangeActive(
+          effectiveRelationshipSignals
+        ),
+        allowGeneration: false,
+      });
       almostMomentsPrompt = almostMoments.promptSection;
     } catch (error) {
       console.warn(
@@ -209,11 +202,11 @@ ${
 }
 
 ${buildRelationshipTierPrompt(
-    relationship,
-    moodKnobs,
-    Boolean(effectiveRelationshipSignals?.isInappropriate),
-    almostMomentsPrompt
-  )}
+  relationship,
+  moodKnobs,
+  Boolean(effectiveRelationshipSignals?.isInappropriate),
+  almostMomentsPrompt
+)}
 ${buildSelfieRulesPrompt(relationship)}
 
 ====================================================
@@ -292,20 +285,18 @@ ${buildStyleOutputSection(moodKnobs, relationship)}`;
   // PENDING MESSAGES (Part Two: high priority, no duplicate instructions)
   // ============================================
 
-  if (effectiveUserId) {
-    try {
-      const pendingMessage = (await getUndeliveredMessage(
-        effectiveUserId
-      )) as PendingMessage | null;
+  try {
+    const pendingMessage =
+      (await getUndeliveredMessage()) as PendingMessage | null;
 
-      if (pendingMessage) {
-        const preview =
-          pendingMessage.messageText?.length &&
-          pendingMessage.messageText.length > 160
-            ? `${pendingMessage.messageText.slice(0, 160)}...`
-            : pendingMessage.messageText || "";
+    if (pendingMessage) {
+      const preview =
+        pendingMessage.messageText?.length &&
+        pendingMessage.messageText.length > 160
+          ? `${pendingMessage.messageText.slice(0, 160)}...`
+          : pendingMessage.messageText || "";
 
-        prompt += `
+      prompt += `
 
 ====================================================
 💌 PENDING MESSAGE CONTEXT (HIGH PRIORITY)
@@ -321,30 +312,23 @@ DELIVERY GUIDANCE:
 - Do NOT overwrite or restate any separate instructions you see about how to deliver this message.
 - When greeting prompts reference this pending message, follow THOSE instructions as the source of truth.
 `;
-        console.log(
-          `[buildSystemPrompt] Added pending ${pendingMessage.trigger} message context to system prompt`
-        );
-      }
-    } catch (error) {
-      console.warn(
-        "[buildSystemPrompt] Failed to fetch pending message:",
-        error
+      console.log(
+        `[buildSystemPrompt] Added pending ${pendingMessage.trigger} message context to system prompt`
       );
     }
+  } catch (error) {
+    console.warn("[buildSystemPrompt] Failed to fetch pending message:", error);
   }
 
   // Add life experiences (Part Two: things that happened to Kayley today)
-  if (effectiveUserId) {
-    try {
-      const experiencesPrompt = await formatExperiencesForPrompt(
-        effectiveUserId
-      );
-      if (experiencesPrompt) {
-        prompt += experiencesPrompt;
-      }
-    } catch (error) {
-      console.warn("[buildSystemPrompt] Failed to fetch experiences:", error);
+
+  try {
+    const experiencesPrompt = await formatExperiencesForPrompt();
+    if (experiencesPrompt) {
+      prompt += experiencesPrompt;
     }
+  } catch (error) {
+    console.warn("[buildSystemPrompt] Failed to fetch experiences:", error);
   }
 
   // Add spontaneity (if available and applicable)
@@ -411,11 +395,10 @@ The goal is to feel like you have an inner life and want to share it, not like y
   prompt += soulContext.callbackPrompt;
 
   // Add intimacy context (probabilistic, not gated)
-  if (relationship && effectiveUserId) {
+  if (relationship) {
     // Derive flirt threshold from warmth: warmth 0-1 maps to threshold 0.2-0.9
     const flirtThreshold = soulContext.moodKnobs.warmth * 0.7 + 0.2;
     const intimacyContext = await getIntimacyContextForPromptAsync(
-      effectiveUserId,
       relationship,
       flirtThreshold
     );

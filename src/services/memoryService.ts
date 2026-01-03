@@ -533,70 +533,87 @@ export const executeMemoryTool = async (
         // Import taskService functions dynamically to avoid circular dependency
         const { fetchTasks, createTask, toggleTask, deleteTask } = await import('./taskService');
         const { action, task_text, priority } = args as ToolCallArgs['task_action'];
-        
+        console.log("ACTION!: ", action);
+        console.log("task_text!: ", task_text);
+        console.log("priority!: ", priority);
         switch (action) {
-          case 'create': {
+          case "create": {
             if (!task_text) {
-              return 'Error: task_text is required for creating a task.';
+              return "Error: task_text is required for creating a task.";
             }
-            await createTask(task_text, priority || 'low');
-            return `✓ Created task: "${task_text}" (priority: ${priority || 'low'})`;
+            await createTask(task_text, priority || "low");
+            return `✓ Created task: "${task_text}" (priority: ${
+              priority || "low"
+            })`;
           }
-          
-          case 'complete': {
+
+          case "complete": {
             if (!task_text) {
-              return 'Error: task_text is required for completing a task.';
+              return "Error: task_text is required for completing a task.";
             }
             // Find and complete the task
             const tasks = await fetchTasks();
-            const matchingTask = tasks.find(t => 
+            console.log("Fetched Tasks: ", tasks);
+            const matchingTask = tasks.find((t) =>
               t.text.toLowerCase().includes(task_text.toLowerCase())
             );
+            console.log("matchingTask: ", matchingTask);
             if (matchingTask) {
               await toggleTask(matchingTask.id, false); // false = currently not completed, toggle to complete
               return `✓ Completed task: "${matchingTask.text}"`;
             }
             return `Could not find a task matching "${task_text}".`;
           }
-          
-          case 'delete': {
+
+          case "delete": {
             if (!task_text) {
-              return 'Error: task_text is required for deleting a task.';
+              return "Error: task_text is required for deleting a task.";
             }
             // Find and delete the task
             const allTasks = await fetchTasks();
-            const taskToDelete = allTasks.find(t => 
+            const taskToDelete = allTasks.find((t) =>
               t.text.toLowerCase().includes(task_text.toLowerCase())
             );
             if (taskToDelete) {
               await deleteTask(taskToDelete.id);
-              return sanitizeForGemini(`✓ Deleted task: "${taskToDelete.text}"`);
+              return sanitizeForGemini(
+                `✓ Deleted task: "${taskToDelete.text}"`
+              );
             }
-            return sanitizeForGemini(`Could not find a task matching "${task_text}"`);
+            return sanitizeForGemini(
+              `Could not find a task matching "${task_text}"`
+            );
           }
-          
-          case 'list': {
+
+          case "list": {
             const taskList = await fetchTasks();
             if (taskList.length === 0) {
-              return 'No tasks on your checklist.';
+              return "No tasks on your checklist.";
             }
-            const incomplete = taskList.filter(t => !t.completed);
-            const completed = taskList.filter(t => t.completed);
-            
+            const incomplete = taskList.filter((t) => !t.completed);
+            const completed = taskList.filter((t) => t.completed);
+
             let result = `Your checklist (${taskList.length} total):\n`;
             if (incomplete.length > 0) {
-              result += '\nPending:\n' + incomplete.map(t => 
-                `  [ ] ${t.text}${t.priority !== 'low' ? ` (${t.priority} priority)` : ''}`
-              ).join('\n');
+              result +=
+                "\nPending:\n" +
+                incomplete
+                  .map(
+                    (t) =>
+                      `  [ ] ${t.text}${
+                        t.priority !== "low" ? ` (${t.priority} priority)` : ""
+                      }`
+                  )
+                  .join("\n");
             }
             if (completed.length > 0) {
-              result += '\n\nCompleted:\n' + completed.map(t => 
-                `  [✓] ${t.text}`
-              ).join('\n');
+              result +=
+                "\n\nCompleted:\n" +
+                completed.map((t) => `  [✓] ${t.text}`).join("\n");
             }
             return result;
           }
-          
+
           default:
             return `Unknown task action: ${action}`;
         }
