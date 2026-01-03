@@ -64,13 +64,13 @@ describe('Idle Thoughts Scheduler', () => {
     it('should start scheduler and set running state', () => {
       expect(isSchedulerRunning()).toBe(false);
 
-      startIdleThoughtsScheduler(userId);
+      startIdleThoughtsScheduler();
 
       expect(isSchedulerRunning()).toBe(true);
     });
 
     it('should stop scheduler and clear running state', () => {
-      startIdleThoughtsScheduler(userId);
+      startIdleThoughtsScheduler();
       expect(isSchedulerRunning()).toBe(true);
 
       stopIdleThoughtsScheduler();
@@ -86,10 +86,10 @@ describe('Idle Thoughts Scheduler', () => {
     });
 
     it('should replace existing scheduler when starting twice', () => {
-      startIdleThoughtsScheduler(userId);
+      startIdleThoughtsScheduler();
       const firstRunning = isSchedulerRunning();
 
-      startIdleThoughtsScheduler(userId); // Start again
+      startIdleThoughtsScheduler(); // Start again
 
       expect(firstRunning).toBe(true);
       expect(isSchedulerRunning()).toBe(true);
@@ -115,7 +115,7 @@ describe('Idle Thoughts Scheduler', () => {
       vi.mocked(generateIdleThought).mockResolvedValue(mockThought as any);
       vi.mocked(createUserThreadAsync).mockResolvedValue({} as any);
 
-      startIdleThoughtsScheduler(userId);
+      startIdleThoughtsScheduler();
 
       // Stop scheduler to prevent interval from running, but immediate call is already in-flight
       stopIdleThoughtsScheduler();
@@ -125,7 +125,6 @@ describe('Idle Thoughts Scheduler', () => {
 
       expect(generateIdleThought).toHaveBeenCalledWith(0.25, 'neutral'); // 15 min = 0.25 hours
       expect(createUserThreadAsync).toHaveBeenCalledWith(
-        userId,
         'idle reflection',
         mockThought.content,
         IDLE_THOUGHTS_CONFIG.thoughtIntensity
@@ -141,7 +140,7 @@ describe('Idle Thoughts Scheduler', () => {
 
       vi.mocked(getMoodState).mockResolvedValue(mockMoodState as any);
 
-      startIdleThoughtsScheduler(userId);
+      startIdleThoughtsScheduler();
 
       // Fast-forward to trigger the check
       await vi.advanceTimersByTimeAsync(1000);
@@ -160,7 +159,7 @@ describe('Idle Thoughts Scheduler', () => {
       vi.mocked(getMoodState).mockResolvedValue(mockMoodState as any);
       vi.mocked(generateIdleThought).mockResolvedValue(null); // No thought generated (cooldown)
 
-      startIdleThoughtsScheduler(userId);
+      startIdleThoughtsScheduler();
 
       // Stop scheduler to prevent interval from running, but immediate call is already in-flight
       stopIdleThoughtsScheduler();
@@ -175,7 +174,7 @@ describe('Idle Thoughts Scheduler', () => {
     it('should handle errors gracefully', async () => {
       vi.mocked(getMoodState).mockRejectedValue(new Error('Database error'));
 
-      startIdleThoughtsScheduler(userId);
+      startIdleThoughtsScheduler();
 
       // Should not throw - errors are caught and logged
       await vi.advanceTimersByTimeAsync(1000);
@@ -195,7 +194,7 @@ describe('Idle Thoughts Scheduler', () => {
 
       vi.mocked(getMoodState).mockResolvedValue(mockMoodState as any);
 
-      startIdleThoughtsScheduler(userId);
+      startIdleThoughtsScheduler();
 
       // First check (immediate)
       await vi.advanceTimersByTimeAsync(1000);
