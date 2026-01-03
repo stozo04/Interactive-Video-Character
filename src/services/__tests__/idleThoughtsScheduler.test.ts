@@ -123,7 +123,7 @@ describe('Idle Thoughts Scheduler', () => {
       // Flush pending microtasks to let the already-started processIdleThought complete
       await vi.runOnlyPendingTimersAsync();
 
-      expect(generateIdleThought).toHaveBeenCalledWith(userId, 0.25, 'neutral'); // 15 min = 0.25 hours
+      expect(generateIdleThought).toHaveBeenCalledWith(0.25, 'neutral'); // 15 min = 0.25 hours
       expect(createUserThreadAsync).toHaveBeenCalledWith(
         userId,
         'idle reflection',
@@ -168,7 +168,7 @@ describe('Idle Thoughts Scheduler', () => {
       // Flush pending microtasks to let the already-started processIdleThought complete
       await vi.runOnlyPendingTimersAsync();
 
-      expect(generateIdleThought).toHaveBeenCalledWith(userId, 0.25, 'neutral'); // 15 min = 0.25 hours
+      expect(generateIdleThought).toHaveBeenCalledWith(0.25, 'neutral'); // 15 min = 0.25 hours
       expect(createUserThreadAsync).not.toHaveBeenCalled(); // Should not try to create thread
     });
 

@@ -4,11 +4,11 @@
  * 
  * Tests the async Supabase-backed functions with caching:
  * - getIntimacyStateAsync(userId) with caching
- * - storeIntimacyStateAsync(userId, state)
- * - recordMessageQualityAsync(userId, message)
- * - calculateIntimacyProbabilityAsync(userId, relationship, moodFlirtThreshold)
- * - shouldFlirtMomentOccurAsync(userId, relationship, moodFlirtThreshold, bidType)
- * - getIntimacyContextForPromptAsync(userId, relationship, moodFlirtThreshold)
+ * - storeIntimacyStateAsync(state)
+ * - recordMessageQualityAsync(message)
+ * - calculateIntimacyProbabilityAsync(relationship, moodFlirtThreshold)
+ * - shouldFlirtMomentOccurAsync(relationship, moodFlirtThreshold, bidType)
+ * - getIntimacyContextForPromptAsync(relationship, moodFlirtThreshold)
  * - resetIntimacyStateAsync(userId)
  * - Sync fallbacks that use cached data
  */
@@ -188,9 +188,9 @@ describe("Phase 4: Intimacy State Supabase Migration", () => {
         recentQuality: 0.8,
       };
       
-      await storeIntimacyStateAsync(testUserId, newState);
+      await storeIntimacyStateAsync(newState);
       
-      expect(mockSaveIntimacyState).toHaveBeenCalledWith(testUserId, newState);
+      expect(mockSaveIntimacyState).toHaveBeenCalledWith(newState);
     });
 
     it("should update local cache after saving", async () => {
@@ -199,7 +199,7 @@ describe("Phase 4: Intimacy State Supabase Migration", () => {
         lowEffortStreak: 3,
       };
       
-      await storeIntimacyStateAsync(testUserId, newState);
+      await storeIntimacyStateAsync(newState);
       
       // Cache should be updated, so next get should not hit DB
       mockGetIntimacyState.mockClear();
@@ -216,7 +216,7 @@ describe("Phase 4: Intimacy State Supabase Migration", () => {
 
   describe("recordMessageQualityAsync", () => {
     it("should update low effort streak for short messages", async () => {
-      await recordMessageQualityAsync(testUserId, "ok");
+      await recordMessageQualityAsync("ok");
       
       expect(mockSaveIntimacyState).toHaveBeenCalled();
       const savedState = mockSaveIntimacyState.mock.calls[0][1];
@@ -230,14 +230,14 @@ describe("Phase 4: Intimacy State Supabase Migration", () => {
         lowEffortStreak: 3,
       });
       
-      await recordMessageQualityAsync(testUserId, "I've been thinking a lot about what you said earlier, and I really appreciate your perspective on this.");
+      await recordMessageQualityAsync("I've been thinking a lot about what you said earlier, and I really appreciate your perspective on this.");
       
       const savedState = mockSaveIntimacyState.mock.calls[0][1];
       expect(savedState.lowEffortStreak).toBe(0);
     });
 
     it("should activate vulnerability exchange for vulnerable messages", async () => {
-      await recordMessageQualityAsync(testUserId, "I'm scared about sharing this with you, but I trust you");
+      await recordMessageQualityAsync("I'm scared about sharing this with you, but I trust you");
       
       const savedState = mockSaveIntimacyState.mock.calls[0][1];
       expect(savedState.vulnerabilityExchangeActive).toBe(true);
@@ -246,7 +246,7 @@ describe("Phase 4: Intimacy State Supabase Migration", () => {
 
     it("should update recent quality with rolling average", async () => {
       // Start with default 0.5 quality - use a message that qualifies as high effort (contains 'honestly')
-      await recordMessageQualityAsync(testUserId, "Honestly, this is a really thoughtful message that I wanted to share with you about my thoughts");
+      await recordMessageQualityAsync("Honestly, this is a really thoughtful message that I wanted to share with you about my thoughts");
       
       const savedState = mockSaveIntimacyState.mock.calls[0][1];
       // Quality should be shifted from 0.5 baseline (high effort adds 0.2)
@@ -321,8 +321,8 @@ describe("Phase 4: Intimacy State Supabase Migration", () => {
         isRuptured: true,
       };
       
-      const normalProb = await calculateIntimacyProbabilityAsync(testUserId, mockRelationship, 0.5);
-      const rupturedProb = await calculateIntimacyProbabilityAsync(testUserId, rupturedRelationship, 0.5);
+      const normalProb = await calculateIntimacyProbabilityAsync(mockRelationship, 0.5);
+      const rupturedProb = await calculateIntimacyProbabilityAsync(rupturedRelationship, 0.5);
       
       expect(rupturedProb).toBeLessThan(normalProb);
     });
@@ -336,13 +336,13 @@ describe("Phase 4: Intimacy State Supabase Migration", () => {
       });
       clearIntimacyCache();
       
-      const vulnProb = await calculateIntimacyProbabilityAsync(testUserId, mockRelationship, 0.5);
+      const vulnProb = await calculateIntimacyProbabilityAsync(mockRelationship, 0.5);
       
       // Reset for normal comparison
       clearIntimacyCache();
       mockGetIntimacyState.mockResolvedValueOnce(defaultIntimacyState);
       
-      const normalProb = await calculateIntimacyProbabilityAsync(testUserId, mockRelationship, 0.5);
+      const normalProb = await calculateIntimacyProbabilityAsync(mockRelationship, 0.5);
       
       expect(vulnProb).toBeGreaterThan(normalProb);
     });
@@ -356,9 +356,9 @@ describe("Phase 4: Intimacy State Supabase Migration", () => {
     it("should return boolean based on probability", async () => {
       // Run multiple times to ensure it returns boolean
       const results = await Promise.all([
-        shouldFlirtMomentOccurAsync(testUserId, mockRelationship, 0.5, "neutral"),
-        shouldFlirtMomentOccurAsync(testUserId, mockRelationship, 0.5, "neutral"),
-        shouldFlirtMomentOccurAsync(testUserId, mockRelationship, 0.5, "neutral"),
+        shouldFlirtMomentOccurAsync(mockRelationship, 0.5, "neutral"),
+        shouldFlirtMomentOccurAsync(mockRelationship, 0.5, "neutral"),
+        shouldFlirtMomentOccurAsync(mockRelationship, 0.5, "neutral"),
       ]);
       
       results.forEach(result => {
@@ -377,7 +377,7 @@ describe("Phase 4: Intimacy State Supabase Migration", () => {
       
       // With play bid multiplier (1.5x), it should be more likely to return true
       // We can't deterministically test random, but we can verify the function works
-      const result = await shouldFlirtMomentOccurAsync(testUserId, mockRelationship, 0.5, "play");
+      const result = await shouldFlirtMomentOccurAsync(mockRelationship, 0.5, "play");
       expect(typeof result).toBe("boolean");
     });
   });
@@ -388,7 +388,7 @@ describe("Phase 4: Intimacy State Supabase Migration", () => {
 
   describe("getIntimacyContextForPromptAsync", () => {
     it("should return formatted intimacy guidance string", async () => {
-      const context = await getIntimacyContextForPromptAsync(testUserId, mockRelationship, 0.5);
+      const context = await getIntimacyContextForPromptAsync(mockRelationship, 0.5);
       
       expect(typeof context).toBe("string");
       expect(context).toContain("INTIMACY LEVEL");
@@ -402,7 +402,7 @@ describe("Phase 4: Intimacy State Supabase Migration", () => {
       });
       clearIntimacyCache();
       
-      const context = await getIntimacyContextForPromptAsync(testUserId, mockRelationship, 0.5);
+      const context = await getIntimacyContextForPromptAsync(mockRelationship, 0.5);
       
       expect(context).toContain("VULNERABILITY EXCHANGE ACTIVE");
     });
@@ -414,7 +414,7 @@ describe("Phase 4: Intimacy State Supabase Migration", () => {
       });
       clearIntimacyCache();
       
-      const context = await getIntimacyContextForPromptAsync(testUserId, mockRelationship, 0.5);
+      const context = await getIntimacyContextForPromptAsync(mockRelationship, 0.5);
       
       expect(context).toContain("LOW EFFORT DETECTED");
     });

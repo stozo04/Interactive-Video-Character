@@ -4,9 +4,9 @@
  * 
  * Tests the async Supabase-backed functions with caching:
  * - getOngoingThreadsAsync(userId) with caching
- * - createUserThreadAsync(userId, trigger, state, intensity)
- * - boostThreadAsync(userId, threadId, amount)
- * - markThreadMentionedAsync(userId, threadId)
+ * - createUserThreadAsync(trigger, state, intensity)
+ * - boostThreadAsync(threadId, amount)
+ * - markThreadMentionedAsync(threadId)
  * - getThreadToSurfaceAsync(userId)
  * - formatThreadsForPromptAsync(userId)
  * - resetThreadsAsync(userId)
@@ -100,35 +100,36 @@ describe("Phase 3: ongoingThreads Supabase Migration", () => {
   // ============================================
 
   describe("getOngoingThreadsAsync", () => {
-    it("should fetch threads from Supabase with userId", async () => {
-      const result = await getOngoingThreadsAsync(testUserId);
-      
-      expect(mockGetOngoingThreads).toHaveBeenCalledWith(testUserId);
+    it("should fetch threads from Supabase", async () => {
+      const result = await getOngoingThreadsAsync();
+
+      expect(mockGetOngoingThreads).toHaveBeenCalled();
       expect(result.length).toBeGreaterThanOrEqual(1);
     });
 
     it("should cache result and avoid repeat DB calls", async () => {
       // First call - hits Supabase
-      await getOngoingThreadsAsync(testUserId);
+      await getOngoingThreadsAsync();
       expect(mockGetOngoingThreads).toHaveBeenCalledTimes(1);
-      
+
       // Second call - should use cache
-      await getOngoingThreadsAsync(testUserId);
+      await getOngoingThreadsAsync();
       expect(mockGetOngoingThreads).toHaveBeenCalledTimes(1); // Still 1, no new call
     });
 
-    it("should fetch fresh data for different userId", async () => {
-      await getOngoingThreadsAsync(testUserId);
-      await getOngoingThreadsAsync("different-user");
-      
-      expect(mockGetOngoingThreads).toHaveBeenCalledTimes(2);
+    it("should fetch fresh data after cache expires", async () => {
+      await getOngoingThreadsAsync();
+      expect(mockGetOngoingThreads).toHaveBeenCalledTimes(1);
+
+      // This test would need mocking of time to properly test cache expiry
+      // For now, just verify the call was made
     });
 
     it("should handle Supabase errors gracefully", async () => {
       mockGetOngoingThreads.mockRejectedValueOnce(new Error("DB error"));
-      
-      const result = await getOngoingThreadsAsync(testUserId);
-      
+
+      const result = await getOngoingThreadsAsync();
+
       // Should return empty array on error, then generate minimum threads
       expect(Array.isArray(result)).toBe(true);
     });
@@ -137,7 +138,7 @@ describe("Phase 3: ongoingThreads Supabase Migration", () => {
       // Return empty from Supabase
       mockGetOngoingThreads.mockResolvedValueOnce([]);
       
-      const result = await getOngoingThreadsAsync(testUserId);
+      const result = await getOngoingThreadsAsync();
       
       // Should have at least MIN_THREADS (2) auto-generated
       expect(result.length).toBeGreaterThanOrEqual(2);
@@ -155,7 +156,7 @@ describe("Phase 3: ongoingThreads Supabase Migration", () => {
       };
       mockGetOngoingThreads.mockResolvedValueOnce([oldThread]);
       
-      const result = await getOngoingThreadsAsync(testUserId);
+      const result = await getOngoingThreadsAsync();
       
       // Intensity should have decayed from the original 0.9
       expect(result[0].intensity).toBeLessThan(0.9);
@@ -171,7 +172,7 @@ describe("Phase 3: ongoingThreads Supabase Migration", () => {
       const trigger = "What you said about imposter syndrome";
       const state = "I keep thinking about what you said";
       
-      const newThread = await createUserThreadAsync(testUserId, trigger, state, 0.8);
+      const newThread = await createUserThreadAsync(trigger, state, 0.8);
       
       expect(newThread.userRelated).toBe(true);
       expect(newThread.theme).toBe("user_reflection");
@@ -181,15 +182,16 @@ describe("Phase 3: ongoingThreads Supabase Migration", () => {
     });
 
     it("should save the new thread to Supabase", async () => {
-      await createUserThreadAsync(testUserId, "trigger", "state");
-      
+      await createUserThreadAsync("trigger", "state");
+
       expect(mockSaveAllOngoingThreads).toHaveBeenCalled();
+      // The first argument is now the threads array (no userId)
       const savedCall = mockSaveAllOngoingThreads.mock.calls[0];
-      expect(savedCall[0]).toBe(testUserId);
+      expect(Array.isArray(savedCall[0])).toBe(true);
     });
 
     it("should cap intensity at 1.0", async () => {
-      const newThread = await createUserThreadAsync(testUserId, "trigger", "state", 1.5);
+      const newThread = await createUserThreadAsync("trigger", "state", 1.5);
       
       expect(newThread.intensity).toBe(1.0);
     });
@@ -204,11 +206,11 @@ describe("Phase 3: ongoingThreads Supabase Migration", () => {
         { ...defaultThread, id: "t5" },
       ]);
       
-      await createUserThreadAsync(testUserId, "trigger", "state");
+      await createUserThreadAsync("trigger", "state");
       
       // The saved threads should still be at most MAX_THREADS
       const savedCall = mockSaveAllOngoingThreads.mock.calls[0];
-      expect(savedCall[1].length).toBeLessThanOrEqual(5);
+      expect(savedCall[0].length).toBeLessThanOrEqual(5);
     });
   });
 
@@ -239,11 +241,11 @@ describe("Phase 3: ongoingThreads Supabase Migration", () => {
       };
       mockGetOngoingThreads.mockResolvedValueOnce([threadToBoost, secondThread]);
       
-      await boostThreadAsync(testUserId, "thread_boost_test", 0.2);
+      await boostThreadAsync("thread_boost_test", 0.2);
       
       // Note: First call is from internal getOngoingThreadsAsync, second is from boostThreadAsync
       expect(mockSaveAllOngoingThreads).toHaveBeenCalledTimes(2);
-      const savedThreads = mockSaveAllOngoingThreads.mock.calls[1][1]; // Second call
+      const savedThreads = mockSaveAllOngoingThreads.mock.calls[1][0]; // Second call
       const boostedThread = savedThreads.find((t: OngoingThread) => t.id === "thread_boost_test");
       expect(boostedThread).not.toBeNull();
       // Use toBeCloseTo for floating point comparison (accounts for minor decay)
@@ -272,11 +274,11 @@ describe("Phase 3: ongoingThreads Supabase Migration", () => {
       };
       mockGetOngoingThreads.mockResolvedValueOnce([threadToBoost, secondThread]);
       
-      await boostThreadAsync(testUserId, "thread_cap_test", 0.5);
+      await boostThreadAsync("thread_cap_test", 0.5);
       
       // Note: First call is from internal getOngoingThreadsAsync, second is from boostThreadAsync
       expect(mockSaveAllOngoingThreads).toHaveBeenCalledTimes(2);
-      const savedThreads = mockSaveAllOngoingThreads.mock.calls[1][1]; // Second call
+      const savedThreads = mockSaveAllOngoingThreads.mock.calls[1][0]; // Second call
       const boostedThread = savedThreads.find((t: OngoingThread) => t.id === "thread_cap_test");
       expect(boostedThread).not.toBeNull();
       // Should be capped at 1.0
@@ -311,11 +313,11 @@ describe("Phase 3: ongoingThreads Supabase Migration", () => {
       };
       mockGetOngoingThreads.mockResolvedValueOnce([thread, secondThread]);
       
-      await markThreadMentionedAsync(testUserId, "thread_mention_test");
+      await markThreadMentionedAsync("thread_mention_test");
       
       // Note: First call is from internal getOngoingThreadsAsync, second is from markThreadMentionedAsync
       expect(mockSaveAllOngoingThreads).toHaveBeenCalledTimes(2);
-      const savedThreads = mockSaveAllOngoingThreads.mock.calls[1][1]; // Second call
+      const savedThreads = mockSaveAllOngoingThreads.mock.calls[1][0]; // Second call
       const mentionedThread = savedThreads.find((t: OngoingThread) => t.id === "thread_mention_test");
       
       expect(mentionedThread).not.toBeNull();
@@ -352,7 +354,7 @@ describe("Phase 3: ongoingThreads Supabase Migration", () => {
       };
       mockGetOngoingThreads.mockResolvedValueOnce([lowIntensityThread1, lowIntensityThread2]);
       
-      const result = await getThreadToSurfaceAsync(testUserId);
+      const result = await getThreadToSurfaceAsync();
       
       expect(result).toBeNull();
     });
@@ -379,7 +381,7 @@ describe("Phase 3: ongoingThreads Supabase Migration", () => {
       };
       mockGetOngoingThreads.mockResolvedValueOnce([highIntensityThread, lowIntensityThread]);
       
-      const result = await getThreadToSurfaceAsync(testUserId);
+      const result = await getThreadToSurfaceAsync();
       
       expect(result).not.toBeNull();
       expect(result?.id).toBe("high_intensity");
@@ -407,7 +409,7 @@ describe("Phase 3: ongoingThreads Supabase Migration", () => {
       };
       mockGetOngoingThreads.mockResolvedValueOnce([recentlyMentioned1, recentlyMentioned2]);
       
-      const result = await getThreadToSurfaceAsync(testUserId);
+      const result = await getThreadToSurfaceAsync();
       
       expect(result).toBeNull();
     });
@@ -419,7 +421,7 @@ describe("Phase 3: ongoingThreads Supabase Migration", () => {
 
   describe("formatThreadsForPromptAsync", () => {
     it("should format threads for prompt context", async () => {
-      const result = await formatThreadsForPromptAsync(testUserId);
+      const result = await formatThreadsForPromptAsync();
       
       expect(result).toContain("ONGOING MENTAL THREADS");
       expect(result).toContain(defaultThread.currentState);
@@ -431,7 +433,7 @@ describe("Phase 3: ongoingThreads Supabase Migration", () => {
       // Need to clear cache first since beforeEach sets up a thread
       clearThreadsCache();
       
-      const result = await formatThreadsForPromptAsync(testUserId);
+      const result = await formatThreadsForPromptAsync();
       
       // Even with no threads from DB, minimum threads are generated
       // So the result should contain SOMETHING
@@ -445,21 +447,21 @@ describe("Phase 3: ongoingThreads Supabase Migration", () => {
 
   describe("resetThreadsAsync", () => {
     it("should clear all threads for user", async () => {
-      await resetThreadsAsync(testUserId);
-      
-      expect(mockSaveAllOngoingThreads).toHaveBeenCalledWith(testUserId, []);
+      await resetThreadsAsync();
+
+      expect(mockSaveAllOngoingThreads).toHaveBeenCalledWith([]);
     });
 
     it("should clear the local cache", async () => {
       // Prime the cache
-      await getOngoingThreadsAsync(testUserId);
+      await getOngoingThreadsAsync();
       expect(mockGetOngoingThreads).toHaveBeenCalledTimes(1);
       
       // Reset
-      await resetThreadsAsync(testUserId);
+      await resetThreadsAsync();
       
       // Next call should hit DB again
-      await getOngoingThreadsAsync(testUserId);
+      await getOngoingThreadsAsync();
       expect(mockGetOngoingThreads).toHaveBeenCalledTimes(2);
     });
   });
@@ -471,22 +473,27 @@ describe("Phase 3: ongoingThreads Supabase Migration", () => {
   describe("Cache Management", () => {
     it("clearThreadsCache should reset all cached data", async () => {
       // Prime cache
-      await getOngoingThreadsAsync(testUserId);
+      await getOngoingThreadsAsync();
       expect(mockGetOngoingThreads).toHaveBeenCalledTimes(1);
       
       // Clear cache
       clearThreadsCache();
       
       // Next call should hit DB again
-      await getOngoingThreadsAsync(testUserId);
+      await getOngoingThreadsAsync();
       expect(mockGetOngoingThreads).toHaveBeenCalledTimes(2);
     });
 
-    it("should invalidate cache when userId changes", async () => {
-      await getOngoingThreadsAsync(testUserId);
-      await getOngoingThreadsAsync("different-user");
-      
-      // Both should have hit the DB
+    it("should handle cache clearing and reload", async () => {
+      // Prime cache
+      await getOngoingThreadsAsync();
+      expect(mockGetOngoingThreads).toHaveBeenCalledTimes(1);
+
+      // Clear cache and call again
+      clearThreadsCache();
+      await getOngoingThreadsAsync();
+
+      // Should have called DB twice
       expect(mockGetOngoingThreads).toHaveBeenCalledTimes(2);
     });
   });

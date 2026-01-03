@@ -70,12 +70,12 @@ describe('processDetectedFacts', () => {
   // ============================================
   describe('empty input handling', () => {
     it('should return empty array when detectedFacts is empty', async () => {
-      const result = await processDetectedFacts(userId, []);
+      const result = await processDetectedFacts([]);
       expect(result).toEqual([]);
     });
 
     it('should return empty array when detectedFacts is null/undefined', async () => {
-      const result = await processDetectedFacts(userId, null as any);
+      const result = await processDetectedFacts(null as any);
       expect(result).toEqual([]);
     });
   });
@@ -91,7 +91,7 @@ describe('processDetectedFacts', () => {
         { category: 'identity', key: 'name', value: 'Steven', confidence: 0.95 }
       ];
 
-      const result = await processDetectedFacts(userId, facts);
+      const result = await processDetectedFacts(facts);
 
       expect(upsertCalls.length).toBe(1);
       expect(upsertCalls[0].fact_key).toBe('name');
@@ -109,7 +109,7 @@ describe('processDetectedFacts', () => {
         { category: 'identity', key: 'name', value: 'John', confidence: 0.95 }
       ];
 
-      const result = await processDetectedFacts(userId, facts);
+      const result = await processDetectedFacts(facts);
 
       expect(upsertCalls.length).toBe(0);
       expect(result).toHaveLength(0);
@@ -124,7 +124,7 @@ describe('processDetectedFacts', () => {
         { category: 'identity', key: 'birthday', value: 'August 20th', confidence: 0.9 }
       ];
 
-      const result = await processDetectedFacts(userId, facts);
+      const result = await processDetectedFacts(facts);
 
       expect(upsertCalls.length).toBe(0);
       expect(result).toHaveLength(0);
@@ -144,7 +144,7 @@ describe('processDetectedFacts', () => {
         confidence: 0.95
       }));
 
-      const result = await processDetectedFacts(userId, facts);
+      const result = await processDetectedFacts(facts);
 
       expect(upsertCalls.length).toBe(0);
       expect(result).toHaveLength(0);
@@ -162,7 +162,7 @@ describe('processDetectedFacts', () => {
         { category: 'identity', key: 'occupation', value: 'Software Engineer', confidence: 0.9 }
       ];
 
-      const result = await processDetectedFacts(userId, facts);
+      const result = await processDetectedFacts(facts);
 
       expect(upsertCalls.length).toBe(1);
       expect(upsertCalls[0].fact_key).toBe('occupation');
@@ -179,7 +179,7 @@ describe('processDetectedFacts', () => {
         { category: 'identity', key: 'occupation', value: 'Tech Lead', confidence: 0.9 }
       ];
 
-      const result = await processDetectedFacts(userId, facts);
+      const result = await processDetectedFacts(facts);
 
       expect(upsertCalls.length).toBe(1);
       expect(upsertCalls[0].fact_value).toBe('Tech Lead');
@@ -195,7 +195,7 @@ describe('processDetectedFacts', () => {
         { category: 'relationship', key: 'family_location_grandparent', value: 'Alabama', confidence: 0.85 }
       ];
 
-      const result = await processDetectedFacts(userId, facts);
+      const result = await processDetectedFacts(facts);
 
       expect(upsertCalls.length).toBe(1);
       expect(upsertCalls[0].fact_value).toBe('Alabama');
@@ -211,7 +211,7 @@ describe('processDetectedFacts', () => {
         { category: 'relationship', key: 'relationship_status', value: 'married', confidence: 0.95 }
       ];
 
-      const result = await processDetectedFacts(userId, facts);
+      const result = await processDetectedFacts(facts);
 
       expect(upsertCalls.length).toBe(1);
       expect(upsertCalls[0].fact_value).toBe('married');
@@ -230,7 +230,7 @@ describe('processDetectedFacts', () => {
         { category: 'preference', key: 'favorite_lunch_spot', value: 'Chipotle', confidence: 0.9 }
       ];
 
-      const result = await processDetectedFacts(userId, facts);
+      const result = await processDetectedFacts(facts);
 
       expect(upsertCalls.length).toBe(1);
       expect(upsertCalls[0].fact_value).toBe('Chipotle');
@@ -246,7 +246,7 @@ describe('processDetectedFacts', () => {
         { category: 'preference', key: 'favorite_lunch_spot', value: 'Panera', confidence: 0.85 }
       ];
 
-      const result = await processDetectedFacts(userId, facts);
+      const result = await processDetectedFacts(facts);
 
       expect(upsertCalls.length).toBe(1);
       expect(upsertCalls[0].fact_value).toBe('["Chipotle","Panera"]');
@@ -262,7 +262,7 @@ describe('processDetectedFacts', () => {
         { category: 'preference', key: 'favorite_lunch_spot', value: 'Subway', confidence: 0.85 }
       ];
 
-      const result = await processDetectedFacts(userId, facts);
+      const result = await processDetectedFacts(facts);
 
       expect(upsertCalls.length).toBe(1);
       expect(upsertCalls[0].fact_value).toBe('["Chipotle","Panera","Subway"]');
@@ -278,7 +278,7 @@ describe('processDetectedFacts', () => {
         { category: 'preference', key: 'favorite_lunch_spot', value: 'chipotle', confidence: 0.85 }
       ];
 
-      const result = await processDetectedFacts(userId, facts);
+      const result = await processDetectedFacts(facts);
 
       expect(upsertCalls.length).toBe(0);
       expect(result).toHaveLength(0);
@@ -293,7 +293,7 @@ describe('processDetectedFacts', () => {
         { category: 'preference', key: 'favorite_lunch_spot', value: 'CHIPOTLE', confidence: 0.85 }
       ];
 
-      const result = await processDetectedFacts(userId, facts);
+      const result = await processDetectedFacts(facts);
 
       expect(upsertCalls.length).toBe(0);
       expect(result).toHaveLength(0);
@@ -308,7 +308,7 @@ describe('processDetectedFacts', () => {
         { category: 'preference', key: 'likes', value: 'tea', confidence: 0.85 }
       ];
 
-      const result = await processDetectedFacts(userId, facts);
+      const result = await processDetectedFacts(facts);
 
       expect(upsertCalls.length).toBe(1);
       expect(upsertCalls[0].fact_value).toBe('["coffee","tea"]');
@@ -324,7 +324,7 @@ describe('processDetectedFacts', () => {
         { category: 'preference', key: 'hobbies', value: 'hiking', confidence: 0.9 }
       ];
 
-      const result = await processDetectedFacts(userId, facts);
+      const result = await processDetectedFacts(facts);
 
       expect(upsertCalls.length).toBe(1);
       expect(upsertCalls[0].fact_value).toBe('["gaming","reading","hiking"]');
@@ -340,7 +340,7 @@ describe('processDetectedFacts', () => {
         { category: 'preference', key: 'favorite_movie', value: 'The Matrix', confidence: 0.9 }
       ];
 
-      const result = await processDetectedFacts(userId, facts);
+      const result = await processDetectedFacts(facts);
 
       expect(upsertCalls.length).toBe(1);
       expect(upsertCalls[0].fact_value).toBe('["Inception","The Matrix"]');
@@ -364,7 +364,7 @@ describe('processDetectedFacts', () => {
         { category: 'preference', key: 'favorite_food', value: 'Tacos', confidence: 0.85 }
       ];
 
-      const result = await processDetectedFacts(userId, facts);
+      const result = await processDetectedFacts(facts);
 
       // Name should be skipped (immutable), occupation and favorite_food stored
       expect(upsertCalls.length).toBe(2);
@@ -388,7 +388,7 @@ describe('processDetectedFacts', () => {
         { category: 'relationship', key: 'has_pet', value: 'yes', confidence: 0.9 }
       ];
 
-      const result = await processDetectedFacts(userId, facts);
+      const result = await processDetectedFacts(facts);
 
       expect(upsertCalls.length).toBe(4);
       expect(result).toHaveLength(4);
@@ -412,7 +412,7 @@ describe('processDetectedFacts', () => {
         { category: 'identity', key: 'name', value: 'Steven', confidence: 0.95 }
       ];
 
-      const result = await processDetectedFacts(userId, facts);
+      const result = await processDetectedFacts(facts);
 
       // Should still try to store since empty array is returned on error
       // The function handles errors gracefully
@@ -433,7 +433,7 @@ describe('processDetectedFacts', () => {
         { category: 'context', key: 'location', value: 'At home', confidence: 0.85 }
       ];
 
-      const result = await processDetectedFacts(userId, facts);
+      const result = await processDetectedFacts(facts);
 
       // Should store because category:key combo is different
       expect(upsertCalls.length).toBe(1);

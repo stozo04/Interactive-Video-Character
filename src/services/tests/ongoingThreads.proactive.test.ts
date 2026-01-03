@@ -183,7 +183,7 @@ describe('markThreadMentionedAsync', () => {
   });
 
   it('should update lastMentioned timestamp for specified thread', async () => {
-    await markThreadMentionedAsync(testUserId, 'thread1');
+    await markThreadMentionedAsync('thread1');
     
     // getOngoingThreadsAsync may also save (non-blocking), so we check the last call
     expect(mockSaveAllOngoingThreads).toHaveBeenCalled();
@@ -201,7 +201,7 @@ describe('markThreadMentionedAsync', () => {
   });
 
   it('should handle thread not found gracefully', async () => {
-    await markThreadMentionedAsync(testUserId, 'nonexistent-thread');
+    await markThreadMentionedAsync('nonexistent-thread');
     
     // Should still save threads (no crash)
     // getOngoingThreadsAsync may also save (non-blocking), so we check that save was called
@@ -219,7 +219,7 @@ describe('markThreadMentionedAsync', () => {
     // getOngoingThreadsAsync catches errors and returns fallback, so markThreadMentionedAsync
     // will still run but with empty/fallback threads. The error is handled gracefully.
     // We verify it doesn't crash - it will try to save empty threads or handle the error
-    await expect(markThreadMentionedAsync(testUserId, 'thread1')).resolves.not.toThrow();
+    await expect(markThreadMentionedAsync('thread1')).resolves.not.toThrow();
   });
 });
 

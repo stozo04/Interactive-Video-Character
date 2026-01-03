@@ -34,10 +34,8 @@ describe('taskService', () => {
   describe("fetchTasks", () => {
     it("should fetch tasks for a user", async () => {
       const selectMock = vi.fn().mockReturnValue({
-        eq: vi.fn().mockReturnValue({
-          or: vi.fn().mockReturnValue({
-            order: vi.fn().mockResolvedValue({ data: mockTasks, error: null }),
-          }),
+        or: vi.fn().mockReturnValue({
+          order: vi.fn().mockResolvedValue({ data: mockTasks, error: null }),
         }),
       });
 

@@ -94,7 +94,7 @@ describe('Idle Thoughts Service', () => {
       const kayleyMood = 'playful';
 
       await expect(
-        generateIdleThought(testUserId, absenceDurationHours, kayleyMood)
+        generateIdleThought(absenceDurationHours, kayleyMood)
       ).rejects.toThrow('Absence too short');
     });
 
@@ -105,7 +105,7 @@ describe('Idle Thoughts Service', () => {
       // Run multiple times to hit dream type eventually
       const thoughts = await Promise.all(
         Array.from({ length: 20 }, () =>
-          generateIdleThought(testUserId, absenceDurationHours, kayleyMood)
+          generateIdleThought(absenceDurationHours, kayleyMood)
         )
       );
 
@@ -121,7 +121,7 @@ describe('Idle Thoughts Service', () => {
       // Run multiple times
       const thoughts = await Promise.all(
         Array.from({ length: 10 }, () =>
-          generateIdleThought(testUserId, absenceDurationHours, kayleyMood)
+          generateIdleThought(absenceDurationHours, kayleyMood)
         )
       );
 
@@ -139,7 +139,7 @@ describe('Idle Thoughts Service', () => {
       // Run multiple times
       const thoughts = await Promise.all(
         Array.from({ length: 10 }, () =>
-          generateIdleThought(testUserId, absenceDurationHours, kayleyMood)
+          generateIdleThought(absenceDurationHours, kayleyMood)
         )
       );
 
@@ -157,7 +157,7 @@ describe('Idle Thoughts Service', () => {
       // Run multiple times
       const thoughts = await Promise.all(
         Array.from({ length: 15 }, () =>
-          generateIdleThought(testUserId, absenceDurationHours, kayleyMood)
+          generateIdleThought(absenceDurationHours, kayleyMood)
         )
       );
 
@@ -225,7 +225,7 @@ describe('Idle Thoughts Service', () => {
       // Generate many thoughts
       const thoughts = await Promise.all(
         Array.from({ length: 50 }, () =>
-          generateIdleThought(testUserId, absenceDurationHours, kayleyMood)
+          generateIdleThought(absenceDurationHours, kayleyMood)
         )
       );
 
@@ -245,7 +245,7 @@ describe('Idle Thoughts Service', () => {
       // Generate many thoughts
       const thoughts = await Promise.all(
         Array.from({ length: 20 }, () =>
-          generateIdleThought(testUserId, absenceDurationHours, kayleyMood)
+          generateIdleThought(absenceDurationHours, kayleyMood)
         )
       );
 
@@ -306,7 +306,7 @@ describe('Idle Thoughts Service', () => {
       const absenceDurationHours = 8;
       const kayleyMood = 'neutral';
 
-      await generateIdleThought(testUserId, absenceDurationHours, kayleyMood);
+      await generateIdleThought(absenceDurationHours, kayleyMood);
 
       // Should call Supabase insert
       expect(mockFrom).toHaveBeenCalledWith('idle_thoughts');
@@ -320,7 +320,7 @@ describe('Idle Thoughts Service', () => {
       // Generate many thoughts to hit all types
       const thoughts = await Promise.all(
         Array.from({ length: 30 }, () =>
-          generateIdleThought(testUserId, absenceDurationHours, kayleyMood)
+          generateIdleThought(absenceDurationHours, kayleyMood)
         )
       );
 

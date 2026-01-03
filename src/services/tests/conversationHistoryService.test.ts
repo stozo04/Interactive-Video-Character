@@ -141,7 +141,7 @@ describe("conversationHistoryService", () => {
       // Set the result that the mocked .insert().then() should return
       mocks.insert.mockReturnValueOnce({ error: null });
 
-      await saveConversationHistory(USER_ID, MESSAGES);
+      await saveConversationHistory(MESSAGES);
 
       expect(mocks.from).toHaveBeenCalledWith("conversation_history");
       expect(mocks.insert).toHaveBeenCalledTimes(1);
@@ -152,7 +152,7 @@ describe("conversationHistoryService", () => {
     });
 
     it("should return immediately and not call insert if messages array is empty", async () => {
-      await saveConversationHistory(USER_ID, []);
+      await saveConversationHistory([]);
 
       expect(mocks.insert).not.toHaveBeenCalled();
     });
@@ -162,7 +162,7 @@ describe("conversationHistoryService", () => {
       // We set the resolved value *before* the service calls insert()
       mocks.insert.mockReturnValueOnce({ error: new Error("DB Error") });
 
-      await expect(saveConversationHistory(USER_ID, MESSAGES)).resolves.toBeUndefined();
+      await expect(saveConversationHistory(MESSAGES)).resolves.toBeUndefined();
       
       expect(consoleErrorSpy).toHaveBeenCalledWith(
         "Error saving conversation history:",
@@ -177,12 +177,12 @@ describe("conversationHistoryService", () => {
     it("should load messages in chronological order and map to ChatMessage[]", async () => {
       supabase.setNextResolvedValue({ data: DB_ROWS, error: null });
 
-      const result = await loadConversationHistory(USER_ID);
+      const result = await loadConversationHistory();
 
       expect(mocks.from).toHaveBeenCalledWith("conversation_history");
       expect(mocks.select).toHaveBeenCalledWith('*');
       // expect(mocks.eq).toHaveBeenCalledWith("character_id", CHARACTER_ID); // Removed
-      expect(mocks.eq).toHaveBeenCalledWith("user_id", USER_ID);
+      
       expect(mocks.order).toHaveBeenCalledWith('created_at', { ascending: true });
       
       expect(result).toEqual(MESSAGES);
@@ -191,7 +191,7 @@ describe("conversationHistoryService", () => {
     it("should return empty array if no messages are found", async () => {
       supabase.setNextResolvedValue({ data: [], error: null });
 
-      const result = await loadConversationHistory(USER_ID);
+      const result = await loadConversationHistory();
 
       expect(result).toEqual([]);
     });
@@ -203,7 +203,7 @@ describe("conversationHistoryService", () => {
         error: { message: "Query failed" },
       });
 
-      const result = await loadConversationHistory(USER_ID);
+      const result = await loadConversationHistory();
 
       expect(result).toEqual([]);
       expect(consoleErrorSpy).toHaveBeenCalledWith(
@@ -224,7 +224,7 @@ describe("conversationHistoryService", () => {
     it("should batch insert new messages when appending history", async () => {
       mocks.insert.mockReturnValueOnce({ error: null });
 
-      await appendConversationHistory(USER_ID, NEW_MESSAGES);
+      await appendConversationHistory(NEW_MESSAGES);
 
       expect(mocks.from).toHaveBeenCalledWith("conversation_history");
       expect(mocks.insert).toHaveBeenCalledTimes(1);
@@ -234,7 +234,7 @@ describe("conversationHistoryService", () => {
     });
 
     it("should return immediately and not call insert if messages array is empty", async () => {
-      await appendConversationHistory(USER_ID, []);
+      await appendConversationHistory([]);
 
       expect(mocks.insert).not.toHaveBeenCalled();
     });
@@ -243,7 +243,7 @@ describe("conversationHistoryService", () => {
       const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
       mocks.insert.mockReturnValueOnce({ error: new Error("Append DB Error") });
 
-      await expect(appendConversationHistory(USER_ID, NEW_MESSAGES)).resolves.toBeUndefined();
+      await expect(appendConversationHistory(NEW_MESSAGES)).resolves.toBeUndefined();
       
       expect(consoleErrorSpy).toHaveBeenCalledWith(
         "Error appending conversation history:",
@@ -258,12 +258,12 @@ describe("conversationHistoryService", () => {
     it("should delete all history for the user-character pair", async () => {
       supabase.setNextResolvedValue({ data: null, error: null });
 
-      await clearConversationHistory(USER_ID);
+      await clearConversationHistory();
 
       expect(mocks.from).toHaveBeenCalledWith("conversation_history");
       expect(mocks.delete).toHaveBeenCalledTimes(1);
       // expect(mocks.eq).toHaveBeenCalledWith("character_id", CHARACTER_ID); // Removed
-      expect(mocks.eq).toHaveBeenCalledWith("user_id", USER_ID);
+      
     });
 
     it("should throw error if database delete fails", async () => {

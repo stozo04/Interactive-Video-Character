@@ -1320,7 +1320,7 @@ describe("Phase 3: Mood Detection via ToneIntent", () => {
       };
 
       // Should not throw
-      await recordInteractionAsync(testUserId, toneIntent, "Test message");
+      await recordInteractionAsync(toneIntent, "Test message");
 
       // Should have recorded the interaction - check streak updated
       const momentum = await getEmotionalMomentumAsync(testUserId);
@@ -1333,7 +1333,7 @@ describe("Phase 3: Mood Detection via ToneIntent", () => {
       await resetEmotionalMomentumAsync(testUserId);
 
       // Should not throw with number
-      await recordInteractionAsync(testUserId, 0.5, "Test message");
+      await recordInteractionAsync(0.5, "Test message");
 
       const momentum = await getEmotionalMomentumAsync(testUserId);
       // Tone 0.5 > 0.3 = positive, so streak should be 1
@@ -1353,7 +1353,7 @@ describe("Phase 3: Mood Detection via ToneIntent", () => {
         explanation: 'Very positive tone'
       };
 
-      await recordInteractionAsync(testUserId, toneIntent, "Great day!");
+      await recordInteractionAsync(toneIntent, "Great day!");
 
       const momentum = await getEmotionalMomentumAsync(testUserId);
       // Simplified: mood level should be updated via weighted average
@@ -1375,7 +1375,7 @@ describe("Phase 3: Mood Detection via ToneIntent", () => {
 
       // Record several positive interactions
       for (let i = 0; i < 5; i++) {
-        await recordInteractionAsync(testUserId, {
+        await recordInteractionAsync({
           sentiment: 0.8,
           primaryEmotion: 'excited' as const,
           intensity: 0.95,  // Intensity is now ignored
@@ -1398,7 +1398,7 @@ describe("Phase 3: Mood Detection via ToneIntent", () => {
       await resetEmotionalMomentumAsync(testUserId);
 
       // Record negative interaction
-      await recordInteractionAsync(testUserId, {
+      await recordInteractionAsync({
         sentiment: -0.7,
         primaryEmotion: 'angry' as const,
         intensity: 0.9,  // Intensity is now ignored
@@ -1419,7 +1419,7 @@ describe("Phase 3: Mood Detection via ToneIntent", () => {
       await resetEmotionalMomentumAsync(testUserId);
 
       // Record with number
-      await recordInteractionAsync(testUserId, 0.8, "Positive message");
+      await recordInteractionAsync(0.8, "Positive message");
 
       const momentum = await getEmotionalMomentumAsync(testUserId);
 
