@@ -6,7 +6,6 @@ import {
   CharacterAction,
   Task,
   ProactiveSettings,
-  DEFAULT_PROACTIVE_SETTINGS,
 } from './types';
 import * as dbService from './services/cacheService';
 import { supabase } from './services/supabaseClient';
@@ -46,6 +45,11 @@ import { useGoogleAuth } from './contexts/GoogleAuthContext';
 import { useDebounce } from './hooks/useDebounce';
 import { useMediaQueues } from './hooks/useMediaQueues';
 import { useCacheWarming } from './hooks/useCacheWarming';
+import { useTasks } from './hooks/useTasks';
+import { useCalendar } from './hooks/useCalendar';
+import { useProactiveSettings } from './hooks/useProactiveSettings';
+import { useIdleTracking } from './hooks/useIdleTracking';
+import { useCharacterActions, isTalkingAction, isGreetingAction, getGreetingActions, getNonGreetingActions, getTalkingActions } from './hooks/useCharacterActions';
 import { useAIService } from './contexts/AIServiceContext';
 import { AIChatSession, UserContent, AIChatOptions } from './services/aiService';
 import { startCleanupScheduler, stopCleanupScheduler } from './services/loopCleanupService';
@@ -56,13 +60,7 @@ import {
   markStoryMentioned,
   storeLastSharedStories,
 } from './services/newsService';
-import {
-  getApplicableCheckin,
-  markCheckinDone,
-  buildEventCheckinPrompt,
-  cleanupOldCheckins,
-  type CheckinType,
-} from './services/calendarCheckinService';
+// Calendar check-in functions now handled by useCalendar hook
 import { generateCompanionSelfie } from './services/imageGenerationService';
 import { detectKayleyPresence } from './services/kayleyPresenceDetector';
 import { getKayleyPresenceState, updateKayleyPresenceState, getDefaultExpirationMinutes } from './services/kayleyPresenceService';
@@ -70,44 +68,6 @@ import { getKayleyPresenceState, updateKayleyPresenceState, getDefaultExpiration
 import { sanitizeText, isQuestionMessage } from './utils/textUtils';
 import { extractJsonObject } from './utils/jsonUtils';
 import { randomFromArray, shuffleArray } from './utils/arrayUtils';
-
-const ACTION_VIDEO_BUCKET = 'character-action-videos';
-const IDLE_ACTION_DELAY_MIN_MS = 10_000;
-const IDLE_ACTION_DELAY_MAX_MS = 45_000;
-
-const TALKING_KEYWORDS = ['talk', 'talking', 'speak', 'chat', 'answer', 'respond'];
-const isTalkingAction = (action: CharacterAction): boolean => {
-  const normalizedName = sanitizeText(action.name);
-  if (TALKING_KEYWORDS.some(keyword => normalizedName.includes(keyword))) {
-    return true;
-  }
-  const normalizedPhrases = action.phrases.map(sanitizeText);
-  return normalizedPhrases.some(phrase =>
-    TALKING_KEYWORDS.some(keyword => phrase.includes(keyword))
-  );
-};
-
-const isGreetingAction = (action: CharacterAction): boolean => {
-  const normalizedName = sanitizeText(action.name);
-  const normalizedPhrases = action.phrases.map(sanitizeText);
-  
-  return (
-    normalizedName.includes('greeting') ||
-    normalizedPhrases.some(phrase => phrase.includes('greeting'))
-  );
-};
-
-const getGreetingActions = (actions: CharacterProfile['actions']): CharacterAction[] => {
-  return actions.filter(isGreetingAction);
-};
-
-const getNonGreetingActions = (actions: CharacterProfile['actions']): CharacterAction[] => {
-  return actions.filter(action => !isGreetingAction(action));
-};
-
-const getTalkingActions = (actions: CharacterProfile['actions']): CharacterAction[] => {
-  return actions.filter(isTalkingAction);
-};
 
 type View = 'loading' | 'selectCharacter' | 'createCharacter' | 'chat' | 'manageCharacter' | 'whiteboard';
 
@@ -143,20 +103,8 @@ const App: React.FC = () => {
   // This warms up the stateService and presence caches before the first message
   useCacheWarming();
 
-  const [currentActionId, setCurrentActionId] = useState<string | null>(null);
-
-  // Derived state - override idle video if speaking
-  const currentVideoSrc = 
-    (isSpeaking && talkingVideoUrl && !currentActionId) 
-      ? talkingVideoUrl 
-      : media.currentVideoSrc;
-
-  const nextVideoSrc = media.nextVideoSrc;
-
-  const [actionVideoUrls, setActionVideoUrls] = useState<Record<string, string>>(
-    {}
-  );
-  // Audio queue logic moved to useMediaQueues hook
+  // Note: currentActionId, actionVideoUrls, and derived currentVideoSrc are
+  // calculated after useCharacterActions hook is called below (after registerInteraction)
   const [uploadedImage, setUploadedImage] = useState<UploadedImage | null>(null);
   const [chatHistory, setChatHistory] = useState<ChatMessage[]>([]);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -169,7 +117,6 @@ const App: React.FC = () => {
   const [isAddingIdleVideo, setIsAddingIdleVideo] = useState(false);
   const [deletingIdleVideoId, setDeletingIdleVideoId] = useState<string | null>(null);
   const [isUpdatingImage, setIsUpdatingImage] = useState(false);
-  const [lastInteractionAt, setLastInteractionAt] = useState(() => Date.now());
   const [isMuted, setIsMuted] = useState(false);
   // Avoid stale-closure issues in async callbacks (e.g. async TTS completion).
   const isMutedRef = useRef(isMuted);
@@ -183,43 +130,102 @@ const App: React.FC = () => {
   const [isLoadingCharacter, setIsLoadingCharacter] = useState(false);
   const [loadingCharacterName, setLoadingCharacterName] = useState<string | null>(null);
   
-  // Task Management State
-  const [tasks, setTasks] = useState<Task[]>([]);
-  const [isTaskPanelOpen, setIsTaskPanelOpen] = useState(false);
+  // Task Management State (via useTasks hook)
+  // Use refs for callbacks that depend on things defined later (playAction, etc.)
+  const taskCelebrateRef = useRef<(message: string) => void>(() => {});
+  const taskPlayPositiveRef = useRef<() => void>(() => {});
+
+  const {
+    tasks,
+    setTasks,
+    isTaskPanelOpen,
+    setIsTaskPanelOpen,
+    loadTasks,
+    refreshTasks,
+    handleTaskCreate,
+    handleTaskToggle,
+    handleTaskDelete,
+  } = useTasks({
+    onCelebrate: (msg) => taskCelebrateRef.current(msg),
+    onPlayPositiveAction: () => taskPlayPositiveRef.current(),
+  });
   
-  // Snooze State for Idle Check-ins (controlled via Settings > Proactive Features)
-  const [isSnoozed, setIsSnoozed] = useState(false);
-  const [snoozeUntil, setSnoozeUntil] = useState<number | null>(null);
+  // Proactive settings and snooze state (via useProactiveSettings hook)
+  const {
+    proactiveSettings,
+    updateProactiveSettings,
+    isSnoozed,
+    setIsSnoozed,
+    snoozeUntil,
+    setSnoozeUntil,
+    loadSnoozeState,
+  } = useProactiveSettings();
+
+  // Idle tracking (via useIdleTracking hook)
+  const {
+    lastInteractionAt,
+    hasInteractedRef,
+    registerInteraction,
+  } = useIdleTracking();
+
+  // Character actions (via useCharacterActions hook)
+  const {
+    currentActionId,
+    setCurrentActionId,
+    actionVideoUrls,
+    setActionVideoUrls,
+    playAction,
+    playRandomTalkingAction,
+    triggerIdleAction,
+    scheduleIdleAction,
+    clearIdleActionTimer,
+    isTalkingActionId,
+  } = useCharacterActions({
+    selectedCharacter,
+    isProcessingAction,
+    media,
+    registerInteraction,
+  });
+
+  // Derived state - override idle video if speaking
+  const currentVideoSrc =
+    (isSpeaking && talkingVideoUrl && !currentActionId)
+      ? talkingVideoUrl
+      : media.currentVideoSrc;
+  const nextVideoSrc = media.nextVideoSrc;
 
   // Gmail Integration State
   const [isGmailConnected, setIsGmailConnected] = useState(false);
   const [emailQueue, setEmailQueue] = useState<NewEmailPayload[]>([]);
   const debouncedEmailQueue = useDebounce(emailQueue, 5000); 
 
-  // Calendar Integration State
-  const [upcomingEvents, setUpcomingEvents] = useState<CalendarEvent[]>([]);
-  const [weekEvents, setWeekEvents] = useState<CalendarEvent[]>([]);
+  // Calendar Integration State (via useCalendar hook)
+  // Use ref for triggerSystemMessage since it's defined later
+  const calendarTriggerRef = useRef<(prompt: string) => void>(() => {});
   const [kayleyContext, setKayleyContext] = useState<string>("");
   
-  // Proactive Settings State
-  const PROACTIVE_SETTINGS_KEY = 'kayley_proactive_settings';
-  const [proactiveSettings, setProactiveSettings] = useState<ProactiveSettings>(() => {
-    const stored = localStorage.getItem(PROACTIVE_SETTINGS_KEY);
-    return stored ? JSON.parse(stored) : DEFAULT_PROACTIVE_SETTINGS;
+  // Calendar hook (uses ref for triggerSystemMessage since it's defined later)
+  const {
+    upcomingEvents,
+    weekEvents,
+    setUpcomingEvents,
+    refreshEvents: refreshCalendarEvents,
+    refreshWeekEvents,
+    triggerCalendarCheckin,
+    registerCalendarEffects,
+    checkForApplicableCheckins,
+  } = useCalendar({
+    session,
+    selectedCharacter,
+    proactiveSettings,
+    isSnoozed,
+    isProcessingAction,
+    isSpeaking,
+    triggerSystemMessage: (prompt) => calendarTriggerRef.current(prompt),
   });
-  
-  const updateProactiveSettings = useCallback((updates: Partial<ProactiveSettings>) => {
-    setProactiveSettings(prev => {
-      const next = { ...prev, ...updates };
-      localStorage.setItem(PROACTIVE_SETTINGS_KEY, JSON.stringify(next));
-      console.log('🔧 Proactive settings updated:', next);
-      return next;
-    });
-  }, []);
+
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [notifiedEventIds, setNotifiedEventIds] = useState<Set<string>>(new Set());
-  const idleActionTimerRef = useRef<number | null>(null);
-  const hasInteractedRef = useRef(false);
   const lastIdleBreakerAtRef = useRef<number | null>(null);
 
   useEffect(() => {
@@ -463,11 +469,6 @@ const App: React.FC = () => {
     setErrorMessage(message);
   }, []);
 
-  const registerInteraction = useCallback(() => {
-    setLastInteractionAt(Date.now());
-    hasInteractedRef.current = true;
-  }, []);
-
   const cleanupActionUrls = useCallback((urls: Record<string, string>) => {
     Object.values(urls).forEach((url) => {
       try {
@@ -577,121 +578,36 @@ const App: React.FC = () => {
     });
   }, [characterForManagement, selectedCharacter]);
 
-  // Insert action video; optionally interrupt the current video for instant playback
-  const playAction = (actionId: string, forceImmediate = false): boolean => {
-    let actionUrl = actionVideoUrls[actionId] ?? null;
-
-    // Fallback to public URL if we only have a stored path
-    if (!actionUrl) {
-      const action = selectedCharacter?.actions.find(a => a.id === actionId);
-      if (action?.videoPath) {
-        const { data } = supabase.storage
-        .from(ACTION_VIDEO_BUCKET)
-        .getPublicUrl(action.videoPath);
-        actionUrl = data?.publicUrl ?? null;
+  // Wire up task celebration callbacks
+  useEffect(() => {
+    taskCelebrateRef.current = (message: string) => {
+      if (selectedCharacter && !isMutedRef.current) {
+        generateSpeech(message).then(audio => {
+          if (audio) media.enqueueAudio(audio);
+        });
+        setChatHistory(prev => [...prev, { role: 'model', text: message }]);
       }
-    }
-
-    if (!actionUrl) return false;
-
-    media.playAction(actionUrl, forceImmediate);
-    setCurrentActionId(actionId);
-    return true;
-  };
-
-  const isTalkingActionId = useCallback(
-    (actionId: string): boolean => {
-      const action = selectedCharacter?.actions.find(a => a.id === actionId);
-      return action ? isTalkingAction(action) : false;
-    },
-    [selectedCharacter]
-  );
-
-  const playRandomTalkingAction = (forceImmediate = true): string | null => {
-    if (!selectedCharacter) return null;
-
-    const talkingActions = shuffleArray(getTalkingActions(selectedCharacter.actions));
-    for (const action of talkingActions) {
-      const played = playAction(action.id, forceImmediate);
-      if (played) {
-        return action.id;
+    };
+    taskPlayPositiveRef.current = () => {
+      if (selectedCharacter) {
+        const positiveActions = selectedCharacter.actions.filter(a =>
+          a.name.toLowerCase().includes('happy') ||
+          a.name.toLowerCase().includes('celebrate') ||
+          a.name.toLowerCase().includes('excited')
+        );
+        if (positiveActions.length > 0) {
+          playAction(positiveActions[0].id);
+        }
       }
-    }
-
-    return null;
-  };
+    };
+  }, [selectedCharacter, media, playAction]);
 
   const handleSpeechStart = useCallback(() => {
     setIsSpeaking(true);
     if (!isTalkingActionId(currentActionId || '')) {
       playRandomTalkingAction(true);
     }
-  }, [currentActionId, isTalkingActionId]);
-
-  const triggerIdleAction = useCallback(() => {
-    if (!selectedCharacter) return;
-    if (selectedCharacter.actions.length === 0) return;
-    
-    const nonGreetingActions = getNonGreetingActions(selectedCharacter.actions);
-    if (nonGreetingActions.length === 0) return;
-
-    const action: CharacterAction = randomFromArray(nonGreetingActions);
-    
-    // Ensure we have the URL
-    let actionUrl = actionVideoUrls[action.id] ?? null;
-    if (!actionUrl && action.videoPath) {
-      const { data } = supabase.storage
-        .from(ACTION_VIDEO_BUCKET)
-        .getPublicUrl(action.videoPath);
-      actionUrl = data?.publicUrl ?? null;
-    }
-    
-    if (actionUrl) {
-        // Insert action at index 1 (next to play)
-        media.playAction(actionUrl);
-        setCurrentActionId(action.id);
-        setLastInteractionAt(Date.now());
-    }
-
-  }, [
-    selectedCharacter,
-    actionVideoUrls,
-    media
-  ]);
-
-  const clearIdleActionTimer = useCallback(() => {
-    if (idleActionTimerRef.current !== null) {
-      window.clearTimeout(idleActionTimerRef.current);
-      idleActionTimerRef.current = null;
-    }
-  }, []);
-
-  const scheduleIdleAction = useCallback(() => {
-    clearIdleActionTimer();
-
-    if (!selectedCharacter) return;
-    if (selectedCharacter.actions.length === 0) return;
-    if (isProcessingAction) return;
-    // Don't schedule if we are already playing an action?
-    // We can check if current video is an idle video.
-    // With queue, it's harder to know if queue[0] is idle or action unless we track it.
-    // For now, simple random schedule.
-
-    const delay =
-      Math.floor(
-        Math.random() *
-          (IDLE_ACTION_DELAY_MAX_MS - IDLE_ACTION_DELAY_MIN_MS + 1)
-      ) + IDLE_ACTION_DELAY_MIN_MS;
-
-    idleActionTimerRef.current = window.setTimeout(() => {
-      triggerIdleAction();
-    }, delay);
-  }, [
-    clearIdleActionTimer,
-    selectedCharacter,
-    isProcessingAction,
-    triggerIdleAction,
-  ]);
+  }, [currentActionId, isTalkingActionId, playRandomTalkingAction]);
 
   // Audio Queue Management handled by useMediaQueues hook
   const { enqueueAudio, handleAudioEnd } = media;
@@ -753,6 +669,11 @@ const App: React.FC = () => {
     upcomingEvents,
     playAction
   ]);
+
+  // Wire up calendar trigger ref
+  useEffect(() => {
+    calendarTriggerRef.current = triggerSystemMessage;
+  }, [triggerSystemMessage]);
 
   const triggerIdleBreaker = useCallback(async () => {
     // UI Layer: Simple validation and trigger
@@ -872,50 +793,8 @@ const App: React.FC = () => {
     playAction
   ]);
 
-  // Calendar check-in trigger function
-  const triggerCalendarCheckin = useCallback((event: CalendarEvent, type: CheckinType) => {
-    // Respect snooze and proactive settings
-    if (isSnoozed || !proactiveSettings.calendar) {
-      console.log(`📅 Skipping calendar check-in (snoozed: ${isSnoozed}, calendar enabled: ${proactiveSettings.calendar})`);
-      return;
-    }
-    
-    // Mark this check-in as done to avoid duplicates
-    markCheckinDone(event.id, type);
-    
-    // Build and send the prompt
-    const prompt = buildEventCheckinPrompt(event, type);
-    console.log(`📅 Triggering ${type} check-in for event: ${event.summary}`);
-    triggerSystemMessage(prompt);
-  }, [isSnoozed, proactiveSettings.calendar, triggerSystemMessage]);
-
-  // Check for applicable calendar check-ins
-  useEffect(() => {
-    if (!selectedCharacter || weekEvents.length === 0 || !proactiveSettings.calendar) return;
-    
-    const checkCalendarEvents = () => {
-      // Don't trigger if already processing or speaking
-      if (isProcessingAction || isSpeaking) return;
-      
-      for (const event of weekEvents) {
-        const applicableType = getApplicableCheckin(event);
-        if (applicableType) {
-          triggerCalendarCheckin(event, applicableType);
-          break; // One check-in at a time
-        }
-      }
-    };
-    
-    // Check every 2 minutes
-    const interval = setInterval(checkCalendarEvents, 2 * 60 * 1000);
-    // Also check immediately after a delay (to avoid firing on initial load)
-    const initialCheck = setTimeout(checkCalendarEvents, 30000);
-    
-    return () => {
-      clearInterval(interval);
-      clearTimeout(initialCheck);
-    };
-  }, [weekEvents, selectedCharacter, isProcessingAction, isSpeaking, proactiveSettings.calendar, triggerCalendarCheckin]);
+  // Calendar check-in trigger function - now provided by useCalendar hook
+  // (triggerCalendarCheckin, checkForApplicableCheckins)
 
   useEffect(() => {
     const IDLE_TIMEOUT = 5 * 60 * 1000; // 5 minutes
@@ -1005,50 +884,30 @@ const App: React.FC = () => {
     };
   }, [isGmailConnected, session]);
 
+  // Calendar polling effects - now handled by useCalendar hook
   useEffect(() => {
-    // Calendar should work as long as we are logged in, regardless of "Gmail Connected" toggle
-    if (!session) return;
+    return registerCalendarEffects();
+  }, [registerCalendarEffects]);
 
-    const pollCalendar = async () => {
-        try {
-          console.log("📅 Polling calendar events...");
-            const events = await calendarService.getUpcomingEvents(session.accessToken);
-            setUpcomingEvents(events); 
-        } catch (e) { console.error("Calendar poll failed", e); }
-    };
+  // Calendar check-in effect
+  useEffect(() => {
+    if (!selectedCharacter || weekEvents.length === 0 || !proactiveSettings.calendar) return;
 
-    // Poll immediately on mount/session-start, then every 5 min
-    pollCalendar();
+    // Check every 2 minutes
+    const interval = setInterval(() => {
+      checkForApplicableCheckins(weekEvents);
+    }, 2 * 60 * 1000);
 
-    const intervalId = setInterval(pollCalendar, 300000);
+    // Initial check after delay (to avoid firing on initial load)
+    const initialCheck = setTimeout(() => {
+      checkForApplicableCheckins(weekEvents);
+    }, 30000);
 
     return () => {
-        clearInterval(intervalId);
+      clearInterval(interval);
+      clearTimeout(initialCheck);
     };
-  }, [session]);
-  
-  // Fetch week events for proactive calendar check-ins
-  useEffect(() => {
-    if (!session) return;
-    
-    const fetchWeekEvents = async () => {
-      try {
-        console.log("📅 Fetching week calendar events for proactive check-ins...");
-        const events = await calendarService.getWeekEvents(session.accessToken);
-        setWeekEvents(events);
-        // Clean up old check-in states for events no longer in this week
-        cleanupOldCheckins(events.map(e => e.id));
-      } catch (e) {
-        console.error('Week calendar fetch failed', e);
-      }
-    };
-    
-    fetchWeekEvents();
-    // Refresh every 5 minutes
-    const interval = setInterval(fetchWeekEvents, 5 * 60 * 1000);
-    return () => clearInterval(interval);
-  }, [session]);
-
+  }, [weekEvents, selectedCharacter, proactiveSettings.calendar, checkForApplicableCheckins]);
 
   useEffect(() => {
     const handleNewMail = (event: Event) => {
@@ -1456,38 +1315,11 @@ const App: React.FC = () => {
     }
 
 
-    // Load tasks and perform daily rollover check
-    // ASYNC TASK LOADING
-    let currentTasks: Task[] = [];
-
-    currentTasks = await taskService.fetchTasks();
-    console.log(`📋 Loaded ${currentTasks.length} task(s) from Supabase`);
-
-
-    setTasks(currentTasks);
+    // Load tasks (handled by useTasks hook)
+    const currentTasks = await loadTasks();
     
-    // Load snooze state
-    const snoozeIndefinite = localStorage.getItem('kayley_snooze_indefinite');
-    const snoozeUntilStr = localStorage.getItem('kayley_snooze_until');
-    
-    if (snoozeIndefinite === 'true') {
-      setIsSnoozed(true);
-      setSnoozeUntil(null);
-      console.log('⏸️ Check-ins are snoozed indefinitely');
-    } else if (snoozeUntilStr) {
-      const snoozeEnd = parseInt(snoozeUntilStr);
-      if (Date.now() < snoozeEnd) {
-        setIsSnoozed(true);
-        setSnoozeUntil(snoozeEnd);
-        console.log('⏸️ Check-ins are snoozed until', new Date(snoozeEnd).toLocaleTimeString());
-      } else {
-        // Snooze expired - clear both localStorage and React state
-        localStorage.removeItem('kayley_snooze_until');
-        setIsSnoozed(false);
-        setSnoozeUntil(null);
-        console.log('⏰ Snooze period expired (cleared on load)');
-      }
-    }
+    // Load snooze state (handled by useProactiveSettings hook)
+    loadSnoozeState();
 
     // Initialize Queue with shuffled idle video URLs (already public URLs!)
     let initialQueue = shuffleArray([...character.idleVideoUrls]);
@@ -1712,75 +1544,8 @@ const App: React.FC = () => {
     handleUserInterrupt();
   };
 
-  // Task Management Handlers
-  const handleTaskCreate = useCallback(async (text: string, priority?: 'low' | 'medium' | 'high') => {
-    const newTask = await taskService.createTask(text, priority);
-    if (newTask) {
-      setTasks(prev => [...prev, newTask]);
-
-      // Kayley celebrates the task creation
-      if (selectedCharacter && !isMuted) {
-        const celebrations = [
-          "Got it! Added to your list ✨",
-          "Done! I'll help you remember that.",
-          "Added! One step at a time 🤍",
-          "On the list! You've got this."
-        ];
-        const message = celebrations[Math.floor(Math.random() * celebrations.length)];
-
-        generateSpeech(message).then(audio => {
-          if (audio) media.enqueueAudio(audio);
-        });
-
-        setChatHistory(prev => [...prev, { role: 'model', text: message }]);
-      }
-    }
-  }, [selectedCharacter, isMuted, media]);
-
-  const handleTaskToggle = useCallback(async (taskId: string) => {
-    const task = tasks.find(t => t.id === taskId);
-    if (!task) return;
-
-    const updatedTask = await taskService.toggleTask(taskId, task.completed);
-    if (updatedTask) {
-      setTasks(prev => prev.map(t => t.id === taskId ? updatedTask : t));
-      
-      // Celebrate completion!
-      if (updatedTask.completed && selectedCharacter && !isMuted) {
-        const celebrations = [
-          "Nice! That's one thing off your plate ✨",
-          "You crushed it! One down!",
-          "Look at you go! ✅",
-          "Done and done! Great work 🤍",
-          "Boom! Another one bites the dust!"
-        ];
-        const message = celebrations[Math.floor(Math.random() * celebrations.length)];
-        
-        generateSpeech(message).then(audio => {
-          if (audio) media.enqueueAudio(audio);
-        });
-        
-        setChatHistory(prev => [...prev, { role: 'model', text: message }]);
-        
-        // Try to play a positive action if available
-        const positiveActions = selectedCharacter.actions.filter(a => 
-          a.name.toLowerCase().includes('happy') || 
-          a.name.toLowerCase().includes('celebrate') ||
-          a.name.toLowerCase().includes('excited')
-        );
-        if (positiveActions.length > 0) {
-          playAction(positiveActions[0].id);
-        }
-      }
-    }
-  }, [tasks, selectedCharacter, isMuted, media, playAction]); // Added tasks dependency for current state
-
-  const handleTaskDelete = useCallback(async (taskId: string) => {
-    const success = await taskService.deleteTask(taskId);
-    if (success) {
-      setTasks(prev => prev.filter(t => t.id !== taskId));
-    }
-  }, []);
+  // Task Management Handlers - now provided by useTasks hook
+  // (handleTaskCreate, handleTaskToggle, handleTaskDelete)
 
   const handleSendMessage = async (message: string) => {
     if (!selectedCharacter || !session) return;
@@ -1947,10 +1712,7 @@ const App: React.FC = () => {
 
         // IMPORTANT: Refresh tasks after AI response in case task_action tool was called
         // The tool modifies Supabase directly, so we need to sync UI state
-        taskService.fetchTasks().then(freshTasks => {
-          setTasks(freshTasks);
-          console.log('📋 Tasks refreshed after AI response');
-        }).catch(err => {
+        refreshTasks().catch(err => {
           console.warn('Failed to refresh tasks:', err);
         });
 
@@ -2059,56 +1821,46 @@ const App: React.FC = () => {
           });
         }
 
-        // Check for Task Action
+        // Check for Task Action (uses useTasks hook methods)
         if (taskAction && taskAction.action) {
           console.log('📋 Task action detected:', taskAction);
 
-          
           try {
             switch (taskAction.action) {
               case 'create':
                 if (taskAction.task_text) {
-                  const newTask = await taskService.createTask(
-                    taskAction.task_text, 
+                  await handleTaskCreate(
+                    taskAction.task_text,
                     taskAction.priority as 'low' | 'medium' | 'high' | undefined
                   );
-                  if (newTask) setTasks(prev => [...prev, newTask]);
-                  console.log('✅ Task created (AI):', newTask?.text);
+                  console.log('✅ Task created (AI):', taskAction.task_text);
                 }
                 break;
-                
+
               case 'complete':
                 if (taskAction.task_text) {
                   const foundTask = await taskService.findTaskByText(taskAction.task_text);
                   if (foundTask) {
-                    const updated = await taskService.toggleTask(foundTask.id, foundTask.completed);
-                    if (updated) setTasks(prev => prev.map(t => t.id === foundTask.id ? updated : t));
+                    await handleTaskToggle(foundTask.id);
                     console.log('✅ Task completed (AI):', foundTask.text);
                   }
                 } else if (taskAction.task_id) {
-                  // We need current state to toggle
-                  const task = tasks.find(t => t.id === taskAction.task_id);
-                  if (task) {
-                    const updated = await taskService.toggleTask(taskAction.task_id, task.completed);
-                    if (updated) setTasks(prev => prev.map(t => t.id === taskAction.task_id ? updated : t));
-                  }
+                  await handleTaskToggle(taskAction.task_id);
                 }
                 break;
-                
+
               case 'delete':
                 if (taskAction.task_text) {
                   const foundTask = await taskService.findTaskByText(taskAction.task_text);
                   if (foundTask) {
-                    await taskService.deleteTask(foundTask.id);
-                    setTasks(prev => prev.filter(t => t.id !== foundTask.id));
+                    await handleTaskDelete(foundTask.id);
                     console.log('🗑️ Task deleted (AI):', foundTask.text);
                   }
                 } else if (taskAction.task_id) {
-                  await taskService.deleteTask(taskAction.task_id);
-                  setTasks(prev => prev.filter(t => t.id !== taskAction.task_id));
+                  await handleTaskDelete(taskAction.task_id);
                 }
                 break;
-                
+
               case 'list':
                 // Task list is already in the AI's context, no action needed
                 // Optionally open the task panel
@@ -2682,8 +2434,8 @@ Let the user know in a friendly way and maybe offer to check back later.
           : "No new emails.";
       }
 
-      // Task summary - load current tasks at briefing time
-      const currentTasks = await taskService.fetchTasks();
+      // Task summary - refresh and get current tasks at briefing time
+      const currentTasks = await refreshTasks();
       const incompleteTasks = currentTasks.filter(t => !t.completed);
       const taskSummary = incompleteTasks.length > 0
         ? `User has ${incompleteTasks.length} task(s) pending: ${incompleteTasks.slice(0, 3).map(t => t.text).join(', ')}`
