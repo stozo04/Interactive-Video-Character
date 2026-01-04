@@ -89,7 +89,7 @@ describe('Proactive Conversation Starters E2E', () => {
 
     // 5. Verify thread can be marked as mentioned (mock the save)
     mockGetOngoingThreads.mockResolvedValue([eligibleThread]);
-    await markThreadMentionedAsync(, activeThread!.id);
+    await markThreadMentionedAsync(activeThread!.id);
     expect(mockSaveAllOngoingThreads).toHaveBeenCalled();
   });
 
