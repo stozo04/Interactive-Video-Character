@@ -14,17 +14,17 @@
 
 import { supabase } from "./supabaseClient";
 import { getPresenceContext } from "./presenceDirector";
-const EMOTIONAL_MOMENTUM_ID = "06064180-ee6a-48d0-8cf3-bb13f1bd40e1";
 // ============================================
 // Table Names
 // ============================================
 
-const MOOD_STATES_TABLE = "mood_states";
 const EMOTIONAL_MOMENTUM_TABLE = "emotional_momentum";
+const EMOTIONAL_MOMENTUM_ID = "06064180-ee6a-48d0-8cf3-bb13f1bd40e1";
 const ONGOING_THREADS_TABLE = "ongoing_threads";
 const INTIMACY_STATES_TABLE = "intimacy_states";
+const INTIMACY_STATE_ID = "0b53778a-6ff1-4366-ab5b-a59ac8862c00";
+const MOOD_STATES_TABLE = "mood_states";
 const MOOD_STATE_ID = "15c47464-0358-4075-ae1d-a90f36d5d9c2";
-const INTIMACY_STATES_ID = "0b53778a-6ff1-4366-ab5b-a59ac8862c00";
 // ============================================
 // Types
 // ============================================
@@ -598,8 +598,6 @@ export async function getFullCharacterContext(): Promise<{
 // INTIMACY STATE
 // ============================================
 
-const INTIMACY_STATE_ID = "0b53778a-6ff1-4366-ab5b-a59ac8862c00";
-
 export async function saveIntimacyState(
   state: IntimacyState,
   expectedUpdatedAt?: string
@@ -610,7 +608,7 @@ export async function saveIntimacyState(
       const { data: current, error: fetchError } = await supabase
         .from(INTIMACY_STATES_TABLE)
         .select("updated_at")
-        .eq("id", INTIMACY_STATE_ID) // 👈 scope to the singleton row
+        .eq("id", INTIMACY_STATE_ID)
         .single();
 
       if (!fetchError && current && current.updated_at !== expectedUpdatedAt) {
@@ -626,7 +624,7 @@ export async function saveIntimacyState(
     const { error: upsertError } = await supabase
       .from(INTIMACY_STATES_TABLE)
       .upsert({
-        id: INTIMACY_STATE_ID, // 🔑 ensures we UPDATE this row, not insert new ones
+        id: INTIMACY_STATE_ID,
         recent_tone_modifier: state.recentToneModifier,
         vulnerability_exchange_active: state.vulnerabilityExchangeActive,
         last_vulnerability_at: state.lastVulnerabilityAt
