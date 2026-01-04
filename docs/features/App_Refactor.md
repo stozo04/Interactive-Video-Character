@@ -14,22 +14,24 @@ The App.tsx file has grown to **3,136 lines**, containing multiple feature domai
 |-------|-------------|--------|------|
 | 0 | Shared Enums | ✅ Complete | 2025-01-02 |
 | 1 | Utility Functions | ✅ Complete | 2025-01-02 |
-| 2 | Task Hook | ⏳ Pending | - |
-| 3 | Calendar Hook | ⏳ Pending | - |
-| 4A | Proactive Settings Hook | ⏳ Pending | - |
-| 4B | Idle Tracking Hook | ⏳ Pending | - |
+| 2 | Task Hook | ✅ Complete | 2025-01-03 |
+| 3 | Calendar Hook | ✅ Complete | 2025-01-03 |
+| 4A | Proactive Settings Hook | ✅ Complete | 2025-01-03 |
+| 4B | Idle Tracking Hook | ✅ Complete | 2025-01-03 |
 | 5 | Message Action Handlers | ⏳ Pending (LAST) | - |
-| 6 | Character Actions Hook | ⏳ Pending | - |
+| 6 | Character Actions Hook | ✅ Complete | 2025-01-03 |
 | 7 | Character Management Hook | ⏳ Pending | - |
 | 8 | Whiteboard Handler | ⏳ Pending | - |
 | ~~9~~ | ~~Email Hook~~ | ❌ Removed | - |
 
-**Current App.tsx:** ~3,136 lines → **Target:** 500-700 lines
+**Current App.tsx:** ~2,808 lines → **Target:** 500-700 lines
 
 > **Notes:**
 > - Phase 9 (Email Hook) removed - only ~125 lines, rarely used, not worth extraction overhead.
 > - Phase 5 moved to LAST position due to high complexity (~850 lines, touches everything).
 > - Phase 4 split into 4A + 4B after coupling analysis (see deep dive at end of doc). Core proactive logic (`triggerSystemMessage`, `triggerIdleBreaker`) stays in App.tsx by design.
+> - Phase 2 (Task Hook) extracted ~126 lines using a ref-based callback pattern to handle dependencies on things defined later in the component (e.g., `playAction`).
+> - Phase 3 (Calendar Hook) extracted ~41 lines. Uses same ref pattern for `triggerSystemMessage`. Polling and check-in logic now in hook.
 
 ---
 
@@ -1536,7 +1538,7 @@ export * from './selfieActions';
 
 ---
 
-### Phase 6: Extract Character Action Hook (Medium Risk)
+### Phase 6: Extract Character Action Hook ✅ Complete (2025-01-03)
 
 **Priority: MEDIUM**
 
@@ -2303,17 +2305,17 @@ The "clean extraction" approach would require:
 
 ### Revised Phase 4 Plan
 
-**Phase 4A: Extract useProactiveSettings**
-1. Create `src/hooks/useProactiveSettings.ts`
-2. Move: proactiveSettings state, snooze state, localStorage logic
-3. Test: Settings persist correctly
-4. Verify: Build passes, app works
+**Phase 4A: Extract useProactiveSettings** ✅ Complete (2025-01-03)
+1. Create `src/hooks/useProactiveSettings.ts` ✅
+2. Move: proactiveSettings state, snooze state, localStorage logic ✅
+3. Test: Settings persist correctly ✅ (13 tests)
+4. Verify: Build passes, app works ✅
 
-**Phase 4B: Extract useIdleTracking**
-1. Create `src/hooks/useIdleTracking.ts`
-2. Move: lastInteractionAt, refs, markInteraction()
-3. Test: Idle detection works
-4. Verify: Build passes, app works
+**Phase 4B: Extract useIdleTracking** ✅ Complete (2025-01-03)
+1. Create `src/hooks/useIdleTracking.ts` ✅
+2. Move: lastInteractionAt, hasInteractedRef, registerInteraction() ✅
+3. Test: Idle detection works ✅ (13 tests)
+4. Verify: Build passes, app works ✅
 
 **Phase 4C: Keep System Message Functions (NO CHANGE)**
 - `triggerSystemMessage`, `triggerIdleBreaker`, effects stay in App.tsx
