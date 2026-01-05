@@ -7,31 +7,28 @@ import { CurrentLookState } from './types';
  * Get the current locked look
  */
 export async function getCurrentLookState(): Promise<CurrentLookState | null> {
+  const nowIso = new Date().toISOString();
+
   const { data, error } = await supabase
     .from('current_look_state')
     .select('*')
     .eq('is_current_look', true)
-    .maybeSingle();
+    .gt('expires_at', nowIso)
+    .order('locked_at', { ascending: false })
+    .limit(1)
+    .single();
 
   if (error) {
     console.error('[CurrentLook] Error fetching current look:', error);
     return null;
   }
-
   if (!data) return null;
-
-  // Check if expired
-  const expiresAt = new Date(data.expires_at);
-  if (new Date() > expiresAt) {
-    console.log('[CurrentLook] Current look expired, returning null');
-    return null;
-  }
 
   return {
     hairstyle: data.hairstyle as any,
     referenceImageId: data.reference_image_id,
     lockedAt: new Date(data.locked_at),
-    expiresAt,
+    expiresAt: new Date(data.expires_at),
     lockReason: data.lock_reason as any,
     isCurrentLook: data.is_current_look,
   };
@@ -49,10 +46,24 @@ export async function lockCurrentLook(
   const now = new Date();
   const expiresAt = new Date(now.getTime() + expirationHours * 60 * 60 * 1000);
 
-  // Upsert (insert or update)
+  // Clear any existing current rows
+  const { error: clearErr } = await supabase
+    .from('current_look_state')
+    .update({
+      is_current_look: false,
+      updated_at: now.toISOString(),
+    })
+    .eq('is_current_look', true);
+
+  if (clearErr) {
+    console.error('[CurrentLook] Error clearing previous current look:', clearErr);
+    // continue, but this should be rare with proper index
+  }
+
+  // Insert a new current row (do not use upsert here)
   const { error } = await supabase
     .from('current_look_state')
-    .upsert({
+    .insert({
       hairstyle,
       reference_image_id: referenceImageId,
       locked_at: now.toISOString(),
@@ -73,14 +84,19 @@ export async function lockCurrentLook(
  * Unlock current look (force expiration)
  */
 export async function unlockCurrentLook(): Promise<void> {
-  await supabase
+  const { error } = await supabase
     .from('current_look_state')
     .update({
       is_current_look: false,
       updated_at: new Date().toISOString(),
     })
+    .eq('is_current_look', true);
 
-  console.log('[CurrentLook] Unlocked current look');
+  if (error) {
+    console.error('[CurrentLook] Error unlocking current look:', error);
+  } else {
+    console.log('[CurrentLook] Unlocked current look');
+  }
 }
 
 /**

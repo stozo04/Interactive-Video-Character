@@ -19,6 +19,7 @@ The system follows a "Perception -> processing -> Action" pipeline:
 *   [AI Services / Providers](./AI_Services.md): Multi-model support (Gemini, ChatGPT) and JSON schemas.
 *   [AI Schema Workflow](./aiSchema_Workflow.md): Response fields vs tools - when to use which mechanism.
 *   [Intent Service](./IntentService.md): Front-line semantic analysis (Tone, Sarcasm).
+*   [Message Orchestrator](./MessageOrchestrator.md): Central coordinator for user message processing. *(In Development)*
 *   [Message Analyzer](./MessageAnalyzer.md): Background processing and "magic" systems integration.
 *   [State Service](./StateService.md): Central database interaction layers (Supabase).
 *   [Performance & Assets](./Performance_and_Assets.md): Caching, pre-fetching, and high-performance video delivery.
