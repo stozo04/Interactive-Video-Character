@@ -230,7 +230,6 @@ export async function getEmotionalMomentum(): Promise<EmotionalMomentum> {
       await saveEmotionalMomentum(defaultMomentum);
       return defaultMomentum;
     }
-    console.log("Gates 23: momentum ", data.current_mood_leve);
     return {
       currentMoodLevel: data.current_mood_level,
       momentumDirection: data.momentum_direction,

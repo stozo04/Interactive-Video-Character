@@ -33,6 +33,7 @@ export type AuthStatus =
   | 'loading' 
   | 'authenticating' 
   | 'connected' 
+  | 'needs_reconnect'
   | 'refreshing' 
   | 'error';
 
@@ -123,8 +124,14 @@ export async function getAccessToken(): Promise<Omit<GmailSession, "email">> {
     throw error;
   }
 
+  if (session) {
+    console.log('📦 Supabase session keys:', Object.keys(session));
+    if (session.provider_token) console.log('✅ Provider token present');
+    if (session.provider_refresh_token) console.log('✅ Provider refresh token present');
+  }
+
   if (!session || !session.provider_token) {
-    throw new Error("No active Google session found in Supabase. Please sign in.");
+    throw new Error("No active Google session found in Supabase.");
   }
 
   // Supabase's session.expires_at is in seconds
@@ -149,13 +156,19 @@ export async function refreshAccessToken(): Promise<Omit<GmailSession, "email">>
     throw error;
   }
 
-  if (!data.session || !data.session.provider_token) {
+  const sbSession = data.session;
+  if (sbSession) {
+    console.log('📦 Refreshed Supabase session keys:', Object.keys(sbSession));
+    if (sbSession.provider_token) console.log('✅ Refreshed Provider token present');
+  }
+
+  if (!sbSession || !sbSession.provider_token) {
     throw new Error("Failed to obtain refreshed provider token from Supabase.");
   }
 
   return {
-    accessToken: data.session.provider_token,
-    expiresAt: data.session.expires_at ? data.session.expires_at * 1000 : Date.now() + 3600 * 1000,
+    accessToken: sbSession.provider_token,
+    expiresAt: sbSession.expires_at ? sbSession.expires_at * 1000 : Date.now() + 3600 * 1000,
     refreshedAt: Date.now(),
   };
 }
@@ -198,12 +211,32 @@ export async function ensureValidSession(
         return refreshedSession;
       } catch (refreshError) {
         console.error('Failed to refresh Supabase session:', refreshError);
-        throw new Error('Session expired. Please sign in again.');
+        // Throw a specific error that can be caught to trigger a silent refresh or needs_reconnect
+        throw new Error('AUTH_REFRESH_FAILED');
       }
     }
   }
   
   return session;
+}
+
+/**
+ * Attempt a silent OAuth refresh
+ */
+export async function silentRefresh() {
+  console.log('🔄 Attempting silent OAuth refresh...');
+  const { error } = await supabase.auth.signInWithOAuth({
+    provider: 'google',
+    options: {
+      scopes: SCOPES_ARRAY.join(' '),
+      queryParams: {
+        access_type: 'offline',
+        prompt: 'none',
+      },
+      redirectTo: window.location.origin,
+    },
+  });
+  return error;
 }
 
 /**

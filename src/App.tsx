@@ -10,6 +10,7 @@ import {
 } from './types';
 import * as dbService from './services/cacheService';
 import { supabase } from './services/supabaseClient';
+import AuthWarningBanner from './components/AuthWarningBanner';
 import * as conversationHistoryService from './services/conversationHistoryService';
 import * as relationshipService from './services/relationshipService';
 import type { RelationshipMetrics } from './services/relationshipService';
@@ -49,6 +50,10 @@ import {
   processCalendarTag,
   processNewsAction,
   processSelfieAction,
+  TaskAction,
+  CalendarAction,
+  NewsAction,
+  SelfieAction,
 } from './handlers/messageActions';
 import { useGoogleAuth } from './contexts/GoogleAuthContext';
 import { useDebounce } from './hooks/useDebounce';
@@ -99,7 +104,7 @@ const App: React.FC = () => {
   // --------------------------------------------------------------------------
   // AUTH & CORE SERVICES
   // --------------------------------------------------------------------------
-  const { session, status: authStatus, signOut } = useGoogleAuth();
+  const { session, status: authStatus, signOut, refreshSession } = useGoogleAuth();
   const activeService = useAIService();
 
   // --------------------------------------------------------------------------
@@ -190,6 +195,7 @@ const App: React.FC = () => {
   // Idle Tracking
   const {
     lastInteractionAt,
+    setLastInteractionAt,
     hasInteractedRef,
     registerInteraction,
   } = useIdleTracking();
@@ -224,6 +230,7 @@ const App: React.FC = () => {
     updatingActionId,
     deletingActionId,
     isAddingIdleVideo,
+    setIsUpdatingImage,
     deletingIdleVideoId,
     isUpdatingImage,
     uploadedImage,
@@ -970,11 +977,8 @@ const App: React.FC = () => {
     };
 
     const handleAuthError = () => {
-      console.log("🔒 Auth error detected. Signing out...");
-      setIsGmailConnected(false);
-      localStorage.removeItem('gmail_history_id');
-      setErrorMessage('Google session expired. Please reconnect.');
-      signOut(); // Force sign out to clear invalid session
+      console.log("🔒 Google Auth error detected. Attempting background refresh...");
+      refreshSession();
     };
 
     gmailService.addEventListener('new-mail', handleNewMail);
@@ -1478,7 +1482,8 @@ const App: React.FC = () => {
         // ============================================
         // TASK ACTIONS (extracted to handlers/messageActions/taskActions.ts)
         // ============================================
-        let taskAction = response.task_action;
+        let taskAction = response.task_action as TaskAction | null | undefined;
+        console.log("TASK ACTION: ", taskAction);
         let shouldRegenerateAudio = false;
 
         // Try to parse embedded JSON task_action from text_response
@@ -1520,8 +1525,8 @@ const App: React.FC = () => {
         // ============================================
         // CALENDAR ACTIONS (extracted to handlers/messageActions/calendarActions.ts)
         // ============================================
-        const calendarAction = response.calendar_action;
-
+        const calendarAction = response.calendar_action as CalendarAction | null | undefined;
+        console.log("CALENDAR ACTION: ", calendarAction);
         if (calendarAction && calendarAction.action) {
           const calendarResult = await processCalendarAction(calendarAction, {
             accessToken: session.accessToken,
@@ -1556,7 +1561,7 @@ const App: React.FC = () => {
         // ============================================
         // NEWS ACTIONS (extracted to handlers/messageActions/newsActions.ts)
         // ============================================
-        const newsAction = response.news_action;
+        const newsAction = response.news_action as NewsAction | null | undefined;
 
         if (newsAction && newsAction.action === 'fetch') {
           // Show initial acknowledgment
@@ -1571,6 +1576,7 @@ const App: React.FC = () => {
           setLastSavedMessageIndex(updatedHistory.length);
 
           const newsResult = await processNewsAction(newsAction);
+          console.log("NEWS ACTION: ", newsResult);
 
           if (newsResult.handled) {
             // Send news context back to AI for a natural response
@@ -1584,8 +1590,8 @@ const App: React.FC = () => {
         // ============================================
         // SELFIE ACTIONS (extracted to handlers/messageActions/selfieActions.ts)
         // ============================================
-        const selfieAction = response.selfie_action;
-
+        const selfieAction = response.selfie_action as SelfieAction | null | undefined;
+        console.log("SELFIE ACTION: ", selfieAction);
         if (selfieAction && selfieAction.scene) {
           // Show initial acknowledgment
           setChatHistory(prev => [...prev, { role: 'model' as const, text: response.text_response }]);
@@ -1782,6 +1788,8 @@ const App: React.FC = () => {
 
   return (
     <div className="bg-gray-900 text-gray-100 h-screen overflow-hidden flex flex-col p-4 md:p-8">
+      <AuthWarningBanner />
+      <div className="flex-1 flex flex-col relative overflow-hidden chat-container z-10 p-2 sm:p-4">
       {/* Audio Player (Hidden) - plays audio responses sequentially */}
       {media.currentAudioSrc && (
         <AudioPlayer 
@@ -1968,6 +1976,7 @@ const App: React.FC = () => {
           onTaskCreate={handleTaskCreate}
         />
       )}
+      </div>
     </div>
   );
 };

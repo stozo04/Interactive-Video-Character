@@ -186,7 +186,6 @@ export function calculateMoodFromState(
     genuineMomentActive: emotionalMomentum.genuineMomentDetected,
     genuineMomentAt: emotionalMomentum.lastGenuineMomentAt,
   };
-  console.log("Gates 1: simplifiedMomentum ", simplifiedMomentum);
   return calculateMood(simplifiedState, simplifiedMomentum);
 }
 
@@ -529,7 +528,6 @@ export async function updateEmotionalMomentumAsync(
       MOOD_SHIFT_THRESHOLDS.noticeableShiftStreak,
       momentum.positiveInteractionStreak
     );
-    console.log("Gates 2: momentum ", momentum);
     await saveMomentumAsync(momentum);
     return momentum;
   }
@@ -602,7 +600,6 @@ export async function recordInteractionAsync(
 
   // --- UPDATE EMOTIONAL MOMENTUM (SIMPLIFIED) ---
   // Simple weighted average for mood level
-  console.log("Gates 3: momentum ", momentum);
   momentum.currentMoodLevel = momentum.currentMoodLevel * 0.8 + tone * 0.2;
 
   // Simple streak logic
@@ -635,7 +632,6 @@ export async function recordInteractionAsync(
     );
     momentum.genuineMomentDetected = true;
     momentum.lastGenuineMomentAt = Date.now();
-    console.log("Gates 4: momentum ", momentum);
     momentum.currentMoodLevel = Math.min(0.8, momentum.currentMoodLevel + 0.5);
   }
 
@@ -649,7 +645,6 @@ export async function recordInteractionAsync(
   }
 
   // Clamp mood level to valid range
-  console.log("Gates 5: momentum ", momentum);
   momentum.currentMoodLevel = clamp(momentum.currentMoodLevel, -1, 1);
 
   // Save both states
@@ -805,33 +800,28 @@ function applyMoodShifts(
   avgTone: number
 ): void {
   const streak = momentum.positiveInteractionStreak;
-  console.log("Gates 6: momentum ", momentum);
   const currentMood = momentum.currentMoodLevel;
 
   if (streak < MOOD_SHIFT_THRESHOLDS.minStreakForShift) {
     // 1-2 positive interactions: Very minor effect
     const microShift = tone * 0.05;
-    console.log("Gates 7: momentum ", momentum);
     momentum.currentMoodLevel = clamp(currentMood + microShift, -1, 1);
   } else if (streak < MOOD_SHIFT_THRESHOLDS.noticeableShiftStreak) {
     // 3 positives: Starting to shift
     if (avgTone >= MOOD_SHIFT_THRESHOLDS.positiveTrendThreshold) {
       const smallShift = 0.1 + tone * 0.05;
-      console.log("Gates 8: momentum ", momentum);
       momentum.currentMoodLevel = clamp(currentMood + smallShift, -1, 0.5);
     }
   } else if (streak < MOOD_SHIFT_THRESHOLDS.fullThawStreak) {
     // 4-5 positives: Mood is noticeably shifting
     if (avgTone >= MOOD_SHIFT_THRESHOLDS.positiveTrendThreshold) {
       const mediumShift = 0.15 + tone * 0.1;
-      console.log("Gates 9: momentum ", momentum);
       momentum.currentMoodLevel = clamp(currentMood + mediumShift, -1, 0.7);
     }
   } else {
     // 6+ positives: Full thaw - she opens up
     if (avgTone >= MOOD_SHIFT_THRESHOLDS.positiveTrendThreshold) {
       const fullShift = 0.2 + tone * 0.15;
-      console.log("Gates 10: momentum ", momentum);
       momentum.currentMoodLevel = clamp(currentMood + fullShift, -1, 1);
     }
   }
@@ -839,7 +829,6 @@ function applyMoodShifts(
   // Negative interactions can pull mood down, but also gradually
   if (tone <= MOOD_SHIFT_THRESHOLDS.negativeToneThreshold) {
     const negativeShift = tone * 0.15;
-    console.log("Gates 11: momentum ", momentum);
     momentum.currentMoodLevel = clamp(currentMood + negativeShift, -1, 1);
   }
 }
@@ -862,7 +851,6 @@ export function calculateMoodKnobsFromState(
   const processingPenalty = state.internalProcessing ? 0.7 : 1.0;
 
   // Momentum-based adjustments
-  console.log("Gates 12: momentum ", momentum);
   const momentumBoost = momentum.currentMoodLevel * 0.2;
   const streakBonus = Math.min(momentum.positiveInteractionStreak * 0.03, 0.15);
   const genuineMomentBonus = momentum.genuineMomentDetected ? 0.1 : 0;
@@ -1160,7 +1148,6 @@ export async function updateEmotionalMomentumWithIntensityAsync(
 
     momentum.genuineMomentDetected = true;
     momentum.lastGenuineMomentAt = Date.now();
-    console.log("Gates 13: momentum ", momentum);
     momentum.currentMoodLevel = Math.min(0.8, momentum.currentMoodLevel + 0.5);
     momentum.momentumDirection = 1;
     momentum.positiveInteractionStreak = Math.max(
@@ -1192,26 +1179,21 @@ export async function updateEmotionalMomentumWithIntensityAsync(
 
   const streak = momentum.positiveInteractionStreak;
   const currentMood = momentum.currentMoodLevel;
-  console.log("Gates 14: momentum ", momentum);
   if (streak < MOOD_SHIFT_THRESHOLDS.minStreakForShift) {
     const microShift = tone * 0.05 * intensityMultiplier;
-    console.log("Gates 15: momentum ", momentum);
     momentum.currentMoodLevel = clamp(currentMood + microShift, -1, 1);
   } else if (streak < MOOD_SHIFT_THRESHOLDS.noticeableShiftStreak) {
     if (avgTone >= MOOD_SHIFT_THRESHOLDS.positiveTrendThreshold) {
       const smallShift = (0.1 + tone * 0.05) * intensityMultiplier;
-      console.log("Gates 16: momentum ", momentum);
       momentum.currentMoodLevel = clamp(currentMood + smallShift, -1, 0.5);
     }
   } else if (streak < MOOD_SHIFT_THRESHOLDS.fullThawStreak) {
     if (avgTone >= MOOD_SHIFT_THRESHOLDS.positiveTrendThreshold) {
       const mediumShift = (0.15 + tone * 0.1) * intensityMultiplier;
-      console.log("Gates 17: momentum ", momentum);
       momentum.currentMoodLevel = clamp(currentMood + mediumShift, -1, 0.7);
     }
   } else {
     if (avgTone >= MOOD_SHIFT_THRESHOLDS.positiveTrendThreshold) {
-      console.log("Gates 18: momentum ", momentum);
       const fullShift = (0.2 + tone * 0.15) * intensityMultiplier;
       momentum.currentMoodLevel = clamp(currentMood + fullShift, -1, 1);
     }
@@ -1219,7 +1201,6 @@ export async function updateEmotionalMomentumWithIntensityAsync(
 
   if (tone <= MOOD_SHIFT_THRESHOLDS.negativeToneThreshold) {
     const negativeShift = tone * 0.15 * intensityMultiplier;
-    console.log("Gates 19: momentum ", momentum);
     momentum.currentMoodLevel = clamp(currentMood + negativeShift, -1, 1);
   }
 
@@ -1328,7 +1309,6 @@ export function getMoodDescription(): string {
   if (momentum.genuineMomentDetected) {
     parts.push("genuine moment active ✨");
   }
-  console.log("Gates 20: momentum ", momentum);
   if (momentum.currentMoodLevel > 0.5) {
     parts.push("mood: great");
   } else if (momentum.currentMoodLevel < -0.5) {
