@@ -1102,16 +1102,21 @@ const App: React.FC = () => {
           session.interactionId = existingInteractionId;
         }
 
-        if (!hasHadConversationToday && isFirstLoginToday) {
-        // First login of the day AND no conversation yet: Skip immediate greeting, let Daily Catch-up handle it
-          console.log('🌅 [App] First login today - skipping immediate greeting, Daily Catch-up will fire in 5s');
-          setAiSession(session);
-          setChatHistory([]); // Empty - catch-up will provide the greeting
-        } else if (!hasHadConversationToday) {
-          // No conversation today BUT not the first login (already briefed or briefing dismissed): Generate normal greeting
-          console.log('🤖 [App] Returning to session (no prior chat today) - generating formal greeting');
+        if (!hasHadConversationToday) {
+          // No conversation today: Generate greeting
+          // The greeting service will automatically include daily logistics if it's the first login
+          console.log(isFirstLoginToday
+            ? '🌅 [App] First login today - generating greeting with daily logistics'
+            : '🤖 [App] Returning to session (no prior chat today) - generating greeting');
+
           const { greeting, session: updatedSession } = await activeService.generateGreeting(
-            aiSession || { model: activeService.model }
+            aiSession || { model: activeService.model },
+            {
+              characterId: character.id,
+              emailCount: emailQueue.length,
+              isGmailConnected,
+              isCalendarConnected: !!session,
+            }
           );
           setAiSession(updatedSession);
 
@@ -1729,98 +1734,6 @@ const App: React.FC = () => {
       setIsProcessingAction(false);
     }
   };
-
-  // ==========================================================================
-  // MORNING BRIEFING EFFECT
-  // ==========================================================================
-  useEffect(() => {
-    if (!selectedCharacter || !session) return;
-
-    // 2. Check if we already did this today
-    const today = new Date().toDateString(); // e.g., "Mon Nov 18 2025"
-    const lastBriefingDate = localStorage.getItem(`last_briefing_${selectedCharacter.id}`);
-
-    if (lastBriefingDate === today) {
-      console.log("☕ Already briefed today.");
-      return;
-    }
-
-    // Reset interaction flag on new session/character load
-    // This ensures a fresh start for the briefing timer
-    hasInteractedRef.current = false;
-
-    // 3. Start the Timer
-    const timer = setTimeout(async () => {
-      // 🛑 STOP if user has already typed/clicked
-      if (hasInteractedRef.current) {
-        console.log("User busy, skipping briefing.");
-        return;
-      }
-
-      console.log("🌅 Triggering Daily Catch-up...");
-
-      // 4. Construct the Prompt with DYNAMIC time-of-day
-      const now = new Date();
-      const hour = now.getHours();
-      const timeOfDay = hour < 12 ? "morning" : hour < 17 ? "afternoon" : hour < 21 ? "evening" : "night";
-      const timeString = now.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true });
-
-      let eventSummary = "Calendar not connected.";
-      let emailSummary = "Gmail not connected.";
-
-      if (isGmailConnected) {
-        eventSummary = upcomingEvents.length > 0
-          ? `User has ${upcomingEvents.length} events today. First one: ${upcomingEvents[0].summary} at ${upcomingEvents[0].start.dateTime}`
-          : "No events scheduled.";
-
-        emailSummary = emailQueue.length > 0
-          ? `User has ${emailQueue.length} unread emails.`
-          : "No new emails.";
-      }
-
-      // Task summary - refresh and get current tasks at briefing time
-      const currentTasks = await refreshTasks();
-      const incompleteTasks = currentTasks.filter(t => !t.completed);
-      const taskSummary = incompleteTasks.length > 0
-        ? `User has ${incompleteTasks.length} task(s) pending: ${incompleteTasks.slice(0, 3).map(t => t.text).join(', ')}`
-        : "User's checklist is clear.";
-
-      // Fetch open loop for personal continuity (e.g., "Houston trip")
-      const topLoop = await getTopLoopToSurface();
-      const openLoopContext = topLoop
-        ? `You've been wondering about: "${topLoop.topic}". Ask: "${topLoop.suggestedFollowup || `How did ${topLoop.topic} go?`}"`
-        : "";
-
-      const prompt = `
-        [SYSTEM EVENT: FIRST LOGIN CATCH-UP]
-        Context: It is the first time the user has logged in today. Current time: ${timeString} (${timeOfDay}).
-
-        ${openLoopContext ? `PAST CONTINUITY (Top Priority):\n${openLoopContext}\n` : ""}
-        DAILY LOGISTICS (Secondary Priority):
-        - ${eventSummary}
-        - ${emailSummary}
-        - ${taskSummary}
-
-        TASK:
-        1. Greet them warmly for the ${timeOfDay}. Use time-appropriate language (NOT "Good morning" if it's ${timeOfDay}!).
-        ${openLoopContext ? `2. Lead with the personal follow-up - it shows you were thinking of them.
-        3. Naturally bridge to their schedule/tasks if relevant.` : `2. Briefly mention their schedule/tasks if any exist.`}
-
-        Keep it short (2-3 sentences). Be natural, not robotic.
-      `;
-
-      // 5. Fire it off
-      triggerSystemMessage(prompt);
-
-      // 6. Save state so we don't annoy them again today
-      localStorage.setItem(`last_briefing_${selectedCharacter.id}`, today);
-
-    }, 5000); // 5 second delay
-
-    // Cleanup on unmount
-    return () => clearTimeout(timer);
-
-  }, [selectedCharacter, session, isGmailConnected, upcomingEvents, emailQueue, triggerSystemMessage]);
 
   // ==========================================================================
   // VIDEO & WHITEBOARD HANDLERS

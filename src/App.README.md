@@ -69,9 +69,11 @@ src/
 │       └── index.ts             # Consolidated exports
 └── services/
     ├── geminiChatService.ts     # Gemini AI provider
+    ├── dailyCatchupService.ts   # First-login catch-up orchestration
     ├── system_prompts/          # Modular prompt architecture
     │   └── builders/
-    │       └── systemPromptBuilder.ts
+    │       ├── systemPromptBuilder.ts
+    │       └── dailyCatchupBuilder.ts  # Daily catch-up prompt
     └── aiSchema.ts              # Tool declarations & types
 ```
 
@@ -598,7 +600,9 @@ npm test -- --run -t "snapshot" -u
 | `services/aiSchema.ts` | Tool declarations, response types | Adding new AI tools/actions |
 | `services/memoryService.ts` | Tool execution logic | Implementing tool behavior |
 | `services/geminiChatService.ts` | AI provider implementation | Modifying AI request/response |
+| `services/dailyCatchupService.ts` | First-login catch-up logic | Modifying morning briefing behavior |
 | `services/system_prompts/builders/systemPromptBuilder.ts` | Prompt assembly | Adding context to prompts |
+| `services/system_prompts/builders/dailyCatchupBuilder.ts` | Daily catch-up prompt | Modifying catch-up message format |
 | `services/system_prompts/tools/index.ts` | Tool documentation | Documenting new tools |
 | `handlers/messageActions/*.ts` | Response action processing | Adding new action handlers |
 

@@ -69,7 +69,17 @@ export interface IAIChatService {
   }>;
 
   generateGreeting(
-    session?: AIChatSession
+    session?: AIChatSession,
+    options?: {
+      /** Character ID for briefing state tracking */
+      characterId?: string;
+      /** Email count for daily logistics */
+      emailCount?: number;
+      /** Whether Gmail is connected */
+      isGmailConnected?: boolean;
+      /** Whether Calendar is connected */
+      isCalendarConnected?: boolean;
+    }
   ): Promise<{
     greeting: AIActionResponse;
     session: AIChatSession;
