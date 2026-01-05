@@ -1,11 +1,12 @@
+// ============================================================================
+// IMPORTS
+// ============================================================================
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
   ChatMessage,
   UploadedImage,
   CharacterProfile,
   CharacterAction,
-  Task,
-  ProactiveSettings,
 } from './types';
 import * as dbService from './services/cacheService';
 import { supabase } from './services/supabaseClient';
@@ -37,10 +38,18 @@ import { SettingsPanel } from './components/SettingsPanel';
 import { LoginPage } from './components/LoginPage';
 import { TaskPanel } from './components/TaskPanel';
 import { WhiteboardView } from './components/WhiteboardView';
-import { 
-  parseWhiteboardAction,
-  WhiteboardAction 
-} from './services/whiteboardModes';
+import { WhiteboardAction } from './services/whiteboardModes';
+import { handleWhiteboardCapture as handleWhiteboardCaptureHandler } from './handlers/whiteboardHandler';
+import {
+  processTaskAction,
+  parseTaskActionFromResponse,
+  detectTaskCompletionFallback,
+  processCalendarAction,
+  parseCalendarTagFromResponse,
+  processCalendarTag,
+  processNewsAction,
+  processSelfieAction,
+} from './handlers/messageActions';
 import { useGoogleAuth } from './contexts/GoogleAuthContext';
 import { useDebounce } from './hooks/useDebounce';
 import { useMediaQueues } from './hooks/useMediaQueues';
@@ -49,12 +58,13 @@ import { useTasks } from './hooks/useTasks';
 import { useCalendar } from './hooks/useCalendar';
 import { useProactiveSettings } from './hooks/useProactiveSettings';
 import { useIdleTracking } from './hooks/useIdleTracking';
-import { useCharacterActions, isTalkingAction, isGreetingAction, getGreetingActions, getNonGreetingActions, getTalkingActions } from './hooks/useCharacterActions';
+import { useCharacterActions } from './hooks/useCharacterActions';
+import { useCharacterManagement } from './hooks/useCharacterManagement';
 import { useAIService } from './contexts/AIServiceContext';
 import { AIChatSession, UserContent, AIChatOptions } from './services/aiService';
 import { startCleanupScheduler, stopCleanupScheduler } from './services/loopCleanupService';
 import { startIdleThoughtsScheduler, stopIdleThoughtsScheduler } from './services/idleThoughtsScheduler';
-import { GAMES_PROFILE } from './domain/characters/gamesProfile'; import * as taskService from './services/taskService';
+import * as taskService from './services/taskService';
 import { 
   fetchTechNews, 
   markStoryMentioned,
@@ -65,9 +75,14 @@ import { generateCompanionSelfie } from './services/imageGenerationService';
 import { detectKayleyPresence } from './services/kayleyPresenceDetector';
 import { getKayleyPresenceState, updateKayleyPresenceState, getDefaultExpirationMinutes } from './services/kayleyPresenceService';
 // Utility imports (Phase 1 extraction)
-import { sanitizeText, isQuestionMessage } from './utils/textUtils';
+import { isQuestionMessage } from './utils/textUtils';
 import { extractJsonObject } from './utils/jsonUtils';
-import { randomFromArray, shuffleArray } from './utils/arrayUtils';
+import { shuffleArray } from './utils/arrayUtils';
+
+// ============================================================================
+// CONSTANTS & TYPES
+// ============================================================================
+const ACTION_VIDEO_BUCKET = 'character-action-videos';
 
 type View = 'loading' | 'selectCharacter' | 'createCharacter' | 'chat' | 'manageCharacter' | 'whiteboard';
 
@@ -77,14 +92,24 @@ interface DisplayCharacter {
   videoUrl: string;
 }
 
+// ============================================================================
+// MAIN COMPONENT
+// ============================================================================
 const App: React.FC = () => {
+  // --------------------------------------------------------------------------
+  // AUTH & CORE SERVICES
+  // --------------------------------------------------------------------------
   const { session, status: authStatus, signOut } = useGoogleAuth();
   const activeService = useAIService();
+
+  // --------------------------------------------------------------------------
+  // UI STATE
+  // --------------------------------------------------------------------------
   const [view, setView] = useState<View>('loading');
   const [characters, setCharacters] = useState<CharacterProfile[]>([]);
   const [selectedCharacter, setSelectedCharacter] =
     useState<CharacterProfile | null>(null);
-  
+
   // Voice Mode State
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [talkingVideoUrl, setTalkingVideoUrl] = useState<string | null>(null);
@@ -96,45 +121,46 @@ const App: React.FC = () => {
     // setTalkingVideoUrl(url);
   }, []);
 
-  // Media Queues Hook
+  // --------------------------------------------------------------------------
+  // MEDIA & CACHE HOOKS
+  // --------------------------------------------------------------------------
   const media = useMediaQueues();
-  
-  // Optimization 3: Cache Warming (Idle Pre-fetch)
-  // This warms up the stateService and presence caches before the first message
   useCacheWarming();
 
-  // Note: currentActionId, actionVideoUrls, and derived currentVideoSrc are
-  // calculated after useCharacterActions hook is called below (after registerInteraction)
-  const [uploadedImage, setUploadedImage] = useState<UploadedImage | null>(null);
+  // --------------------------------------------------------------------------
+  // CHAT & PROCESSING STATE
+  // --------------------------------------------------------------------------
   const [chatHistory, setChatHistory] = useState<ChatMessage[]>([]);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isProcessingAction, setIsProcessingAction] = useState(false);
-  const [isSavingCharacter, setIsSavingCharacter] = useState(false);
-  const [isCreatingAction, setIsCreatingAction] = useState(false);
-  const [updatingActionId, setUpdatingActionId] = useState<string | null>(null);
-  const [deletingActionId, setDeletingActionId] = useState<string | null>(null);
+  const [aiSession, setAiSession] = useState<AIChatSession | null>(null);
+  const [lastSavedMessageIndex, setLastSavedMessageIndex] = useState<number>(-1);
+  const [relationship, setRelationship] = useState<RelationshipMetrics | null>(null);
+
+  // --------------------------------------------------------------------------
+  // CHARACTER MANAGEMENT STATE (Partial - rest managed by useCharacterManagement hook)
+  // --------------------------------------------------------------------------
   const [characterForManagement, setCharacterForManagement] = useState<CharacterProfile | null>(null);
-  const [isAddingIdleVideo, setIsAddingIdleVideo] = useState(false);
-  const [deletingIdleVideoId, setDeletingIdleVideoId] = useState<string | null>(null);
-  const [isUpdatingImage, setIsUpdatingImage] = useState(false);
+  const [isVideoVisible, setIsVideoVisible] = useState(true);
+  const [isLoadingCharacter, setIsLoadingCharacter] = useState(false);
+  const [loadingCharacterName, setLoadingCharacterName] = useState<string | null>(null);
+
+  // --------------------------------------------------------------------------
+  // AUDIO STATE & REFS
+  // --------------------------------------------------------------------------
   const [isMuted, setIsMuted] = useState(false);
-  // Avoid stale-closure issues in async callbacks (e.g. async TTS completion).
   const isMutedRef = useRef(isMuted);
   useEffect(() => {
     isMutedRef.current = isMuted;
   }, [isMuted]);
-  const [aiSession, setAiSession] = useState<AIChatSession | null>(null);
-  const [lastSavedMessageIndex, setLastSavedMessageIndex] = useState<number>(-1);
-  const [relationship, setRelationship] = useState<RelationshipMetrics | null>(null);
-  const [isVideoVisible, setIsVideoVisible] = useState(true);
-  const [isLoadingCharacter, setIsLoadingCharacter] = useState(false);
-  const [loadingCharacterName, setLoadingCharacterName] = useState<string | null>(null);
   
-  // Task Management State (via useTasks hook)
-  // Use refs for callbacks that depend on things defined later (playAction, etc.)
+  // --------------------------------------------------------------------------
+  // CUSTOM HOOKS (Extracted from App.tsx for modularity)
+  // --------------------------------------------------------------------------
+
+  // Task Management
   const taskCelebrateRef = useRef<(message: string) => void>(() => {});
   const taskPlayPositiveRef = useRef<() => void>(() => {});
-
   const {
     tasks,
     setTasks,
@@ -149,8 +175,8 @@ const App: React.FC = () => {
     onCelebrate: (msg) => taskCelebrateRef.current(msg),
     onPlayPositiveAction: () => taskPlayPositiveRef.current(),
   });
-  
-  // Proactive settings and snooze state (via useProactiveSettings hook)
+
+  // Proactive Settings & Snooze
   const {
     proactiveSettings,
     updateProactiveSettings,
@@ -161,14 +187,14 @@ const App: React.FC = () => {
     loadSnoozeState,
   } = useProactiveSettings();
 
-  // Idle tracking (via useIdleTracking hook)
+  // Idle Tracking
   const {
     lastInteractionAt,
     hasInteractedRef,
     registerInteraction,
   } = useIdleTracking();
 
-  // Character actions (via useCharacterActions hook)
+  // Character Actions (playback, idle scheduling, categorization)
   const {
     currentActionId,
     setCurrentActionId,
@@ -187,6 +213,49 @@ const App: React.FC = () => {
     registerInteraction,
   });
 
+  // Character Management (CRUD operations for characters, actions, idle videos)
+  const reportErrorRef = useRef<(message: string, error?: unknown) => void>((msg) => {
+    console.error(msg);
+    setErrorMessage(msg);
+  });
+  const {
+    isSavingCharacter,
+    isCreatingAction,
+    updatingActionId,
+    deletingActionId,
+    isAddingIdleVideo,
+    deletingIdleVideoId,
+    isUpdatingImage,
+    uploadedImage,
+    setUploadedImage,
+    handleImageUpload,
+    handleCharacterCreated,
+    handleSelectLocalVideo,
+    handleManageCharacter,
+    handleDeleteCharacter,
+    handleBackToSelection,
+    handleCreateAction,
+    handleUpdateAction,
+    handleDeleteAction,
+    handleAddIdleVideo,
+    handleDeleteIdleVideo,
+    applyCharacterUpdate,
+    cleanupActionUrls,
+  } = useCharacterManagement({
+    characters,
+    setCharacters,
+    selectedCharacter,
+    setSelectedCharacter,
+    characterForManagement,
+    setCharacterForManagement,
+    actionVideoUrls,
+    setActionVideoUrls,
+    setView,
+    reportError: (msg, err) => reportErrorRef.current(msg, err),
+    registerInteraction,
+    media,
+  });
+
   // Derived state - override idle video if speaking
   const currentVideoSrc =
     (isSpeaking && talkingVideoUrl && !currentActionId)
@@ -194,17 +263,16 @@ const App: React.FC = () => {
       : media.currentVideoSrc;
   const nextVideoSrc = media.nextVideoSrc;
 
-  // Gmail Integration State
+  // --------------------------------------------------------------------------
+  // GMAIL & CALENDAR INTEGRATION
+  // --------------------------------------------------------------------------
   const [isGmailConnected, setIsGmailConnected] = useState(false);
   const [emailQueue, setEmailQueue] = useState<NewEmailPayload[]>([]);
-  const debouncedEmailQueue = useDebounce(emailQueue, 5000); 
-
-  // Calendar Integration State (via useCalendar hook)
-  // Use ref for triggerSystemMessage since it's defined later
+  const debouncedEmailQueue = useDebounce(emailQueue, 5000);
   const calendarTriggerRef = useRef<(prompt: string) => void>(() => {});
   const [kayleyContext, setKayleyContext] = useState<string>("");
-  
-  // Calendar hook (uses ref for triggerSystemMessage since it's defined later)
+
+  // Calendar Hook
   const {
     upcomingEvents,
     weekEvents,
@@ -228,6 +296,11 @@ const App: React.FC = () => {
   const [notifiedEventIds, setNotifiedEventIds] = useState<Set<string>>(new Set());
   const lastIdleBreakerAtRef = useRef<number | null>(null);
 
+  // ==========================================================================
+  // INITIALIZATION EFFECTS
+  // ==========================================================================
+
+  // Kayley Context (random vibes for personality)
   useEffect(() => {
     const vibes = [
       "Sipping a matcha latte and people-watching.",
@@ -324,8 +397,10 @@ const App: React.FC = () => {
     }
   }, []);
 
+  // ==========================================================================
+  // IMAGE & MESSAGE HANDLERS
+  // ==========================================================================
 
-  // --- Handle Image Input ---
   const handleSendImage = async (base64: string, mimeType: string) => {
     if (!selectedCharacter || !session) return;
     registerInteraction();
@@ -461,54 +536,18 @@ const App: React.FC = () => {
     }
   };
 
-  // REMOVED: handleSendAudio is no longer used since we use text-only input for all services now
-  // The microphone now just populates the text input via browser STT.
+  // ==========================================================================
+  // UTILITY FUNCTIONS
+  // ==========================================================================
 
   const reportError = useCallback((message: string, error?: unknown) => {
     console.error(message, error);
     setErrorMessage(message);
   }, []);
 
-  const cleanupActionUrls = useCallback((urls: Record<string, string>) => {
-    Object.values(urls).forEach((url) => {
-      try {
-        URL.revokeObjectURL(url);
-      } catch (error) {
-        console.warn('Failed to revoke action video URL', error);
-      }
-    });
-  }, []);
-
-  const applyCharacterUpdate = useCallback(
-    (
-      characterId: string,
-      updater: (character: CharacterProfile) => CharacterProfile
-    ) => {
-      let updatedCharacter: CharacterProfile | null = null;
-
-      setCharacters((chars) =>
-        chars.map((char) => {
-          if (char.id !== characterId) {
-            return char;
-          }
-          const next = updater(char);
-          updatedCharacter = next;
-          return next;
-        })
-      );
-
-      setSelectedCharacter((current) => {
-        if (!current || current.id !== characterId) {
-          return current;
-        }
-        if (updatedCharacter) {
-          return updatedCharacter;
-        }
-        return updater(current);
-      });
-    },
-    []
-  );
+  // ==========================================================================
+  // CHARACTER LOADING & MEMOIZED DATA
+  // ==========================================================================
 
   const loadCharacters = useCallback(async () => {
     setView('loading');
@@ -578,7 +617,11 @@ const App: React.FC = () => {
     });
   }, [characterForManagement, selectedCharacter]);
 
-  // Wire up task celebration callbacks
+  // ==========================================================================
+  // CALLBACK WIRING & AUDIO HANDLERS
+  // ==========================================================================
+
+  // Task celebration callbacks (wired via refs for late binding)
   useEffect(() => {
     taskCelebrateRef.current = (message: string) => {
       if (selectedCharacter && !isMutedRef.current) {
@@ -609,8 +652,11 @@ const App: React.FC = () => {
     }
   }, [currentActionId, isTalkingActionId, playRandomTalkingAction]);
 
-  // Audio Queue Management handled by useMediaQueues hook
   const { enqueueAudio, handleAudioEnd } = media;
+
+  // ==========================================================================
+  // SYSTEM MESSAGE & IDLE BREAKER
+  // ==========================================================================
 
   const triggerSystemMessage = useCallback(async (systemPrompt: string) => {
     if (!selectedCharacter || !session) return;
@@ -793,9 +839,11 @@ const App: React.FC = () => {
     playAction
   ]);
 
-  // Calendar check-in trigger function - now provided by useCalendar hook
-  // (triggerCalendarCheckin, checkForApplicableCheckins)
+  // ==========================================================================
+  // IDLE & PREFETCH EFFECTS
+  // ==========================================================================
 
+  // Idle timeout check (5 minutes)
   useEffect(() => {
     const IDLE_TIMEOUT = 5 * 60 * 1000; // 5 minutes
     const IDLE_CHECK_INTERVAL = 10000; // 10 seconds
@@ -847,7 +895,9 @@ const App: React.FC = () => {
     };
   }, [lastInteractionAt, isProcessingAction, isSpeaking, selectedCharacter, session]);
 
-  // Keyboard Shortcuts
+  // ==========================================================================
+  // KEYBOARD SHORTCUTS
+  // ==========================================================================
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       // Ctrl/Cmd + T to toggle task panel
@@ -863,7 +913,11 @@ const App: React.FC = () => {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [view, selectedCharacter]);
 
-  // Gmail Integration Hooks
+  // ==========================================================================
+  // GMAIL & CALENDAR POLLING EFFECTS
+  // ==========================================================================
+
+  // Gmail polling
   useEffect(() => {
     if (!isGmailConnected || !session) return;
 
@@ -967,329 +1021,12 @@ const App: React.FC = () => {
     };
 
     processEmailNotification();
-  }, [debouncedEmailQueue, selectedCharacter, isMuted, aiSession]); // Added isMuted and aiSession to dependencies
+  }, [debouncedEmailQueue, selectedCharacter, isMuted, aiSession]);
 
-  const handleImageUpload = (image: UploadedImage) => {
-    setUploadedImage(image);
-    setErrorMessage(null);
-  };
-
-  const handleCharacterCreated = async (
-    image: UploadedImage,
-    idleVideoBlob: Blob
-  ) => {
-    registerInteraction();
-    setIsSavingCharacter(true);
-    setErrorMessage(null);
-    try {
-      const imageHash = await dbService.hashImage(image.base64);
-      const existingChar = characters.find((c) => c.id === imageHash);
-      if (existingChar) {
-        alert('Character exists. Loading...');
-        handleSelectCharacter(existingChar);
-        return;
-      }
-
-      const newCharacter: CharacterProfile = {
-        id: imageHash,
-        createdAt: Date.now(),
-        image,
-        idleVideoUrls: [], // Will be populated after save
-        actions: [],
-        name: 'Kayley Adams',
-        displayName: 'Kayley',
-      };
-
-      // Save character with the video file
-      await dbService.saveCharacter(newCharacter, idleVideoBlob);
-      
-      // Reload character to get the public URL
-      const savedChars = await dbService.getCharacters();
-      const savedChar = savedChars.find(c => c.id === imageHash);
-      if (savedChar) {
-        setCharacters((prev) => [savedChar, ...prev]);
-        handleSelectCharacter(savedChar);
-      }
-    } catch (error) {
-      reportError('Failed to save character.', error);
-    } finally {
-      setIsSavingCharacter(false);
-    }
-  };
-
-  const handleCreateAction = async (input: { name: string; phrases: string[]; videoFile: File }) => {
-    const character = characterForManagement || selectedCharacter;
-    if (!character) return;
-    
-    console.log(`🎬 Creating action "${input.name}" for ${character.displayName}`);
-    
-    registerInteraction();
-    setIsCreatingAction(true);
-    try {
-      const metadata = await dbService.createCharacterAction(character.id, {
-        name: input.name,
-        phrases: input.phrases,
-        video: input.videoFile,
-      });
-      
-      console.log(`✅ Created action with ID: ${metadata.id}`);
-      
-      const newAction = {
-        id: metadata.id,
-        name: metadata.name,
-        phrases: metadata.phrases,
-        video: input.videoFile,
-        videoPath: metadata.videoPath,
-        sortOrder: metadata.sortOrder ?? null,
-      };
-      
-      // Update global character list
-      applyCharacterUpdate(character.id, char => {
-        console.log(`  Updating character: adding action to ${char.actions.length} existing actions`);
-        return {
-          ...char, 
-          actions: [...char.actions, newAction]
-        };
-      });
-      
-      // Create URL for immediate preview
-      const newUrl = URL.createObjectURL(input.videoFile);
-      setActionVideoUrls(prev => ({ ...prev, [metadata.id]: newUrl }));
-      console.log(`  Created URL for action video`);
-      
-      // Update the management character state if we're in management view
-      if (characterForManagement) {
-        setCharacterForManagement(prev => {
-          if (!prev) return prev;
-          const updated = {
-            ...prev,
-            actions: [...prev.actions, newAction]
-          };
-          console.log(`  Updated management character: ${prev.actions.length} -> ${updated.actions.length} actions`);
-          return updated;
-        });
-      }
-
-    } catch (error) {
-      reportError('Failed to create action.', error);
-      console.error('Action creation error:', error);
-    } finally {
-      setIsCreatingAction(false);
-    }
-  };
-
-  const handleUpdateAction = async (actionId: string, input: any) => {
-    const character = characterForManagement || selectedCharacter;
-    if (!character) return;
-    
-    console.log(`✏️ Updating action "${actionId}" for ${character.displayName}`);
-    
-    setUpdatingActionId(actionId);
-    try {
-        const metadata = await dbService.updateCharacterAction(character.id, actionId, input);
-        console.log(`✅ Updated action metadata`);
-        
-        // Update global character list
-        applyCharacterUpdate(character.id, char => ({
-            ...char, 
-            actions: char.actions.map(a => a.id === actionId ? { ...a, ...metadata, video: input.videoFile || a.video } : a)
-        }));
-        
-        // Update URL if new video provided
-        if(input.videoFile) {
-            const newUrl = URL.createObjectURL(input.videoFile);
-            setActionVideoUrls(prev => ({...prev, [actionId]: newUrl}));
-            console.log(`  Created new URL for updated video`);
-        }
-        
-        // Update the management character state if we're in management view
-        if (characterForManagement) {
-          setCharacterForManagement(prev => {
-            if (!prev) return prev;
-            return {
-              ...prev,
-              actions: prev.actions.map(a => a.id === actionId ? { ...a, ...metadata, video: input.videoFile || a.video } : a)
-            };
-          });
-          console.log(`  Updated management character`);
-        }
-    } catch (e) { 
-      reportError('Failed to update', e);
-      console.error('Action update error:', e);
-    } 
-    finally { setUpdatingActionId(null); }
-  };
-
-  const handleDeleteAction = async (actionId: string) => {
-    const character = characterForManagement || selectedCharacter;
-    if (!character) return;
-    
-    console.log(`🗑️ Deleting action "${actionId}" for ${character.displayName}`);
-    
-    setDeletingActionId(actionId);
-    try {
-        await dbService.deleteCharacterAction(character.id, actionId);
-        console.log(`✅ Deleted action from database`);
-        
-        // Update global character list
-        applyCharacterUpdate(character.id, char => ({
-            ...char, actions: char.actions.filter(a => a.id !== actionId)
-        }));
-        
-        // Revoke URL
-        const urlToRevoke = actionVideoUrls[actionId];
-        if (urlToRevoke) {
-          URL.revokeObjectURL(urlToRevoke);
-          console.log(`  Revoked URL for action`);
-          
-          // Remove any queued instances of this action clip to avoid invalid blob URLs
-          const idleFallback = (characterForManagement || selectedCharacter)?.idleVideoUrls ?? [];
-          media.setVideoQueue(prev => {
-            const filtered = prev.filter(url => url !== urlToRevoke);
-            if (filtered.length > 0) return filtered;
-            // If nothing left, fall back to idle videos
-            return idleFallback.length > 0
-              ? shuffleArray([...idleFallback])
-              : [];
-          });
-        }
-        
-        // Update the management character state if we're in management view
-        if (characterForManagement) {
-          setCharacterForManagement(prev => {
-            if (!prev) return prev;
-            const updated = {
-              ...prev,
-              actions: prev.actions.filter(a => a.id !== actionId)
-            };
-            console.log(`  Updated management character: ${prev.actions.length} -> ${updated.actions.length} actions`);
-            return updated;
-          });
-        }
-    } catch(e) { 
-      reportError('Failed to delete', e);
-      console.error('Action delete error:', e);
-    }
-    finally { setDeletingActionId(null); }
-  };
-
-  const handleSelectLocalVideo = async (videoFile: File) => {
-    if (!uploadedImage) {
-      reportError('Upload an image first.');
-      return;
-    }
-    await handleCharacterCreated(uploadedImage, videoFile);
-  };
-
-  const handleManageCharacter = (character: CharacterProfile) => {
-    registerInteraction();
-    
-    // Create URLs for action videos if they don't exist
-    const newActionUrls = character.actions.reduce((map, action) => {
-      if (!actionVideoUrls[action.id]) {
-        map[action.id] = URL.createObjectURL(action.video);
-      } else {
-        map[action.id] = actionVideoUrls[action.id];
-      }
-      return map;
-    }, {} as Record<string, string>);
-    
-    setActionVideoUrls((prev) => ({ ...prev, ...newActionUrls }));
-    setCharacterForManagement(character);
-    setView('manageCharacter');
-  };
-
-  const handleAddIdleVideo = async (videoFile: File) => {
-    if (!characterForManagement) return;
-    setIsAddingIdleVideo(true);
-    try {
-      const videoId = await dbService.addIdleVideo(characterForManagement.id, videoFile);
-      
-      // Get the public URL for the newly added video
-      const idleVideosList = await dbService.getIdleVideos(characterForManagement.id);
-      const newVideo = idleVideosList.find(v => v.id === videoId);
-      
-      if (newVideo) {
-        const { data: urlData } = supabase.storage
-          .from('character-videos')
-          .getPublicUrl(newVideo.path);
-        
-        const newUrl = urlData.publicUrl;
-        
-        // Update character with new video URL
-        applyCharacterUpdate(characterForManagement.id, char => {
-          return {
-            ...char,
-            idleVideoUrls: [...char.idleVideoUrls, newUrl]
-          };
-        });
-        
-        // Update the management character state
-        setCharacterForManagement(prev => {
-          if (!prev) return prev;
-          return {
-            ...prev,
-            idleVideoUrls: [...prev.idleVideoUrls, newUrl]
-          };
-        });
-      }
-      
-      } catch (error) {
-      reportError('Failed to add idle video.', error);
-    } finally {
-      setIsAddingIdleVideo(false);
-    }
-  };
-
-  const handleDeleteIdleVideo = async (videoId: string) => {
-    if (!characterForManagement) return;
-    
-    // Extract index from ID (format: "idle-{index}")
-    const index = parseInt(videoId.split('-')[1]);
-    if (isNaN(index)) return;
-    
-    setDeletingIdleVideoId(videoId);
-    try {
-      // Get the actual database ID from the character's idle videos
-      const idleVideosList = await dbService.getIdleVideos(characterForManagement.id);
-      
-      if (idleVideosList[index]) {
-        const removedUrl = characterForManagement.idleVideoUrls[index];
-        const remainingUrls = characterForManagement.idleVideoUrls.filter((_, i) => i !== index);
-
-        await dbService.deleteIdleVideo(characterForManagement.id, idleVideosList[index].id);
-        
-        // Update character by removing the video URL at this index
-        applyCharacterUpdate(characterForManagement.id, char => {
-          return {
-            ...char,
-            idleVideoUrls: char.idleVideoUrls.filter((_, i) => i !== index)
-          };
-        });
-        
-        // Update the management character state
-        setCharacterForManagement(prev => {
-          if (!prev) return prev;
-          return {
-            ...prev,
-            idleVideoUrls: prev.idleVideoUrls.filter((_, i) => i !== index)
-          };
-        });
-
-        // Remove the deleted idle clip from the playback queue to avoid invalid sources
-        media.setVideoQueue(prev => {
-          const filtered = prev.filter(url => url !== removedUrl);
-          if (filtered.length > 0) return filtered;
-          // If queue is empty, repopulate with remaining idle videos (if any)
-          return remainingUrls.length > 0 ? shuffleArray([...remainingUrls]) : [];
-        });
-      }
-    } catch (error) {
-      reportError('Failed to delete idle video.', error);
-    } finally {
-      setDeletingIdleVideoId(null);
-    }
-  };
+  // ==========================================================================
+  // CHARACTER SELECTION & IMAGE UPDATE
+  // (CRUD operations moved to useCharacterManagement hook)
+  // ==========================================================================
 
   const handleSelectCharacter = async (character: CharacterProfile) => {
     setErrorMessage(null);
@@ -1427,14 +1164,6 @@ const App: React.FC = () => {
     }
   };
 
-  const handleDeleteCharacter = async (id: string) => {
-    if (window.confirm("Delete character?")) {
-        if (selectedCharacter?.id === id) handleBackToSelection();
-        await dbService.deleteCharacter(id);
-        setCharacters(prev => prev.filter(c => c.id !== id));
-    }
-  };
-
   const handleUpdateImage = async (character: CharacterProfile) => {
     // Create a hidden file input
     const input = document.createElement('input');
@@ -1505,19 +1234,6 @@ const App: React.FC = () => {
     input.click();
   };
 
-  const handleBackToSelection = async () => {
-    // No need to revoke idle video URLs - they're public URLs!
-    media.setVideoQueue([]); // This also clears currentVideoSrc and nextVideoSrc (derived)
-    
-    // Clear audio
-    media.setAudioQueue([]);
-    
-    setSelectedCharacter(null);
-    setChatHistory([]);
-    setAiSession(null);
-    setView('selectCharacter');
-  };
-
   const handleUserInterrupt = () => {
     // Only interrupt if she is currently speaking or has audio queued
     if (isSpeaking || media.audioQueue.length > 0) {
@@ -1544,8 +1260,9 @@ const App: React.FC = () => {
     handleUserInterrupt();
   };
 
-  // Task Management Handlers - now provided by useTasks hook
-  // (handleTaskCreate, handleTaskToggle, handleTaskDelete)
+  // ==========================================================================
+  // MAIN MESSAGE HANDLER
+  // ==========================================================================
 
   const handleSendMessage = async (message: string) => {
     if (!selectedCharacter || !session) return;
@@ -1753,601 +1470,227 @@ const App: React.FC = () => {
           }
         };
 
-        // Parse task_action from text_response if it's embedded as JSON
+        // ============================================
+        // TASK ACTIONS (extracted to handlers/messageActions/taskActions.ts)
+        // ============================================
         let taskAction = response.task_action;
         let shouldRegenerateAudio = false;
-        
+
+        // Try to parse embedded JSON task_action from text_response
         if (!taskAction && response.text_response) {
-          try {
-            // Check if text_response contains JSON with task_action
-            const textResponseTrimmed = response.text_response.trim();
-            if (textResponseTrimmed.startsWith('{') && textResponseTrimmed.includes('task_action')) {
-              const parsed = JSON.parse(textResponseTrimmed);
-              if (parsed.task_action) {
-                console.log('📋 Extracted task_action from text_response');
-                taskAction = parsed.task_action;
-                // Clean up the text_response to remove the JSON
-                response.text_response = "Got it! I'll help you with that.";
-                // Flag to regenerate audio with the cleaned text
-                shouldRegenerateAudio = true;
-              }
-            }
-          } catch (e) {
-            console.warn('Failed to parse task_action from text_response:', e);
+          const parsedAction = parseTaskActionFromResponse(response.text_response);
+          if (parsedAction) {
+            taskAction = parsedAction;
+            response.text_response = "Got it! I'll help you with that.";
+            shouldRegenerateAudio = true;
           }
         }
-        
-        // Fallback: Detect task completion intent from user message if AI didn't provide task_action
+
+        // Fallback: Detect task completion from user message
         if (!taskAction && message) {
-          const messageLower = message.toLowerCase();
-          const completionKeywords = ['done', 'finished', 'complete', 'completed', 'is done', 'finished', 'got it done'];
-          const taskKeywords = ['task', 'todo', 'checklist'];
-          
-          // Check if message indicates task completion
-          const hasCompletionIntent = completionKeywords.some(kw => messageLower.includes(kw));
-          const mentionsTask = taskKeywords.some(kw => messageLower.includes(kw)) || tasks.some(t => messageLower.includes(t.text.toLowerCase()));
-          
-          if (hasCompletionIntent && (mentionsTask || tasks.length > 0)) {
-            console.log('📋 Detected task completion intent from user message (AI missed it)');
-            
-            // Try to find which task they're referring to
-            let matchedTask = null;
-            for (const task of tasks) {
-              if (!task.completed && messageLower.includes(task.text.toLowerCase())) {
-                matchedTask = task.text;
-                break;
-              }
-            }
-            
-            // If we found a task match, create the task_action
-            if (matchedTask) {
-              console.log(`📋 Fallback: Marking "${matchedTask}" as complete`);
-              taskAction = {
-                action: 'complete',
-                task_text: matchedTask
-              };
-            }
+          const fallbackAction = detectTaskCompletionFallback(message, tasks);
+          if (fallbackAction) {
+            taskAction = fallbackAction;
           }
         }
-        
+
         // Regenerate audio if we cleaned up JSON from text_response
         if (shouldRegenerateAudio && !isMuted) {
           console.log('🔊 Regenerating audio for cleaned response');
           generateSpeech(response.text_response).then(cleanAudio => {
             if (cleanAudio) {
-              // Replace the audio data with clean version
               media.enqueueAudio(cleanAudio);
             }
           });
         }
 
-        // Check for Task Action (uses useTasks hook methods)
-        if (taskAction && taskAction.action) {
-          console.log('📋 Task action detected:', taskAction);
+        // Process task action using extracted handler
+        await processTaskAction(taskAction, tasks, {
+          handleTaskCreate,
+          handleTaskToggle,
+          handleTaskDelete,
+          setIsTaskPanelOpen,
+        });
 
-          try {
-            switch (taskAction.action) {
-              case 'create':
-                if (taskAction.task_text) {
-                  await handleTaskCreate(
-                    taskAction.task_text,
-                    taskAction.priority as 'low' | 'medium' | 'high' | undefined
-                  );
-                  console.log('✅ Task created (AI):', taskAction.task_text);
-                }
-                break;
-
-              case 'complete':
-                if (taskAction.task_text) {
-                  const foundTask = await taskService.findTaskByText(taskAction.task_text);
-                  if (foundTask) {
-                    await handleTaskToggle(foundTask.id);
-                    console.log('✅ Task completed (AI):', foundTask.text);
-                  }
-                } else if (taskAction.task_id) {
-                  await handleTaskToggle(taskAction.task_id);
-                }
-                break;
-
-              case 'delete':
-                if (taskAction.task_text) {
-                  const foundTask = await taskService.findTaskByText(taskAction.task_text);
-                  if (foundTask) {
-                    await handleTaskDelete(foundTask.id);
-                    console.log('🗑️ Task deleted (AI):', foundTask.text);
-                  }
-                } else if (taskAction.task_id) {
-                  await handleTaskDelete(taskAction.task_id);
-                }
-                break;
-
-              case 'list':
-                // Task list is already in the AI's context, no action needed
-                // Optionally open the task panel
-                setIsTaskPanelOpen(true);
-                break;
-            }
-          } catch (error) {
-            console.error('Failed to execute task action:', error);
-          }
-        }
-
-        // Check for Calendar Actions - FIRST check the structured calendar_action field
+        // ============================================
+        // CALENDAR ACTIONS (extracted to handlers/messageActions/calendarActions.ts)
+        // ============================================
         const calendarAction = response.calendar_action;
-        
+
         if (calendarAction && calendarAction.action) {
-          console.log('📅 Calendar action detected:', calendarAction);
+          const calendarResult = await processCalendarAction(calendarAction, {
+            accessToken: session.accessToken,
+            currentEvents: currentEventsContext,
+          });
 
-          try {
-            if (calendarAction.action === 'delete') {
-              // Determine which events to delete
-              let eventIdsToDelete: string[] = [];
-              
-              if (calendarAction.delete_all) {
-                // Delete ALL events
-                console.log('🗑️ Delete ALL events requested');
-                eventIdsToDelete = currentEventsContext.map(e => e.id);
-              } else if (calendarAction.event_ids && calendarAction.event_ids.length > 0) {
-                // Delete multiple specific events
-                console.log(`🗑️ Deleting ${calendarAction.event_ids.length} events`);
-                eventIdsToDelete = calendarAction.event_ids;
-              } else if (calendarAction.event_id) {
-                // Delete single event
-                console.log(`🗑️ Deleting single event: ${calendarAction.event_id}`);
-                eventIdsToDelete = [calendarAction.event_id];
-              }
-              
-              if (eventIdsToDelete.length > 0) {
-                // Delete all specified events
-                let deletedCount = 0;
-                for (const eventId of eventIdsToDelete) {
-                  try {
-                    await calendarService.deleteEvent(session.accessToken, eventId);
-                    deletedCount++;
-                    console.log(`✅ Deleted event: ${eventId}`);
-                  } catch (deleteErr) {
-                    console.error(`❌ Failed to delete event ${eventId}:`, deleteErr);
-                  }
-                }
-                console.log(`✅ Successfully deleted ${deletedCount}/${eventIdsToDelete.length} events`);
-                
-                // Refresh events
-                const events = await calendarService.getUpcomingEvents(session.accessToken);
-                setUpcomingEvents(events);
-                
-                // Show confirmation
-                setChatHistory(prev => [...prev, { role: 'model' as const, text: response.text_response }]);
-                await conversationHistoryService.appendConversationHistory(
-                  [{ role: 'user', text: message }, { role: 'model', text: response.text_response }],
-                  updatedSession?.interactionId || aiSession?.interactionId
-                );
-                setLastSavedMessageIndex(updatedHistory.length);
-                
-                if (!isMuted && audioData) {
-                  media.enqueueAudio(audioData);
-                }
+          if (calendarResult.handled) {
+            // Refresh events after calendar change
+            const events = await calendarService.getUpcomingEvents(session.accessToken);
+            setUpcomingEvents(events);
 
-                // Non-critical: kick off sentiment *after* we queued audio
-                startBackgroundSentiment(intent);
-                
-                if (response.action_id) maybePlayResponseAction(response.action_id);
-                
-                // Skip the rest of calendar handling
-                return;
-              }
-            } else if (calendarAction.action === 'create' && calendarAction.summary && calendarAction.start && calendarAction.end) {
-              // Create event using structured data
-              console.log(`📅 Creating event via calendar_action: ${calendarAction.summary}`);
+            // Show confirmation and handle audio
+            setChatHistory(prev => [...prev, { role: 'model' as const, text: response.text_response }]);
+            await conversationHistoryService.appendConversationHistory(
+              [{ role: 'user', text: message }, { role: 'model', text: response.text_response }],
+              updatedSession?.interactionId || aiSession?.interactionId
+            );
+            setLastSavedMessageIndex(updatedHistory.length);
 
-              const eventData = {
-                summary: calendarAction.summary,
-                start: {
-                  dateTime: calendarAction.start,
-                  timeZone: calendarAction.timeZone || 'America/Chicago'
-                },
-                end: {
-                  dateTime: calendarAction.end,
-                  timeZone: calendarAction.timeZone || 'America/Chicago'
-                }
-              };
-
-              await calendarService.createEvent(session.accessToken, eventData);
-              console.log('✅ Event created successfully');
-
-              // Refresh events
-              const events = await calendarService.getUpcomingEvents(session.accessToken);
-              setUpcomingEvents(events);
-
-              // Show confirmation
-              setChatHistory(prev => [...prev, { role: 'model' as const, text: response.text_response }]);
-              await conversationHistoryService.appendConversationHistory(
-                [{ role: 'user', text: message }, { role: 'model', text: response.text_response }],
-                updatedSession?.interactionId || aiSession?.interactionId
-              );
-              setLastSavedMessageIndex(updatedHistory.length);
-
-              if (!isMuted && audioData) {
-                media.enqueueAudio(audioData);
-              }
-
-              // Non-critical: kick off sentiment *after* we queued audio
-              startBackgroundSentiment(intent);
-
-              if (response.action_id) maybePlayResponseAction(response.action_id);
-
-              // Skip the rest of calendar handling
-              return;
+            if (!isMuted && audioData) {
+              media.enqueueAudio(audioData);
             }
-          } catch (error) {
-            console.error('Failed to execute calendar_action:', error);
+
+            startBackgroundSentiment(intent);
+            if (response.action_id) maybePlayResponseAction(response.action_id);
+            return;
+          } else if (calendarResult.error) {
             setErrorMessage('Failed to execute calendar action');
           }
         }
 
-        // Check for News Action - fetch latest tech news from Hacker News
+        // ============================================
+        // NEWS ACTIONS (extracted to handlers/messageActions/newsActions.ts)
+        // ============================================
         const newsAction = response.news_action;
-        
+
         if (newsAction && newsAction.action === 'fetch') {
-          console.log('📰 News action detected - fetching latest tech news');
-          
-          try {
-            // Show initial acknowledgment
-            setChatHistory(prev => [...prev, { role: 'model' as const, text: response.text_response }]);
-            
-            // Play the initial acknowledgment audio
-            if (!isMuted && audioData) {
-              media.enqueueAudio(audioData);
-            }
-            
-            // Save initial conversation
-            await conversationHistoryService.appendConversationHistory(
-              [{ role: 'user', text: message }, { role: 'model', text: response.text_response }],
-              updatedSession?.interactionId || aiSession?.interactionId
-            );
-            setLastSavedMessageIndex(updatedHistory.length);
+          // Show initial acknowledgment
+          setChatHistory(prev => [...prev, { role: 'model' as const, text: response.text_response }]);
+          if (!isMuted && audioData) {
+            media.enqueueAudio(audioData);
+          }
+          await conversationHistoryService.appendConversationHistory(
+            [{ role: 'user', text: message }, { role: 'model', text: response.text_response }],
+            updatedSession?.interactionId || aiSession?.interactionId
+          );
+          setLastSavedMessageIndex(updatedHistory.length);
 
-            // Fetch news from Hacker News
-            const stories = await fetchTechNews();
-            
-            if (stories.length > 0) {
-              // Build news context for AI with full URLs for sharing
-              const newsItems = stories.slice(0, 3).map((story, i) => {
-                const hostname = story.url ? new URL(story.url).hostname : 'Hacker News';
-                return `${i + 1}. "${story.title}"
-   Source: ${hostname}
-   URL: ${story.url || `https://news.ycombinator.com/item?id=${story.id}`}
-   Score: ${story.score} upvotes`;
-              }).join('\n\n');
-              
-              const newsPrompt = `
-[SYSTEM EVENT: NEWS_FETCHED]
-Here are the latest trending AI/tech stories from Hacker News:
+          const newsResult = await processNewsAction(newsAction);
 
-${newsItems}
-
-Your goal: Share these news stories with the user in your signature style.
-- Pick 1-2 that seem most interesting
-- Translate tech jargon into human terms
-- Be enthusiastic and conversational
-- Ask if they want to hear more about any of them
-- Keep it natural (2-3 sentences)
-
-IMPORTANT: You have the URLs above. If the user asks for a link or wants to read more:
-- Share the URL directly in your response
-- Example: "Here's the link: [URL]"
-- You can also offer to share the Hacker News discussion: https://news.ycombinator.com/item?id=[story.id]
-              `.trim();
-              
-              // Store stories for follow-up questions
-              const sharedStories = stories.slice(0, 3);
-              storeLastSharedStories(sharedStories);
-              
-              // Send news context back to AI for a natural response
-              await triggerSystemMessage(newsPrompt);
-              
-              // Mark stories as mentioned
-              sharedStories.forEach(story => markStoryMentioned(story.id));
-            } else {
-              // No news found
-              await triggerSystemMessage(`
-[SYSTEM EVENT: NEWS_FETCHED]
-I checked Hacker News but didn't find any super relevant AI/tech stories right now.
-Let the user know in a friendly way and maybe offer to check back later.
-              `.trim());
-            }
-            
-            // Skip rest of response handling since triggerSystemMessage will handle it
+          if (newsResult.handled) {
+            // Send news context back to AI for a natural response
+            await triggerSystemMessage(newsResult.newsPrompt);
             return;
-          } catch (error) {
-            console.error('Failed to fetch news:', error);
+          } else if (newsResult.error) {
             setErrorMessage('Failed to fetch tech news');
           }
         }
 
-        // Check for Selfie Action - generate AI companion image
+        // ============================================
+        // SELFIE ACTIONS (extracted to handlers/messageActions/selfieActions.ts)
+        // ============================================
         const selfieAction = response.selfie_action;
-        
+
         if (selfieAction && selfieAction.scene) {
-          console.log('📸 Selfie action detected - generating companion image');
-          console.log('📸 Scene:', selfieAction.scene, 'Mood:', selfieAction.mood);
-          
-          try {
-            // Show initial acknowledgment with text
-            setChatHistory(prev => [...prev, { role: 'model' as const, text: response.text_response }]);
-            
-            // Play the initial acknowledgment audio
-            if (!isMuted && audioData) {
-              media.enqueueAudio(audioData);
-            }
-            
-            // Save initial conversation
-            await conversationHistoryService.appendConversationHistory(
-              [{ role: 'user', text: message }, { role: 'model', text: response.text_response }],
-              updatedSession?.interactionId || aiSession?.interactionId
-            );
-            setLastSavedMessageIndex(updatedHistory.length);
-            
-            // Generate the selfie image with multi-reference system
-            // First, get Kayley's current presence state
-            const kayleyState = await getKayleyPresenceState();
+          // Show initial acknowledgment
+          setChatHistory(prev => [...prev, { role: 'model' as const, text: response.text_response }]);
+          if (!isMuted && audioData) {
+            media.enqueueAudio(audioData);
+          }
+          await conversationHistoryService.appendConversationHistory(
+            [{ role: 'user', text: message }, { role: 'model', text: response.text_response }],
+            updatedSession?.interactionId || aiSession?.interactionId
+          );
+          setLastSavedMessageIndex(updatedHistory.length);
 
-            // DEBUG: Log presence state usage
-            console.log('📸 [Selfie Generation] Presence State:', {
-              hasState: !!kayleyState,
-              outfit: kayleyState?.currentOutfit,
-              mood: kayleyState?.currentMood,
-              activity: kayleyState?.currentActivity,
-              location: kayleyState?.currentLocation,
-              expiresAt: kayleyState?.expiresAt,
-            });
+          const selfieResult = await processSelfieAction(selfieAction, {
+            userMessage: message,
+            chatHistory,
+            upcomingEvents,
+          });
 
-            const selfieResult = await generateCompanionSelfie({
-              scene: selfieAction.scene,
-              mood: selfieAction.mood,
-              outfitHint: selfieAction.outfit_hint,
-              userMessage: message,
-              conversationHistory: chatHistory.slice(-10).map(msg => ({
-                role: msg.role === 'user' ? 'user' : 'assistant',
-                content: msg.text,
-              })),
-              // Calendar events integration (already available in state)
-              upcomingEvents: upcomingEvents.map(event => ({
-                title: event.summary,
-                startTime: new Date(event.start.dateTime || event.start.date || ''),
-                isFormal: event.summary.toLowerCase().includes('dinner') ||
-                         event.summary.toLowerCase().includes('meeting') ||
-                         event.summary.toLowerCase().includes('presentation'),
-              })),
-              // Kayley's presence state - tracks what she mentioned wearing/doing
-              presenceOutfit: kayleyState?.currentOutfit,
-              presenceMood: kayleyState?.currentMood,
-            });
-            
+          if (selfieResult.handled) {
             if (selfieResult.success && selfieResult.imageBase64) {
               // Add a follow-up message with the generated image
               const imageMessage: ChatMessage = {
                 role: 'model' as const,
-                text: "Here you go! 📸✨",
+                text: "Here you go!",
                 assistantImage: selfieResult.imageBase64,
                 assistantImageMimeType: selfieResult.mimeType,
               };
-              
               setChatHistory(prev => [...prev, imageMessage]);
-              
-              // Generate audio for the follow-up
+
               if (!isMuted) {
                 const imageAudio = await generateSpeech("Here you go!");
                 if (imageAudio) media.enqueueAudio(imageAudio);
               }
-              
               console.log('✅ Selfie generated and added to chat!');
             } else {
-              // Generation failed - let the user know
-              const errorMessage = selfieResult.error || "I couldn't take that pic right now, sorry! 😅";
+              // Generation failed
+              const errorMessage = selfieResult.error || "I couldn't take that pic right now, sorry!";
               setChatHistory(prev => [...prev, { role: 'model' as const, text: errorMessage }]);
-              
+
               if (!isMuted) {
                 const errorAudio = await generateSpeech(errorMessage);
-                if (errorAudio) media.enqueueAudio(errorMessage);
+                if (errorAudio) media.enqueueAudio(errorAudio);
               }
-              
               console.error('❌ Selfie generation failed:', selfieResult.error);
             }
-            
-            // Non-critical: sentiment analysis
+
             startBackgroundSentiment(intent);
-            
             if (response.action_id) maybePlayResponseAction(response.action_id);
-            
-            // Skip rest of response handling
             return;
-          } catch (error) {
-            console.error('Failed to generate selfie:', error);
-            setErrorMessage('Failed to generate image');
           }
         }
 
-        // FALLBACK: Check for Calendar Action tags in text_response
-        // We search for tags anywhere in the response, not just at the start.
-        const calendarCreateIndex = response.text_response.indexOf('[CALENDAR_CREATE]');
-        const calendarDeleteIndex = response.text_response.indexOf('[CALENDAR_DELETE]');
+        // ============================================
+        // FALLBACK: Calendar tags in text_response
+        // (extracted to handlers/messageActions/calendarActions.ts)
+        // ============================================
+        const calendarTagParsed = parseCalendarTagFromResponse(response.text_response);
 
-        if (calendarCreateIndex !== -1) {
-          try {
-            // Extract the JSON part using helper that finds matching braces
-            const tagLength = '[CALENDAR_CREATE]'.length;
-            const afterTag = response.text_response.substring(calendarCreateIndex + tagLength).trim();
+        if (calendarTagParsed) {
+          const tagResult = await processCalendarTag(calendarTagParsed, {
+            accessToken: session.accessToken,
+            currentEvents: upcomingEvents,
+          });
 
-             const jsonString = extractJsonObject(afterTag);
-             
-             if (!jsonString) {
-               throw new Error("Could not find valid JSON after [CALENDAR_CREATE] tag");
-             }
-
-             console.log("📅 Attempting to parse Calendar CREATE JSON:", jsonString);
-             
-             const eventData: NewEventPayload = JSON.parse(jsonString);
-
-             // Validation: Ensure required fields exist
-             if (!eventData.summary || !eventData.start?.dateTime || !eventData.end?.dateTime) {
-                 throw new Error("Missing required fields (summary, start.dateTime, end.dateTime)");
-             }
-
-             const confirmationText = `Okay, I'll add "${eventData.summary}" to your calendar.`;
-             
-             // Strip the tag and JSON from the displayed message
-             const textBeforeTag = response.text_response.substring(0, calendarCreateIndex).trim();
-             const displayText = textBeforeTag ? `${textBeforeTag}\n\n${confirmationText}` : confirmationText;
-
-             setChatHistory(prev => [...prev, { role: 'model' as const, text: displayText }]);
-             
-            await conversationHistoryService.appendConversationHistory(
-               [{ role: 'user', text: message }, { role: 'model', text: displayText }],
-               updatedSession?.interactionId || aiSession?.interactionId
-             );
-             setLastSavedMessageIndex(updatedHistory.length);
-
-             // Create Event
-             console.log("📅 Creating event:", eventData);
-             await calendarService.createEvent(session.accessToken, eventData);
-             
-             // Refresh Events
-             const events = await calendarService.getUpcomingEvents(session.accessToken);
-             setUpcomingEvents(events);
-
-             // Generate Speech for confirmation
-             if (!isMuted) {
-                 const confirmationAudio = await generateSpeech(displayText);
-                 if (confirmationAudio) media.enqueueAudio(confirmationAudio);
-             }
-
-             // Non-critical: kick off sentiment *after* we queued audio (or after text if muted)
-            startBackgroundSentiment(intent);
-             
-              if (response.action_id) {
-                 maybePlayResponseAction(response.action_id);
-              }
-             if (response.open_app) {
-                console.log("🚀 Launching app:", response.open_app);
-                window.location.href = response.open_app;
-             }
-
-           } catch (e) {
-             console.error("Failed to create calendar event", e);
-             setErrorMessage("Failed to create calendar event.");
-             
-             // Fallback: Show the original text but mention the error
-             const textBeforeTag = response.text_response.substring(0, calendarCreateIndex).trim();
-             const errorText = "I tried to create that event, but I got confused by the details. Could you try again?";
-             const displayText = textBeforeTag ? `${textBeforeTag}\n\n(System: ${errorText})` : errorText;
+          if (tagResult.handled) {
+            const confirmationText = tagResult.action === 'create'
+              ? `Okay, I'll add "${tagResult.eventSummary}" to your calendar.`
+              : `Done! I've removed "${tagResult.eventSummary}" from your calendar.`;
+            const displayText = calendarTagParsed.textBeforeTag
+              ? `${calendarTagParsed.textBeforeTag}\n\n${confirmationText}`
+              : confirmationText;
 
             setChatHistory(prev => [...prev, { role: 'model' as const, text: displayText }]);
-            await conversationHistoryService.appendConversationHistory(
-              [{ role: 'user', text: message }, { role: 'model', text: displayText }],
-              updatedSession?.interactionId || aiSession?.interactionId
-            );
-          }
-        } else if (calendarDeleteIndex !== -1) {
-          // Handle CALENDAR_DELETE
-          try {
-            const tagLength = '[CALENDAR_DELETE]'.length;
-            const afterTag = response.text_response.substring(calendarDeleteIndex + tagLength).trim();
-
-            // Use helper to extract just the first JSON object (finds matching braces)
-            const jsonString = extractJsonObject(afterTag);
-
-            if (!jsonString) {
-              throw new Error("Could not find valid JSON after [CALENDAR_DELETE] tag");
-            }
-
-            console.log("🗑️ Attempting to parse Calendar DELETE JSON:", jsonString);
-
-            const deleteData: { id?: string; summary?: string } = JSON.parse(jsonString);
-
-            // Find the event to delete
-            let eventToDelete: CalendarEvent | undefined;
-
-            if (deleteData.id) {
-              // Preferred: Delete by ID
-              eventToDelete = upcomingEvents.find(e => e.id === deleteData.id);
-              if (!eventToDelete) {
-                console.warn(`Event with ID "${deleteData.id}" not found in current events, attempting API call anyway`);
-              }
-            } else if (deleteData.summary) {
-              // Fallback: Delete by summary (case-insensitive match)
-              const searchSummary = deleteData.summary.toLowerCase();
-              eventToDelete = upcomingEvents.find(e =>
-                e.summary.toLowerCase() === searchSummary ||
-                e.summary.toLowerCase().includes(searchSummary) ||
-                searchSummary.includes(e.summary.toLowerCase())
-              );
-            }
-
-            if (!eventToDelete && !deleteData.id) {
-              throw new Error(`Could not find event matching: ${deleteData.summary || deleteData.id}`);
-            }
-
-            const eventIdToDelete = deleteData.id || eventToDelete?.id;
-            const eventName = deleteData.summary || eventToDelete?.summary || 'the event';
-
-            if (!eventIdToDelete) {
-              throw new Error("No event ID available for deletion");
-            }
-
-            const confirmationText = `Done! I've removed "${eventName}" from your calendar.`;
-
-            // Strip the tag and JSON from the displayed message
-            const textBeforeTag = response.text_response.substring(0, calendarDeleteIndex).trim();
-            const displayText = textBeforeTag ? `${textBeforeTag}\n\n${confirmationText}` : confirmationText;
-
-            // Delete the event
-            console.log("🗑️ Deleting event:", eventIdToDelete);
-            await calendarService.deleteEvent(session.accessToken, eventIdToDelete);
-
-            setChatHistory(prev => [...prev, { role: 'model' as const, text: displayText }]);
-
             await conversationHistoryService.appendConversationHistory(
               [{ role: 'user', text: message }, { role: 'model', text: displayText }],
               updatedSession?.interactionId || aiSession?.interactionId
             );
             setLastSavedMessageIndex(updatedHistory.length);
 
-            // Refresh Events
+            // Refresh events
             const events = await calendarService.getUpcomingEvents(session.accessToken);
             setUpcomingEvents(events);
 
-            // Generate Speech for confirmation
             if (!isMuted) {
               const confirmationAudio = await generateSpeech(displayText);
               if (confirmationAudio) media.enqueueAudio(confirmationAudio);
             }
 
-            // Non-critical: kick off sentiment *after* we queued audio (or after text if muted)
             startBackgroundSentiment(intent);
-
-            if (response.action_id) {
-              maybePlayResponseAction(response.action_id);
-            }
+            if (response.action_id) maybePlayResponseAction(response.action_id);
             if (response.open_app) {
               console.log("🚀 Launching app:", response.open_app);
               window.location.href = response.open_app;
             }
+          } else {
+            // Tag parsing failed - show error message
+            const errorText = tagResult.action === 'delete'
+              ? "I tried to delete that event, but couldn't find it. Can you check the event name?"
+              : "I tried to create that event, but I got confused by the details. Could you try again?";
+            const displayText = calendarTagParsed.textBeforeTag
+              ? `${calendarTagParsed.textBeforeTag}\n\n(System: ${errorText})`
+              : errorText;
 
-          } catch (e) {
-            console.error("Failed to delete calendar event", e);
-            setErrorMessage("Failed to delete calendar event.");
-
-            // Fallback: Show the original text but mention the error
-            const textBeforeTag = response.text_response.substring(0, calendarDeleteIndex).trim();
-            const errorText = "I tried to delete that event, but couldn't find it. Can you check the event name?";
-            const displayText = textBeforeTag ? `${textBeforeTag}\n\n(System: ${errorText})` : errorText;
-
-             setChatHistory(prev => [...prev, { role: 'model' as const, text: displayText }]);
+            setErrorMessage(tagResult.error || 'Failed to process calendar action');
+            setChatHistory(prev => [...prev, { role: 'model' as const, text: displayText }]);
             await conversationHistoryService.appendConversationHistory(
-               [{ role: 'user', text: message }, { role: 'model', text: displayText }],
-               updatedSession?.interactionId || aiSession?.interactionId
-             );
-           }
+              [{ role: 'user', text: message }, { role: 'model', text: displayText }],
+              updatedSession?.interactionId || aiSession?.interactionId
+            );
+          }
         } else {
           // 3. Handle Response (no calendar actions)
             setChatHistory(prev => [...prev, { role: 'model' as const, text: response.text_response }]);
@@ -2387,9 +1730,10 @@ Let the user know in a friendly way and maybe offer to check back later.
     }
   };
 
-  // Morning Briefing Effect
+  // ==========================================================================
+  // MORNING BRIEFING EFFECT
+  // ==========================================================================
   useEffect(() => {
-    // 1. Safety Checks
     if (!selectedCharacter || !session) return;
 
     // 2. Check if we already did this today
@@ -2477,7 +1821,11 @@ Let the user know in a friendly way and maybe offer to check back later.
     return () => clearTimeout(timer);
 
   }, [selectedCharacter, session, isGmailConnected, upcomingEvents, emailQueue, triggerSystemMessage]);
-  
+
+  // ==========================================================================
+  // VIDEO & WHITEBOARD HANDLERS
+  // ==========================================================================
+
   const handleVideoEnd = () => {
     // Shift the queue - remove the video that just finished
     media.setVideoQueue(prev => {
@@ -2493,122 +1841,28 @@ Let the user know in a friendly way and maybe offer to check back later.
     setCurrentActionId(null);
   };
 
-  // Whiteboard AI Interaction Handler
+  // Whiteboard AI Interaction Handler (extracted to src/handlers/whiteboardHandler.ts)
   const handleWhiteboardCapture = async (
     base64: string,
     userMessage: string,
     modeContext: string
   ): Promise<{ textResponse: string; whiteboardAction?: WhiteboardAction | null }> => {
-    if (!selectedCharacter || !session) {
-      return { textResponse: "Please select a character first." };
-    }
-
-    const WB_DEBUG =
-      typeof window !== 'undefined' &&
-      window.localStorage?.getItem('debug:whiteboard') === '1';
-    const wbNow = () => (typeof performance !== 'undefined' ? performance.now() : Date.now());
-    const wbLog = (...args: any[]) => {
-      if (WB_DEBUG) console.log(...args);
-    };
-    const wbT0 = wbNow();
-    wbLog('⏱️ [App/Whiteboard] handleWhiteboardCapture start', {
-      bytes: base64?.length ?? 0,
-      msgLen: userMessage?.length ?? 0,
-      hasSelectedCharacter: !!selectedCharacter,
+    return handleWhiteboardCaptureHandler(base64, userMessage, modeContext, {
+      selectedCharacter,
+      session,
+      aiSession,
+      activeService,
+      setAiSession,
+      playAction,
+      isMutedRef,
+      enqueueAudio: media.enqueueAudio,
     });
-
-    const sessionToUse: AIChatSession = aiSession || { model: activeService.model };
-
-    try {
-      // ============================================
-      // PRE-FETCH USER INFO (Because AI doesn't always call tools reliably)
-      // ============================================
-      let userInfoContext = '';
-      try {
-        const tFacts0 = wbNow();
-        const { getUserFacts } = await import('./services/memoryService');
-        const userFacts = await getUserFacts('all');
-        wbLog('⏱️ [App/Whiteboard] user_facts done', {
-          dtMs: Math.round(wbNow() - tFacts0),
-          count: Array.isArray(userFacts) ? userFacts.length : 'n/a',
-        });
-        if (userFacts.length > 0) {
-          const { formatFactValueForDisplay } = await import('./services/memoryService');
-          const factsFormatted = userFacts.map(f => `- ${f.fact_key}: ${formatFactValueForDisplay(f.fact_value)}`).join('\n');
-          userInfoContext = `\n\n[KNOWN USER INFO - USE THIS!]\nYou already know these facts about the user:\n${factsFormatted}\n\nIf they ask you to draw "my name" and you have their name above, USE IT! Don't ask again!\n`;
-          console.log('🧠 [Whiteboard] Pre-loaded user facts:', userFacts.map(f => `${f.fact_key}=${formatFactValueForDisplay(f.fact_value)}`));
-        }
-      } catch (err) {
-        console.warn('Could not pre-fetch user info:', err);
-      }
-
-      const enrichedContext = modeContext + userInfoContext;
-
-      const tGem0 = wbNow();
-      const { response, session: updatedSession } = await activeService.generateResponse(
-        {
-          type: 'image_text',
-          text: enrichedContext, // Contains the full whiteboard context + user info
-          imageData: base64,
-          mimeType: 'image/png'
-        },
-        {
-          chatHistory: [], // Fresh context for games
-          googleAccessToken: session?.accessToken,
-          audioMode: 'async',
-          onAudioData: (audioData: string) => {
-            // Don't block drawing/action on TTS.
-            // Respect mute at callback time.
-            try {
-              wbLog('⏱️ [App/Whiteboard] async audio ready', { dtMs: Math.round(wbNow() - wbT0), hasAudio: !!audioData });
-            } catch {}
-            if (!audioData) return;
-            if (!isMutedRef.current) {
-              media.enqueueAudio(audioData);
-            } else {
-              wbLog('⏱️ [App/Whiteboard] async audio dropped (muted)');
-            }
-          },
-        },
-        sessionToUse
-      );
-      wbLog('⏱️ [App/Whiteboard] generateResponse done', {
-        dtMs: Math.round(wbNow() - tGem0),
-        hasAudio: false,
-        hasActionId: !!response?.action_id,
-      });
-
-      setAiSession(updatedSession);
-
-      // Play action if specified
-      if (response.action_id) {
-        playAction(response.action_id);
-      }
-
-      const tParse0 = wbNow();
-      const whiteboardAction = parseWhiteboardAction(response);
-      wbLog('⏱️ [App/Whiteboard] parseWhiteboardAction done', {
-        dtMs: Math.round(wbNow() - tParse0),
-        hasAction: !!whiteboardAction,
-        type: (whiteboardAction as any)?.type,
-      });
-
-      // NOTE: User fact detection is handled by LLM intent service in main chat flow
-      // Whiteboard mode (games/drawing) typically doesn't involve personal fact sharing
-
-      return {
-        textResponse: response.text_response,
-        whiteboardAction,
-      };
-    } catch (error) {
-      console.error('Whiteboard AI error:', error);
-      return { textResponse: "Hmm, I had trouble seeing your drawing. Try again?" };
-    } finally {
-      wbLog('⏱️ [App/Whiteboard] handleWhiteboardCapture end', { dtTotalMs: Math.round(wbNow() - wbT0) });
-    }
   };
 
-  // Show login if not authenticated
+  // ==========================================================================
+  // RENDER
+  // ==========================================================================
+
   if (!session || authStatus !== 'connected') {
     return <LoginPage />;
   }
