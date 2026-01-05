@@ -23,35 +23,66 @@ export interface KayleyPresenceState {
  * Get Kayley's current presence state for a user
  */
 export async function getKayleyPresenceState(): Promise<KayleyPresenceState | null> {
-  const { data, error } = await supabase
-    .from("kayley_presence_state")
-    .select("*")
+  const nowIso = new Date().toISOString();
+
+  // Try unexpired first
+  const unexpired = await supabase
+    .from('kayley_presence_state')
+    .select('*')
+    .gt('expires_at', nowIso)
+    .order('last_mentioned_at', { ascending: false })
+    .order('created_at', { ascending: false })
+    .limit(1)
     .maybeSingle();
 
-  if (error) {
-    console.error("[KayleyPresence] Error fetching state:", error);
+  if (unexpired.error) {
+    console.error('[KayleyPresence] Error fetching state (unexpired):', unexpired.error);
     return null;
   }
+  if (unexpired.data) {
+    const data = unexpired.data as any;
+    return {
+      currentOutfit: data.current_outfit ?? undefined,
+      currentMood: data.current_mood ?? undefined,
+      currentActivity: data.current_activity ?? undefined,
+      currentLocation: data.current_location ?? undefined,
+      lastMentionedAt: new Date(data.last_mentioned_at),
+      expiresAt: data.expires_at ? new Date(data.expires_at) : undefined,
+      confidence: data.confidence,
+    };
+  }
 
-  if (!data) return null;
+  // Fallback to latest overall
+  const latest = await supabase
+    .from('kayley_presence_state')
+    .select('*')
+    .order('last_mentioned_at', { ascending: false })
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
 
-  // Check if expired
-  if (data.expires_at && new Date() > new Date(data.expires_at)) {
-    console.log("[KayleyPresence] State expired, returning null");
+  if (latest.error) {
+    console.error('[KayleyPresence] Error fetching state (latest):', latest.error);
     return null;
   }
+  if (!latest.data) return null;
+
+  const d = latest.data as any;
+  // If expired, you can still return null if you want strictly-current-only
+  if (d.expires_at && new Date() > new Date(d.expires_at)) return null;
 
   return {
-    currentOutfit: data.current_outfit,
-    currentMood: data.current_mood,
-    currentActivity: data.current_activity,
-    currentLocation: data.current_location,
-    lastMentionedAt: new Date(data.last_mentioned_at),
-    expiresAt: data.expires_at ? new Date(data.expires_at) : undefined,
-    confidence: data.confidence,
+    currentOutfit: d.current_outfit ?? undefined,
+    currentMood: d.current_mood ?? undefined,
+    currentActivity: d.current_activity ?? undefined,
+    currentLocation: d.current_location ?? undefined,
+    lastMentionedAt: new Date(d.last_mentioned_at),
+    expiresAt: d.expires_at ? new Date(d.expires_at) : undefined,
+    confidence: d.confidence,
   };
 }
-const USER_ID = import.meta.env.VITE_USER_ID;
+
+
 /**
  * Update Kayley's presence state
  */
@@ -60,7 +91,7 @@ export async function updateKayleyPresenceState(updates: {
   mood?: string;
   activity?: string;
   location?: string;
-  expirationMinutes?: number; // How long until this state expires
+  expirationMinutes?: number;
   confidence?: number;
   sourceMessageId?: string;
 }): Promise<void> {
@@ -69,47 +100,31 @@ export async function updateKayleyPresenceState(updates: {
     ? new Date(now.getTime() + updates.expirationMinutes * 60 * 1000)
     : null;
 
-  // Fetch existing state to merge
-  const existing = await getKayleyPresenceState();
-
-  const { error } = await supabase.from("kayley_presence_state").upsert({
-    current_outfit: updates.outfit ?? existing?.currentOutfit ?? null,
-    current_mood: updates.mood ?? existing?.currentMood ?? null,
-    current_activity: updates.activity ?? existing?.currentActivity ?? null,
-    current_location: updates.location ?? existing?.currentLocation ?? null,
+  const { error } = await supabase.from('kayley_presence_state').insert({
+    current_outfit: updates.outfit ?? null,
+    current_mood: updates.mood ?? null,
+    current_activity: updates.activity ?? null,
+    current_location: updates.location ?? null,
     last_mentioned_at: now.toISOString(),
     expires_at: expiresAt?.toISOString() ?? null,
     confidence: updates.confidence ?? 1.0,
-    source_message_id: updates.sourceMessageId,
+    source_message_id: updates.sourceMessageId ?? null,
     updated_at: now.toISOString(),
   });
 
-  if (error) {
-    console.error("[KayleyPresence] Error updating state:", error);
-  } else {
-    console.log("[KayleyPresence] State updated:", {
-      outfit: updates.outfit,
-      mood: updates.mood,
-      activity: updates.activity,
-      location: updates.location,
-    });
-  }
+  if (error) console.error('[KayleyPresence] Error updating state:', error);
 }
 
 /**
  * Clear Kayley's presence state (mark as expired)
  */
-export async function clearKayleyPresenceState(g): Promise<void> {
-  const { error } = await supabase.from("kayley_presence_state").update({
-    expires_at: new Date().toISOString(), // Expire immediately
-    updated_at: new Date().toISOString(),
-  });
-
-  if (error) {
-    console.error("[KayleyPresence] Error clearing state:", error);
-  } else {
-    console.log("[KayleyPresence] State cleared");
-  }
+export async function clearKayleyPresenceState(): Promise<void> {
+  const nowIso = new Date().toISOString();
+  const { error } = await supabase
+    .from('kayley_presence_state')
+    .update({ expires_at: nowIso, updated_at: nowIso })
+    .is('expires_at', null); // only clear those without expiry, or remove this filter to expire all
+  if (error) console.error('[KayleyPresence] Error clearing state:', error);
 }
 
 /**

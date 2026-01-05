@@ -2,6 +2,80 @@
 
 This directory contains comprehensive documentation for fully implemented and production-ready features.
 
+## Coding Standards & Preferences
+
+**IMPORTANT**: All feature implementations MUST follow these standards:
+
+### 1. Test-Driven Development (TDD)
+- Write tests FIRST, implementation second
+- Tests define the expected behavior before code exists
+- Run tests frequently during development
+- No feature is complete until all tests pass
+
+### 2. Simplicity Over Complexity
+- Do NOT write over-complex code
+- Prefer readable code over clever code
+- If a solution feels complicated, step back and simplify
+- Single responsibility - each function does ONE thing
+
+### 3. Development Context
+- This is a single-user application (the developer)
+- This will NEVER go into production mode
+- No need for enterprise patterns or over-engineering
+- Optimize for development speed and maintainability
+
+### 4. Logging Philosophy
+- Logs are LOVED here - add them liberally
+- Use descriptive emoji prefixes for visual scanning:
+  - `🌅` - Initialization/startup
+  - `📅` - Calendar operations
+  - `📧` - Email operations
+  - `✅` - Success/completion
+  - `❌` - Errors/failures
+  - `🔍` - Debug/inspection
+  - `⚡` - Performance/optimization
+  - `🧹` - Cleanup operations
+- Log at decision points, not just errors
+- Include context in logs (IDs, counts, states)
+
+### 5. Type Safety
+- Use **enums** instead of magic strings
+- Use **booleans** for true/false states, not string flags
+- Define explicit types/interfaces for all data structures
+- Prefer `type` for unions, `interface` for objects
+
+### 6. Code Organization
+- Business logic belongs in **services** (`src/services/`)
+- UI logic belongs in **components** or **hooks**
+- Action handlers go in `src/handlers/`
+- Keep App.tsx as thin as possible - orchestration only
+
+### 7. Service Documentation (REQUIRED)
+Every new service MUST have documentation in `src/services/docs/`:
+
+**Required sections:**
+- Core Responsibilities (what it does)
+- Workflow Interaction (ASCII diagram)
+- Key Types/Interfaces
+- Does it use an LLM? (Yes/No + details)
+- Logging (what emojis/prefixes used)
+- Integration Points (inputs from, outputs to)
+- Testing (how to run tests)
+- Common Patterns (how to extend)
+
+**Template**: Copy from `src/services/docs/IntentService.md` or `MessageOrchestrator.md`
+
+**Update the hub**: Add entry to `src/services/docs/README.md` in the appropriate section
+
+### 8. Testing Standards
+```bash
+npm test -- --run           # Run all tests
+npm test -- --run -t "name" # Run specific tests
+npm test -- --run -u        # Update snapshots
+```
+
+---
+
 ## Purpose
 
 When a feature is:
@@ -33,6 +107,12 @@ Each feature document should include:
 | Feature | Status | Version | Date | Document |
 |---------|--------|---------|------|----------|
 | Idle Thoughts System | ✅ Complete | 1.0 | 2025-12-29 | [Idle_Thoughts_System.md](Idle_Thoughts_System.md) |
+
+## Planned Refactors
+
+| Refactor | Status | Priority | Document |
+|----------|--------|----------|----------|
+| Message Orchestrator | 📋 Planning | High | [Message_Orchestrator_Refactor.md](Message_Orchestrator_Refactor.md) |
 
 ## Adding a New Feature
 

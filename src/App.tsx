@@ -55,6 +55,7 @@ import {
   NewsAction,
   SelfieAction,
 } from './handlers/messageActions';
+import { processUserMessage } from './services/messageOrchestrator';
 import { useGoogleAuth } from './contexts/GoogleAuthContext';
 import { useDebounce } from './hooks/useDebounce';
 import { useMediaQueues } from './hooks/useMediaQueues';
@@ -276,8 +277,7 @@ const App: React.FC = () => {
   const [isGmailConnected, setIsGmailConnected] = useState(false);
   const [emailQueue, setEmailQueue] = useState<NewEmailPayload[]>([]);
   const debouncedEmailQueue = useDebounce(emailQueue, 5000);
-  const calendarTriggerRef = useRef<(prompt: string) => void>(() => {});
-  const [kayleyContext, setKayleyContext] = useState<string>("");
+  const calendarTriggerRef = useRef<(prompt: string) => void>(() => { });
 
   // Calendar Hook
   const {
@@ -307,69 +307,9 @@ const App: React.FC = () => {
   // INITIALIZATION EFFECTS
   // ==========================================================================
 
-  // Kayley Context (random vibes for personality)
-  useEffect(() => {
-    const vibes = [
-      "Sipping a matcha latte and people-watching.",
-      "Trying to organize my digital photo album.",
-      "Feeling energetic and wanting to dance.",
-      "A bit sleepy, cozying up with a blanket.",
-      "Reading a sci-fi novel about friendly robots.",
-      "Thinking about learning how to paint.",
-      "Just finished a workout, feeling great.",
-      "Reorganizing her apps for the fifth time today.",
-      "Practicing Russian pronunciation and giggling every time she messes up.",
-      "Twisting her hair while pretending to be deep in thought.",
-      "Singing along to a song she barely knows the words to.",
-      "Taking a dramatic, unnecessary stretch like a sleepy cat.",
-      "Trying to remember where she put her favorite lip balm.",
-      "Watching a cooking video she'll never actually make.",
-      "Getting lost in a YouTube rabbit hole about space.",
-      "Looking at old selfies and judging her eyebrow phases.",
-      "Doing a little happy dance for no reason.",
-      "Organizing her desktop icons into ✨ aesthetic ✨ rows.",
-      "Trying to whistle and failing adorably.",
-      "Smiling at her own reflection because she’s feeling cute.",
-      "Taking notes on a random idea she’ll probably forget later.",
-      "Daydreaming about future adventures.",
-      "Testing out new hairstyles in the camera preview.",
-      "Pretending she’s in a music video while listening to music.",
-      "Practicing dramatic facial expressions for… no reason.",
-      "Scrolling Pinterest for aesthetic room ideas.",
-      "Giggling at a meme she saw 3 days ago.",
-      "Tapping her fingers to a beat only she can hear.",
-      "Trying to meditate but getting distracted by her own thoughts.",
-      "Petting an imaginary dog (???).",
-      "Redoing her ponytail because it's never *quite* right.",
-      "Watching clouds and assigning them silly personalities.",
-      "Attempting to multitask and forgetting all tasks involved.",
-      "Checking her horoscope and pretending it’s super serious.",
-      "Rehearsing what she'd say if she got interviewed on TV.",
-      "Making a goofy face and instantly cracking up.",
-      "Trying to guess what time it is without looking.",
-      "Stretching her arms and yawning dramatically.",
-      "Pretending she’s an undercover spy for 6 seconds.",
-      "Trying to mime opening a stuck jar.",
-      "Looking around like she just remembered something important… and didn’t.",
-      "Picturing her life as a movie scene.",
-      "Getting excited over a cool bird outside the window.",
-      "Practicing her signature pose for future paparazzi.",
-      "Trying to balance something on her head just for fun.",
-      "Doing that little shoulder shimmy when she’s proud of herself.",
-      "Wondering if she should text someone or wait 2 minutes.",
-      "Saying a random Russian word and feeling accomplished.",
-      "Giving herself a pep talk like she’s her own hype squad.",
-      "Trying to wink smoothly and blinking with both eyes instead."
-    ];
-
-    setKayleyContext(vibes[Math.floor(Math.random() * vibes.length)]);
-  }, []);
-
   // Loop Cleanup: Initialize scheduled cleanup for stale/duplicate loops
   useEffect(() => {
     try {
-
-
       startCleanupScheduler({
           onComplete: (result) => {
             if (result.totalExpired > 0) {
@@ -838,7 +778,6 @@ const App: React.FC = () => {
     relationship,
     tasks,
     chatHistory,
-    kayleyContext,
     upcomingEvents,
     aiSession,
     isMuted,
@@ -1114,7 +1053,7 @@ const App: React.FC = () => {
             : '🤖 [App] Returning to session (no prior chat today) - generating greeting');
 
           const { greeting, session: updatedSession } = await activeService.generateGreeting(
-            aiSession || { model: activeService.model },
+            session,
             {
               characterId: character.id,
               emailCount: emailQueue.length,
@@ -1138,7 +1077,7 @@ const App: React.FC = () => {
           setChatHistory(todayHistory);
 
           const { greeting: backMessage, session: updatedSession } = await activeService.generateNonGreeting(
-            aiSession || { model: activeService.model }
+            session
           );
           setAiSession(updatedSession);
 
@@ -1734,8 +1673,8 @@ const App: React.FC = () => {
       }
 
     } catch (error) {
-      console.error('Error:', error);
-      setErrorMessage('Failed to generate response.');
+      console.error('❌ [App] Message processing failed:', error);
+      setErrorMessage('Failed to process message');
     } finally {
       setIsProcessingAction(false);
     }

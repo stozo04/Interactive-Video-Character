@@ -300,65 +300,6 @@ function formatInteractionInput(userMessage: UserContent): any[] {
   return [];
 }
 
-/**
- * Format conversation history for inclusion in the input array.
- * This provides explicit context to prevent the model from confusing
- * who said what in the conversation.
- *
- * @param history - Array of chat messages (newest first based on created_at DESC)
- * @param limit - Maximum number of messages to include (default 20)
- * @returns Formatted input array with conversation context
- */
-function formatHistoryForInput(
-  history: ChatMessage[],
-  limit: number = 20
-): any[] {
-  if (!history || history.length === 0) {
-    return [];
-  }
-
-  // Filter out empty/placeholder messages
-  const filtered = history
-    .filter((msg) => {
-      const text = msg.text?.trim();
-      return (
-        text &&
-        text.length > 0 &&
-        text !== "🎤 [Audio Message]" &&
-        text !== "📷 [Sent an Image]"
-      );
-    })
-    .slice(0, limit);
-
-  // If history is already in DESC order (newest first), reverse to get chronological
-  // We want oldest first so the conversation reads naturally
-  const chronological = [...filtered].reverse();
-
-  // Format as a single context block with clear speaker labels
-  // This is more reliable than sending separate messages
-  const conversationText = chronological
-    .map((msg) => {
-      const speaker = msg.role === "user" ? "User" : "Kayley";
-      return `${speaker}: ${msg.text}`;
-    })
-    .join("\n");
-
-  if (!conversationText) {
-    return [];
-  }
-
-  console.log(
-    `📜 [Gemini] Including ${chronological.length} messages as conversation context`
-  );
-
-  return [
-    {
-      type: "text",
-      text: `[RECENT CONVERSATION CONTEXT - Use this to understand who said what]\n${conversationText}\n[END CONTEXT]\n\nNow respond to the current message:`,
-    },
-  ];
-}
-
 // Phase 1 Optimization: LLM returns action keys, we resolve to UUIDs
 function normalizeAiResponse(rawJson: any, rawText: string): AIActionResponse {
   let wbAction = rawJson.whiteboard_action || null;
@@ -554,9 +495,6 @@ export class GeminiService implements IAIChatService {
   ): Promise<any> {
     let iterations = 0;
 
-    // Format conversation history for context (last 20 messages)
-    const historyContext = formatHistoryForInput(history as ChatMessage[], 20);
-
     while (interaction.outputs && iterations < maxIterations) {
       const functionCalls = interaction.outputs.filter(
         (output: any) => output.type === "function_call"
@@ -600,7 +538,7 @@ export class GeminiService implements IAIChatService {
       const toolInteractionConfig = {
         model: this.model,
         previous_interaction_id: interaction.id,
-        input: [...historyContext, ...toolResults],
+        input: [...toolResults],
         system_instruction: systemPrompt,
         tools: interactionConfig.tools,
       };
@@ -704,26 +642,17 @@ export class GeminiService implements IAIChatService {
     // Format user message for Interactions API
     const userInput = formatInteractionInput(userMessage);
 
-    // Format conversation history for context (last 20 messages)
-    // This prevents the model from confusing who said what
-    const historyContext = formatHistoryForInput(history as ChatMessage[], 20);
 
     // Combine history context with current user message
     // History goes first so the model has context before seeing the new message
-    const input = [...historyContext, ...userInput];
+    const input = [...userInput];
 
     // Determine if this is first message (no previous interaction)
     const isFirstMessage = !session?.interactionId;
     console.log("🔗 [Gemini Interactions] SESSION DEBUG:");
     console.log("   - isFirstMessage:", isFirstMessage);
-    console.log(
-      "   - Incoming session.interactionId:",
-      session?.interactionId || "NONE"
-    );
-    console.log(
-      "   - History messages included:",
-      historyContext.length > 0 ? "YES" : "NO"
-    );
+    console.log("   - Incoming session.interactionId:", session?.interactionId || "NONE");
+
 
     // Build interaction config
     const interactionConfig: any = {

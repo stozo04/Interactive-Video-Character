@@ -7,6 +7,29 @@
  * Extracted from App.tsx as part of Phase 5 refactoring.
  */
 
+// Shared types and enums
+export {
+  // Enums
+  ActionType,
+  CalendarQueryType,
+  ProcessingStage,
+  // Interfaces
+  type OrchestratorInput,
+  type OrchestratorResult,
+  type ActionHandlerResult,
+  type ActionContext,
+  // Type guards
+  isValidActionType,
+  isValidCalendarQueryType,
+  isValidProcessingStage,
+  // Factory functions
+  createEmptyResult,
+  createSuccessResult,
+  createErrorResult,
+  createUnhandledResult,
+  determineActionType,
+} from './types';
+
 // Calendar actions
 export {
   processCalendarAction,
