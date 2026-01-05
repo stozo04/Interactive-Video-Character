@@ -7,7 +7,7 @@
  * @see src/hooks/useCharacterManagement.README.md for usage documentation
  */
 
-import { useState, useCallback } from 'react';
+import React, { useState, useCallback } from 'react';
 import { CharacterProfile, CharacterAction, UploadedImage } from '../types';
 import * as dbService from '../services/cacheService';
 import { supabase } from '../services/supabaseClient';
@@ -63,6 +63,7 @@ export interface UseCharacterManagementResult {
   isAddingIdleVideo: boolean;
   deletingIdleVideoId: string | null;
   isUpdatingImage: boolean;
+  setIsUpdatingImage: React.Dispatch<React.SetStateAction<boolean>>;
 
   // Image upload state
   uploadedImage: UploadedImage | null;
@@ -570,6 +571,7 @@ export function useCharacterManagement(options: UseCharacterManagementOptions): 
     isAddingIdleVideo,
     deletingIdleVideoId,
     isUpdatingImage,
+    setIsUpdatingImage,
 
     // Image upload state
     uploadedImage,

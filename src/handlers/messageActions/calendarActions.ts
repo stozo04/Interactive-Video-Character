@@ -18,7 +18,7 @@ import { extractJsonObject } from '../../utils/jsonUtils';
  * Structured calendar action from AI response
  */
 export interface CalendarAction {
-  action: 'create' | 'delete';
+  action: 'create' | 'delete' | 'list';
   // Create fields
   summary?: string;
   start?: string;

@@ -183,13 +183,22 @@ export function GoogleAuthProvider({
       const validSession = await googleAuth.ensureValidSession(session);
       setSession(validSession);
       setStatus('connected');
-      console.log('Session refreshed successfully');
+      console.log('✅ Session refreshed successfully via Supabase');
     } catch (err: any) {
-      const errorMessage = err.message || 'Failed to refresh session';
-      console.error('Refresh error:', errorMessage);
-      setError(errorMessage);
-      setSession(null);
-      setStatus('idle');
+      console.warn('⚠️ Standard refresh failed, trying silent silent re-auth...', err);
+
+      try {
+        // Try silent re-auth as a last resort before showing banner
+        const error = await googleAuth.silentRefresh();
+        if (error) throw error;
+
+        // If we reach here, it might have triggered a redirect or it's waiting
+        console.log('🔄 Silent refresh request sent (redirect may occur)');
+      } catch (silentErr: any) {
+        console.error('❌ Silent re-auth failed:', silentErr);
+        setError(err.message || 'Failed to refresh session');
+        setStatus('needs_reconnect');
+      }
     }
   }, [session]);
 

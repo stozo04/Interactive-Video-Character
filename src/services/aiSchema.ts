@@ -144,10 +144,6 @@ export const AIActionResponseSchema = z.object({
     "Whiteboard interaction action"
   ),
 
-  /**
-   * Selfie/image generation action - triggered when user asks for a picture of the AI companion
-   * Examples: "Send me a selfie", "Show me a picture of you at the beach", "What do you look like at a restaurant?"
-   */
   selfie_action: z.object({
     scene: z.string().describe(
       "The scene, location, or context for the selfie (e.g., 'at a restaurant', 'at the beach', 'cozy at home', 'at a coffee shop')"
@@ -160,6 +156,22 @@ export const AIActionResponseSchema = z.object({
     )
   }).nullable().optional().describe(
     "Selfie/image generation action - use when user asks for a picture, photo, or selfie of you"
+  ),
+  /**
+   * Task action - used when user wants to manage their checklist
+   */
+  task_action: z.object({
+    action: z.enum(['create', 'complete', 'delete', 'list']).describe(
+      "The task action to perform"
+    ),
+    task_text: z.string().optional().describe(
+      "For create: the task description. For complete/delete: partial text to match the task."
+    ),
+    priority: z.enum(['low', 'medium', 'high']).optional().describe(
+      "Priority level for new tasks"
+    )
+  }).nullable().optional().describe(
+    "Task management action"
   ),
 
   /**
@@ -681,3 +693,4 @@ export interface ToolCallResult {
   toolCallId: string;
   result: string;
 }
+

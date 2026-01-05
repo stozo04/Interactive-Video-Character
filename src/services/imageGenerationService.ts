@@ -11,7 +11,6 @@
  */
 
 import { GoogleGenAI } from "@google/genai";
-import referenceImageRaw from "../utils/base64.png?base64";
 import { getCurrentLookState, lockCurrentLook, getRecentSelfieHistory, recordSelfieGeneration } from './imageGeneration/currentLookService';
 import { detectTemporalContextLLMCached } from './imageGeneration/temporalDetection';
 import {
@@ -257,16 +256,14 @@ export async function generateCompanionSelfie(
           error
         );
         // Fallback to legacy behavior
-        selectedReferenceBase64 =
-          request.referenceImageBase64 || referenceImageRaw;
+        selectedReferenceBase64 =          request.referenceImageBase64;
       }
     } else {
       // Legacy behavior: use manual override or default reference
       console.log(
-        "📸 !!!!!!!!!!!!!!!  [ImageGen] Using legacy single reference (no userId provided)"
+        "📸 !!!!!!!!!!!!!!!  [ImageGen] Using legacy single reference"
       );
-      selectedReferenceBase64 =
-        request.referenceImageBase64 || referenceImageRaw;
+      selectedReferenceBase64 =request.referenceImageBase64;
     }
 
     // ====================================
