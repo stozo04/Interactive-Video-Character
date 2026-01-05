@@ -7,6 +7,10 @@ import { getAdversarialGreetingPrompt } from "./adversarialGreetingPrompt";
 import { getAcquaintanceGreetingPrompt } from "./acquaintanceGreetingPrompt";
 import { getFriendGreetingPrompt } from "./friendGreetingPrompt";
 import { getDeeplyLovingGreetingPrompt } from "./deeplyLovingGreetingPrompt";
+import {
+  buildDailyLogisticsSection,
+  type DailyLogisticsContext,
+} from "../dailyCatchupBuilder";
 
 export interface GreetingPromptContext {
   relationship?: RelationshipMetrics | null;
@@ -21,6 +25,8 @@ export interface GreetingPromptContext {
   pendingMessageSection: string;
   jsonGuardrail: string;
   sharedContext: string;
+  /** Daily logistics context for first-login-of-the-day greetings */
+  dailyLogistics?: DailyLogisticsContext | null;
 }
 
 /**
@@ -202,7 +208,8 @@ export function buildGreetingPrompt(
   proactiveThread?: OngoingThread | null,
   pendingMessage?: PendingMessage | null,
   kayleyActivity?: string | null,
-  expectedReturnTime?: string | null
+  expectedReturnTime?: string | null,
+  dailyLogistics?: DailyLogisticsContext | null
 ): string {
   const tier = relationship?.relationshipTier || "acquaintance";
   const warmth = relationship?.warmthScore ?? 0;
@@ -214,7 +221,20 @@ export function buildGreetingPrompt(
   );
 
   const returnContext = getReturnContext(expectedReturnTime);
-  const fullSharedContext = returnContext ? `${sharedContext}\n${returnContext}` : sharedContext;
+
+  // Build daily logistics section if this is first login of the day
+  const dailyLogisticsSection = dailyLogistics
+    ? buildDailyLogisticsSection(dailyLogistics)
+    : "";
+
+  // Combine all context
+  let fullSharedContext = sharedContext;
+  if (returnContext) {
+    fullSharedContext += `\n${returnContext}`;
+  }
+  if (dailyLogisticsSection) {
+    fullSharedContext += `\n${dailyLogisticsSection}`;
+  }
 
   // Routing
   if (tier === "adversarial" || tier === "rival" || warmth < -10) {

@@ -26,6 +26,11 @@ import {
   recordAlmostMoment,
   generateAlmostExpression
 } from './almostMomentsService';
+import {
+  hasBeenBriefedToday,
+  markBriefedToday,
+  type DailyLogisticsContext,
+} from './dailyCatchupService';
 
 // 1. LOAD BOTH MODELS FROM ENV
 const GEMINI_MODEL = import.meta.env.VITE_GEMINI_MODEL; // The Brain (e.g. gemini-3-flash-preview)
@@ -1413,15 +1418,32 @@ Your goal: Share this news in your style - make it accessible and interesting!
 
   /**
    * Generate greeting using Interactions API.
-   * Fetches all context internally
+   * Fetches all context internally.
+   * If first login of the day, includes daily logistics (calendar, tasks, emails).
    */
-  async generateGreeting(session?: AIChatSession): Promise<{
+  async generateGreeting(
+    session?: AIChatSession,
+    options?: {
+      characterId?: string;
+      emailCount?: number;
+      isGmailConnected?: boolean;
+      isCalendarConnected?: boolean;
+    }
+  ): Promise<{
     greeting: AIActionResponse;
     session: AIChatSession;
     audioData?: string;
   }> {
     // Fetch context internally
     const fetchedContext = await this.fetchUserContext();
+
+    // Check if this is the first login of the day
+    const characterId = options?.characterId || "default";
+    const isFirstLoginToday = !hasBeenBriefedToday(characterId);
+
+    if (isFirstLoginToday) {
+      console.log("🌅 [GeminiService] First login of the day - including daily logistics in greeting");
+    }
 
     const systemPrompt = await buildSystemPrompt(
       undefined, // character
@@ -1487,18 +1509,35 @@ Your goal: Share this news in your style - make it accessible and interesting!
         );
       }
 
+      // Build daily logistics context if first login of the day
+      let dailyLogistics: DailyLogisticsContext | null = null;
+      if (isFirstLoginToday) {
+        dailyLogistics = {
+          upcomingEvents: fetchedContext.upcomingEvents,
+          tasks: fetchedContext.tasks,
+          emailCount: options?.emailCount ?? 0,
+          isCalendarConnected: options?.isCalendarConnected ?? false,
+          isGmailConnected: options?.isGmailConnected ?? false,
+        };
+      }
+
       const greetingPrompt = buildGreetingPrompt(
         fetchedContext.relationship,
         hasUserFacts,
         userName,
         topOpenLoop,
         null, // proactiveThread
-        pendingMessage
+        pendingMessage,
+        null, // kayleyActivity
+        null, // expectedReturnTime
+        dailyLogistics // NEW: daily logistics for first login
       );
       console.log(
         `🤖 [GeminiService] Greeting tier: ${
           fetchedContext.relationship?.relationshipTier || "new"
-        }, interactions: ${fetchedContext.relationship?.totalInteractions || 0}`
+        }, interactions: ${fetchedContext.relationship?.totalInteractions || 0}${
+          isFirstLoginToday ? " (first login today)" : ""
+        }`
       );
 
       // Build interaction config
@@ -1551,6 +1590,12 @@ Your goal: Share this news in your style - make it accessible and interesting!
         console.log(
           `✅ [GeminiService] Marked pending ${pendingMessage.trigger} message as delivered`
         );
+      }
+
+      // Mark as briefed today if this was the first login
+      if (isFirstLoginToday) {
+        markBriefedToday(characterId);
+        console.log(`📅 [GeminiService] Marked daily briefing complete for ${characterId}`);
       }
 
       return {
