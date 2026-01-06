@@ -26,7 +26,6 @@ import {
 import { generateSpeech } from './services/elevenLabsService'; // Import generateSpeech
 import { buildActionKeyMap } from './utils/actionKeyMapper';
 import { predictActionFromMessage } from './utils/intentUtils';
-import { processAndStoreCharacterFacts } from './services/characterFactsService';
 import { prefetchOnIdle, clearPrefetchCache } from './services/prefetchService';
 import ImageUploader from './components/ImageUploader';
 import VideoPlayer from './components/VideoPlayer';
@@ -41,20 +40,7 @@ import { TaskPanel } from './components/TaskPanel';
 import { WhiteboardView } from './components/WhiteboardView';
 import { WhiteboardAction } from './services/whiteboardModes';
 import { handleWhiteboardCapture as handleWhiteboardCaptureHandler } from './handlers/whiteboardHandler';
-import {
-  processTaskAction,
-  parseTaskActionFromResponse,
-  detectTaskCompletionFallback,
-  processCalendarAction,
-  parseCalendarTagFromResponse,
-  processCalendarTag,
-  processNewsAction,
-  processSelfieAction,
-  TaskAction,
-  CalendarAction,
-  NewsAction,
-  SelfieAction,
-} from './handlers/messageActions';
+import { processTaskAction } from './handlers/messageActions';
 import { processUserMessage } from './services/messageOrchestrator';
 import { useGoogleAuth } from './contexts/GoogleAuthContext';
 import { useDebounce } from './hooks/useDebounce';
@@ -67,22 +53,11 @@ import { useIdleTracking } from './hooks/useIdleTracking';
 import { useCharacterActions } from './hooks/useCharacterActions';
 import { useCharacterManagement } from './hooks/useCharacterManagement';
 import { useAIService } from './contexts/AIServiceContext';
-import { AIChatSession, UserContent, AIChatOptions } from './services/aiService';
+import { AIChatSession } from './services/aiService';
 import { startCleanupScheduler, stopCleanupScheduler } from './services/loopCleanupService';
 import { startIdleThoughtsScheduler, stopIdleThoughtsScheduler } from './services/idleThoughtsScheduler';
-import * as taskService from './services/taskService';
-import { 
-  fetchTechNews, 
-  markStoryMentioned,
-  storeLastSharedStories,
-} from './services/newsService';
-// Calendar check-in functions now handled by useCalendar hook
-import { generateCompanionSelfie } from './services/imageGenerationService';
-import { detectKayleyPresence } from './services/kayleyPresenceDetector';
-import { getKayleyPresenceState, updateKayleyPresenceState, getDefaultExpirationMinutes } from './services/kayleyPresenceService';
 // Utility imports (Phase 1 extraction)
 import { isQuestionMessage } from './utils/textUtils';
-import { extractJsonObject } from './utils/jsonUtils';
 import { shuffleArray } from './utils/arrayUtils';
 
 // ============================================================================
@@ -1209,468 +1184,122 @@ const App: React.FC = () => {
   };
 
   // ==========================================================================
-  // MAIN MESSAGE HANDLER
+  // MAIN MESSAGE HANDLER (Refactored to use messageOrchestrator)
   // ==========================================================================
 
   const handleSendMessage = async (message: string) => {
     if (!selectedCharacter || !session) return;
     registerInteraction();
     setErrorMessage(null);
-    
-    // Show typing indicator
     setIsProcessingAction(true);
-    
+
     const updatedHistory = [...chatHistory, { role: 'user' as const, text: message }];
     setChatHistory(updatedHistory);
-    // ... [rest of function] ...
 
+    // Record exchange for callback timing
+    try { recordExchange(); } catch (e) { console.warn('Exchange record failed', e); }
 
-    // ============================================
-    // SOUL LAYER: Exchange Recording (Phase 5)
-    // ============================================
-    // NOTE: analyzeUserMessageBackground is now called in BaseAIService.generateResponse
-    // with the pre-calculated intent, preventing duplicate detectFullIntentLLMCached calls.
-    // We only record the exchange here for callback timing.
-    const startBackgroundAnalysis = () => {
-      try {
-        recordExchange(); // For callback timing
-      } catch (e) { console.warn('Exchange record failed', e); }
-    };
-
-    // Start analysis immediately in background
-    // (It performs its own async operations without blocking)
-    try {
-      startBackgroundAnalysis();
-    } catch (e) {
-      console.error("Failed to start background analysis", e);
-    }
-
-    // Background (non-critical) sentiment analysis should NOT compete with the critical path.
-    // We'll start it only after we've queued the AI's audio response (or displayed the text if muted).
-    let sentimentPromise: Promise<any> | null = null;
-    const startBackgroundSentiment = (intent?: FullMessageIntent) => {
-      if (sentimentPromise) return;
-
-      sentimentPromise = relationshipService
-        .analyzeMessageSentiment(message, updatedHistory, intent)
-        .then(event => relationshipService.updateRelationship(event))
-        .catch(error => {
-          console.error('Background sentiment analysis failed:', error);
-          return null;
-        });
-
-      sentimentPromise.then(updatedRelationship => {
-        if (updatedRelationship) {
-          setRelationship(updatedRelationship);
-          // Phase 5: Mood interaction is now handled by messageAnalyzer (Async/Supabase)
-          // which accurately detects genuine moments using LLM.
-          // redundant call removed: recordMoodInteraction(toneScore);
-        }
-      });
-    };
-
-    // Variable to track if we played an action optimistically
+    // Optimistic action prediction (UI responsiveness)
     let predictedActionId: string | null = null;
     let talkingActionId: string | null = null;
-    const messageIsQuestion = isQuestionMessage(message);
-    
-    // 1. Ask our helper function to guess the action
     if (selectedCharacter.actions) {
       predictedActionId = predictActionFromMessage(message, selectedCharacter.actions);
     }
-    
-    // 2. If we guessed an action, PLAY IT NOW!
     if (predictedActionId) {
       console.log(`⚡ Optimistically playing action: ${predictedActionId}`);
-      // Force immediate playback so user commands interrupt the current idle clip
       playAction(predictedActionId, true);
-    }
-    else if (messageIsQuestion) {
+    } else if (isQuestionMessage(message)) {
       talkingActionId = playRandomTalkingAction(true);
-      if (talkingActionId) {
-        console.log(`Starting talking animation: ${talkingActionId}`);
-      }
     }
 
     try {
       // ============================================
-      // LLM-BASED USER FACT DETECTION
-      // Facts are detected by the intent service LLM and processed after response
-      // This replaced the old regex-based detectAndStoreUserInfo
+      // ORCHESTRATOR: AI Call + Background Processing
       // ============================================
+      const result = await processUserMessage({
+        userMessage: message,
+        aiService: activeService,
+        session: aiSession,
+        accessToken: session.accessToken,
+        chatHistory,
+        upcomingEvents,
+        tasks,
+        isMuted,
+      });
 
-      const sessionToUse: AIChatSession = aiSession || { model: activeService.model };
-      const context: AIChatOptions = {
-        chatHistory: chatHistory,
-        googleAccessToken: session?.accessToken,
-        audioMode: 'async',
-        onAudioData: (data) => media.enqueueAudio(data),
+      if (result.updatedSession) setAiSession(result.updatedSession);
+      if (result.error) setErrorMessage(result.error);
+
+      const maybePlayResponseAction = (actionId?: string | null) => {
+        if (actionId && actionId !== predictedActionId && actionId !== talkingActionId) {
+          playAction(actionId, true);
+        }
       };
 
-      // 1. Start AI response immediately (main critical path)
-      try {
-        let textToSend = message;
-        // Inject system context if asking about schedule to override hallucinations
-        const lowerMsg = message.toLowerCase();
+      const startBackgroundSentiment = () => {
+        relationshipService
+          .analyzeMessageSentiment(message, updatedHistory, result.intent)
+          .then(event => relationshipService.updateRelationship(event))
+          .then(updated => { if (updated) setRelationship(updated); })
+          .catch(err => console.error('Sentiment analysis failed:', err));
+      };
 
-        // Use a local variable that defaults to current state, but might be updated with fresh data
-        let currentEventsContext = upcomingEvents;
+      // ============================================
+      // ACTION-SPECIFIC PROCESSING (Phase 6: Simplified)
+      // ============================================
 
-        if (lowerMsg.match(/(event|calendar|schedule|meeting|appointment|plan|today|tomorrow|delete|remove|cancel)/)) {
-          try {
-            // ⚡ LIVE REFRESH: Fetch latest events immediately before answering
-            console.log("⚡ Fetching live calendar data for user query...");
-            const freshEvents = await calendarService.getUpcomingEvents(session.accessToken);
-            console.log(`📅 Calendar API returned ${freshEvents.length} events:`,
-              freshEvents.map(e => ({ summary: e.summary, start: e.start.dateTime, id: e.id }))
-            );
-            setUpcomingEvents(freshEvents); // Update state for UI
-            currentEventsContext = freshEvents; // Update local context for AI
-
-            // 🚨 CRITICAL: Inject event data directly into the user message
-            // Include IDs so AI can use them for deletion
-            if (freshEvents.length > 0) {
-              const eventList = freshEvents.map((e, i) => {
-                const t = new Date(e.start.dateTime || e.start.date);
-                return `${i + 1}. "${e.summary}" (ID: ${e.id}) at ${t.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}`;
-              }).join('; ');
-
-              // Check if this is a delete request
-              const isDeleteRequest = lowerMsg.match(/(delete|remove|cancel)/);
-
-              if (isDeleteRequest) {
-                // Add explicit delete reminder with the exact format needed
-                textToSend = `${message}\n\n[LIVE CALENDAR DATA - ${freshEvents.length} EVENTS: ${eventList}]\n\n⚠️ DELETE REMINDER: To delete an event, use the calendar_action tool with action="delete" and the exact "event_id" from the list above.`;
-                console.log(`🗑️ Delete request detected - added deletion reminder`);
-              } else {
-                textToSend = `${message}\n\n[LIVE CALENDAR DATA - ${freshEvents.length} EVENTS: ${eventList}]`;
-              }
-              console.log(`📅 Injected calendar context into message: ${freshEvents.length} events`);
-            }
-          } catch (err) {
-            console.error("Failed to live-refresh calendar:", err);
-            // Fallback to existing 'upcomingEvents' state
-          }
-        }
-
-        // Service fetches context internally - we just pass minimal options
-        const { response, session: updatedSession, audioData, intent } = await activeService.generateResponse(
-          { type: 'text', text: textToSend },
-          context,
-          sessionToUse
-        );
-
-        setAiSession(updatedSession);
-
-        // Debug: Log full response to check structure
-        // console.log('🔍 Full AI response:', JSON.stringify(response, null, 2));
-
-        // Process LLM-detected user facts (background, non-blocking)
-        // This uses semantic understanding from the intent service instead of regex patterns
-        if (intent?.userFacts?.hasFactsToStore && intent.userFacts.facts.length > 0) {
-          import('./services/memoryService').then(({ processDetectedFacts }) => {
-            processDetectedFacts(intent.userFacts!.facts).catch(err =>
-              console.warn('Failed to process LLM-detected user facts:', err)
-            );
-          });
-        }
-
-        // IMPORTANT: Refresh tasks after AI response in case task_action tool was called
-        // The tool modifies Supabase directly, so we need to sync UI state
-        refreshTasks().catch(err => {
-          console.warn('Failed to refresh tasks:', err);
+      // TASK ACTIONS (Phase 6: Detection in orchestrator, execution here for React callbacks)
+      if (result.detectedTaskAction) {
+        await processTaskAction(result.detectedTaskAction, tasks, {
+          handleTaskCreate, handleTaskToggle, handleTaskDelete, setIsTaskPanelOpen,
         });
-
-        // Detect and store character facts from the response (background, non-blocking)
-        // This captures new facts about Kayley that aren't in the profile
-        if (response.text_response) {
-          processAndStoreCharacterFacts(response.text_response).catch(err => {
-            console.warn('Failed to process character facts:', err);
-          });
-        }
-
-        // Detect and track Kayley's presence state (what she's wearing/doing) - background, non-blocking
-        if (response.text_response) {
-          detectKayleyPresence(response.text_response, message)
-            .then(async (detected) => {
-              if (detected && detected.confidence > 0.7) {
-                const expirationMinutes = getDefaultExpirationMinutes(detected.activity, detected.outfit);
-                await updateKayleyPresenceState({
-                  outfit: detected.outfit,
-                  mood: detected.mood,
-                  activity: detected.activity,
-                  location: detected.location,
-                  expirationMinutes,
-                  confidence: detected.confidence,
-                });
-                console.log('[App] Kayley presence detected:', detected);
-              }
-            })
-            .catch(err => console.warn('[App] Presence detection error:', err));
-        }
-        
-        const maybePlayResponseAction = (actionId?: string | null) => {
-          if (!actionId) return;
-          if (actionId !== predictedActionId && actionId !== talkingActionId) {
-            playAction(actionId, true);
-          } else {
-            console.log("Skipping duplicate action playback");
-          }
-        };
-
-        // ============================================
-        // TASK ACTIONS (extracted to handlers/messageActions/taskActions.ts)
-        // ============================================
-        let taskAction = response.task_action as TaskAction | null | undefined;
-        console.log("TASK ACTION: ", taskAction);
-        let shouldRegenerateAudio = false;
-
-        // Try to parse embedded JSON task_action from text_response
-        if (!taskAction && response.text_response) {
-          const parsedAction = parseTaskActionFromResponse(response.text_response);
-          if (parsedAction) {
-            taskAction = parsedAction;
-            response.text_response = "Got it! I'll help you with that.";
-            shouldRegenerateAudio = true;
-          }
-        }
-
-        // Fallback: Detect task completion from user message
-        if (!taskAction && message) {
-          const fallbackAction = detectTaskCompletionFallback(message, tasks);
-          if (fallbackAction) {
-            taskAction = fallbackAction;
-          }
-        }
-
-        // Regenerate audio if we cleaned up JSON from text_response
-        if (shouldRegenerateAudio && !isMuted) {
-          console.log('🔊 Regenerating audio for cleaned response');
-          generateSpeech(response.text_response).then(cleanAudio => {
-            if (cleanAudio) {
-              media.enqueueAudio(cleanAudio);
-            }
-          });
-        }
-
-        // Process task action using extracted handler
-        await processTaskAction(taskAction, tasks, {
-          handleTaskCreate,
-          handleTaskToggle,
-          handleTaskDelete,
-          setIsTaskPanelOpen,
-        });
-
-        // ============================================
-        // CALENDAR ACTIONS (extracted to handlers/messageActions/calendarActions.ts)
-        // ============================================
-        const calendarAction = response.calendar_action as CalendarAction | null | undefined;
-        console.log("CALENDAR ACTION: ", calendarAction);
-        if (calendarAction && calendarAction.action) {
-          const calendarResult = await processCalendarAction(calendarAction, {
-            accessToken: session.accessToken,
-            currentEvents: currentEventsContext,
-          });
-
-          if (calendarResult.handled) {
-            // Refresh events after calendar change
-            const events = await calendarService.getUpcomingEvents(session.accessToken);
-            setUpcomingEvents(events);
-
-            // Show confirmation and handle audio
-            setChatHistory(prev => [...prev, { role: 'model' as const, text: response.text_response }]);
-            await conversationHistoryService.appendConversationHistory(
-              [{ role: 'user', text: message }, { role: 'model', text: response.text_response }],
-              updatedSession?.interactionId || aiSession?.interactionId
-            );
-            setLastSavedMessageIndex(updatedHistory.length);
-
-            if (!isMuted && audioData) {
-              media.enqueueAudio(audioData);
-            }
-
-            startBackgroundSentiment(intent);
-            if (response.action_id) maybePlayResponseAction(response.action_id);
-            return;
-          } else if (calendarResult.error) {
-            setErrorMessage('Failed to execute calendar action');
-          }
-        }
-
-        // ============================================
-        // NEWS ACTIONS (extracted to handlers/messageActions/newsActions.ts)
-        // ============================================
-        const newsAction = response.news_action as NewsAction | null | undefined;
-
-        if (newsAction && newsAction.action === 'fetch') {
-          // Show initial acknowledgment
-          setChatHistory(prev => [...prev, { role: 'model' as const, text: response.text_response }]);
-          if (!isMuted && audioData) {
-            media.enqueueAudio(audioData);
-          }
-          await conversationHistoryService.appendConversationHistory(
-            [{ role: 'user', text: message }, { role: 'model', text: response.text_response }],
-            updatedSession?.interactionId || aiSession?.interactionId
-          );
-          setLastSavedMessageIndex(updatedHistory.length);
-
-          const newsResult = await processNewsAction(newsAction);
-          console.log("NEWS ACTION: ", newsResult);
-
-          if (newsResult.handled) {
-            // Send news context back to AI for a natural response
-            await triggerSystemMessage(newsResult.newsPrompt);
-            return;
-          } else if (newsResult.error) {
-            setErrorMessage('Failed to fetch tech news');
-          }
-        }
-
-        // ============================================
-        // SELFIE ACTIONS (extracted to handlers/messageActions/selfieActions.ts)
-        // ============================================
-        const selfieAction = response.selfie_action as SelfieAction | null | undefined;
-        console.log("SELFIE ACTION: ", selfieAction);
-        if (selfieAction && selfieAction.scene) {
-          // Show initial acknowledgment
-          setChatHistory(prev => [...prev, { role: 'model' as const, text: response.text_response }]);
-          if (!isMuted && audioData) {
-            media.enqueueAudio(audioData);
-          }
-          await conversationHistoryService.appendConversationHistory(
-            [{ role: 'user', text: message }, { role: 'model', text: response.text_response }],
-            updatedSession?.interactionId || aiSession?.interactionId
-          );
-          setLastSavedMessageIndex(updatedHistory.length);
-
-          const selfieResult = await processSelfieAction(selfieAction, {
-            userMessage: message,
-            chatHistory,
-            upcomingEvents,
-          });
-
-          if (selfieResult.handled) {
-            if (selfieResult.success && selfieResult.imageBase64) {
-              // Add a follow-up message with the generated image
-              const imageMessage: ChatMessage = {
-                role: 'model' as const,
-                text: "Here you go!",
-                assistantImage: selfieResult.imageBase64,
-                assistantImageMimeType: selfieResult.mimeType,
-              };
-              setChatHistory(prev => [...prev, imageMessage]);
-
-              if (!isMuted) {
-                const imageAudio = await generateSpeech("Here you go!");
-                if (imageAudio) media.enqueueAudio(imageAudio);
-              }
-              console.log('✅ Selfie generated and added to chat!');
-            } else {
-              // Generation failed
-              const errorMessage = selfieResult.error || "I couldn't take that pic right now, sorry!";
-              setChatHistory(prev => [...prev, { role: 'model' as const, text: errorMessage }]);
-
-              if (!isMuted) {
-                const errorAudio = await generateSpeech(errorMessage);
-                if (errorAudio) media.enqueueAudio(errorAudio);
-              }
-              console.error('❌ Selfie generation failed:', selfieResult.error);
-            }
-
-            startBackgroundSentiment(intent);
-            if (response.action_id) maybePlayResponseAction(response.action_id);
-            return;
-          }
-        }
-
-        // ============================================
-        // FALLBACK: Calendar tags in text_response
-        // (extracted to handlers/messageActions/calendarActions.ts)
-        // ============================================
-        const calendarTagParsed = parseCalendarTagFromResponse(response.text_response);
-
-        if (calendarTagParsed) {
-          const tagResult = await processCalendarTag(calendarTagParsed, {
-            accessToken: session.accessToken,
-            currentEvents: upcomingEvents,
-          });
-
-          if (tagResult.handled) {
-            const confirmationText = tagResult.action === 'create'
-              ? `Okay, I'll add "${tagResult.eventSummary}" to your calendar.`
-              : `Done! I've removed "${tagResult.eventSummary}" from your calendar.`;
-            const displayText = calendarTagParsed.textBeforeTag
-              ? `${calendarTagParsed.textBeforeTag}\n\n${confirmationText}`
-              : confirmationText;
-
-            setChatHistory(prev => [...prev, { role: 'model' as const, text: displayText }]);
-            await conversationHistoryService.appendConversationHistory(
-              [{ role: 'user', text: message }, { role: 'model', text: displayText }],
-              updatedSession?.interactionId || aiSession?.interactionId
-            );
-            setLastSavedMessageIndex(updatedHistory.length);
-
-            // Refresh events
-            const events = await calendarService.getUpcomingEvents(session.accessToken);
-            setUpcomingEvents(events);
-
-            if (!isMuted) {
-              const confirmationAudio = await generateSpeech(displayText);
-              if (confirmationAudio) media.enqueueAudio(confirmationAudio);
-            }
-
-            startBackgroundSentiment(intent);
-            if (response.action_id) maybePlayResponseAction(response.action_id);
-            if (response.open_app) {
-              console.log("🚀 Launching app:", response.open_app);
-              window.location.href = response.open_app;
-            }
-          } else {
-            // Tag parsing failed - show error message
-            const errorText = tagResult.action === 'delete'
-              ? "I tried to delete that event, but couldn't find it. Can you check the event name?"
-              : "I tried to create that event, but I got confused by the details. Could you try again?";
-            const displayText = calendarTagParsed.textBeforeTag
-              ? `${calendarTagParsed.textBeforeTag}\n\n(System: ${errorText})`
-              : errorText;
-
-            setErrorMessage(tagResult.error || 'Failed to process calendar action');
-            setChatHistory(prev => [...prev, { role: 'model' as const, text: displayText }]);
-            await conversationHistoryService.appendConversationHistory(
-              [{ role: 'user', text: message }, { role: 'model', text: displayText }],
-              updatedSession?.interactionId || aiSession?.interactionId
-            );
-          }
-        } else {
-          // 3. Handle Response (no calendar actions)
-            setChatHistory(prev => [...prev, { role: 'model' as const, text: response.text_response }]);
-            
-          await conversationHistoryService.appendConversationHistory(
-              [{ role: 'user', text: message }, { role: 'model', text: response.text_response }],
-              updatedSession?.interactionId || aiSession?.interactionId
-            );
-            setLastSavedMessageIndex(updatedHistory.length);
-
-            // Only use original audio if we're not regenerating (i.e., text wasn't JSON)
-            if (!isMuted && audioData && !shouldRegenerateAudio) {
-                media.enqueueAudio(audioData);
-            }
-
-            // Non-critical: kick off sentiment *after* we queued audio (or after text if muted)
-          startBackgroundSentiment(intent);
-
-            if (response.action_id) {
-                maybePlayResponseAction(response.action_id);
-            }
-            if (response.open_app) {
-                console.log("🚀 Launching app:", response.open_app);
-                window.location.href = response.open_app;
-            }
-        }
-      } catch (error) {
-        console.error('AI Response failed:', error);
-        setErrorMessage("AI Failed to respond");
       }
+
+      // NEWS ACTIONS (orchestrator fetched, we trigger system message)
+      if (result.newsPrompt) {
+        if (result.chatMessages.length > 0) setChatHistory(prev => [...prev, ...result.chatMessages]);
+        if (result.audioToPlay) media.enqueueAudio(result.audioToPlay);
+        await triggerSystemMessage(result.newsPrompt);
+        startBackgroundSentiment();
+        return;
+      }
+
+      // SELFIE ACTIONS (Phase 5: Use orchestrator-generated message text)
+      if (result.selfieImage || result.selfieError) {
+        if (result.chatMessages.length > 0) setChatHistory(prev => [...prev, ...result.chatMessages]);
+        if (result.audioToPlay) media.enqueueAudio(result.audioToPlay);
+        const selfieMsg = result.selfieMessageText || (result.selfieImage ? "Here you go!" : "I couldn't take that pic right now, sorry!");
+        if (result.selfieImage) {
+          setChatHistory(prev => [...prev, { role: 'model', text: selfieMsg, assistantImage: result.selfieImage.base64, assistantImageMimeType: result.selfieImage.mimeType }]);
+        } else {
+          setChatHistory(prev => [...prev, { role: 'model', text: selfieMsg }]);
+        }
+        if (!isMuted) { const audio = await generateSpeech(selfieMsg); if (audio) media.enqueueAudio(audio); }
+        startBackgroundSentiment();
+        maybePlayResponseAction(result.actionToPlay);
+        return;
+      }
+
+      // CALENDAR TAG FALLBACK (Phase 5: Use orchestrator-generated message text)
+      if (result.calendarTagResult && result.calendarMessageText) {
+        setChatHistory(prev => [...prev, { role: 'model', text: result.calendarMessageText! }]);
+        if (!isMuted) { const audio = await generateSpeech(result.calendarMessageText); if (audio) media.enqueueAudio(audio); }
+        startBackgroundSentiment();
+        maybePlayResponseAction(result.actionToPlay);
+        return;
+      }
+
+      // ============================================
+      // DEFAULT: Apply standard results
+      // ============================================
+      if (result.chatMessages.length > 0) setChatHistory(prev => [...prev, ...result.chatMessages]);
+      if (result.audioToPlay && !isMuted) media.enqueueAudio(result.audioToPlay);
+      maybePlayResponseAction(result.actionToPlay);
+      if (result.appToOpen) window.location.href = result.appToOpen;
+      if (result.refreshCalendar) refreshCalendarEvents();
+      if (result.refreshTasks) refreshTasks();
+      if (result.openTaskPanel) setIsTaskPanelOpen(true);
+      startBackgroundSentiment();
 
     } catch (error) {
       console.error('❌ [App] Message processing failed:', error);
