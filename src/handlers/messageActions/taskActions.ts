@@ -8,7 +8,7 @@
  */
 
 import * as taskService from '../../services/taskService';
-import type { Task } from '../../services/taskService';
+import type { Task } from '../../types';
 
 /**
  * Task action from AI response

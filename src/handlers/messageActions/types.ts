@@ -14,6 +14,7 @@ import type { CalendarEvent } from '../../services/calendarService';
 import type { IAIChatService, AIChatSession } from '../../services/aiService';
 import type { FullMessageIntent } from '../../services/intentService';
 import type { AIActionResponse } from '../../services/aiSchema';
+import type { TaskAction } from '../messageActions/taskActions';
 
 // ============================================================================
 // ENUMS (No magic strings!)
@@ -168,22 +169,8 @@ export interface OrchestratorResult {
   /** News prompt for system message (if news action succeeded) */
   newsPrompt?: string;
 
-  /** Calendar tag result (for legacy tag-based parsing) */
-  calendarTagResult?: {
-    action: 'create' | 'delete';
-    eventSummary: string;
-    textBeforeTag?: string;
-  };
-
-  /** Calendar confirmation message text for TTS (Phase 5) */
-  calendarMessageText?: string;
-
   /** Detected task action for App.tsx to execute (Phase 6) */
-  detectedTaskAction?: {
-    action: 'create' | 'toggle' | 'delete';
-    text?: string;
-    taskId?: string;
-  };
+  detectedTaskAction?: TaskAction;
 }
 
 // ============================================================================

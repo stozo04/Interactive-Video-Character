@@ -216,12 +216,12 @@ describe("shouldTriggerAlmostMoment", () => {
 
 describe("generateAlmostExpression - variety", () => {
   it("should generate different expressions for different seeds", () => {
-    const expr1 = generateAlmostExpression(baseFeeling, "romantic", "seed-1");
-    const expr2 = generateAlmostExpression(baseFeeling, "romantic", "seed-2");
+    const expr1 = generateAlmostExpression(baseFeeling, "micro_hint", "seed-1");
+    const expr2 = generateAlmostExpression(baseFeeling, "micro_hint", "seed-2");
 
     // They might be different (if there are multiple expressions for this type/stage)
     // or the same (if there's only one). But the function should be deterministic.
-    const expr1Again = generateAlmostExpression(baseFeeling, "romantic", "seed-1");
+    const expr1Again = generateAlmostExpression(baseFeeling, "micro_hint", "seed-1");
     expect(expr1.text).toBe(expr1Again.text);
   });
 

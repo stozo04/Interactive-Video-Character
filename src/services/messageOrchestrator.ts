@@ -24,8 +24,6 @@ import {
 // Action handlers
 import {
   processCalendarAction,
-  parseCalendarTagFromResponse,
-  processCalendarTag,
   processNewsAction,
   processSelfieAction,
   parseTaskActionFromResponse,
@@ -226,13 +224,9 @@ export async function processUserMessage(input: OrchestratorInput): Promise<Orch
       detectedTask = detectTaskCompletionFallback(userMessage, tasks);
     }
 
-    // Convert to simplified format for App.tsx
+    // Pass task action directly to App.tsx
     if (detectedTask) {
-      result.detectedTaskAction = {
-        action: detectedTask.action,
-        text: detectedTask.text,
-        taskId: detectedTask.taskId,
-      };
+      result.detectedTaskAction = detectedTask;
       console.log(`📋 [Orchestrator] Detected task action: ${detectedTask.action}`);
     }
 
@@ -251,36 +245,6 @@ export async function processUserMessage(input: OrchestratorInput): Promise<Orch
         if (calendarResult.handled) {
           result.refreshCalendar = true;
           console.log(`📅 [Orchestrator] Calendar action executed: ${calendarResult.action}`);
-        }
-      }
-    }
-
-    // Calendar Tag Fallback (legacy parsing) - Phase 5: Generate complete message
-    if (!response.calendar_action && response.text_response && accessToken) {
-      const calendarTagParsed = parseCalendarTagFromResponse(response.text_response);
-      if (calendarTagParsed) {
-        const tagResult = await processCalendarTag(calendarTagParsed, {
-          accessToken,
-          currentEvents: upcomingEvents,
-        });
-        if (tagResult.handled) {
-          result.refreshCalendar = true;
-          const eventSummary = tagResult.eventSummary || '';
-          const confirmText = tagResult.action === 'create'
-            ? `Okay, I'll add "${eventSummary}" to your calendar.`
-            : `Done! I've removed "${eventSummary}" from your calendar.`;
-          const displayText = calendarTagParsed.textBeforeTag
-            ? `${calendarTagParsed.textBeforeTag}\n\n${confirmText}`
-            : confirmText;
-
-          result.calendarTagResult = {
-            action: tagResult.action!,
-            eventSummary,
-            textBeforeTag: calendarTagParsed.textBeforeTag,
-          };
-          // Phase 5: Set the complete message text for TTS
-          result.calendarMessageText = displayText;
-          console.log(`📅 [Orchestrator] Calendar tag processed: ${tagResult.action}`);
         }
       }
     }

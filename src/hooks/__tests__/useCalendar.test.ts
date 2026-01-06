@@ -82,7 +82,7 @@ describe('useCalendar', () => {
   const defaultOptions = {
     session: { accessToken: 'test-token' },
     selectedCharacter: { id: 'char-1', name: 'Test Character' } as any,
-    proactiveSettings: { calendar: true, dailyCatchup: true, news: true, idleBreakers: true },
+    proactiveSettings: { calendar: true, news: true, checkins: true },
     isSnoozed: false,
     isProcessingAction: false,
     isSpeaking: false,

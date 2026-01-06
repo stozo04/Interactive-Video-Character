@@ -22,9 +22,8 @@ const SNOOZE_UNTIL_KEY = 'kayley_snooze_until';
  */
 export const DEFAULT_PROACTIVE_SETTINGS: ProactiveSettings = {
   calendar: true,
-  dailyCatchup: true,
   news: true,
-  idleBreakers: true,
+  checkins: true,
 };
 
 /**

@@ -34,12 +34,6 @@ export enum CalendarAction {
   Delete = 'delete',
 }
 
-// Tags that appear in AI responses to trigger calendar actions
-export enum CalendarTag {
-  Create = '[CALENDAR_CREATE]',
-  Delete = '[CALENDAR_DELETE]',
-}
-
 // === Character Action Types ===
 export enum ActionType {
   Talking = 'talking',

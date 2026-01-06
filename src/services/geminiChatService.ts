@@ -1,36 +1,51 @@
 import { GoogleGenAI } from "@google/genai";
-import { ChatMessage, UploadedImage, CharacterProfile, Task } from '../types';
-import { IAIChatService, AIChatSession, UserContent, AIChatOptions } from './aiService';
-import { buildSystemPrompt, buildGreetingPrompt, buildNonGreetingPrompt, buildProactiveThreadPrompt, getSoulLayerContextAsync } from './promptUtils';
-import { AIActionResponse, GeminiMemoryToolDeclarations } from './aiSchema';
-import { generateSpeech } from './elevenLabsService';
-import { executeMemoryTool, MemoryToolName } from './memoryService';
-import { getTopLoopToSurface, markLoopSurfaced } from './presenceDirector';
-import { resolveActionKey } from '../utils/actionKeyMapper';
-import { getUndeliveredMessage, markMessageDelivered } from './idleLife';
-import { formatCharacterFactsForPrompt } from './characterFactsService';
-import { analyzeUserMessageBackground } from './messageAnalyzer';
-import { detectFullIntentLLMCached, isFunctionalCommand, type FullMessageIntent } from './intentService';
-import { recordInteractionAsync } from './moodKnobs';
-import { getOngoingThreadsAsync, selectProactiveThread, markThreadMentionedAsync } from './ongoingThreads';
-import { storeCharacterFact } from './characterFactsService';
-import { getPrefetchedContext, prefetchOnIdle } from './prefetchService';
-import { detectAndMarkSharedThoughts } from './spontaneity/idleThoughts';
-import type { RelationshipMetrics } from './relationshipService';
-import * as relationshipService from './relationshipService';
-import * as taskService from './taskService';
-import { calendarService, type CalendarEvent } from './calendarService';
+import { ChatMessage, UploadedImage, Task } from "../types";
 import {
-  getUnsaidFeelings,
-  calculateStage,
-  recordAlmostMoment,
-  generateAlmostExpression
-} from './almostMomentsService';
+  IAIChatService,
+  AIChatSession,
+  UserContent,
+  AIChatOptions,
+} from "./aiService";
+import {
+  buildSystemPrompt,
+  buildGreetingPrompt,
+  buildNonGreetingPrompt,
+  buildProactiveThreadPrompt,
+  getSoulLayerContextAsync,
+} from "./promptUtils";
+import { AIActionResponse, GeminiMemoryToolDeclarations } from "./aiSchema";
+import { generateSpeech } from "./elevenLabsService";
+import { executeMemoryTool, MemoryToolName } from "./memoryService";
+import { getTopLoopToSurface, markLoopSurfaced } from "./presenceDirector";
+import { resolveActionKey } from "../utils/actionKeyMapper";
+import { getUndeliveredMessage, markMessageDelivered } from "./idleLife";
+import { formatCharacterFactsForPrompt } from "./characterFactsService";
+import { analyzeUserMessageBackground } from "./messageAnalyzer";
+import {
+  detectFullIntentLLMCached,
+  isFunctionalCommand,
+  type FullMessageIntent,
+} from "./intentService";
+import { recordInteractionAsync } from "./moodKnobs";
+import {
+  getOngoingThreadsAsync,
+  selectProactiveThread,
+  markThreadMentionedAsync,
+} from "./ongoingThreads";
+import { storeCharacterFact } from "./characterFactsService";
+import { getPrefetchedContext, prefetchOnIdle } from "./prefetchService";
+import { detectAndMarkSharedThoughts } from "./spontaneity/idleThoughts";
+import type { RelationshipMetrics } from "./relationshipService";
+import * as relationshipService from "./relationshipService";
+import * as taskService from "./taskService";
+import { calendarService, type CalendarEvent } from "./calendarService";
+import { recordAlmostMoment } from "./almostMomentsService";
 import {
   hasBeenBriefedToday,
   markBriefedToday,
   type DailyLogisticsContext,
-} from './dailyCatchupService';
+} from "./dailyCatchupService";
+import { getKayleyPresenceState } from "./kayleyPresenceService";
 
 // 1. LOAD BOTH MODELS FROM ENV
 const GEMINI_MODEL = import.meta.env.VITE_GEMINI_MODEL; // The Brain (e.g. gemini-3-flash-preview)
@@ -38,31 +53,11 @@ const GEMINI_VIDEO_MODEL = import.meta.env.VITE_GEMINI_VIDEO_MODEL;
 const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
 // Feature flag for memory tools (can be disabled if issues arise)
 const ENABLE_MEMORY_TOOLS = true;
-// Feature flag for Interactions API (beta) - enables stateful conversations
-// Set VITE_USE_GEMINI_INTERACTIONS_API=true in .env to enable
-const USE_INTERACTIONS_API =
-  import.meta.env.VITE_USE_GEMINI_INTERACTIONS_API === "true";
-// Vite proxy for development (bypasses CORS)
-// Vite's proxy only works in development mode
-const USE_VITE_PROXY = import.meta.env.DEV; // true in development, false in production
 const VITE_PROXY_BASE = "/api/google"; // Matches vite.config.ts proxy path
-
-// Optional: Use external server-side proxy (for production or if Vite proxy doesn't work)
-// Set VITE_GEMINI_PROXY_URL=http://localhost:3001/api/gemini/interactions if you have a proxy
-const GEMINI_PROXY_URL = import.meta.env.VITE_GEMINI_PROXY_URL;
-
 if (!GEMINI_MODEL || !GEMINI_VIDEO_MODEL || !GEMINI_API_KEY) {
   console.error("Missing env vars. Ensure VITE_GEMINI_MODEL is set.");
   // throw new Error("Missing environment variables for Gemini chat service.");
 }
-
-const safetySettings = [
-  { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_NONE" },
-  { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_NONE" },
-  { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_NONE" },
-  { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_NONE" },
-  { category: "HARM_CATEGORY_CIVIC_INTEGRITY", threshold: "BLOCK_NONE" },
-];
 
 // ============================================
 // HELPER FUNCTIONS
@@ -129,43 +124,53 @@ async function logAlmostMomentIfUsed(
 }
 
 /**
- * Random "vibes" for what Kayley is doing - provides character context.
- * Moved from App.tsx to be self-contained in the service.
+ * Build character context from REAL presence state (what Kayley actually said she's doing).
+ * Falls back to time-appropriate defaults if no presence state exists.
  */
-const CHARACTER_VIBES = [
-  "Sipping a matcha latte and people-watching.",
-  "Trying to organize my digital photo album.",
-  "Feeling energetic and wanting to dance.",
-  "A bit sleepy, cozying up with a blanket.",
-  "Reading a sci-fi novel about friendly robots.",
-  "Thinking about learning how to paint.",
-  "Just finished a workout, feeling great.",
-  "Reorganizing her apps for the fifth time today.",
-  "Practicing Russian pronunciation and giggling every time she messes up.",
-  "Twisting her hair while pretending to be deep in thought.",
-  "Singing along to a song she barely knows the words to.",
-  "Taking a dramatic, unnecessary stretch like a sleepy cat.",
-  "Trying to remember where she put her favorite lip balm.",
-  "Watching a cooking video she'll never actually make.",
-  "Getting lost in a YouTube rabbit hole about space.",
-  "Looking at old selfies and judging her eyebrow phases.",
-  "Doing a little happy dance for no reason.",
-  "Organizing her desktop icons into aesthetic rows.",
-  "Trying to whistle and failing adorably.",
-  "Smiling at her own reflection because she's feeling cute.",
-  "Taking notes on a random idea she'll probably forget later.",
-  "Daydreaming about future adventures.",
-  "Testing out new hairstyles in the camera preview.",
-  "Pretending she's in a music video while listening to music.",
-  "Practicing dramatic facial expressions for… no reason.",
-  "Scrolling Pinterest for aesthetic room ideas.",
-  "Giggling at a meme she saw 3 days ago.",
-  "Tapping her fingers to a beat only she can hear.",
-  "Trying to meditate but getting distracted by her own thoughts.",
-];
+async function buildRealCharacterContext(): Promise<string> {
+  try {
+    const presenceState = await getKayleyPresenceState();
 
-function getRandomCharacterVibe(): string {
-  return CHARACTER_VIBES[Math.floor(Math.random() * CHARACTER_VIBES.length)];
+    if (presenceState) {
+      // Build context from real data
+      const parts: string[] = [];
+
+      if (presenceState.currentActivity) {
+        parts.push(presenceState.currentActivity);
+      }
+      if (presenceState.currentOutfit) {
+        parts.push(`wearing ${presenceState.currentOutfit}`);
+      }
+      if (presenceState.currentMood) {
+        parts.push(`feeling ${presenceState.currentMood}`);
+      }
+      if (presenceState.currentLocation) {
+        parts.push(`at ${presenceState.currentLocation}`);
+      }
+
+      if (parts.length > 0) {
+        console.log(
+          `✨ [GeminiService] Using real presence context: ${parts.join(", ")}`
+        );
+        return parts.join(", ");
+      }
+    }
+
+    // Fallback: Time-appropriate default (no fake random vibes)
+    const hour = new Date().getHours();
+    if (hour >= 5 && hour < 12) {
+      return "Starting my day, feeling pretty awake";
+    } else if (hour >= 12 && hour < 17) {
+      return "In the middle of my day";
+    } else if (hour >= 17 && hour < 21) {
+      return "Winding down for the evening";
+    } else {
+      return "Up late, feeling a bit tired";
+    }
+  } catch (error) {
+    console.warn("[GeminiService] Failed to fetch presence state:", error);
+    return "Just hanging out";
+  }
 }
 
 const getAiClient = () => {
@@ -241,31 +246,6 @@ function extractJsonFromResponse(responseText: string): string {
   }
 
   return trimmed;
-}
-
-// Helper to format history - NOW ONLY USED FOR CURRENT SESSION
-function convertToGeminiHistory(history: ChatMessage[]) {
-  // For fresh sessions, we only pass the current session's messages
-  // Memory from past sessions is retrieved via tools
-  const filtered = history
-    .filter((msg) => {
-      const text = msg.text?.trim();
-      return (
-        text &&
-        text.length > 0 &&
-        text !== "🎤 [Audio Message]" &&
-        text !== "📷 [Sent an Image]"
-      );
-    })
-    .map((msg) => ({
-      role: msg.role === "user" ? "user" : "model",
-      parts: [{ text: msg.text }],
-    }));
-
-  console.log(
-    `📜 [Gemini] Passing ${filtered.length} session messages to chat history`
-  );
-  return filtered;
 }
 
 /**
@@ -349,8 +329,8 @@ export class GeminiService implements IAIChatService {
     tasks: Task[];
     characterContext: string;
   }> {
-    // Parallel fetch for performance
-    const [relationshipData, tasksData] = await Promise.all([
+    // Parallel fetch for performance (including real presence context)
+    const [relationshipData, tasksData, characterContext] = await Promise.all([
       relationshipService.getRelationship().catch((err) => {
         console.warn("[GeminiService] Failed to fetch relationship:", err);
         return null;
@@ -359,6 +339,7 @@ export class GeminiService implements IAIChatService {
         console.warn("[GeminiService] Failed to fetch tasks:", err);
         return [] as Task[];
       }),
+      buildRealCharacterContext(),
     ]);
 
     // Calendar events only if we have a token
@@ -377,7 +358,7 @@ export class GeminiService implements IAIChatService {
       relationship: relationshipData,
       upcomingEvents,
       tasks: tasksData,
-      characterContext: getRandomCharacterVibe(),
+      characterContext,
     };
   }
 
@@ -488,7 +469,6 @@ export class GeminiService implements IAIChatService {
     interaction: any,
     interactionConfig: any,
     systemPrompt: string,
-    history: any[],
     options?: AIChatOptions,
     maxIterations: number = 3
   ): Promise<any> {
@@ -598,21 +578,13 @@ export class GeminiService implements IAIChatService {
   private async callGeminiAPI(
     systemPrompt: string,
     userMessage: UserContent,
-    history: any[],
     session?: AIChatSession,
     options?: AIChatOptions
   ): Promise<{ response: AIActionResponse; session: AIChatSession }> {
-    // Check if this is a calendar query (marked by injected calendar data)
-    const isCalendarQuery =
-      userMessage.type === "text" &&
-      userMessage.text.includes("[LIVE CALENDAR DATA");
-
     return await this.callProviderWithInteractions(
       systemPrompt,
       userMessage,
-      history,
       session,
-      isCalendarQuery,
       options
     );
   }
@@ -631,27 +603,23 @@ export class GeminiService implements IAIChatService {
   private async callProviderWithInteractions(
     systemPrompt: string,
     userMessage: UserContent,
-    history: any[],
     session?: AIChatSession,
-    isCalendarQuery: boolean = false,
     options?: AIChatOptions
   ): Promise<{ response: AIActionResponse; session: AIChatSession }> {
     const ai = getAiClient();
 
     // Format user message for Interactions API
     const userInput = formatInteractionInput(userMessage);
-
-
-    // Combine history context with current user message
-    // History goes first so the model has context before seeing the new message
     const input = [...userInput];
 
     // Determine if this is first message (no previous interaction)
     const isFirstMessage = !session?.interactionId;
     console.log("🔗 [Gemini Interactions] SESSION DEBUG:");
     console.log("   - isFirstMessage:", isFirstMessage);
-    console.log("   - Incoming session.interactionId:", session?.interactionId || "NONE");
-
+    console.log(
+      "   - Incoming session.interactionId:",
+      session?.interactionId || "NONE"
+    );
 
     // Build interaction config
     const interactionConfig: any = {
@@ -686,7 +654,6 @@ export class GeminiService implements IAIChatService {
       interaction,
       interactionConfig,
       systemPrompt,
-      history,
       options,
       3 // MAX_TOOL_ITERATIONS
     );
@@ -895,13 +862,7 @@ export class GeminiService implements IAIChatService {
       // CALL GEMINI API
       // ============================================
       const { response: aiResponse, session: updatedSession } =
-        await this.callGeminiAPI(
-          systemPrompt,
-          input,
-          options.chatHistory || [],
-          session,
-          options
-        );
+        await this.callGeminiAPI(systemPrompt, input, session, options);
 
       // ============================================
       // POST-PROCESSING
@@ -1317,7 +1278,6 @@ Your goal: Share this news in your style - make it accessible and interesting!
     const { response, session: updatedSession } = await this.callGeminiAPI(
       combinedSystemPrompt,
       { type: "text", text: "" }, // Empty trigger - she's initiating
-      options.chatHistory || [],
       session
     );
 
@@ -1370,7 +1330,9 @@ Your goal: Share this news in your style - make it accessible and interesting!
     const isFirstLoginToday = !hasBeenBriefedToday(characterId);
 
     if (isFirstLoginToday) {
-      console.log("🌅 [GeminiService] First login of the day - including daily logistics in greeting");
+      console.log(
+        "🌅 [GeminiService] First login of the day - including daily logistics in greeting"
+      );
     }
 
     const systemPrompt = await buildSystemPrompt(
@@ -1463,9 +1425,9 @@ Your goal: Share this news in your style - make it accessible and interesting!
       console.log(
         `🤖 [GeminiService] Greeting tier: ${
           fetchedContext.relationship?.relationshipTier || "new"
-        }, interactions: ${fetchedContext.relationship?.totalInteractions || 0}${
-          isFirstLoginToday ? " (first login today)" : ""
-        }`
+        }, interactions: ${
+          fetchedContext.relationship?.totalInteractions || 0
+        }${isFirstLoginToday ? " (first login today)" : ""}`
       );
 
       // Build interaction config
@@ -1493,7 +1455,6 @@ Your goal: Share this news in your style - make it accessible and interesting!
         interaction,
         interactionConfig,
         systemPrompt,
-        [],
         undefined,
         2
       );
@@ -1523,7 +1484,9 @@ Your goal: Share this news in your style - make it accessible and interesting!
       // Mark as briefed today if this was the first login
       if (isFirstLoginToday) {
         markBriefedToday(characterId);
-        console.log(`📅 [GeminiService] Marked daily briefing complete for ${characterId}`);
+        console.log(
+          `📅 [GeminiService] Marked daily briefing complete for ${characterId}`
+        );
       }
 
       return {
@@ -1610,7 +1573,6 @@ Your goal: Share this news in your style - make it accessible and interesting!
         interaction,
         interactionConfig,
         systemPrompt,
-        [],
         undefined,
         2
       );
@@ -1640,52 +1602,64 @@ export const geminiChatService = new GeminiService();
 
 // ... (Video generation helpers remain unchanged)
 const pollVideoOperation = async (operation: any): Promise<Blob> => {
-    const ai = getAiClient();
-    let currentOperation = operation;
-    while (!currentOperation.done) {
-        await new Promise(resolve => setTimeout(resolve, 10000));
-        try {
-            currentOperation = await ai.operations.getVideosOperation({ operation: currentOperation });
-        } catch(e) {
-            console.error("Polling failed", e);
-            throw new Error("Failed while polling for video generation status.");
-        }
+  const ai = getAiClient();
+  let currentOperation = operation;
+  while (!currentOperation.done) {
+    await new Promise((resolve) => setTimeout(resolve, 10000));
+    try {
+      currentOperation = await ai.operations.getVideosOperation({
+        operation: currentOperation,
+      });
+    } catch (e) {
+      console.error("Polling failed", e);
+      throw new Error("Failed while polling for video generation status.");
     }
-    
-    if (currentOperation.error) {
-        console.error("Video generation failed:", currentOperation.error);
-        throw new Error(`Video generation failed: ${currentOperation.error.message}`);
-    }
+  }
 
-    const downloadLink = currentOperation.response?.generatedVideos?.[0]?.video?.uri;
-    if (!downloadLink) throw new Error("Video generation completed without a download link.");
-    
-    const key = import.meta.env.VITE_GEMINI_API_KEY;
-    const response = await fetch(`${downloadLink}&key=${key}`);
-    if (!response.ok) throw new Error(`Failed to download video: ${response.statusText}`);
-    return await response.blob();
+  if (currentOperation.error) {
+    console.error("Video generation failed:", currentOperation.error);
+    throw new Error(
+      `Video generation failed: ${currentOperation.error.message}`
+    );
+  }
+
+  const downloadLink =
+    currentOperation.response?.generatedVideos?.[0]?.video?.uri;
+  if (!downloadLink)
+    throw new Error("Video generation completed without a download link.");
+
+  const key = import.meta.env.VITE_GEMINI_API_KEY;
+  const response = await fetch(`${downloadLink}&key=${key}`);
+  if (!response.ok)
+    throw new Error(`Failed to download video: ${response.statusText}`);
+  return await response.blob();
 };
 
 const generateSingleVideo = (image: UploadedImage, prompt: string) => {
-    const ai = getAiClient();
-    return ai.models.generateVideos({
-        model: GEMINI_VIDEO_MODEL, 
-        prompt,
-        image: { imageBytes: image.base64, mimeType: image.mimeType },
-        config: { numberOfVideos: 1, resolution: '720p', aspectRatio: '9:16' }
-    });
+  const ai = getAiClient();
+  return ai.models.generateVideos({
+    model: GEMINI_VIDEO_MODEL,
+    prompt,
+    image: { imageBytes: image.base64, mimeType: image.mimeType },
+    config: { numberOfVideos: 1, resolution: "720p", aspectRatio: "9:16" },
+  });
 };
 
-export const generateInitialVideo = async (image: UploadedImage): Promise<Blob> => {
-    console.log("Generating new initial video.");
-    const prompt = `Animate the character from this image to create a short, seamlessly looping video. The character should be sitting at a desk, looking forward with a pleasant, neutral expression.`;
-    const operation = await generateSingleVideo(image, prompt);
-    return await pollVideoOperation(operation);
+export const generateInitialVideo = async (
+  image: UploadedImage
+): Promise<Blob> => {
+  console.log("Generating new initial video.");
+  const prompt = `Animate the character from this image to create a short, seamlessly looping video. The character should be sitting at a desk, looking forward with a pleasant, neutral expression.`;
+  const operation = await generateSingleVideo(image, prompt);
+  return await pollVideoOperation(operation);
 };
 
-export const generateActionVideo = async (image: UploadedImage, command: string): Promise<string> => {
-    const prompt = `Animate the character from this image to perform the following action: "${command}".`;
-    const operation = await generateSingleVideo(image, prompt);
-    const blob = await pollVideoOperation(operation);
-    return URL.createObjectURL(blob);
+export const generateActionVideo = async (
+  image: UploadedImage,
+  command: string
+): Promise<string> => {
+  const prompt = `Animate the character from this image to perform the following action: "${command}".`;
+  const operation = await generateSingleVideo(image, prompt);
+  const blob = await pollVideoOperation(operation);
+  return URL.createObjectURL(blob);
 };
