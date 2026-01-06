@@ -457,7 +457,6 @@ export class GeminiService implements IAIChatService {
    */
   private async createInteraction(config: any): Promise<any> {
     try {
-      console.log("🔄 [Gemini Interactions] Using Vite proxy (development)");
       const proxyUrl = `${VITE_PROXY_BASE}/v1beta/interactions?key=${GEMINI_API_KEY}`;
       const response = await fetch(proxyUrl, {
         method: "POST",

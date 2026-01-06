@@ -1363,7 +1363,7 @@ const App: React.FC = () => {
         setAiSession(updatedSession);
 
         // Debug: Log full response to check structure
-        console.log('🔍 Full AI response:', JSON.stringify(response, null, 2));
+        // console.log('🔍 Full AI response:', JSON.stringify(response, null, 2));
 
         // Process LLM-detected user facts (background, non-blocking)
         // This uses semantic understanding from the intent service instead of regex patterns

@@ -24,6 +24,7 @@ When a bug is:
 |-----|----------|----------|------------|-------------|
 | IDLE_THOUGHTS_NOT_TRIGGERED.md | 2025-12-29 | 2025-12-29 | Background scheduler implemented | [Idle_Thoughts_System.md](../../features/Idle_Thoughts_System.md) |
 | IDLE_THOUGHTS_DATABASE_FIXES.md | 2025-12-29 | 2025-12-29 | INTEGER→NUMERIC, upsert logic | [Idle_Thoughts_System.md](../../features/Idle_Thoughts_System.md) |
+| IMAGE_PROMPT_CONTRADICTION.md | 2026-01-05 | 2026-01-05 | Context-aware phone visibility | [Selfie_Generation.md](../../features/Selfie_Generation.md) |
 
 ## Archive Process
 
