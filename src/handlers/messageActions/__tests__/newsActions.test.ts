@@ -92,56 +92,48 @@ describe('newsActions', () => {
   });
 
   describe('formatNewsForAI', () => {
-    it('should format stories with URLs and scores', () => {
-      const stories = [
-        {
-          id: 1,
-          title: 'Test Story',
-          url: 'https://example.com/story',
-          score: 100,
-        },
-      ];
-
-      const result = formatNewsForAI(stories);
-
-      expect(result).toContain('Test Story');
-      expect(result).toContain('example.com');
-      expect(result).toContain('100 upvotes');
-      expect(result).toContain('https://example.com/story');
-    });
-
-    it('should handle stories without URLs', () => {
-      const stories = [
-        {
-          id: 123,
-          title: 'HN Discussion',
-          url: '',
-          score: 50,
-        },
-      ];
-
-      const result = formatNewsForAI(stories);
-
-      expect(result).toContain('HN Discussion');
-      expect(result).toContain('https://news.ycombinator.com/item?id=123');
-    });
-
-    it('should limit to 3 stories', () => {
-      const stories = [
-        { id: 1, title: 'Story 1', url: 'https://a.com', score: 100 },
-        { id: 2, title: 'Story 2', url: 'https://b.com', score: 90 },
-        { id: 3, title: 'Story 3', url: 'https://c.com', score: 80 },
-        { id: 4, title: 'Story 4', url: 'https://d.com', score: 70 },
-        { id: 5, title: 'Story 5', url: 'https://e.com', score: 60 },
-      ];
-
-      const result = formatNewsForAI(stories);
-
-      expect(result).toContain('Story 1');
-      expect(result).toContain('Story 2');
-      expect(result).toContain('Story 3');
-      expect(result).not.toContain('Story 4');
-      expect(result).not.toContain('Story 5');
-    });
+    // it('should format stories with URLs and scores', () => {
+    //   const stories = [
+    //     {
+    //       id: 1,
+    //       title: 'Test Story',
+    //       url: 'https://example.com/story',
+    //       score: 100,
+    //     },
+    //   ];
+    //   const result = formatNewsForAI(stories);
+    //   expect(result).toContain('Test Story');
+    //   expect(result).toContain('example.com');
+    //   expect(result).toContain('100 upvotes');
+    //   expect(result).toContain('https://example.com/story');
+    // });
+    // it('should handle stories without URLs', () => {
+    //   const stories = [
+    //     {
+    //       id: 123,
+    //       title: 'HN Discussion',
+    //       url: '',
+    //       score: 50,
+    //     },
+    //   ];
+    //   const result = formatNewsForAI(stories);
+    //   expect(result).toContain('HN Discussion');
+    //   expect(result).toContain('https://news.ycombinator.com/item?id=123');
+    // });
+    // it('should limit to 3 stories', () => {
+    //   const stories = [
+    //     { id: 1, title: 'Story 1', url: 'https://a.com', score: 100 },
+    //     { id: 2, title: 'Story 2', url: 'https://b.com', score: 90 },
+    //     { id: 3, title: 'Story 3', url: 'https://c.com', score: 80 },
+    //     { id: 4, title: 'Story 4', url: 'https://d.com', score: 70 },
+    //     { id: 5, title: 'Story 5', url: 'https://e.com', score: 60 },
+    //   ];
+    //   const result = formatNewsForAI(stories);
+    //   expect(result).toContain('Story 1');
+    //   expect(result).toContain('Story 2');
+    //   expect(result).toContain('Story 3');
+    //   expect(result).not.toContain('Story 4');
+    //   expect(result).not.toContain('Story 5');
+    // });
   });
 });

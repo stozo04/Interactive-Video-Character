@@ -112,7 +112,7 @@ describe("Kayley Presence Tracking - Integration Tests", () => {
         error: null,
       });
 
-      const presenceState = await getKayleyPresenceState("test-user");
+      const presenceState = await getKayleyPresenceState();
       expect(presenceState).not.toBeNull();
       expect(presenceState?.currentOutfit).toBe("just got back from the gym");
 
@@ -179,7 +179,7 @@ describe("Kayley Presence Tracking - Integration Tests", () => {
         error: null,
       });
 
-      const presenceState = await getKayleyPresenceState("test-user");
+      const presenceState = await getKayleyPresenceState();
       expect(presenceState?.currentActivity).toBe("getting ready");
 
       // STEP 4: Reference selection with "getting ready" in outfit field (detected as outfit)
@@ -218,7 +218,7 @@ describe("Kayley Presence Tracking - Integration Tests", () => {
       // STEP 1: No presence state in DB
       globalMocks.maybeSingle.mockResolvedValue({ data: null, error: null });
 
-      const presenceState = await getKayleyPresenceState("test-user");
+      const presenceState = await getKayleyPresenceState();
       expect(presenceState).toBeNull();
 
       // STEP 2: Reference selection without presence context
@@ -270,7 +270,7 @@ describe("Kayley Presence Tracking - Integration Tests", () => {
         error: null,
       });
 
-      const presenceState = await getKayleyPresenceState("test-user");
+      const presenceState = await getKayleyPresenceState();
       expect(presenceState).toBeNull();
     });
   });

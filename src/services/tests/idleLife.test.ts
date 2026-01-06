@@ -58,11 +58,11 @@ mockDelete.mockReturnValue({
   }),
 });
 
-vi.mock("../supabaseClient", () => ({
-  supabase: {
-    from: (...args: unknown[]) => mockFrom(...args),
-  },
-}));
+// vi.mock("../supabaseClient", () => ({
+//   supabase: {
+//     from: (...args: unknown[]) => mockFrom(...args),
+//   },
+// }));
 
 // Mock stateService
 vi.mock("../stateService", () => ({

@@ -283,7 +283,7 @@ describe("conversationHistoryService", () => {
       supabase.setNextResolvedValue({ data: null, error });
 
       // We expect the function to re-throw the error
-      await expect(clearConversationHistory(USER_ID)).rejects.toThrow();
+      await expect(clearConversationHistory()).rejects.toThrow();
     });
   });
 });
