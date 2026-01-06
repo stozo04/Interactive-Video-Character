@@ -487,6 +487,15 @@ function buildImagePrompt(
     ? "Low-fidelity smartphone photo, subtle image grain, slight motion blur, and realistic indoor sensor noise."
     : "A high-resolution smartphone story aesthetic.";
 
+  // D. DYNAMIC OVERRIDES: Handle scenes that contradict standard "No Phone" rules
+  const involvesShowingPhone = scene.toLowerCase().includes('on my phone') || 
+                               scene.toLowerCase().includes('showing a photo') ||
+                               scene.toLowerCase().includes('screen');
+
+  const handAndPhoneConstraint = involvesShowingPhone
+    ? "She is holding her phone toward the camera to show the screen, with her other hand visible or holding the device. High focus on the screen content. Note: It is okay to see the phone/screen in this specific scene."
+    : "She is taking a selfie with one arm extended toward the camera, cropped at the edge of the frame. Her other arm rests naturally at her side or on her hip. CRITICAL: Only two arms total, no phone visible in frame.";
+
   return [
     perspective,
     `She is looking into the lens ${moodDescription}.`,
@@ -494,7 +503,7 @@ function buildImagePrompt(
     `The lighting is ${lightingDescription}.`,
     skinAndHair,
     cameraVibe,
-    "She is taking a selfie with one arm extended toward the camera, cropped at the edge of the frame. Her other arm rests naturally at her side or on her hip. CRITICAL: Only two arms total, no phone visible in frame.",
+    handAndPhoneConstraint,
   ].join(" ");
 }
 
