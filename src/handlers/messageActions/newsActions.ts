@@ -11,7 +11,7 @@ import {
   fetchTechNews,
   markStoryMentioned,
   storeLastSharedStories,
-  type HackerNewsStory,
+  type HNStory,
 } from '../../services/newsService';
 
 /**
@@ -26,7 +26,7 @@ export interface NewsAction {
  */
 export interface NewsActionResult {
   handled: boolean;
-  stories: HackerNewsStory[];
+  stories: HNStory[];
   newsPrompt: string;
   error?: string;
 }
@@ -90,7 +90,7 @@ Let the user know in a friendly way and maybe offer to check back later.
 /**
  * Build the news prompt for AI to present to user
  */
-function buildNewsPrompt(stories: HackerNewsStory[]): string {
+function buildNewsPrompt(stories: HNStory[]): string {
   const newsItems = formatNewsForAI(stories);
 
   return `
@@ -116,7 +116,7 @@ IMPORTANT: You have the URLs above. If the user asks for a link or wants to read
 /**
  * Format news stories for AI consumption
  */
-export function formatNewsForAI(stories: HackerNewsStory[]): string {
+export function formatNewsForAI(stories: HNStory[]): string {
   return stories
     .slice(0, 3)
     .map((story, i) => {

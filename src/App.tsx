@@ -18,10 +18,9 @@ import type { FullMessageIntent } from './services/intentService';
 import { recordExchange } from './services/callbackDirector';
 import { getTopLoopToSurface } from './services/presenceDirector';
 import { gmailService, type NewEmailPayload } from './services/gmailService';
-import { 
-  calendarService, 
+import {
+  calendarService,
   type CalendarEvent,
-  type NewEventPayload 
 } from './services/calendarService';
 import { generateSpeech } from './services/elevenLabsService'; // Import generateSpeech
 import { buildActionKeyMap } from './utils/actionKeyMapper';
@@ -356,98 +355,24 @@ const App: React.FC = () => {
       
       setAiSession(updatedSession);
 
-      // Check for Calendar Action
-      // We search for the tag anywhere in the response, not just at the start.
-      const calendarTagIndex = response.text_response.indexOf('[CALENDAR_CREATE]');
+      // 3. Handle response
+      setChatHistory(prev => [...prev, { role: 'model' as const, text: response.text_response }]);
 
-      if (calendarTagIndex !== -1) {
-         try {
-           // Extract the JSON part.
-           const tagLength = '[CALENDAR_CREATE]'.length;
-           let jsonString = response.text_response.substring(calendarTagIndex + tagLength).trim();
-           
-           // Simple cleanup if it includes markdown code blocks
-           jsonString = jsonString.replace(/```json/g, '').replace(/```/g, '').trim();
+      await conversationHistoryService.appendConversationHistory(
+        [{ role: 'user', text: '📷 [Sent an Image]' }, { role: 'model', text: response.text_response }],
+        updatedSession?.interactionId || aiSession?.interactionId
+      );
 
-           // Find the first '{' and the last '}' to isolate the object
-           const firstBrace = jsonString.indexOf('{');
-           const lastBrace = jsonString.lastIndexOf('}');
-           
-           if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
-              jsonString = jsonString.substring(firstBrace, lastBrace + 1);
-           }
+      if (!isMuted && audioData) {
+        enqueueAudio(audioData);
+      }
 
-           console.log("📅 Attempting to parse Calendar JSON:", jsonString);
-           const eventData: NewEventPayload = JSON.parse(jsonString);
-
-           // Validation: Ensure required fields exist
-           if (!eventData.summary || !eventData.start?.dateTime || !eventData.end?.dateTime) {
-               throw new Error("Missing required fields (summary, start.dateTime, end.dateTime)");
-           }
-
-           const confirmationText = `Okay, I'll add "${eventData.summary}" to your calendar.`;
-           
-           // Strip the tag and JSON from the displayed message, showing the rest of the text + confirmation
-           const textBeforeTag = response.text_response.substring(0, calendarTagIndex).trim();
-           const displayText = textBeforeTag ? `${textBeforeTag}\n\n${confirmationText}` : confirmationText;
-           
-           setChatHistory(prev => [...prev, { role: 'model' as const, text: displayText }]);
-           
-           await conversationHistoryService.appendConversationHistory(
-             [{ role: 'user', text: '📷 [Sent an Image]' }, { role: 'model', text: displayText }],
-             updatedSession?.interactionId || aiSession?.interactionId
-           );
-
-           // Create Event
-           console.log("📅 Creating event:", eventData);
-           await calendarService.createEvent(session.accessToken, eventData);
-           
-           // Refresh Events
-           const events = await calendarService.getUpcomingEvents(session.accessToken);
-           setUpcomingEvents(events);
-
-           // Generate Speech for confirmation
-           if (!isMuted) {
-               const confirmationAudio = await generateSpeech(displayText);
-               if (confirmationAudio) media.enqueueAudio(confirmationAudio);
-           }
-           
-           if (response.action_id) playAction(response.action_id);
-           if (response.open_app) {
-               console.log("🚀 Launching app:", response.open_app);
-               window.location.href = response.open_app;
-           }
-
-         } catch (e) {
-           console.error("Failed to create calendar event", e);
-           setErrorMessage("Failed to create calendar event.");
-           
-           const textBeforeTag = response.text_response.substring(0, calendarTagIndex).trim();
-           const errorText = "I tried to create that event, but I got confused by the details. Could you try again?";
-           const displayText = textBeforeTag ? `${textBeforeTag}\n\n(System: ${errorText})` : errorText;
-
-           setChatHistory(prev => [...prev, { role: 'model' as const, text: displayText }]);
-         }
-      } else {
-          // 3. Handle response as usual
-          setChatHistory(prev => [...prev, { role: 'model' as const, text: response.text_response }]);
-          
-        await conversationHistoryService.appendConversationHistory(
-            [{ role: 'user', text: '📷 [Sent an Image]' }, { role: 'model', text: response.text_response }],
-            updatedSession?.interactionId || aiSession?.interactionId
-          );
-
-          if (!isMuted && audioData) {
-              enqueueAudio(audioData);
-          }
-
-          if (response.action_id) {
-               playAction(response.action_id);
-          }
-          if (response.open_app) {
-              console.log("🚀 Launching app:", response.open_app);
-              window.location.href = response.open_app;
-          }
+      if (response.action_id) {
+        playAction(response.action_id);
+      }
+      if (response.open_app) {
+        console.log("🚀 Launching app:", response.open_app);
+        window.location.href = response.open_app;
       }
 
     } catch (error) {
@@ -1280,15 +1205,6 @@ const App: React.FC = () => {
         return;
       }
 
-      // CALENDAR TAG FALLBACK (Phase 5: Use orchestrator-generated message text)
-      if (result.calendarTagResult && result.calendarMessageText) {
-        setChatHistory(prev => [...prev, { role: 'model', text: result.calendarMessageText! }]);
-        if (!isMuted) { const audio = await generateSpeech(result.calendarMessageText); if (audio) media.enqueueAudio(audio); }
-        startBackgroundSentiment();
-        maybePlayResponseAction(result.actionToPlay);
-        return;
-      }
-
       // ============================================
       // DEFAULT: Apply standard results
       // ============================================
@@ -1296,7 +1212,7 @@ const App: React.FC = () => {
       if (result.audioToPlay && !isMuted) media.enqueueAudio(result.audioToPlay);
       maybePlayResponseAction(result.actionToPlay);
       if (result.appToOpen) window.location.href = result.appToOpen;
-      if (result.refreshCalendar) refreshCalendarEvents();
+      if (result.refreshCalendar && session) refreshCalendarEvents(session.accessToken);
       if (result.refreshTasks) refreshTasks();
       if (result.openTaskPanel) setIsTaskPanelOpen(true);
       startBackgroundSentiment();

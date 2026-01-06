@@ -256,14 +256,14 @@ export async function generateCompanionSelfie(
           error
         );
         // Fallback to legacy behavior
-        selectedReferenceBase64 =          request.referenceImageBase64;
+        selectedReferenceBase64 = request.referenceImageBase64;
       }
     } else {
       // Legacy behavior: use manual override or default reference
       console.log(
         "📸 !!!!!!!!!!!!!!!  [ImageGen] Using legacy single reference"
       );
-      selectedReferenceBase64 =request.referenceImageBase64;
+      selectedReferenceBase64 = request.referenceImageBase64;
     }
 
     // ====================================
@@ -292,7 +292,7 @@ export async function generateCompanionSelfie(
       console.log("📸 [ImageGen] Attaching reference for style consistency");
 
       // Reference guidance: maintain face/hair from reference, vary outfit/pose/scene
-      fullPrompt = `Use the provided reference image to match the woman's face, hairstyle, and overall look as closely as possible. Allow for different outfits, poses, and scenes as described in the prompt. ${fullPrompt}`;
+      fullPrompt = `Use the provided reference image to match the woman's face, hairstyle, and overall look as closely as possible. ${fullPrompt}`;
 
       parts.push({
         inlineData: {
@@ -473,37 +473,37 @@ function buildImagePrompt(
 
   // A. PERSPECTIVE: Mirror selfie vs. Direct selfie
   // Note: Phone is implied by the arm position, not shown in frame
-  const perspective = isCasualScene
-    ? "A casual mirror selfie taken in a bedroom mirror."
-    : "A handheld smartphone selfie with a slight hand-held tilt.";
+  // const perspective = isCasualScene
+  //   ? "A casual mirror selfie."
+  //   : "A handheld smartphone selfie with a slight hand-held tilt.";
 
   // B. TEXTURE: Force Gemini to stop the "AI airbrushing"
-  const skinAndHair = isCasualScene
-    ? "Natural, unposed look. Visible skin texture with pores and minor freckles. Her hair is unstyled, slightly messy, and tousled."
-    : "Candid look with sharp focus on her eyes and a natural shallow depth of field.";
+  // const skinAndHair = isCasualScene
+  //   ? "Natural, unposed look. Visible skin texture with pores and minor freckles. Her hair is unstyled, slightly messy, and tousled."
+  //   : "Candid look with sharp focus on her eyes and a natural shallow depth of field.";
 
   // C. CAMERA ARTIFACTS: Mimic a real phone sensor
-  const cameraVibe = isCasualScene
-    ? "Low-fidelity smartphone photo, subtle image grain, slight motion blur, and realistic indoor sensor noise."
-    : "A high-resolution smartphone story aesthetic.";
+  // const cameraVibe = isCasualScene
+  //   ? "Low-fidelity smartphone photo, subtle image grain, slight motion blur, and realistic indoor sensor noise."
+  //   : "A high-resolution smartphone story aesthetic.";
 
   // D. DYNAMIC OVERRIDES: Handle scenes that contradict standard "No Phone" rules
-  const involvesShowingPhone = scene.toLowerCase().includes('on my phone') || 
-                               scene.toLowerCase().includes('showing a photo') ||
-                               scene.toLowerCase().includes('screen');
+  // const involvesShowingPhone = scene.toLowerCase().includes('on my phone') ||
+  //                              scene.toLowerCase().includes('showing a photo') ||
+  //                              scene.toLowerCase().includes('screen');
 
-  const handAndPhoneConstraint = involvesShowingPhone
-    ? "She is holding her phone toward the camera to show the screen, with her other hand visible or holding the device. High focus on the screen content. Note: It is okay to see the phone/screen in this specific scene."
-    : "She is taking a selfie with one arm extended toward the camera, cropped at the edge of the frame. Her other arm rests naturally at her side or on her hip. CRITICAL: Only two arms total, no phone visible in frame.";
+  // const handAndPhoneConstraint = involvesShowingPhone
+  //   ? "She is holding her phone toward the camera to show the screen, with her other hand visible or holding the device. High focus on the screen content. Note: It is okay to see the phone/screen in this specific scene."
+  //   : "She is taking a selfie with one arm extended toward the camera, cropped at the edge of the frame. Her other arm rests naturally at her side or on her hip. CRITICAL: Only two arms total, no phone visible in frame.";
 
   return [
-    perspective,
+    "", // perspective,
     `She is looking into the lens ${moodDescription}.`,
     `She is situated in ${enhancedScene}.`,
     `The lighting is ${lightingDescription}.`,
-    skinAndHair,
-    cameraVibe,
-    handAndPhoneConstraint,
+    "", // skinAndHair,
+    "", // cameraVibe,
+    "", // handAndPhoneConstraint,
   ].join(" ");
 }
 

@@ -72,10 +72,16 @@ const createMockAction = (overrides: Partial<CharacterAction> = {}): CharacterAc
 
 const createMockCharacter = (actions: CharacterAction[] = []): CharacterProfile => ({
   id: 'char-1',
+  createdAt: Date.now(),
   name: 'Test Character',
+  displayName: 'Test',
+  image: {
+    file: new File([''], 'test.png', { type: 'image/png' }),
+    base64: 'data:image/png;base64,test',
+    mimeType: 'image/png',
+  },
   idleVideoUrls: ['idle-1.mp4'],
   actions,
-  profileImage: new Blob(),
 });
 
 describe('useCharacterActions', () => {

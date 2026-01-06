@@ -33,12 +33,9 @@ export {
 // Calendar actions
 export {
   processCalendarAction,
-  parseCalendarTagFromResponse,
-  processCalendarTag,
   type CalendarAction,
   type CalendarActionContext,
   type CalendarActionResult,
-  type CalendarTagParseResult,
 } from './calendarActions';
 
 // Task actions

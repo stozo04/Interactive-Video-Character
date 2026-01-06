@@ -101,11 +101,12 @@ const createMockAction = (overrides: Partial<CharacterAction> = {}): CharacterAc
 
 const createMockCharacter = (overrides: Partial<CharacterProfile> = {}): CharacterProfile => ({
   id: 'char-1',
+  createdAt: Date.now(),
   name: 'Test Character',
   displayName: 'Test',
+  image: createMockImage(),
   idleVideoUrls: ['https://example.com/idle1.mp4'],
   actions: [createMockAction()],
-  profileImage: new Blob(),
   ...overrides,
 });
 

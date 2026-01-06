@@ -350,14 +350,12 @@ describe('storeCharacterFact Integration', () => {
       .mockResolvedValue(true);
 
     await characterFactsService.storeCharacterFact(
-      'kayley',
       'experience',
       'smoke_alarm_incident',
       'Set off smoke alarm making toast twice'
     );
 
     expect(storeFactSpy).toHaveBeenCalledWith(
-      'kayley',
       'experience',
       'smoke_alarm_incident',
       'Set off smoke alarm making toast twice'
@@ -370,7 +368,6 @@ describe('storeCharacterFact Integration', () => {
 
     await expect(
       characterFactsService.storeCharacterFact(
-        'kayley',
         'quirk',
         'test_key',
         'test_value'
@@ -385,7 +382,6 @@ describe('storeCharacterFact Integration', () => {
       .mockResolvedValue(false);
 
     const result = await characterFactsService.storeCharacterFact(
-      'kayley',
       'preference',
       'existing_preference',
       'Already exists'

@@ -66,9 +66,8 @@ describe('useProactiveSettings', () => {
     it('should load stored proactive settings from localStorage', () => {
       const storedSettings: ProactiveSettings = {
         calendar: false,
-        dailyCatchup: true,
         news: false,
-        idleBreakers: true,
+        checkins: true,
       };
       localStorageMock.getItem.mockReturnValueOnce(JSON.stringify(storedSettings));
 
@@ -121,7 +120,7 @@ describe('useProactiveSettings', () => {
       // Should have all other defaults plus our update
       expect(parsed.news).toBe(false);
       expect(parsed.calendar).toBe(true); // default preserved
-      expect(parsed.dailyCatchup).toBe(true); // default preserved
+      expect(parsed.checkins).toBe(true); // default preserved
     });
   });
 

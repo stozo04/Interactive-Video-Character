@@ -1,10 +1,7 @@
 /**
  * Calendar Actions Handler
  *
- * Processes calendar-related actions from AI responses.
- * Handles both structured calendar_action objects and legacy tag-based parsing.
- *
- * Extracted from App.tsx as part of Phase 5 refactoring.
+ * Processes structured calendar_action objects from AI responses.
  */
 
 import {
@@ -12,7 +9,6 @@ import {
   type CalendarEvent,
   type NewEventPayload,
 } from '../../services/calendarService';
-import { extractJsonObject } from '../../utils/jsonUtils';
 
 /**
  * Structured calendar action from AI response
@@ -47,15 +43,6 @@ export interface CalendarActionResult {
   eventSummary?: string;
   deletedCount?: number;
   error?: string;
-}
-
-/**
- * Result of parsing calendar tag from response text
- */
-export interface CalendarTagParseResult {
-  type: 'create' | 'delete';
-  data: Record<string, unknown>;
-  textBeforeTag: string;
 }
 
 /**
@@ -169,136 +156,4 @@ async function handleCreateAction(
     action: 'create',
     eventSummary: action.summary,
   };
-}
-
-/**
- * Parse [CALENDAR_CREATE] or [CALENDAR_DELETE] tags from response text
- *
- * This is a fallback for when the AI doesn't use the structured calendar_action field.
- */
-export function parseCalendarTagFromResponse(
-  textResponse: string
-): CalendarTagParseResult | null {
-  const createIndex = textResponse.indexOf('[CALENDAR_CREATE]');
-  const deleteIndex = textResponse.indexOf('[CALENDAR_DELETE]');
-
-  // Determine which tag appears first (if any)
-  let tagIndex = -1;
-  let tagType: 'create' | 'delete' | null = null;
-  let tagLength = 0;
-
-  if (createIndex !== -1 && (deleteIndex === -1 || createIndex < deleteIndex)) {
-    tagIndex = createIndex;
-    tagType = 'create';
-    tagLength = '[CALENDAR_CREATE]'.length;
-  } else if (deleteIndex !== -1) {
-    tagIndex = deleteIndex;
-    tagType = 'delete';
-    tagLength = '[CALENDAR_DELETE]'.length;
-  }
-
-  if (tagIndex === -1 || !tagType) {
-    return null;
-  }
-
-  try {
-    const afterTag = textResponse.substring(tagIndex + tagLength).trim();
-    const jsonString = extractJsonObject(afterTag);
-
-    if (!jsonString) {
-      console.warn(`Could not find valid JSON after [CALENDAR_${tagType.toUpperCase()}] tag`);
-      return null;
-    }
-
-    const data = JSON.parse(jsonString);
-    const textBeforeTag = textResponse.substring(0, tagIndex).trim();
-
-    return {
-      type: tagType,
-      data,
-      textBeforeTag,
-    };
-  } catch (error) {
-    console.error(`Failed to parse [CALENDAR_${tagType?.toUpperCase()}] tag:`, error);
-    return null;
-  }
-}
-
-/**
- * Process a calendar tag parsed from response text
- */
-export async function processCalendarTag(
-  parsed: CalendarTagParseResult,
-  context: CalendarActionContext
-): Promise<CalendarActionResult> {
-  const { accessToken, currentEvents } = context;
-
-  try {
-    if (parsed.type === 'create') {
-      const eventData = parsed.data as {
-        summary?: string;
-        start?: { dateTime?: string };
-        end?: { dateTime?: string };
-      };
-
-      if (!eventData.summary || !eventData.start?.dateTime || !eventData.end?.dateTime) {
-        throw new Error('Missing required fields (summary, start.dateTime, end.dateTime)');
-      }
-
-      console.log('📅 Creating event from tag:', eventData);
-      await calendarService.createEvent(accessToken, eventData as NewEventPayload);
-
-      return {
-        handled: true,
-        action: 'create',
-        eventSummary: eventData.summary,
-      };
-    }
-
-    if (parsed.type === 'delete') {
-      const deleteData = parsed.data as { id?: string; summary?: string };
-
-      let eventToDelete: CalendarEvent | undefined;
-
-      if (deleteData.id) {
-        eventToDelete = currentEvents.find((e) => e.id === deleteData.id);
-        if (!eventToDelete) {
-          console.warn(`Event with ID "${deleteData.id}" not found, attempting API call anyway`);
-        }
-      } else if (deleteData.summary) {
-        const searchSummary = deleteData.summary.toLowerCase();
-        eventToDelete = currentEvents.find(
-          (e) =>
-            e.summary.toLowerCase() === searchSummary ||
-            e.summary.toLowerCase().includes(searchSummary) ||
-            searchSummary.includes(e.summary.toLowerCase())
-        );
-      }
-
-      const eventIdToDelete = deleteData.id || eventToDelete?.id;
-      const eventName = deleteData.summary || eventToDelete?.summary || 'the event';
-
-      if (!eventIdToDelete) {
-        throw new Error('No event ID available for deletion');
-      }
-
-      console.log('🗑️ Deleting event from tag:', eventIdToDelete);
-      await calendarService.deleteEvent(accessToken, eventIdToDelete);
-
-      return {
-        handled: true,
-        action: 'delete',
-        eventSummary: eventName,
-        deletedCount: 1,
-      };
-    }
-
-    return { handled: false };
-  } catch (error) {
-    console.error('Failed to process calendar tag:', error);
-    return {
-      handled: false,
-      error: error instanceof Error ? error.message : 'Unknown error',
-    };
-  }
 }

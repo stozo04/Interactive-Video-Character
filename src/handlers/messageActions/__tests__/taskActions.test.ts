@@ -5,7 +5,7 @@ import {
   detectTaskCompletionFallback,
   TaskActionResult,
 } from '../taskActions';
-import type { Task } from '../../../services/taskService';
+import type { Task } from '../../../types';
 
 // Mock taskService
 vi.mock('../../../services/taskService', () => ({

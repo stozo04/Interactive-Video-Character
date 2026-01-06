@@ -209,7 +209,7 @@ export function useCharacterActions(options: UseCharacterActionsOptions): UseCha
   const playRandomTalkingAction = useCallback((forceImmediate = true): string | null => {
     if (!selectedCharacter) return null;
 
-    const talkingActions = shuffleArray(getTalkingActionsFn());
+    const talkingActions: CharacterAction[] = shuffleArray(getTalkingActionsFn());
     for (const action of talkingActions) {
       const played = playAction(action.id, forceImmediate);
       if (played) {
@@ -237,10 +237,10 @@ export function useCharacterActions(options: UseCharacterActionsOptions): UseCha
     if (!selectedCharacter) return;
     if (selectedCharacter.actions.length === 0) return;
 
-    const nonGreetingActions = getNonGreetingActionsFn();
+    const nonGreetingActions: CharacterAction[] = getNonGreetingActionsFn();
     if (nonGreetingActions.length === 0) return;
 
-    const action = randomFromArray(nonGreetingActions);
+    const action: CharacterAction = randomFromArray(nonGreetingActions);
 
     // Get the URL
     let actionUrl = actionVideoUrls[action.id] ?? null;

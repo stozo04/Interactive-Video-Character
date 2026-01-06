@@ -1,7 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import {
   processCalendarAction,
-  parseCalendarTagFromResponse,
   CalendarActionResult,
 } from '../calendarActions';
 import type { CalendarEvent } from '../../../services/calendarService';
@@ -136,59 +135,5 @@ describe('calendarActions', () => {
     });
   });
 
-  describe('parseCalendarTagFromResponse', () => {
-    it('should parse [CALENDAR_CREATE] tag from response', () => {
-      const response = `Sure! [CALENDAR_CREATE]{"summary":"Team Meeting","start":{"dateTime":"2025-01-05T10:00:00"},"end":{"dateTime":"2025-01-05T11:00:00"}}`;
-
-      const result = parseCalendarTagFromResponse(response);
-
-      expect(result).not.toBeNull();
-      expect(result?.type).toBe('create');
-      expect(result?.data.summary).toBe('Team Meeting');
-      expect(result?.textBeforeTag).toBe('Sure!');
-    });
-
-    it('should parse [CALENDAR_DELETE] tag from response', () => {
-      const response = `Got it! [CALENDAR_DELETE]{"id":"event-123","summary":"Old Meeting"}`;
-
-      const result = parseCalendarTagFromResponse(response);
-
-      expect(result).not.toBeNull();
-      expect(result?.type).toBe('delete');
-      expect(result?.data.id).toBe('event-123');
-    });
-
-    it('should return null when no calendar tag present', () => {
-      const response = 'Just a regular response without any calendar tags.';
-
-      const result = parseCalendarTagFromResponse(response);
-
-      expect(result).toBeNull();
-    });
-
-    it('should return null for malformed JSON after tag', () => {
-      const response = '[CALENDAR_CREATE]{invalid json}';
-
-      const result = parseCalendarTagFromResponse(response);
-
-      expect(result).toBeNull();
-    });
-
-    it('should extract text before tag correctly', () => {
-      const response = `I'll add that to your calendar right now. [CALENDAR_CREATE]{"summary":"Lunch","start":{"dateTime":"2025-01-05T12:00:00"},"end":{"dateTime":"2025-01-05T13:00:00"}}`;
-
-      const result = parseCalendarTagFromResponse(response);
-
-      expect(result?.textBeforeTag).toBe("I'll add that to your calendar right now.");
-    });
-
-    it('should prefer [CALENDAR_CREATE] when both tags present', () => {
-      const response = `[CALENDAR_CREATE]{"summary":"New Event"} and also [CALENDAR_DELETE]{"id":"123"}`;
-
-      const result = parseCalendarTagFromResponse(response);
-
-      // CREATE comes first, so it should be picked
-      expect(result?.type).toBe('create');
-    });
-  });
+  // Tests for parseCalendarTagFromResponse removed - function was deleted during legacy cleanup
 });

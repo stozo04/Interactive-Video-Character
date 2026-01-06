@@ -20,8 +20,14 @@ vi.mock('../../services/memoryService', () => ({
 // Test data factories
 const createMockCharacter = (): CharacterProfile => ({
   id: 'char-1',
+  createdAt: Date.now(),
   name: 'Test Character',
   displayName: 'Test',
+  image: {
+    file: new File([''], 'test.png', { type: 'image/png' }),
+    base64: 'data:image/png;base64,test',
+    mimeType: 'image/png',
+  },
   idleVideoUrls: ['https://example.com/idle1.mp4'],
   actions: [
     {
@@ -32,7 +38,6 @@ const createMockCharacter = (): CharacterProfile => ({
       videoPath: 'actions/test.mp4',
     },
   ],
-  profileImage: new Blob(),
 });
 
 const createMockSession = (): { accessToken: string } => ({
@@ -48,6 +53,20 @@ const createMockActiveService = () => ({
   generateResponse: vi.fn().mockResolvedValue({
     response: {
       text_response: 'Here is my response',
+      action_id: null,
+    },
+    session: createMockAiSession(),
+  }),
+  generateGreeting: vi.fn().mockResolvedValue({
+    greeting: {
+      text_response: 'Hello!',
+      action_id: null,
+    },
+    session: createMockAiSession(),
+  }),
+  generateNonGreeting: vi.fn().mockResolvedValue({
+    greeting: {
+      text_response: 'Hey there!',
       action_id: null,
     },
     session: createMockAiSession(),

@@ -40,10 +40,14 @@ vi.mock('react', async () => {
       // Create a proxy that returns current value
       const proxy = new Proxy([stateStore[id], setter] as [T, typeof setter], {
         get(target, prop) {
-          if (prop === '0' || prop === 0) return stateStore[id];
-          if (prop === '1' || prop === 1) return setter;
+          if (prop === '0') return stateStore[id];
+          if (prop === '1') return setter;
           if (prop === 'length') return 2;
-          return (target as unknown[])[prop as number];
+          if (typeof prop === 'string') {
+            const index = parseInt(prop, 10);
+            if (!isNaN(index)) return (target as unknown[])[index];
+          }
+          return (target as any)[prop];
         }
       });
       return proxy as [T, typeof setter];

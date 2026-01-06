@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, vi, type Mock } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { ChatMessage } from "@/types";
 
@@ -25,7 +25,7 @@ vi.mock("../supabaseClient", () => {
   let nextResolvedValue: any = { data: null, error: null };
 
   // FIX: Helper to create a chainable select/delete builder
-  const createChain = (mockFunction: vi.Mock) => {
+  const createChain = (mockFunction: Mock) => {
     // This is the object that has .then/catch and also the chainable methods
     const resolvable: any = {
       then: vi.fn((resolve: any) =>
@@ -138,7 +138,7 @@ describe("conversationHistoryService", () => {
     // Reset spies on mocks before each test
     Object.values(mocks).forEach(mock => {
         if (typeof mock === 'function' && 'mockClear' in mock) {
-            (mock as vi.Mock).mockClear();
+            (mock as Mock).mockClear();
         }
     });
     // The main mock function implementations need to be preserved, only clear calls
