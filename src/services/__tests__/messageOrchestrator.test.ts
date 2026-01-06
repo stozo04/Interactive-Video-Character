@@ -54,6 +54,18 @@ vi.mock('../kayleyPresenceDetector', () => ({
 vi.mock('../kayleyPresenceService', () => ({
   updateKayleyPresenceState: vi.fn().mockResolvedValue(undefined),
   getDefaultExpirationMinutes: vi.fn().mockReturnValue(60),
+  getKayleyPresenceState: vi.fn().mockResolvedValue(null),
+}));
+
+// Mock action handlers (Phase 4 + Phase 6)
+vi.mock('../../handlers/messageActions', () => ({
+  processCalendarAction: vi.fn().mockResolvedValue({ handled: false }),
+  parseCalendarTagFromResponse: vi.fn().mockReturnValue(null),
+  processCalendarTag: vi.fn().mockResolvedValue({ handled: false }),
+  processNewsAction: vi.fn().mockResolvedValue({ handled: false, stories: [], newsPrompt: '' }),
+  processSelfieAction: vi.fn().mockResolvedValue({ handled: false, success: false }),
+  parseTaskActionFromResponse: vi.fn().mockReturnValue(null),
+  detectTaskCompletionFallback: vi.fn().mockReturnValue(null),
 }));
 
 // ============================================================================

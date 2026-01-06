@@ -21,6 +21,21 @@ import {
   determineActionType,
 } from '../handlers/messageActions/types';
 
+// Action handlers
+import {
+  processCalendarAction,
+  parseCalendarTagFromResponse,
+  processCalendarTag,
+  processNewsAction,
+  processSelfieAction,
+  parseTaskActionFromResponse,
+  detectTaskCompletionFallback,
+  type CalendarAction,
+  type NewsAction,
+  type SelfieAction,
+  type TaskAction,
+} from '../handlers/messageActions';
+
 // Background services (fire-and-forget)
 import { processDetectedFacts } from './memoryService';
 import { processAndStoreCharacterFacts } from './characterFactsService';
@@ -193,11 +208,122 @@ export async function processUserMessage(input: OrchestratorInput): Promise<Orch
     result.actionType = actionType;
 
     // Set refresh flags based on action type
-    if (actionType === ActionType.CALENDAR) {
-      result.refreshCalendar = true;
-    } else if (actionType === ActionType.TASK) {
+    if (actionType === ActionType.TASK) {
       result.refreshTasks = true;
       result.openTaskPanel = true;
+    }
+
+    // ========================================================================
+    // PHASE 6: TASK ACTION DETECTION (execution stays in App.tsx)
+    // ========================================================================
+
+    // Detect task action from response or fallback detection
+    let detectedTask: TaskAction | null | undefined = response.task_action as TaskAction | undefined;
+    if (!detectedTask && response.text_response) {
+      detectedTask = parseTaskActionFromResponse(response.text_response);
+    }
+    if (!detectedTask) {
+      detectedTask = detectTaskCompletionFallback(userMessage, tasks);
+    }
+
+    // Convert to simplified format for App.tsx
+    if (detectedTask) {
+      result.detectedTaskAction = {
+        action: detectedTask.action,
+        text: detectedTask.text,
+        taskId: detectedTask.taskId,
+      };
+      console.log(`📋 [Orchestrator] Detected task action: ${detectedTask.action}`);
+    }
+
+    // ========================================================================
+    // PHASE 4: EXECUTE ACTION HANDLERS
+    // ========================================================================
+
+    // Calendar Action
+    if (actionType === ActionType.CALENDAR) {
+      const calendarAction = response.calendar_action as CalendarAction | undefined;
+      if (calendarAction?.action && accessToken) {
+        const calendarResult = await processCalendarAction(calendarAction, {
+          accessToken,
+          currentEvents: upcomingEvents,
+        });
+        if (calendarResult.handled) {
+          result.refreshCalendar = true;
+          console.log(`📅 [Orchestrator] Calendar action executed: ${calendarResult.action}`);
+        }
+      }
+    }
+
+    // Calendar Tag Fallback (legacy parsing) - Phase 5: Generate complete message
+    if (!response.calendar_action && response.text_response && accessToken) {
+      const calendarTagParsed = parseCalendarTagFromResponse(response.text_response);
+      if (calendarTagParsed) {
+        const tagResult = await processCalendarTag(calendarTagParsed, {
+          accessToken,
+          currentEvents: upcomingEvents,
+        });
+        if (tagResult.handled) {
+          result.refreshCalendar = true;
+          const eventSummary = tagResult.eventSummary || '';
+          const confirmText = tagResult.action === 'create'
+            ? `Okay, I'll add "${eventSummary}" to your calendar.`
+            : `Done! I've removed "${eventSummary}" from your calendar.`;
+          const displayText = calendarTagParsed.textBeforeTag
+            ? `${calendarTagParsed.textBeforeTag}\n\n${confirmText}`
+            : confirmText;
+
+          result.calendarTagResult = {
+            action: tagResult.action!,
+            eventSummary,
+            textBeforeTag: calendarTagParsed.textBeforeTag,
+          };
+          // Phase 5: Set the complete message text for TTS
+          result.calendarMessageText = displayText;
+          console.log(`📅 [Orchestrator] Calendar tag processed: ${tagResult.action}`);
+        }
+      }
+    }
+
+    // News Action
+    if (actionType === ActionType.NEWS) {
+      const newsAction = response.news_action as NewsAction | undefined;
+      if (newsAction?.action === 'fetch') {
+        const newsResult = await processNewsAction(newsAction);
+        if (newsResult.handled && newsResult.newsPrompt) {
+          result.newsPrompt = newsResult.newsPrompt;
+          console.log(`📰 [Orchestrator] News fetched, prompt ready`);
+        }
+      }
+    }
+
+    // Selfie Action (Phase 5: Generate complete message with image)
+    if (actionType === ActionType.SELFIE) {
+      const selfieAction = response.selfie_action as SelfieAction | undefined;
+      if (selfieAction?.scene) {
+        const selfieResult = await processSelfieAction(selfieAction, {
+          userMessage,
+          chatHistory,
+          upcomingEvents,
+        });
+        if (selfieResult.handled) {
+          if (selfieResult.success && selfieResult.imageBase64) {
+            // Phase 5: Add selfie message with image directly to chatMessages
+            result.selfieImage = {
+              base64: selfieResult.imageBase64,
+              mimeType: selfieResult.mimeType || 'image/png',
+            };
+            // The selfie message text (App.tsx will generate TTS for this)
+            result.selfieMessageText = 'Here you go!';
+            console.log(`📸 [Orchestrator] Selfie generated successfully`);
+          } else {
+            result.selfieError = selfieResult.error || "I couldn't take that pic right now, sorry!";
+            // The error message text (App.tsx will generate TTS for this)
+            result.selfieMessageText = result.selfieError;
+            console.log(`📸 [Orchestrator] Selfie failed: ${result.selfieError}`);
+          }
+        }
+      }
     }
 
     // ========================================================================

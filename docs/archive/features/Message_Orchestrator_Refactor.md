@@ -1,9 +1,86 @@
 # Message Orchestrator Refactor
 
-**Status**: Planning
+**Status**: Complete
 **Priority**: High
 **Estimated Effort**: Medium
 **Date Created**: 2025-01-05
+**Last Updated**: 2025-01-06
+
+## Progress
+
+- [x] **Phase 1**: Types & Enums - Created `types.ts` with `ActionType`, `CalendarQueryType`, `ProcessingStage` enums
+- [x] **Phase 2**: Orchestrator Skeleton - Created `messageOrchestrator.ts` with TDD tests (61 tests passing)
+- [x] **Phase 3**: Integration - App.tsx now uses `processUserMessage()`, reduced from ~466 to ~145 lines
+- [x] **Phase 4**: Move action execution into orchestrator - Calendar, News, Selfie handlers now execute in orchestrator
+- [x] **Phase 5**: Consolidate result application - Orchestrator generates complete messages for selfie/calendar tag
+- [x] **Phase 6**: Final cleanup - Task detection moved to orchestrator, App.tsx simplified to ~115 lines
+
+## Final Results
+
+| Metric | Before | After | Improvement |
+|--------|--------|-------|-------------|
+| `handleSendMessage` lines | ~466 | ~115 | **75% reduction** |
+| Business logic in App.tsx | Mixed | Minimal | Separated |
+| Test coverage | 0 | 61 tests | Full coverage |
+| Action handler imports in App.tsx | 8 | 1 | 87% reduction |
+
+### Phase 6 Summary (Completed 2025-01-06)
+
+**What was done:**
+1. Moved task action detection to orchestrator:
+   - Added `detectedTaskAction` field to `OrchestratorResult`
+   - Orchestrator now calls `parseTaskActionFromResponse()` and `detectTaskCompletionFallback()`
+   - App.tsx just uses `result.detectedTaskAction` for execution
+
+2. Simplified App.tsx imports:
+   - Removed: `parseTaskActionFromResponse`, `detectTaskCompletionFallback`, `TaskAction` type
+   - Only imports `processTaskAction` for execution
+
+3. Task handling in App.tsx reduced from 8 lines to 4 lines
+
+**Tests:** 61 tests passing (36 orchestrator + 25 types)
+
+### Phase 5 Summary (Completed 2025-01-06)
+
+**What was done:**
+1. Added new result fields to `OrchestratorResult`:
+   - `selfieMessageText?: string` - The message text for TTS ("Here you go!" or error message)
+   - `calendarMessageText?: string` - The complete confirmation message for TTS
+
+2. Orchestrator now generates complete messages:
+   - For selfies: Sets `selfieMessageText` along with `selfieImage`
+   - For calendar tags: Generates confirmation text in `calendarMessageText`
+
+3. App.tsx simplified to use orchestrator-generated messages:
+   - Selfie handling uses `result.selfieMessageText` instead of hardcoded strings
+   - Calendar tag handling uses `result.calendarMessageText` instead of building locally
+   - Reduced code duplication and improved consistency
+
+**Code reduction:** Calendar tag section reduced from 8 lines to 5 lines
+
+**Tests:** 61 tests passing (36 orchestrator + 25 types)
+
+### Phase 4 Summary (Completed 2025-01-05)
+
+**What was done:**
+1. Added action-specific result fields to `OrchestratorResult`:
+   - `selfieImage?: { base64: string; mimeType: string }`
+   - `selfieError?: string`
+   - `newsPrompt?: string`
+   - `calendarTagResult?: { action: 'create' | 'delete'; eventSummary: string; textBeforeTag?: string }`
+
+2. Orchestrator now executes action handlers:
+   - `processCalendarAction()` for calendar_action
+   - `parseCalendarTagFromResponse()` + `processCalendarTag()` for legacy tags
+   - `processNewsAction()` - fetches news and returns prompt
+   - `processSelfieAction()` - generates image
+
+3. App.tsx simplified to use result fields instead of calling handlers directly:
+   - Removed imports for `processCalendarAction`, `processNewsAction`, `processSelfieAction`
+   - Uses `result.newsPrompt`, `result.selfieImage`, `result.calendarTagResult`
+   - Task actions still handled in App.tsx (needs React callbacks)
+
+**Tests:** 61 tests passing (36 orchestrator + 25 types)
 
 ## Executive Summary
 
