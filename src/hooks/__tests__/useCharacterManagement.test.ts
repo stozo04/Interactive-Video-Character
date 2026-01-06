@@ -367,7 +367,6 @@ describe('useCharacterManagement', () => {
     const originalConfirm = globalThis.confirm;
 
     beforeEach(() => {
-      // @ts-expect-error - mocking global
       globalThis.confirm = vi.fn().mockReturnValue(true);
     });
 
@@ -375,37 +374,34 @@ describe('useCharacterManagement', () => {
       globalThis.confirm = originalConfirm;
     });
 
-    it('should delete character after confirmation', async () => {
-      // @ts-expect-error - mocking global
+    it("should delete character after confirmation", async () => {
       globalThis.confirm = vi.fn().mockReturnValue(true);
 
       const hook = useCharacterManagement(mockOptions);
 
-      await hook.handleDeleteCharacter('char-1');
+      await hook.handleDeleteCharacter("char-1");
 
-      expect(dbService.deleteCharacter).toHaveBeenCalledWith('char-1');
+      expect(dbService.deleteCharacter).toHaveBeenCalledWith("char-1");
       expect(mockOptions.setCharacters).toHaveBeenCalled();
     });
 
-    it('should not delete when user cancels', async () => {
-      // @ts-expect-error - mocking global
+    it("should not delete when user cancels", async () => {
       globalThis.confirm = vi.fn().mockReturnValue(false);
 
       const hook = useCharacterManagement(mockOptions);
 
-      await hook.handleDeleteCharacter('char-1');
+      await hook.handleDeleteCharacter("char-1");
 
       expect(dbService.deleteCharacter).not.toHaveBeenCalled();
     });
 
-    it('should call handleBackToSelection when deleting selected character', async () => {
-      // @ts-expect-error - mocking global
+    it("should call handleBackToSelection when deleting selected character", async () => {
       globalThis.confirm = vi.fn().mockReturnValue(true);
 
-      mockOptions.selectedCharacter = createMockCharacter({ id: 'char-1' });
+      mockOptions.selectedCharacter = createMockCharacter({ id: "char-1" });
       const hook = useCharacterManagement(mockOptions);
 
-      await hook.handleDeleteCharacter('char-1');
+      await hook.handleDeleteCharacter("char-1");
 
       // Should have called the back to selection logic
       expect(mockOptions.media.setVideoQueue).toHaveBeenCalledWith([]);

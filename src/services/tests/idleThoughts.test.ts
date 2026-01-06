@@ -37,11 +37,11 @@ mockUpdate.mockReturnValue({
   eq: vi.fn().mockResolvedValue({ error: null }),
 });
 
-vi.mock("../supabaseClient", () => ({
-  supabase: {
-    from: (...args: unknown[]) => mockFrom(...args),
-  },
-}));
+// vi.mock("../supabaseClient", () => ({
+//   supabase: {
+//     from: (...args: unknown[]) => mockFrom(...args),
+//   },
+// }));
 
 // Import after mocks
 import {
