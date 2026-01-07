@@ -86,6 +86,7 @@ export async function generateCompanionSelfie(
     let selectedHairstyle: string = "unknown";
     let selectedOutfitStyle: string = "unknown";
     let selectedReferenceId: string = "legacy";
+    let generatedPrompt: GeneratedImagePrompt;
     let temporalContext: {
       isOldPhoto: boolean;
       referenceDate?: Date;
@@ -178,17 +179,17 @@ export async function generateCompanionSelfie(
             : undefined,
         };
 
-        const generatedPrompt = await generateImagePrompt(imagePromptContext);
+        generatedPrompt = await generateImagePrompt(imagePromptContext);
         console.log("📸 [ImageGen] LLM Generated Prompt:", generatedPrompt);
 
         // STEP 5: Get recent selfie history for anti-repetition
         const recentHistory = await getRecentSelfieHistory(10);
-
+        console.log("Image GenerationService - request: ", request);
         // STEP 6: Select reference image using multi-factor scoring (with LLM guidance)
         const selectionContext: ReferenceSelectionContext = {
-          scene: request.scene,
-          mood: request.mood,
-          outfit: request.outfit,
+          scene: generatedPrompt.sceneDescription,
+          mood: generatedPrompt.moodExpression,
+          outfit: generatedPrompt.outfitContext.description,
           userMessage: request.userMessage,
           presenceOutfit: request.presenceOutfit,
           presenceMood: request.presenceMood,
@@ -206,12 +207,14 @@ export async function generateCompanionSelfie(
           selectionContext
         );
         const selection = selectReferenceImage(selectionContext);
-        selectedReferenceBase64 = selection.base64Content;
+        console.log("selectReferenceImage: ", selection),
+          (selectedReferenceBase64 = selection.base64Content);
         selectedReferenceId = selection.referenceId;
         selectionReasoning = selection.reasoning;
 
         const refMetadata = getRefMetadataFromId(selectedReferenceId);
-        selectedHairstyle = refMetadata.hairstyle;
+        console.log("getRefMetadataFromId: ", refMetadata),
+          (selectedHairstyle = refMetadata.hairstyle);
         selectedOutfitStyle = refMetadata.outfitStyle;
 
         // Use the LLM's narrative descriptions for the final Imagen call
@@ -249,26 +252,11 @@ export async function generateCompanionSelfie(
     // IMAGE GENERATION
     // ====================================
 
-    // 1. Clean scene description - remove hairstyle TYPE mentions only (keep style variations like "in a bun")
-    const cleanedScene = request.scene
-      .replace(
-        /with (perfectly |super |really )?(straight|curly|wavy) hair(?! (up|down|in a bun|in a ponytail))/gi,
-        ""
-      )
-      .replace(/(straight|curly|wavy)[\s-]haired?/gi, "")
-      .trim();
-
-    // 2. Build the prompt
-    // Use LLM-generated components
-    const moodDescription = request.llmMood;
-    const lightingDescription = request.llmLighting;
-    const additionalDetails = request.llmAdditional || "";
-
     let fullPrompt = buildImagePrompt(
-      cleanedScene,
-      moodDescription,
-      lightingDescription,
-      additionalDetails
+      generatedPrompt.sceneDescription,
+      generatedPrompt.moodExpression,
+      generatedPrompt.lightingDescription,
+      generatedPrompt.additionalDetails
     );
 
     const parts: any[] = [];

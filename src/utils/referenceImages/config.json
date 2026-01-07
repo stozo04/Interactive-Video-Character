@@ -38,5 +38,15 @@
     "id": "straight_dressed_up",
     "hairstyle": "straight",
     "outfit": "dressed_up"
+  },
+  "athletic/athletic_hair_bun.jpg": {
+    "id": "athletic_hair_bun.jpg",
+    "hairstyle": "messy_bun",
+    "outfit": "athletic"
+  },
+  "athletic/athletic_hair_ponytail.jpg": {
+    "id": "athletic_hair_ponytail.jpg",
+    "hairstyle": "ponytail",
+    "outfit": "athletic"
   }
 }

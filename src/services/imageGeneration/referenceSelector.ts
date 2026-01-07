@@ -56,14 +56,8 @@ export function selectReferenceImage(context: ReferenceSelectionContext): {
 } {
   const reasoning: string[] = [];
   console.log("selectReferenceImage - context: ", context);
-  if (context.llmGuidance) {
-    console.log("🎯 [Reference Selector] LLM Guidance:", {
-      hairstyle: context.llmGuidance.hairstyleGuidance.preference,
-      outfit: context.llmGuidance.outfitContext.style,
-    });
-  }
-
   const hairstyleRequest = detectExplicitHairstyleRequest(context);
+  console.log("hairstyleRequest: ", hairstyleRequest);
   if (hairstyleRequest.requested && context.currentLookState) {
     if (hairstyleRequest.hairstyle !== context.currentLookState.hairstyle) {
       reasoning.push("🔓 EXPLICIT REQUEST: " + hairstyleRequest.hairstyle);
@@ -74,17 +68,19 @@ export function selectReferenceImage(context: ReferenceSelectionContext): {
     hairstyleRequest.requested &&
     context.currentLookState &&
     hairstyleRequest.hairstyle !== context.currentLookState.hairstyle;
-
+  console.log("shouldBypassLock: ", shouldBypassLock);
   const useLocked =
     !shouldBypassLock &&
     !shouldUnlockCurrentLook(context.temporalContext, context.currentLookState);
-
+  console.log("useLocked: ", useLocked);
   if (useLocked && context.currentLookState) {
     reasoning.push("Using locked look: " + context.currentLookState.hairstyle);
     const content = getReferenceImageContent(
       context.currentLookState.referenceImageId
     );
     if (content) {
+      console.log("returning:");
+      console.log("referenceId: ", context.currentLookState.referenceImageId);
       return {
         referenceId: context.currentLookState.referenceImageId,
         base64Content: content,
@@ -98,6 +94,7 @@ export function selectReferenceImage(context: ReferenceSelectionContext): {
     reasoning.push("📅 OLD PHOTO detected");
   }
 
+  console.log("REFERENCE_IMAGE_REGISTRY:", REFERENCE_IMAGE_REGISTRY);
   const scored = REFERENCE_IMAGE_REGISTRY.map((ref) => ({
     ref,
     score: scoreReference(ref, context, reasoning),
@@ -107,11 +104,13 @@ export function selectReferenceImage(context: ReferenceSelectionContext): {
   scored.sort((a, b) => b.score - a.score);
 
   const selected = scored[0];
+  console.log("selected:", selected);
   reasoning.push(
     "🎯 SELECTED: " + selected.ref.id + " (" + selected.score.toFixed(0) + ")"
   );
 
   const content = getReferenceImageContent(selected.ref.id);
+  console.log("content:", content);
   if (!content) throw new Error("Reference not found: " + selected.ref.id);
 
   return { referenceId: selected.ref.id, base64Content: content, reasoning };
