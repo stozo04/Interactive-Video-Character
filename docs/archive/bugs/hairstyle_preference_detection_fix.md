@@ -69,7 +69,7 @@ export interface ReferenceSelectionContext {
   // Scene and mood (from existing system)
   scene: string;
   mood?: string;
-  outfitHint?: string;
+  outfit?: string;
 
   // User's original message for hairstyle detection
   userMessage?: string;  // ← NEW
@@ -88,8 +88,8 @@ Modified the selection context builder to include the user's message:
 const selectionContext: ReferenceSelectionContext = {
   scene: request.scene,
   mood: request.mood,
-  outfitHint: request.outfitHint,
-  userMessage: request.userMessage,  // ← NEW
+  outfit: request.outfit,
+  userMessage: request.userMessage,
   presenceOutfit: request.presenceOutfit,
   presenceMood: request.presenceMood,
   // ... rest of context

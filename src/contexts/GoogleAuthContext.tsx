@@ -80,7 +80,7 @@ export function GoogleAuthProvider({
     // Listen for auth state changes (especially important for Supabase redirects)
     const { data: { subscription } } = googleAuth.supabase.auth.onAuthStateChange(async (event, sbSession) => {
       console.log('Auth state changed:', event);
-      if (event === 'SIGNED_IN' && sbSession && sbSession.provider_token) {
+      if ((event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') && sbSession && sbSession.provider_token) {
         const gmailSession: GmailSession = {
           email: sbSession.user.email || '',
           accessToken: sbSession.provider_token,
@@ -93,6 +93,9 @@ export function GoogleAuthProvider({
       } else if (event === 'SIGNED_OUT') {
         setSession(null);
         setStatus('idle');
+      } else if (event === 'TOKEN_REFRESHED' && (!sbSession || !sbSession.provider_token)) {
+        console.log('🔄 Supabase session refreshed but no provider token found');
+        // We don't trigger needs_reconnect immediately here as we might still have a valid local session
       }
     });
 
@@ -115,9 +118,10 @@ export function GoogleAuthProvider({
           console.log('Session auto-refreshed via Supabase');
         }
       } catch (err) {
-        console.error('Auto-refresh failed:', err);
-        // Don't immediately log out on refresh failure if we're using Supabase
-        // only if it's definitely expired
+        console.warn('Auto-refresh failed, likely needs user interaction:', err);
+        // Set status to needs_reconnect to stop the timer and show the banner
+        setStatus('needs_reconnect');
+        setError('Google session expired. Please reconnect.');
       }
     };
 

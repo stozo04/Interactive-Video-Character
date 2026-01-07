@@ -2,7 +2,7 @@ import React from 'react';
 import { useGoogleAuth } from '../contexts/GoogleAuthContext';
 
 const AuthWarningBanner: React.FC = () => {
-  const { status, signIn } = useGoogleAuth();
+  const { status, refreshSession } = useGoogleAuth();
 
   if (status !== 'needs_reconnect') {
     return null;
@@ -17,7 +17,7 @@ const AuthWarningBanner: React.FC = () => {
         <span className="text-sm font-medium">Google services disconnected. Some features may not work.</span>
       </div>
       <button
-        onClick={() => signIn()}
+        onClick={() => refreshSession()}
         className="text-xs font-semibold bg-amber-600 text-white px-3 py-1 rounded hover:bg-amber-700 transition-colors"
       >
         Reconnect Google

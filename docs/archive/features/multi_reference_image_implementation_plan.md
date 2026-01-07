@@ -461,7 +461,7 @@ export interface ReferenceSelectionContext {
   // Scene and mood (from existing system)
   scene: string;
   mood?: string;
-  outfitHint?: string;
+  outfit?: string;
 
   // Temporal context
   temporalContext: SelfieTemporalContext;
@@ -1259,8 +1259,8 @@ function scoreReference(
   }
 
   // FACTOR 5: Outfit hint from context
-  if (context.outfitHint) {
-    const hintLower = context.outfitHint.toLowerCase();
+  if (context.outfit) {
+    const hintLower = context.outfit.toLowerCase();
     if (
       (hintLower.includes('dress') || hintLower.includes('nice') || hintLower.includes('formal')) &&
       ref.outfitStyle === 'dressed_up'
@@ -1577,7 +1577,7 @@ import type { ReferenceSelectionContext } from './imageGeneration/types';
 export interface SelfieRequest {
   scene: string;
   mood?: string;
-  outfitHint?: string;
+  outfit?: string;
 
   // NEW: Context for reference selection
   userId: string;                      // For look state and history
@@ -1639,7 +1639,7 @@ export async function generateCompanionSelfie(
     const selectionContext: ReferenceSelectionContext = {
       scene: request.scene,
       mood: request.mood,
-      outfitHint: request.outfitHint,
+      outfit: request.outfit,
       temporalContext,
       currentLookState,
       upcomingEvents: request.upcomingEvents || [],
@@ -1798,7 +1798,7 @@ async function handleSelfieGeneration(
   const result = await generateCompanionSelfie({
     scene,
     mood,
-    outfitHint: undefined,
+    outfit: undefined,
 
     // NEW: Required context
     userId,
@@ -1840,7 +1840,7 @@ describe('Reference Image Selector', () => {
   const baseContext: ReferenceSelectionContext = {
     scene: 'coffee shop',
     mood: 'relaxed',
-    outfitHint: undefined,
+    outfit: undefined,
     temporalContext: {
       isOldPhoto: false,
       temporalPhrases: [],

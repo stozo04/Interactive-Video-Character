@@ -40,7 +40,7 @@ const IMAGEN_MODEL = "gemini-3-pro-image-preview";
 export interface SelfieRequest {
   scene: string;
   mood?: string;
-  outfitHint?: string;
+  outfit?: string;
   referenceImageBase64?: string; // Manual override (for backward compatibility)
   userMessage?: string; // User's message that triggered selfie
   conversationHistory?: Array<{ role: string; content: string }>; // Recent messages
@@ -188,7 +188,7 @@ export async function generateCompanionSelfie(
         const selectionContext: ReferenceSelectionContext = {
           scene: request.scene,
           mood: request.mood,
-          outfitHint: request.outfitHint,
+          outfit: request.outfit,
           userMessage: request.userMessage,
           presenceOutfit: request.presenceOutfit,
           presenceMood: request.presenceMood,
@@ -201,7 +201,10 @@ export async function generateCompanionSelfie(
           recentReferenceHistory: recentHistory,
           llmGuidance: generatedPrompt,
         };
-
+        console.log(
+          "generateCompanionSelfie: selectionContext: ",
+          selectionContext
+        );
         const selection = selectReferenceImage(selectionContext);
         selectedReferenceBase64 = selection.base64Content;
         selectedReferenceId = selection.referenceId;
@@ -302,8 +305,6 @@ export async function generateCompanionSelfie(
         imageConfig: {
           aspectRatio: "9:16",
           imageSize: "2K",
-          // Bypass the missing property in the current SDK types
-          ...({ personGeneration: "allow_adult" } as any),
         },
       },
     });

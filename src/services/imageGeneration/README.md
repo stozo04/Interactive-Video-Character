@@ -273,7 +273,7 @@ import { generateCompanionSelfie } from '@/services/imageGenerationService';
 const result = await generateCompanionSelfie({
   scene: 'coffee shop',
   mood: 'happy',
-  outfitHint: 'casual',
+  outfit: 'casual',
 });
 // Uses default reference, no dynamic selection
 ```
@@ -284,7 +284,7 @@ const result = await generateCompanionSelfie({
 const result = await generateCompanionSelfie({
   scene: 'restaurant',
   mood: 'confident',
-  outfitHint: 'dressed up',
+  outfit: 'dressed up',
 
   // Enable multi-reference system
   userId: 'user@example.com',

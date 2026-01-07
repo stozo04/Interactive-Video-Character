@@ -472,9 +472,10 @@ const App: React.FC = () => {
   useEffect(() => {
     taskCelebrateRef.current = (message: string) => {
       if (selectedCharacter && !isMutedRef.current) {
-        generateSpeech(message).then(audio => {
-          if (audio) media.enqueueAudio(audio);
-        });
+        // Gates: Disable Audio
+        // generateSpeech(message).then(audio => {
+        //   if (audio) media.enqueueAudio(audio);
+        // });
         setChatHistory(prev => [...prev, { role: 'model', text: message }]);
       }
     };
@@ -654,7 +655,8 @@ const App: React.FC = () => {
       // UI Layer: Play Audio/Action
       if (!isMuted && audioData) {
         // Convert string URL to ArrayBuffer if needed, or use directly
-        enqueueAudio(audioData as any); // audioData is already a string URL from generateSpeech
+        // Gates: Disable Audio 
+        // enqueueAudio(audioData as any); // audioData is already a string URL from generateSpeech
       }
       if (response.action_id) playAction(response.action_id);
       if (response.open_app) {
@@ -853,12 +855,13 @@ const App: React.FC = () => {
         setLastSavedMessageIndex(updatedHistory.length - 1);
 
         // Generate speech for the email notification
-        if (!isMuted) {
-          const audioData = await generateSpeech(characterMessage);
-          if (audioData) {
-            enqueueAudio(audioData);
-          }
-        }
+        // Gates: Disable Audio
+        // if (!isMuted) {
+        //   const audioData = await generateSpeech(characterMessage);
+        //   if (audioData) {
+        //     enqueueAudio(audioData);
+        //   }
+        // }
 
       setEmailQueue([]);
     };
@@ -1199,7 +1202,8 @@ const App: React.FC = () => {
         } else {
           setChatHistory(prev => [...prev, { role: 'model', text: selfieMsg }]);
         }
-        if (!isMuted) { const audio = await generateSpeech(selfieMsg); if (audio) media.enqueueAudio(audio); }
+        // Gates: Disable Audio
+        // if (!isMuted) { const audio = await generateSpeech(selfieMsg); if (audio) media.enqueueAudio(audio); }
         startBackgroundSentiment();
         maybePlayResponseAction(result.actionToPlay);
         return;

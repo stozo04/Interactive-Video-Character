@@ -8,191 +8,280 @@ export const AIActionResponseSchema = z.object({
   /**
    * The conversational text response to display in the chat.
    */
-  text_response: z.string().describe(
-    "The conversational text to display in the chat."
-  ),
+  text_response: z
+    .string()
+    .describe("The conversational text to display in the chat."),
 
   /**
    * The video action to play.
    * This MUST be null unless the user's intent *strongly*
    * matches one of the available actions.
    */
-  action_id: z.string().nullable().describe(
-    "The ID of the video action to play, or null if no action is appropriate."
-  ),
+  action_id: z
+    .string()
+    .nullable()
+    .describe(
+      "The ID of the video action to play, or null if no action is appropriate."
+    ),
 
   /**
    * If the user provided audio input, this field MUST contain the
    * text transcription of what the user said.
    * If the input was text, this can be null or the same as the input.
    */
-  user_transcription: z.string().nullable().optional().describe(
-    "The transcription of the user's audio input, if applicable."
-  ),
+  user_transcription: z
+    .string()
+    .nullable()
+    .optional()
+    .describe("The transcription of the user's audio input, if applicable."),
 
   /**
    * If the user explicitly asks to open a supported external application,
    * this field should contain the URL scheme to launch it.
    * Examples: "slack://", "spotify:", "zoommtg://"
    */
-  open_app: z.string().nullable().optional().describe(
-    "The URL scheme to launch an external application (e.g. 'slack://'), or null."
-  ),
+  open_app: z
+    .string()
+    .nullable()
+    .optional()
+    .describe(
+      "The URL scheme to launch an external application (e.g. 'slack://'), or null."
+    ),
 
   /**
    * Calendar management actions - used when user wants to create/delete calendar events
    * NOTE: task_action has been moved to a function tool (see GeminiMemoryToolDeclarations)
    */
-  calendar_action: z.object({
-    action: z.enum(['create', 'delete', 'list']).describe(
-      "The calendar action to perform: 'create' to add a new event, 'delete' to remove event(s), 'list' to fetch events"
+  calendar_action: z
+    .object({
+      action: z
+        .enum(["create", "delete", "list"])
+        .describe(
+          "The calendar action to perform: 'create' to add a new event, 'delete' to remove event(s), 'list' to fetch events"
+        ),
+      event_id: z
+        .string()
+        .optional()
+        .describe(
+          "Single event ID from the calendar list (for deleting one event)"
+        ),
+      event_ids: z
+        .array(z.string())
+        .optional()
+        .describe(
+          "Array of event IDs to delete (for deleting multiple events)"
+        ),
+      delete_all: z
+        .boolean()
+        .optional()
+        .describe("If true, delete ALL events in the calendar list"),
+      summary: z.string().optional().describe("The event title/summary"),
+      start: z
+        .string()
+        .optional()
+        .describe("For create: ISO datetime string for event start"),
+      end: z
+        .string()
+        .optional()
+        .describe("For create: ISO datetime string for event end"),
+      timeZone: z
+        .string()
+        .optional()
+        .describe("Timezone for the event, default: America/Chicago"),
+      days: z
+        .number()
+        .optional()
+        .describe("For list: number of days to look ahead (default: 7)"),
+      timeMin: z
+        .string()
+        .optional()
+        .describe("For list: ISO start time filter"),
+      timeMax: z.string().optional().describe("For list: ISO end time filter"),
+    })
+    .nullable()
+    .optional()
+    .describe(
+      "Calendar action if the user wants to create or delete calendar event(s)"
     ),
-    event_id: z.string().optional().describe(
-      "Single event ID from the calendar list (for deleting one event)"
-    ),
-    event_ids: z.array(z.string()).optional().describe(
-      "Array of event IDs to delete (for deleting multiple events)"
-    ),
-    delete_all: z.boolean().optional().describe(
-      "If true, delete ALL events in the calendar list"
-    ),
-    summary: z.string().optional().describe(
-      "The event title/summary"
-    ),
-    start: z.string().optional().describe(
-      "For create: ISO datetime string for event start"
-    ),
-    end: z.string().optional().describe(
-      "For create: ISO datetime string for event end"
-    ),
-    timeZone: z.string().optional().describe(
-      "Timezone for the event, default: America/Chicago"
-    ),
-    days: z.number().optional().describe(
-      "For list: number of days to look ahead (default: 7)"
-    ),
-    timeMin: z.string().optional().describe(
-      "For list: ISO start time filter"
-    ),
-    timeMax: z.string().optional().describe(
-      "For list: ISO end time filter"
-    )
-  }).nullable().optional().describe(
-    "Calendar action if the user wants to create or delete calendar event(s)"
-  ),
 
   /**
    * For Tic-Tac-Toe: The cell position (0-8) where AI wants to place its mark.
    * Cell positions: [0,1,2] (top row), [3,4,5] (middle row), [6,7,8] (bottom row)
    */
-  game_move: z.number().min(0).max(8).nullable().optional().describe(
-    "For Tic-Tac-Toe: cell position (0-8, top-left to bottom-right) for AI's O placement"
-  ),
+  game_move: z
+    .number()
+    .min(0)
+    .max(8)
+    .nullable()
+    .optional()
+    .describe(
+      "For Tic-Tac-Toe: cell position (0-8, top-left to bottom-right) for AI's O placement"
+    ),
 
   /**
    * For Tic-Tac-Toe: The cell position (0-8) where the AI sees the USER's X mark from the image.
    * This is critical for syncing game state.
    */
-  user_move_detected: z.number().min(0).max(8).nullable().optional().describe(
-    "For Tic-Tac-Toe: the cell position (0-8) where the AI sees the USER's X mark from the image."
-  ),
+  user_move_detected: z
+    .number()
+    .min(0)
+    .max(8)
+    .nullable()
+    .optional()
+    .describe(
+      "For Tic-Tac-Toe: the cell position (0-8) where the AI sees the USER's X mark from the image."
+    ),
 
   /**
    * News action - triggered when user asks about tech/AI news
    */
-  news_action: z.object({
-    action: z.enum(['fetch']).describe(
-      "The news action to perform: 'fetch' to get latest AI/tech news from Hacker News"
-    )
-  }).nullable().optional().describe(
-    "News action if the user asks about latest tech/AI news"
-  ),
+  news_action: z
+    .object({
+      action: z
+        .enum(["fetch"])
+        .describe(
+          "The news action to perform: 'fetch' to get latest AI/tech news from Hacker News"
+        ),
+    })
+    .nullable()
+    .optional()
+    .describe("News action if the user asks about latest tech/AI news"),
 
   /**
    * Whiteboard action for more complex interactions (guessing, describing, etc.)
    */
-  whiteboard_action: z.object({
-    type: z.enum(['none', 'mark_cell', 'guess', 'describe', 'draw']).describe(
-      "Type of whiteboard action"
-    ),
-    position: z.number().optional().describe(
-      "Cell position for grid-based games (0-8)"
-    ),
-    guess: z.string().optional().describe(
-      "For Pictionary: the AI's guess of what the drawing is"
-    ),
-    description: z.string().optional().describe(
-      "For freeform: AI's description of the drawing"
-    ),
-    draw_shapes: z.array(z.object({
-      shape: z.enum(['line', 'circle', 'rect', 'point', 'path', 'text']),
-      x: z.number().describe("Start X coordinate (0-100)"),
-      y: z.number().describe("Start Y coordinate (0-100)"),
-      x2: z.number().optional().describe("End X (0-100) for lines/rects"),
-      y2: z.number().optional().describe("End Y (0-100) for lines/rects"),
-      points: z.array(z.object({
-        x: z.number(),
-        y: z.number()
-      })).optional().describe("Array of points for 'path' shape (0-100)"),
-      text: z.string().optional().describe("Text content for 'text' shape - USE THIS FOR WRITING NAMES/WORDS!"),
-      style: z.enum(['handwriting', 'bold', 'fancy', 'playful', 'chalk']).optional().describe("Font style for text: handwriting (default), bold, fancy, playful, chalk"),
-      size: z.number().optional().describe("Size/Radius (0-100) or font size for text"),
-      color: z.string().optional().describe("Hex color code or name"),
-      filled: z.boolean().optional().describe("If true, fill the shape")
-    })).optional().describe("Shapes for AI to draw on the board")
-  }).nullable().optional().describe(
-    "Whiteboard interaction action"
-  ),
+  whiteboard_action: z
+    .object({
+      type: z
+        .enum(["none", "mark_cell", "guess", "describe", "draw"])
+        .describe("Type of whiteboard action"),
+      position: z
+        .number()
+        .optional()
+        .describe("Cell position for grid-based games (0-8)"),
+      guess: z
+        .string()
+        .optional()
+        .describe("For Pictionary: the AI's guess of what the drawing is"),
+      description: z
+        .string()
+        .optional()
+        .describe("For freeform: AI's description of the drawing"),
+      draw_shapes: z
+        .array(
+          z.object({
+            shape: z.enum(["line", "circle", "rect", "point", "path", "text"]),
+            x: z.number().describe("Start X coordinate (0-100)"),
+            y: z.number().describe("Start Y coordinate (0-100)"),
+            x2: z.number().optional().describe("End X (0-100) for lines/rects"),
+            y2: z.number().optional().describe("End Y (0-100) for lines/rects"),
+            points: z
+              .array(
+                z.object({
+                  x: z.number(),
+                  y: z.number(),
+                })
+              )
+              .optional()
+              .describe("Array of points for 'path' shape (0-100)"),
+            text: z
+              .string()
+              .optional()
+              .describe(
+                "Text content for 'text' shape - USE THIS FOR WRITING NAMES/WORDS!"
+              ),
+            style: z
+              .enum(["handwriting", "bold", "fancy", "playful", "chalk"])
+              .optional()
+              .describe(
+                "Font style for text: handwriting (default), bold, fancy, playful, chalk"
+              ),
+            size: z
+              .number()
+              .optional()
+              .describe("Size/Radius (0-100) or font size for text"),
+            color: z.string().optional().describe("Hex color code or name"),
+            filled: z.boolean().optional().describe("If true, fill the shape"),
+          })
+        )
+        .optional()
+        .describe("Shapes for AI to draw on the board"),
+    })
+    .nullable()
+    .optional()
+    .describe("Whiteboard interaction action"),
 
-  selfie_action: z.object({
-    scene: z.string().describe(
-      "The scene, location, or context for the selfie (e.g., 'at a restaurant', 'at the beach', 'cozy at home', 'at a coffee shop')"
+  selfie_action: z
+    .object({
+      scene: z
+        .string()
+        .describe(
+          "The scene, location, or context for the selfie (e.g., 'at a restaurant', 'at the beach', 'cozy at home', 'at a coffee shop')"
+        ),
+      mood: z
+        .string()
+        .optional()
+        .describe(
+          "The mood or expression (e.g., 'smiling', 'playful', 'relaxed', 'excited'). Default to friendly/happy if not specified."
+        ),
+    })
+    .nullable()
+    .optional()
+    .describe(
+      "Selfie/image generation action - use when user asks for a picture, photo, or selfie of you"
     ),
-    mood: z.string().optional().describe(
-      "The mood or expression (e.g., 'smiling', 'playful', 'relaxed', 'excited'). Default to friendly/happy if not specified."
-    ),
-    outfit_hint: z.string().optional().describe(
-      "Optional hint about outfit style if contextually relevant (e.g., 'casual', 'dressed up', 'cozy')"
-    )
-  }).nullable().optional().describe(
-    "Selfie/image generation action - use when user asks for a picture, photo, or selfie of you"
-  ),
   /**
    * Task action - used when user wants to manage their checklist
    */
-  task_action: z.object({
-    action: z.enum(['create', 'complete', 'delete', 'list']).describe(
-      "The task action to perform"
-    ),
-    task_text: z.string().optional().describe(
-      "For create: the task description. For complete/delete: partial text to match the task."
-    ),
-    priority: z.enum(['low', 'medium', 'high']).optional().describe(
-      "Priority level for new tasks"
-    )
-  }).nullable().optional().describe(
-    "Task management action"
-  ),
+  task_action: z
+    .object({
+      action: z
+        .enum(["create", "complete", "delete", "list"])
+        .describe("The task action to perform"),
+      task_text: z
+        .string()
+        .optional()
+        .describe(
+          "For create: the task description. For complete/delete: partial text to match the task."
+        ),
+      priority: z
+        .enum(["low", "medium", "high"])
+        .optional()
+        .describe("Priority level for new tasks"),
+    })
+    .nullable()
+    .optional()
+    .describe("Task management action"),
 
   /**
    * Store new facts about yourself (Kayley) that emerge in conversation.
    * Use this when you share something NEW about yourself that isn't in your profile.
    * This ensures you remember it in future conversations!
    */
-  store_self_info: z.object({
-    category: z.enum(['quirk', 'experience', 'preference', 'relationship', 'detail']).describe(
-      "Category of the fact: 'quirk' (habits, personality), 'experience' (stories, events), " +
-      "'preference' (new likes/dislikes), 'relationship' (new friends/connections), 'detail' (specific facts)"
+  store_self_info: z
+    .object({
+      category: z
+        .enum(["quirk", "experience", "preference", "relationship", "detail"])
+        .describe(
+          "Category of the fact: 'quirk' (habits, personality), 'experience' (stories, events), " +
+            "'preference' (new likes/dislikes), 'relationship' (new friends/connections), 'detail' (specific facts)"
+        ),
+      key: z
+        .string()
+        .describe(
+          "A short, descriptive key for the fact (e.g., 'smoke_alarm_incident', 'new_coffee_order', 'met_yoga_friend')"
+        ),
+      value: z
+        .string()
+        .describe(
+          "The fact to remember (e.g., 'Set off smoke alarm making toast twice in one week')"
+        ),
+    })
+    .nullable()
+    .optional()
+    .describe(
+      "Store a NEW fact about yourself (Kayley) that you just shared. Use when you mention something not in your profile."
     ),
-    key: z.string().describe(
-      "A short, descriptive key for the fact (e.g., 'smoke_alarm_incident', 'new_coffee_order', 'met_yoga_friend')"
-    ),
-    value: z.string().describe(
-      "The fact to remember (e.g., 'Set off smoke alarm making toast twice in one week')"
-    )
-  }).nullable().optional().describe(
-    "Store a NEW fact about yourself (Kayley) that you just shared. Use when you mention something not in your profile."
-  ),
 
   /**
    * Track when you use an "almost moment" - those vulnerable, retreat-into-safety expressions
@@ -202,21 +291,36 @@ export const AIActionResponseSchema = z.object({
    * Set this ONLY when you actually use an almost moment expression in your text_response.
    * This helps track emotional progression and the building tension of unspoken feelings.
    */
-  almost_moment_used: z.object({
-    feeling_id: z.string().describe(
-      "The ID of the unsaid feeling you expressed (from the system prompt THE UNSAID section)"
+  almost_moment_used: z
+    .object({
+      feeling_id: z
+        .string()
+        .describe(
+          "The ID of the unsaid feeling you expressed (from the system prompt THE UNSAID section)"
+        ),
+      stage: z
+        .enum([
+          "micro_hint",
+          "near_miss",
+          "obvious_unsaid",
+          "almost_confession",
+        ])
+        .describe(
+          "The stage of the almost moment: 'micro_hint' (subtle), 'near_miss' (almost said it), " +
+            "'obvious_unsaid' (clearly holding back), 'almost_confession' (on the verge)"
+        ),
+      expression_used: z
+        .string()
+        .describe(
+          "The actual expression you used in your response (can be the suggested one or your own variation)"
+        ),
+    })
+    .nullable()
+    .optional()
+    .describe(
+      "Set this when you use an almost moment - a vulnerable expression where you almost say something deeper but retreat. " +
+        "Leave null if you didn't use one in this response."
     ),
-    stage: z.enum(['micro_hint', 'near_miss', 'obvious_unsaid', 'almost_confession']).describe(
-      "The stage of the almost moment: 'micro_hint' (subtle), 'near_miss' (almost said it), " +
-      "'obvious_unsaid' (clearly holding back), 'almost_confession' (on the verge)"
-    ),
-    expression_used: z.string().describe(
-      "The actual expression you used in your response (can be the suggested one or your own variation)"
-    )
-  }).nullable().optional().describe(
-    "Set this when you use an almost moment - a vulnerable expression where you almost say something deeper but retreat. " +
-    "Leave null if you didn't use one in this response."
-  )
 });
 
 // Infer the TypeScript type from the schema

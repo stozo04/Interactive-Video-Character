@@ -299,10 +299,10 @@ describe('referenceSelector', () => {
 
     it('should boost dressed_up for outfit hint', () => {
       const context: ReferenceSelectionContext = {
-        scene: 'going out',
-        outfitHint: 'nice dress',
-        currentSeason: 'winter',
-        timeOfDay: 'evening',
+        scene: "going out",
+        outfit: "nice dress",
+        currentSeason: "winter",
+        timeOfDay: "evening",
         currentLocation: null,
         upcomingEvents: [],
         recentReferenceHistory: [],
