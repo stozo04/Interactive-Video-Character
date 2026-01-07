@@ -19,6 +19,7 @@ import { sanitizeText } from '../utils/textUtils';
 const ACTION_VIDEO_BUCKET = 'character-action-videos';
 const IDLE_ACTION_DELAY_MIN_MS = 10_000;
 const IDLE_ACTION_DELAY_MAX_MS = 45_000;
+const RECENT_ACTIONS_TO_AVOID = 3; // Avoid repeating the last N actions
 
 const TALKING_KEYWORDS = ['talk', 'talking', 'speak', 'chat', 'answer', 'respond'];
 
@@ -138,6 +139,7 @@ export function useCharacterActions(options: UseCharacterActionsOptions): UseCha
 
   // Refs
   const idleActionTimerRef = useRef<number | null>(null);
+  const recentActionIdsRef = useRef<string[]>([]); // Anti-repetition tracking
 
   /**
    * Get the URL for an action (from cache or Supabase)
@@ -205,14 +207,33 @@ export function useCharacterActions(options: UseCharacterActionsOptions): UseCha
 
   /**
    * Play a random talking action
+   * Uses anti-repetition logic to prefer variety
    */
   const playRandomTalkingAction = useCallback((forceImmediate = true): string | null => {
     if (!selectedCharacter) return null;
 
-    const talkingActions: CharacterAction[] = shuffleArray(getTalkingActionsFn());
-    for (const action of talkingActions) {
+    const talkingActions = getTalkingActionsFn();
+    if (talkingActions.length === 0) return null;
+
+    // Anti-repetition: prefer actions not recently played
+    const recentIds = recentActionIdsRef.current;
+    let eligibleActions = talkingActions.filter((a) => !recentIds.includes(a.id));
+
+    // If all filtered out, use all but avoid most recent
+    if (eligibleActions.length === 0) {
+      const lastPlayed = recentIds[recentIds.length - 1];
+      eligibleActions = talkingActions.filter((a) => a.id !== lastPlayed);
+      if (eligibleActions.length === 0) {
+        eligibleActions = talkingActions;
+      }
+    }
+
+    const shuffled: CharacterAction[] = shuffleArray(eligibleActions);
+    for (const action of shuffled) {
       const played = playAction(action.id, forceImmediate);
       if (played) {
+        // Track in recent history
+        recentActionIdsRef.current = [...recentIds, action.id].slice(-RECENT_ACTIONS_TO_AVOID);
         return action.id;
       }
     }
@@ -232,6 +253,7 @@ export function useCharacterActions(options: UseCharacterActionsOptions): UseCha
 
   /**
    * Trigger an idle action immediately
+   * Uses anti-repetition logic to avoid playing the same action repeatedly
    */
   const triggerIdleAction = useCallback(() => {
     if (!selectedCharacter) return;
@@ -240,7 +262,26 @@ export function useCharacterActions(options: UseCharacterActionsOptions): UseCha
     const nonGreetingActions: CharacterAction[] = getNonGreetingActionsFn();
     if (nonGreetingActions.length === 0) return;
 
-    const action: CharacterAction = randomFromArray(nonGreetingActions);
+    // Anti-repetition: filter out recently played actions
+    const recentIds = recentActionIdsRef.current;
+    let eligibleActions = nonGreetingActions.filter(
+      (a) => !recentIds.includes(a.id)
+    );
+
+    // If we've filtered out everything, reset and allow all (but still avoid the most recent)
+    if (eligibleActions.length === 0) {
+      const lastPlayed = recentIds[recentIds.length - 1];
+      eligibleActions = nonGreetingActions.filter((a) => a.id !== lastPlayed);
+      // If still nothing (only 1 action exists), allow all
+      if (eligibleActions.length === 0) {
+        eligibleActions = nonGreetingActions;
+      }
+    }
+
+    const action: CharacterAction = randomFromArray(eligibleActions);
+
+    // Track this action in recent history
+    recentActionIdsRef.current = [...recentIds, action.id].slice(-RECENT_ACTIONS_TO_AVOID);
 
     // Get the URL
     let actionUrl = actionVideoUrls[action.id] ?? null;
