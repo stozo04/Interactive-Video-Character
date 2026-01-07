@@ -23,6 +23,7 @@ type ConfigEntry = {
 function buildRegistry(): ReferenceImageMetadata[] {
   const registry: ReferenceImageMetadata[] = [];
   const config = configData as Record<string, ConfigEntry>;
+  console.log("BUILDING IMAGE REGISTRY!!!!! ", imageModules);
 
   for (const [importPath] of Object.entries(imageModules)) {
     // Convert import path "./curlyHairCasual/image.jpg" to config key "curlyHairCasual/image.jpg"
