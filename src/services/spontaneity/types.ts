@@ -365,7 +365,6 @@ export interface SpontaneityIntegration {
   humorGuidance: string;
   selfiePrompt: string;
   suggestedAssociation: SuggestedAssociation | null;
-  suggestedSelfie: SpontaneousSelfieContext | null;
 }
 
 // ============================================================================

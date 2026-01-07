@@ -10,7 +10,6 @@
 import {
   buildSpontaneityContext,
   trackMessage,
-  determineSelfieReason,
 } from "./spontaneityTracker";
 import {
   buildSpontaneityPrompt,
@@ -24,8 +23,6 @@ import {
 import type {
   ConversationalMood,
   SpontaneityIntegration,
-  SpontaneousSelfieContext,
-  SpontaneousSelfieReason,
   PendingShare,
 } from "./types";
 import type { KayleyMood } from "../moodKnobs";
@@ -53,55 +50,6 @@ async function getLastSpontaneousSelfie(): Promise<Date | null> {
 }
 
 // ============================================================================
-// SELFIE CONTEXT BUILDING
-// ============================================================================
-
-/**
- * Build a spontaneous selfie context from the given reason and state
- */
-function buildSelfieContext(
-  reason: SpontaneousSelfieReason,
-  currentLocation: string | null,
-  currentMoodForSelfie: string | null,
-  currentOutfit: string | null
-): SpontaneousSelfieContext {
-  // Scene - where she is / what she's doing
-  let scene = "at home, in her room";
-  if (currentLocation) {
-    const loc = currentLocation.toLowerCase();
-    if (!["home", "bedroom", "apartment", "living room"].includes(loc)) {
-      scene = `at ${currentLocation}`;
-    }
-  }
-
-  // Mood/expression
-  const mood = currentMoodForSelfie || "relaxed";
-
-  // Outfit
-  const outfitHint = currentOutfit || undefined;
-
-  // Caption based on reason
-  const captions: Record<SpontaneousSelfieReason, string> = {
-    thinking_of_you: "Was just thinking about you 💕",
-    new_outfit: "Okay but this outfit though?? Thoughts?",
-    good_mood: "Feeling kinda cute today ngl 😊",
-    cool_location: "Look where I am!!",
-    brighten_your_day: "Thought this might make you smile 🥰",
-    milestone_share: "I did it!! Look!",
-    random_impulse: "Idk why I'm sending this but here's my face",
-    matching_topic: "Since we're talking about it...",
-  };
-
-  return {
-    reason,
-    scene,
-    mood,
-    outfitHint,
-    caption: captions[reason],
-  };
-}
-
-// ============================================================================
 // MAIN INTEGRATION FUNCTION
 // ============================================================================
 
@@ -114,7 +62,6 @@ function buildSelfieContext(
  * 3. Builds spontaneity context with probabilities
  * 4. Generates prompt sections for the LLM
  * 5. Finds relevant associations to suggest
- * 6. Determines if a spontaneous selfie should be suggested
  *
  * @param conversationalMood - Current mood of the conversation
  * @param moodKnobs - Character's mood knobs (for energy level, etc.)
@@ -193,32 +140,10 @@ export async function integrateSpontaneity(
     }
   }
 
-  // Check for spontaneous selfie opportunity
-  let suggestedSelfie: SpontaneousSelfieContext | null = null;
-  if (context.selfieEligible && Math.random() < context.selfieProbability) {
-    const reason = determineSelfieReason(
-      currentMoodForSelfie,
-      currentLocation,
-      currentOutfit,
-      userHadBadDay,
-      currentTopics
-    );
-
-    if (reason) {
-      suggestedSelfie = buildSelfieContext(
-        reason,
-        currentLocation,
-        currentMoodForSelfie,
-        currentOutfit
-      );
-    }
-  }
-
   return {
     promptSection,
     humorGuidance,
     selfiePrompt,
     suggestedAssociation,
-    suggestedSelfie,
   };
 }

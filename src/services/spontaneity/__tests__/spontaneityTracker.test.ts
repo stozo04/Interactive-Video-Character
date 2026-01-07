@@ -18,7 +18,6 @@ import {
   recordSpontaneousAction,
   calculateSpontaneityProbability,
   calculateSelfieProbability,
-  determineSelfieReason,
   buildSpontaneityContext,
   getConversationState,
 } from "../spontaneityTracker";
@@ -27,7 +26,6 @@ import {
   TIER_SPONTANEITY_BONUS,
   TIER_SELFIE_BONUS,
   type ConversationalMood,
-  type SpontaneousSelfieReason,
 } from "../types";
 
 describe("Spontaneity Tracker", () => {
@@ -712,133 +710,6 @@ describe("Spontaneity Tracker", () => {
       expect(probWithOldSelfie).toBeGreaterThan(probWithRecentSelfie);
 
       vi.useRealTimers();
-    });
-  });
-
-  // ============================================
-  // determineSelfieReason
-  // ============================================
-
-  describe("determineSelfieReason", () => {
-    it("should return brighten_your_day when user had bad day", () => {
-      const reason = determineSelfieReason(
-        "casual",
-        null,
-        null,
-        true,
-        []
-      );
-
-      expect(reason).toBe("brighten_your_day");
-    });
-
-    it("should return cool_location when at interesting location", () => {
-      const reason = determineSelfieReason(
-        "casual",
-        "Paris Eiffel Tower",
-        null,
-        false,
-        []
-      );
-
-      expect(reason).toBe("cool_location");
-    });
-
-    it("should not return cool_location for home", () => {
-      const reason = determineSelfieReason(
-        "casual",
-        "home",
-        null,
-        false,
-        []
-      );
-
-      expect(reason).not.toBe("cool_location");
-    });
-
-    it("should return new_outfit when outfit is mentioned", () => {
-      const reason = determineSelfieReason(
-        "casual",
-        null,
-        "new dress",
-        false,
-        []
-      );
-
-      expect(reason).toBe("new_outfit");
-    });
-
-    it("should return good_mood for excited mood", () => {
-      const reason = determineSelfieReason(
-        "excited",
-        null,
-        null,
-        false,
-        []
-      );
-
-      expect(reason).toBe("good_mood");
-    });
-
-    it("should return good_mood for playful mood", () => {
-      const reason = determineSelfieReason(
-        "playful",
-        null,
-        null,
-        false,
-        []
-      );
-
-      expect(reason).toBe("good_mood");
-    });
-
-    it("should return matching_topic when recent topics match selfie-worthy topics", () => {
-      const reason = determineSelfieReason(
-        "casual",
-        null,
-        null,
-        false,
-        ["fashion", "style", "outfit"]
-      );
-
-      expect(reason).toBe("matching_topic");
-    });
-
-    it("should return thinking_of_you as default fallback", () => {
-      const reason = determineSelfieReason(
-        "casual",
-        null,
-        null,
-        false,
-        []
-      );
-
-      expect(reason).toBe("thinking_of_you");
-    });
-
-    it("should prioritize bad day over other reasons", () => {
-      // Even with location and outfit, bad day should win
-      const reason = determineSelfieReason(
-        "excited",
-        "beach",
-        "new swimsuit",
-        true,
-        ["fashion"]
-      );
-
-      expect(reason).toBe("brighten_your_day");
-    });
-
-    it("should prioritize location over outfit", () => {
-      const reason = determineSelfieReason(
-        "casual",
-        "Grand Canyon",
-        "new jacket",
-        false,
-        []
-      );
-
-      expect(reason).toBe("cool_location");
     });
   });
 

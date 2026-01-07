@@ -309,6 +309,31 @@ function scoreReference(
     }
   }
 
+  // FACTOR 9: LLM guidance (Phase 2)
+  if (context.llmGuidance) {
+    const guidance = context.llmGuidance;
+    
+    // Hairstyle preference
+    if (guidance.hairstyleGuidance.preference !== 'any') {
+      if (ref.hairstyle === guidance.hairstyleGuidance.preference) {
+        score += 40;
+        factors.push(`+40 LLM hairstyle match (${guidance.hairstyleGuidance.preference})`);
+      } else {
+        score -= 50;
+        factors.push(`-50 LLM hairstyle mismatch (wants ${guidance.hairstyleGuidance.preference})`);
+      }
+    }
+
+    // Outfit style preference
+    if (ref.outfitStyle === guidance.outfitContext.style) {
+      score += 45;
+      factors.push(`+45 LLM outfit match (${guidance.outfitContext.style})`);
+    } else {
+      score -= 30;
+      factors.push(`-30 LLM outfit mismatch`);
+    }
+  }
+
   reasoning.push(`  ${ref.id}: ${score.toFixed(1)} (${factors.join(', ')})`);
 
   return score;

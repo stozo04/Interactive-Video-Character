@@ -8,7 +8,6 @@
 import {
   type ConversationalMood,
   type SpontaneousActionType,
-  type SpontaneousSelfieReason,
   type SpontaneityContext,
   SPONTANEITY_DEFAULTS,
   TIER_SPONTANEITY_BONUS,
@@ -247,61 +246,6 @@ export function calculateSelfieProbability(
 
   // Cap at max
   return Math.min(SPONTANEITY_DEFAULTS.selfieMaxProbability, probability);
-}
-
-// ============================================================================
-// SELFIE REASON DETERMINATION
-// ============================================================================
-
-/**
- * Determine the best reason for a spontaneous selfie given current context
- */
-export function determineSelfieReason(
-  currentMood: string | null,
-  currentLocation: string | null,
-  currentOutfit: string | null,
-  userHadBadDay: boolean,
-  recentTopics: string[]
-): SpontaneousSelfieReason {
-  // Priority order for selfie reasons
-
-  // 1. User had a bad day - cheer them up (highest priority)
-  if (userHadBadDay) {
-    return "brighten_your_day";
-  }
-
-  // 2. Cool location
-  if (currentLocation) {
-    const boringLocations = ["home", "bedroom", "apartment", "living room"];
-    if (!boringLocations.includes(currentLocation.toLowerCase())) {
-      return "cool_location";
-    }
-  }
-
-  // 3. New outfit mentioned
-  if (currentOutfit && currentOutfit.toLowerCase().includes("new")) {
-    return "new_outfit";
-  }
-
-  // 4. Feeling good about appearance (excited/playful mood)
-  if (currentMood) {
-    const goodMoods = ["excited", "playful", "cute", "confident", "good", "happy"];
-    if (goodMoods.some((m) => currentMood.toLowerCase().includes(m))) {
-      return "good_mood";
-    }
-  }
-
-  // 5. Topic-matching opportunity
-  const selfieTopics = [
-    "selfie", "picture", "photo", "outfit", "style", "fashion",
-    "look", "hair", "makeup", "dress", "clothes"
-  ];
-  if (recentTopics.some((t) => selfieTopics.includes(t.toLowerCase()))) {
-    return "matching_topic";
-  }
-
-  // 6. Default fallback - thinking of you
-  return "thinking_of_you";
 }
 
 // ============================================================================
