@@ -13,6 +13,17 @@ import {
 } from "../../utils/referenceImages";
 import { shouldUnlockCurrentLook } from "./temporalDetection";
 
+// ============================================
+// DEBUG: Force a specific reference image
+// Set to an image ID to bypass all selection logic
+// Set to null for normal behavior
+// ============================================
+ const DEBUG_FORCE_REFERENCE: string | null = null;
+// Examples:
+// const DEBUG_FORCE_REFERENCE = "curly_casual_1";
+// const DEBUG_FORCE_REFERENCE = "athletic_ponytail";
+// const DEBUG_FORCE_REFERENCE = "messy_bun_casual";
+
 // Pattern constants for hairstyle detection (avoids magic strings)
 const HAIRSTYLE_PATTERNS: Record<HairstyleType, string[]> = {
   straight: ['straight hair', 'straighten', 'straightened'],
@@ -55,6 +66,25 @@ export function selectReferenceImage(context: ReferenceSelectionContext): {
   reasoning: string[];
 } {
   const reasoning: string[] = [];
+
+  // DEBUG: Force a specific reference image for testing
+  if (DEBUG_FORCE_REFERENCE) {
+    console.log("🔧 [DEBUG] Forcing reference:", DEBUG_FORCE_REFERENCE);
+    const content = getReferenceImageContent(DEBUG_FORCE_REFERENCE);
+    if (content) {
+      reasoning.push("🔧 DEBUG: Forced reference " + DEBUG_FORCE_REFERENCE);
+      return {
+        referenceId: DEBUG_FORCE_REFERENCE,
+        base64Content: content,
+        reasoning,
+      };
+    }
+    console.warn("🔧 [DEBUG] Reference not found:", DEBUG_FORCE_REFERENCE);
+    reasoning.push(
+      "🔧 DEBUG: Reference not found, falling back to normal selection"
+    );
+  }
+
   console.log("selectReferenceImage - context: ", context);
   const hairstyleRequest = detectExplicitHairstyleRequest(context);
   console.log("hairstyleRequest: ", hairstyleRequest);
