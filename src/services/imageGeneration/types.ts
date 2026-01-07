@@ -106,6 +106,9 @@ export interface ReferenceSelectionContext {
     usedAt: Date;
     scene: string;
   }>;
+
+  // New LLM guidance (Phase 2)
+  llmGuidance?: GeneratedImagePrompt;
 }
 
 export interface EnhancedSelfieContext {
@@ -114,4 +117,70 @@ export interface EnhancedSelfieContext {
   activityContext: string; // "just got back from gym", "getting ready for dinner", etc.
   confidence: number;
   reasoning: string;
+}
+
+// ============================================
+// LLM-DRIVEN IMAGE PROMPT TYPES
+// ============================================
+
+export interface ImagePromptContext {
+  // User's request
+  userRequest: string;
+  explicitScene?: string;
+  explicitMood?: string;
+
+  // Conversation context
+  recentMessages: Array<{ role: string; content: string }>;
+
+  // Presence context (from presenceDirector)
+  activeLoops: Array<{ topic: string; loopType: string }>;
+  relevantOpinion?: { topic: string; sentiment: string }; // Simplification of opiniion context
+
+  // Character context
+  kayleyMood: { energy: number; warmth: number };
+  userFacts?: string[]; // e.g., "User's name is Mike", "User works at Google"
+  characterFacts?: string[]; // e.g., "Kayley has a laptop named Nova"
+
+  // Temporal context
+  isOldPhoto: boolean;
+  temporalReference?: string; // "last week", "yesterday", etc.
+
+  // Calendar context
+  upcomingEvents?: Array<{ title: string; startTime: Date }>;
+
+  // Current look lock (for consistency)
+  currentLookLock?: {
+    hairstyle: HairstyleType;
+    outfit: OutfitStyle;
+  };
+}
+
+export interface GeneratedImagePrompt {
+  // Scene description (replaces getEnhancedScene)
+  sceneDescription: string;
+
+  // Lighting (replaces inferLightingAndAtmosphere)
+  lightingDescription: string;
+
+  // Expression (replaces buildMoodDescription)
+  moodExpression: string;
+
+  // New: Outfit context for reference selection
+  outfitContext: {
+    style: OutfitStyle;
+    description: string; // "sequined cocktail dress", "cozy sweater"
+  };
+
+  // New: Hairstyle guidance for reference selection
+  hairstyleGuidance: {
+    preference: HairstyleType | 'any';
+    reason?: string;
+  };
+
+  // New: Additional visual details
+  additionalDetails?: string; // Props, accessories, background elements
+
+  // Metadata
+  confidence: number; // 0-1, how confident the LLM is
+  reasoning?: string; // For debugging
 }
