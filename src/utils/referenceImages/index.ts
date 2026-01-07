@@ -12,34 +12,55 @@ const imageModules = import.meta.glob<string>('./**/*.jpg', {
   import: 'default'
 });
 
-// Type for config entries (config.json specifies everything)
-type ConfigEntry = {
+// Type for individual image entries (optional overrides)
+type ImageEntry = {
+  fileName: string;
   id: string;
-  hairstyle: HairstyleType;
-  outfit: OutfitStyle;
+  hairstyle?: HairstyleType;  // Optional override
+  outfit?: OutfitStyle;       // Optional override
 };
+
+// Type for folder config (defaults + images array)
+type FolderConfig = {
+  hairstyle: HairstyleType;   // Folder default
+  outfit: OutfitStyle;        // Folder default
+  images: ImageEntry[];
+};
+
+// Config structure: folder -> { defaults, images[] }
+type ConfigData = Record<string, FolderConfig>;
 
 // Build the registry from discovered images + config
 function buildRegistry(): ReferenceImageMetadata[] {
   const registry: ReferenceImageMetadata[] = [];
-  const config = configData as Record<string, ConfigEntry>;
-  console.log("BUILDING IMAGE REGISTRY!!!!! ", imageModules);
+  const config = configData as ConfigData;
+  console.log("[ReferenceImages] Building registry from modules:", Object.keys(imageModules));
 
   for (const [importPath] of Object.entries(imageModules)) {
-    // Convert import path "./curlyHairCasual/image.jpg" to config key "curlyHairCasual/image.jpg"
-    const configKey = importPath.replace('./', '');
-    const configEntry = config[configKey];
+    // Convert import path "./curlyHairCasual/image.jpg" to folder "curlyHairCasual" and file "image.jpg"
+    const pathWithoutPrefix = importPath.replace('./', '');
+    const [folder, fileName] = pathWithoutPrefix.split('/');
 
-    if (!configEntry) {
-      console.warn(`[ReferenceImages] No config found for: ${configKey}`);
+    // Find the folder config
+    const folderConfig = config[folder];
+    if (!folderConfig) {
+      console.warn(`[ReferenceImages] No config folder found for: ${folder}`);
       continue;
     }
 
+    // Find the image entry in the folder's images array
+    const imageEntry = folderConfig.images.find(img => img.fileName === fileName);
+    if (!imageEntry) {
+      console.warn(`[ReferenceImages] No config entry found for: ${pathWithoutPrefix}`);
+      continue;
+    }
+
+    // Use image override if present, otherwise use folder default
     registry.push({
-      id: configEntry.id,
-      fileName: configKey,
-      hairstyle: configEntry.hairstyle,
-      outfitStyle: configEntry.outfit,
+      id: imageEntry.id,
+      fileName: pathWithoutPrefix,
+      hairstyle: imageEntry.hairstyle || folderConfig.hairstyle,
+      outfitStyle: imageEntry.outfit || folderConfig.outfit,
     });
   }
 

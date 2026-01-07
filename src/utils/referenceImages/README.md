@@ -38,38 +38,57 @@ Gemini receives the LLM prompt + selected reference → generates new selfie.
 
 ## Config-Driven Architecture
 
-**config.json specifies everything:**
+**config.json defines folder defaults with optional per-image overrides:**
 ```json
 {
-  "gym/curly_workout.jpg": {
-    "id": "curly_athletic",
+  "athletic": {
+    "hairstyle": "messy_bun",
+    "outfit": "athletic",
+    "images": [
+      { "fileName": "athletic_hair_bun.jpg", "id": "athletic_bun" },
+      { "fileName": "athletic_hair_ponytail.jpg", "id": "athletic_ponytail", "hairstyle": "ponytail" }
+    ]
+  },
+  "curlyHairCasual": {
     "hairstyle": "curly",
-    "outfit": "athletic"
+    "outfit": "casual",
+    "images": [
+      { "fileName": "curly_hair_casual.jpg", "id": "curly_casual" },
+      { "fileName": "curly_hair_bun_in_bed.jpg", "id": "curly_bun_cozy", "hairstyle": "messy_bun", "outfit": "cozy" }
+    ]
   }
 }
 ```
 
-- **Folder structure is just for organization** - doesn't affect behavior
-- **Config.json is the source of truth** for hairstyle + outfit
-- **No code changes needed** to add new categories
+- **Folder defines defaults** - `hairstyle` and `outfit` apply to all images
+- **Images can override** - specify `hairstyle` or `outfit` only if different from folder default
+- **No code changes needed** to add new images or categories
 
 ---
 
 ## Adding a New Reference Image
 
 ### Step 1: Create the Image
-- Put it in any folder you want (folder name doesn't matter)
+- Put it in an existing folder (e.g., `athletic/`) or create a new one
 - Use `.jpg` format
 
 ### Step 2: Add to config.json
+Add to the folder's `images` array:
 ```json
 {
-  "myFolder/my_new_image.jpg": {
-    "id": "unique_id",
-    "hairstyle": "curly",      // curly | straight | messy_bun | ponytail | bob
-    "outfit": "athletic"        // casual | dressed_up | athletic | cozy
+  "athletic": {
+    "hairstyle": "messy_bun",
+    "outfit": "athletic",
+    "images": [
+      { "fileName": "my_new_image.jpg", "id": "unique_id" }
+    ]
   }
 }
+```
+
+If the image differs from folder defaults, add overrides:
+```json
+{ "fileName": "ponytail_workout.jpg", "id": "ponytail_athletic", "hairstyle": "ponytail" }
 ```
 
 ### Step 3: Verify
@@ -80,31 +99,39 @@ Run dev server, check console:
 
 ---
 
-## Adding a New Category (e.g., "swimwear")
+## Adding a New Folder
 
-### Step 1: Add to OutfitStyle type
-```typescript
-// src/services/imageGeneration/types.ts
-export type OutfitStyle =
-  | 'casual'
-  | 'dressed_up'
-  | 'athletic'
-  | 'cozy'
-  | 'swimwear';    // ← Add new type
+### Step 1: Create the folder
+```
+src/utils/referenceImages/swimwear/
 ```
 
-### Step 2: Add images with new outfit
+### Step 2: Add folder config with defaults
 ```json
 {
-  "beach/curly_swimsuit.jpg": {
-    "id": "curly_swimwear",
+  "swimwear": {
     "hairstyle": "curly",
-    "outfit": "swimwear"
+    "outfit": "swimwear",
+    "images": [
+      { "fileName": "beach_selfie.jpg", "id": "curly_swimwear" },
+      { "fileName": "pool_selfie.jpg", "id": "straight_swimwear", "hairstyle": "straight" }
+    ]
   }
 }
 ```
 
-That's it! The LLM already knows to suggest outfit styles based on context.
+### Step 3: Update types (if new outfit/hairstyle)
+```typescript
+// src/services/imageGeneration/types.ts
+export type OutfitStyle = 'casual' | 'dressed_up' | 'athletic' | 'cozy' | 'swimwear';
+```
+
+### Step 4: Update promptGenerator.ts arrays
+```typescript
+const OUTFIT_STYLES: OutfitStyle[] = ['casual', 'dressed_up', 'athletic', 'cozy', 'swimwear'];
+```
+
+The LLM will automatically know about the new option.
 
 ---
 

@@ -1,52 +1,68 @@
 {
-  "curlyHairCasual/curly_hair_casual_smile.jpg": {
-    "id": "curly_casual_smile",
+  "curlyHairCasual": {
     "hairstyle": "curly",
-    "outfit": "casual"
+    "outfit": "casual",
+    "images": [
+      { "fileName": "curly_hair_casual_smile.jpg", "id": "curly_casual_smile" },
+      { "fileName": "curly_hair_1.jpg", "id": "curly_casual_1" },
+      { "fileName": "curly_hair_casual.jpg", "id": "curly_casual" },
+      {
+        "fileName": "curly_hair_messy_bun_casual.jpg",
+        "id": "messy_bun_casual",
+        "hairstyle": "messy_bun"
+      },
+      {
+        "fileName": "curly_hair_bun_in_bed.jpg",
+        "id": "curly_bun_cozy",
+        "hairstyle": "messy_bun",
+        "outfit": "cozy"
+      }
+    ]
   },
-  "curlyHairCasual/curly_hair_casual.jpg": {
-    "id": "curly_casual",
+  "curlyHairFormal": {
     "hairstyle": "curly",
-    "outfit": "casual"
+    "outfit": "dressed_up",
+    "images": [
+      { "fileName": "curly_hair_dressed_up.jpg", "id": "curly_dressed_up" },
+      {
+        "fileName": "curly_hair_messy_bun_dressed_up.jpg",
+        "id": "messy_bun_dressed_up",
+        "hairstyle": "messy_bun"
+      }
+    ]
   },
-  "curlyHairCasual/curly_hair_messy_bun_casual.jpg": {
-    "id": "messy_bun_casual",
-    "hairstyle": "messy_bun",
-    "outfit": "casual"
-  },
-  "curlyHairFormal/curly_hair_dressed_up.jpg": {
-    "id": "curly_dressed_up",
-    "hairstyle": "curly",
-    "outfit": "dressed_up"
-  },
-  "curlyHairFormal/curly_hair_messy_bun_dressed_up.jpg": {
-    "id": "messy_bun_dressed_up",
-    "hairstyle": "messy_bun",
-    "outfit": "dressed_up"
-  },
-  "straightHairCasual/straight_hair_casual.jpg": {
-    "id": "straight_casual",
+  "straightHairCasual": {
     "hairstyle": "straight",
-    "outfit": "casual"
+    "outfit": "casual",
+    "images": [
+      { "fileName": "straight_hair_casual.jpg", "id": "straight_casual" },
+      {
+        "fileName": "straight_hair_bun_casual.jpg",
+        "id": "straight_bun_casual",
+        "hairstyle": "messy_bun"
+      }
+    ]
   },
-  "straightHairCasual/straight_hair_bun_casual.jpg": {
-    "id": "straight_bun_casual",
-    "hairstyle": "messy_bun",
-    "outfit": "casual"
-  },
-  "straightHairFormal/straight_hair_dressed_up.jpg": {
-    "id": "straight_dressed_up",
+  "straightHairFormal": {
     "hairstyle": "straight",
-    "outfit": "dressed_up"
+    "outfit": "dressed_up",
+    "images": [
+      {
+        "fileName": "straight_hair_dressed_up.jpg",
+        "id": "straight_dressed_up"
+      }
+    ]
   },
-  "athletic/athletic_hair_bun.jpg": {
-    "id": "athletic_hair_bun.jpg",
+  "athletic": {
     "hairstyle": "messy_bun",
-    "outfit": "athletic"
-  },
-  "athletic/athletic_hair_ponytail.jpg": {
-    "id": "athletic_hair_ponytail.jpg",
-    "hairstyle": "ponytail",
-    "outfit": "athletic"
+    "outfit": "athletic",
+    "images": [
+      { "fileName": "athletic_hair_bun.jpg", "id": "athletic_bun" },
+      {
+        "fileName": "athletic_hair_ponytail.jpg",
+        "id": "athletic_ponytail",
+        "hairstyle": "ponytail"
+      }
+    ]
   }
 }
