@@ -60,7 +60,7 @@ const kayleyState = await getKayleyPresenceState(userId);
 const selfieResult = await generateCompanionSelfie({
   scene: selfieAction.scene,
   mood: selfieAction.mood,
-  outfitHint: selfieAction.outfit_hint,
+  outfit: selfieAction.outfit,
   // Enable multi-reference system
   userId,
   userMessage: message,

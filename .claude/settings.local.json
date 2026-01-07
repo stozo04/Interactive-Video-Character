@@ -22,5 +22,8 @@
       "Bash(done)",
       "Bash(mkdir:*)"
     ]
+  },
+  "enabledPlugins": {
+    "claude-hud@claude-hud": true
   }
 }

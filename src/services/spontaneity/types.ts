@@ -84,10 +84,10 @@ export type TransitionStyle = 'smooth' | 'quick' | 'dramatic' | 'subtle';
  */
 export interface SpontaneousSelfieContext {
   reason: SpontaneousSelfieReason;
-  scene: string;           // Where she is / what she's doing
-  mood: string;            // Her expression
-  outfitHint?: string;     // What she's wearing if relevant
-  caption: string;         // What she says with it
+  scene: string; // Where she is / what she's doing
+  mood: string; // Her expression
+  outfit?: string; // What she's wearing if relevant
+  caption: string; // What she says with it
 }
 
 /**

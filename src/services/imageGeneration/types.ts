@@ -20,35 +20,10 @@ export type SeasonContext =
   | 'fall';           // Sep, Oct, Nov
 
 export interface ReferenceImageMetadata {
-  id: string;                          // Unique identifier
-  fileName: string;                    // e.g., "curly_hair_casual.txt"
-  hairstyle: HairstyleType;
-  outfitStyle: OutfitStyle;
-
-  // Selection weights
-  baseFrequency: number;               // 0-1, how common this look is
-
-  // Contextual suitability
-  suitableScenes: string[];            // ['coffee', 'home', 'park']
-  unsuitableScenes: string[];          // ['gym', 'pool']
-  suitableSeasons: SeasonContext[];    // ['fall', 'winter', 'spring']
-
-  // Mood affinity
-  moodAffinity: {
-    playful: number;                   // 0-1, how well this fits playful mood
-    confident: number;
-    relaxed: number;
-    excited: number;
-    flirty: number;
-  };
-
-  // Time appropriateness
-  timeOfDay: {
-    morning: number;                   // 0-1, suitability score
-    afternoon: number;
-    evening: number;
-    night: number;
-  };
+  id: string; // Unique identifier
+  fileName: string; // e.g., "curlyHairCasual/curly_hair_casual.jpg"
+  hairstyle: HairstyleType; // Derived from folder name
+  outfitStyle: OutfitStyle; // Derived from folder name
 }
 
 export interface CurrentLookState {
@@ -72,10 +47,10 @@ export interface SelfieTemporalContext {
 }
 
 export interface ReferenceSelectionContext {
-  // Scene and mood (from existing system)
+  // Scene and mood (passed through but not used for static scoring)
   scene: string;
   mood?: string;
-  outfitHint?: string;
+  outfit?: string;
 
   // User's original message for hairstyle detection
   userMessage?: string;
@@ -91,14 +66,9 @@ export interface ReferenceSelectionContext {
     isFormal: boolean;
   }>;
 
-  // Environmental context
-  currentSeason: SeasonContext;
-  timeOfDay: 'morning' | 'afternoon' | 'evening' | 'night';
-  currentLocation: string | null;
-
   // Presence context (from presence_contexts table)
-  presenceOutfit?: string;             // "just got back from the gym"
-  presenceMood?: string;               // "feeling cute today"
+  presenceOutfit?: string; // "just got back from the gym"
+  presenceMood?: string; // "feeling cute today"
 
   // Anti-repetition tracking
   recentReferenceHistory: Array<{
@@ -107,16 +77,13 @@ export interface ReferenceSelectionContext {
     scene: string;
   }>;
 
-  // New LLM guidance (Phase 2)
-  llmGuidance?: GeneratedImagePrompt;
-}
+  // Environmental context (used by some services)
+  currentSeason: SeasonContext;
+  timeOfDay: "morning" | "afternoon" | "evening" | "night";
+  currentLocation: string | null;
 
-export interface EnhancedSelfieContext {
-  inferredOutfitStyle: 'casual' | 'dressed_up' | 'athletic' | 'cozy' | 'unknown';
-  inferredHairstylePreference: 'curly' | 'straight' | 'messy_bun' | 'ponytail' | 'any';
-  activityContext: string; // "just got back from gym", "getting ready for dinner", etc.
-  confidence: number;
-  reasoning: string;
+  // LLM guidance (primary selection mechanism)
+  llmGuidance?: GeneratedImagePrompt;
 }
 
 // ============================================
@@ -134,16 +101,16 @@ export interface ImagePromptContext {
 
   // Presence context (from presenceDirector)
   activeLoops: Array<{ topic: string; loopType: string }>;
-  relevantOpinion?: { topic: string; sentiment: string }; // Simplification of opiniion context
+  relevantOpinion?: { topic: string; sentiment: string };
 
   // Character context
   kayleyMood: { energy: number; warmth: number };
-  userFacts?: string[]; // e.g., "User's name is Mike", "User works at Google"
-  characterFacts?: string[]; // e.g., "Kayley has a laptop named Nova"
+  userFacts?: string[];
+  characterFacts?: string[];
 
   // Temporal context
   isOldPhoto: boolean;
-  temporalReference?: string; // "last week", "yesterday", etc.
+  temporalReference?: string;
 
   // Calendar context
   upcomingEvents?: Array<{ title: string; startTime: Date }>;
@@ -165,22 +132,22 @@ export interface GeneratedImagePrompt {
   // Expression (replaces buildMoodDescription)
   moodExpression: string;
 
-  // New: Outfit context for reference selection
+  // Outfit context for reference selection
   outfitContext: {
     style: OutfitStyle;
-    description: string; // "sequined cocktail dress", "cozy sweater"
+    description: string;
   };
 
-  // New: Hairstyle guidance for reference selection
+  // Hairstyle guidance for reference selection
   hairstyleGuidance: {
-    preference: HairstyleType | 'any';
+    preference: HairstyleType | "any";
     reason?: string;
   };
 
-  // New: Additional visual details
-  additionalDetails?: string; // Props, accessories, background elements
+  // Additional visual details
+  additionalDetails?: string;
 
   // Metadata
-  confidence: number; // 0-1, how confident the LLM is
-  reasoning?: string; // For debugging
+  confidence: number;
+  reasoning?: string;
 }

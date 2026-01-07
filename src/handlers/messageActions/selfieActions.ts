@@ -18,7 +18,7 @@ import type { CalendarEvent } from '../../services/calendarService';
 export interface SelfieAction {
   scene: string;
   mood?: string;
-  outfit_hint?: string;
+  outfit?: string;
 }
 
 /**
@@ -52,15 +52,15 @@ export async function processSelfieAction(
     return { handled: false, success: false };
   }
 
-  console.log('📸 Selfie action detected - generating companion image');
-  console.log('📸 Scene:', selfieAction.scene, 'Mood:', selfieAction.mood);
+  console.log("📸 Selfie action detected - generating companion image");
+  console.log("📸 Scene:", selfieAction.scene, "Mood:", selfieAction.mood);
 
   try {
     // Get Kayley's current presence state
     const kayleyState = await getKayleyPresenceState();
 
     // DEBUG: Log presence state usage
-    console.log('📸 [Selfie Generation] Presence State:', {
+    console.log("📸 [Selfie Generation] Presence State:", {
       hasState: !!kayleyState,
       outfit: kayleyState?.currentOutfit,
       mood: kayleyState?.currentMood,
@@ -72,13 +72,13 @@ export async function processSelfieAction(
     // Prepare upcoming events for outfit context
     const formattedEvents = context.upcomingEvents.map((event) => ({
       title: event.summary,
-      startTime: new Date(event.start.dateTime || event.start.date || ''),
+      startTime: new Date(event.start.dateTime || event.start.date || ""),
       isFormal: isFormalEvent(event.summary),
     }));
 
     // Prepare conversation history
     const conversationHistory = context.chatHistory.slice(-10).map((msg) => ({
-      role: msg.role === 'user' ? 'user' : ('assistant' as const),
+      role: msg.role === "user" ? "user" : ("assistant" as const),
       content: msg.text,
     }));
 
@@ -86,7 +86,7 @@ export async function processSelfieAction(
     const selfieResult = await generateCompanionSelfie({
       scene: selfieAction.scene,
       mood: selfieAction.mood,
-      outfitHint: selfieAction.outfit_hint,
+      outfit: selfieAction.outfit,
       userMessage: context.userMessage,
       conversationHistory,
       upcomingEvents: formattedEvents,
@@ -95,7 +95,7 @@ export async function processSelfieAction(
     });
 
     if (selfieResult.success && selfieResult.imageBase64) {
-      console.log('✅ Selfie generated successfully!');
+      console.log("✅ Selfie generated successfully!");
       return {
         handled: true,
         success: true,
@@ -103,7 +103,7 @@ export async function processSelfieAction(
         mimeType: selfieResult.mimeType,
       };
     } else {
-      console.error('❌ Selfie generation failed:', selfieResult.error);
+      console.error("❌ Selfie generation failed:", selfieResult.error);
       return {
         handled: true,
         success: false,
@@ -111,11 +111,11 @@ export async function processSelfieAction(
       };
     }
   } catch (error) {
-    console.error('Failed to generate selfie:', error);
+    console.error("Failed to generate selfie:", error);
     return {
       handled: true,
       success: false,
-      error: error instanceof Error ? error.message : 'Unknown error',
+      error: error instanceof Error ? error.message : "Unknown error",
     };
   }
 }

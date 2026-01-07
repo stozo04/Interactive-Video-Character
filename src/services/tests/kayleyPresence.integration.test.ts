@@ -120,7 +120,7 @@ describe("Kayley Presence Tracking - Integration Tests", () => {
       const context: ReferenceSelectionContext = {
         scene: "at home",
         mood: undefined,
-        outfitHint: undefined,
+        outfit: undefined,
         presenceOutfit: presenceState?.currentOutfit,
         presenceMood: presenceState?.currentMood,
         upcomingEvents: [],
@@ -186,7 +186,7 @@ describe("Kayley Presence Tracking - Integration Tests", () => {
       const context: ReferenceSelectionContext = {
         scene: "getting ready",
         mood: undefined,
-        outfitHint: undefined,
+        outfit: undefined,
         presenceOutfit: "getting ready for dinner",
         presenceMood: presenceState?.currentMood,
         upcomingEvents: [],
@@ -225,7 +225,7 @@ describe("Kayley Presence Tracking - Integration Tests", () => {
       const context: ReferenceSelectionContext = {
         scene: "sitting on my couch",
         mood: "relaxed",
-        outfitHint: undefined,
+        outfit: undefined,
         presenceOutfit: undefined,
         presenceMood: undefined,
         upcomingEvents: [],

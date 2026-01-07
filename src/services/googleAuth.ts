@@ -152,7 +152,7 @@ export async function refreshAccessToken(): Promise<Omit<GmailSession, "email">>
   const { data, error } = await supabase.auth.refreshSession();
   
   if (error) {
-    console.error('Failed to refresh Supabase session:', error);
+    console.warn('Supabase refresh call completed but provider token may be missing:', error);
     throw error;
   }
 
@@ -163,7 +163,8 @@ export async function refreshAccessToken(): Promise<Omit<GmailSession, "email">>
   }
 
   if (!sbSession || !sbSession.provider_token) {
-    throw new Error("Failed to obtain refreshed provider token from Supabase.");
+    // This is expected behavior for Supabase refreshes - they don't return the provider token
+    throw new Error("PROVIDER_TOKEN_MISSING");
   }
 
   return {
@@ -209,8 +210,10 @@ export async function ensureValidSession(
         };
         saveSession(refreshedSession);
         return refreshedSession;
-      } catch (refreshError) {
-        console.error('Failed to refresh Supabase session:', refreshError);
+      } catch (refreshError: any) {
+        if (refreshError.message !== 'PROVIDER_TOKEN_MISSING') {
+          console.warn('Failed to refresh Supabase session:', refreshError);
+        }
         // Throw a specific error that can be caught to trigger a silent refresh or needs_reconnect
         throw new Error('AUTH_REFRESH_FAILED');
       }

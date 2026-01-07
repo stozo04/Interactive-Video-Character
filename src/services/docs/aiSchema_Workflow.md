@@ -279,8 +279,8 @@ Follow the **8-step Tool Integration Checklist** (see `docs/Tool_Integration_Che
 ```typescript
 // In service processing the response
 if (response.selfie_action) {
-  const { scene, mood, outfit_hint } = response.selfie_action;
-  await generateSelfie(userId, scene, mood, outfit_hint);
+  const { scene, mood } = response.selfie_action;
+  await generateSelfie(userId, scene, mood);
 }
 ```
 

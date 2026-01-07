@@ -56,7 +56,7 @@ export interface SpontaneousSelfieContext {
   reason: SpontaneousSelfieReason;
   scene: string;           // Where she is / what she's doing
   mood: string;            // Her expression
-  outfitHint?: string;     // What she's wearing if relevant
+  outfit?: string;         // What she's wearing if relevant
   caption: string;         // What she says with it
 }
 
@@ -147,7 +147,7 @@ CREATE TABLE kayley_pending_shares (
   selfie_reason TEXT,                 -- thinking_of_you, new_outfit, good_mood, etc.
   selfie_scene TEXT,                  -- Where she is
   selfie_mood TEXT,                   -- Her expression
-  selfie_outfit_hint TEXT,            -- What she's wearing
+  selfie_outfit TEXT,            -- What she's wearing
 
   -- Lifecycle
   expires_at TIMESTAMP NOT NULL,
@@ -170,7 +170,7 @@ CREATE TABLE spontaneous_selfie_history (
   reason TEXT NOT NULL,               -- thinking_of_you, new_outfit, etc.
   scene TEXT NOT NULL,
   mood TEXT NOT NULL,
-  outfit_hint TEXT,
+  outfit TEXT,
   caption TEXT NOT NULL,
 
   -- Context at time of sending
@@ -1021,7 +1021,7 @@ function buildSelfieContext(
     reason,
     scene: location || 'at home',
     mood: mood || 'smiling',
-    outfitHint: outfit || undefined,
+    outfit: outfit || undefined,
     caption
   };
 }
@@ -1056,7 +1056,7 @@ export async function recordSpontaneousSelfie(
     reason: context.reason,
     scene: context.scene,
     mood: context.mood,
-    outfit_hint: context.outfitHint,
+    outfit: context.outfit,
     caption: context.caption,
     conversation_mood: conversationalMood,
     relationship_tier: relationshipTier,
@@ -1114,7 +1114,7 @@ if (spontaneity.suggestedSelfie) {
 You could send a selfie with caption: "${spontaneity.suggestedSelfie.caption}"
 Scene: ${spontaneity.suggestedSelfie.scene}
 Mood: ${spontaneity.suggestedSelfie.mood}
-${spontaneity.suggestedSelfie.outfitHint ? `Outfit: ${spontaneity.suggestedSelfie.outfitHint}` : ''}
+${spontaneity.suggestedSelfie.outfit ? `Outfit: ${spontaneity.suggestedSelfie.outfit}` : ''}
 
 Only do this if it feels natural! Spontaneous selfies should be rare and meaningful.
 If you decide to send it, use the selfie_action field in your response.

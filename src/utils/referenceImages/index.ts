@@ -1,6 +1,6 @@
 // src/utils/referenceImages/index.ts
 // Auto-discovery system for reference images
-// To add new images: 1) Drop image in correct folder  2) Add entry to config.json
+// Config-driven: hairstyle + outfit specified in config.json (not derived from folder names)
 
 import { ReferenceImageMetadata, HairstyleType, OutfitStyle } from '../../services/imageGeneration/types';
 import configData from './config.json';
@@ -12,31 +12,11 @@ const imageModules = import.meta.glob<string>('./**/*.jpg', {
   import: 'default'
 });
 
-// Folder name → hairstyle mapping
-const FOLDER_TO_HAIRSTYLE: Record<string, string> = {
-  'curlyHairCasual': 'curly',
-  'curlyHairFormal': 'curly',
-  'straightHairCasual': 'straight',
-  'straightHairFormal': 'straight',
-};
-
-// Folder name → outfit style mapping
-const FOLDER_TO_OUTFIT: Record<string, string> = {
-  'curlyHairCasual': 'casual',
-  'curlyHairFormal': 'dressed_up',
-  'straightHairCasual': 'casual',
-  'straightHairFormal': 'dressed_up',
-};
-
-// Type for config entries
+// Type for config entries (config.json specifies everything)
 type ConfigEntry = {
   id: string;
-  baseFrequency: number;
-  suitableScenes: string[];
-  unsuitableScenes: string[];
-  suitableSeasons: string[];
-  moodAffinity: Record<string, number>;
-  timeOfDay: Record<string, number>;
+  hairstyle: HairstyleType;
+  outfit: OutfitStyle;
 };
 
 // Build the registry from discovered images + config
@@ -44,7 +24,7 @@ function buildRegistry(): ReferenceImageMetadata[] {
   const registry: ReferenceImageMetadata[] = [];
   const config = configData as Record<string, ConfigEntry>;
 
-  for (const [importPath, base64Content] of Object.entries(imageModules)) {
+  for (const [importPath] of Object.entries(imageModules)) {
     // Convert import path "./curlyHairCasual/image.jpg" to config key "curlyHairCasual/image.jpg"
     const configKey = importPath.replace('./', '');
     const configEntry = config[configKey];
@@ -54,27 +34,11 @@ function buildRegistry(): ReferenceImageMetadata[] {
       continue;
     }
 
-    // Extract folder name for defaults
-    const folderName = configKey.split('/')[0];
-    const fileName = configKey.split('/').pop() || '';
-
-    // Detect hairstyle override from filename (e.g., "messy_bun" in filename)
-    let hairstyle = FOLDER_TO_HAIRSTYLE[folderName] || 'curly';
-    if (fileName.includes('messy_bun') || fileName.includes('bun')) {
-      hairstyle = 'messy_bun';
-    }
-
     registry.push({
       id: configEntry.id,
       fileName: configKey,
-      hairstyle: hairstyle as HairstyleType,
-      outfitStyle: (FOLDER_TO_OUTFIT[folderName] || 'casual') as OutfitStyle,
-      baseFrequency: configEntry.baseFrequency,
-      suitableScenes: configEntry.suitableScenes,
-      unsuitableScenes: configEntry.unsuitableScenes,
-      suitableSeasons: configEntry.suitableSeasons as Array<'spring' | 'summer' | 'fall' | 'winter'>,
-      moodAffinity: configEntry.moodAffinity as Record<'playful' | 'confident' | 'relaxed' | 'excited' | 'flirty', number>,
-      timeOfDay: configEntry.timeOfDay as Record<'morning' | 'afternoon' | 'evening' | 'night', number>,
+      hairstyle: configEntry.hairstyle,
+      outfitStyle: configEntry.outfit,
     });
   }
 
@@ -119,12 +83,19 @@ export function getReferenceMetadata(referenceId: string): ReferenceImageMetadat
 /**
  * Get all available hairstyle types
  */
-export function getAvailableHairstyles(): string[] {
+export function getAvailableHairstyles(): HairstyleType[] {
   return Array.from(new Set(REFERENCE_IMAGE_REGISTRY.map(r => r.hairstyle)));
+}
+
+/**
+ * Get all available outfit styles
+ */
+export function getAvailableOutfits(): OutfitStyle[] {
+  return Array.from(new Set(REFERENCE_IMAGE_REGISTRY.map(r => r.outfitStyle)));
 }
 
 // Log discovered images in development
 if (import.meta.env.DEV) {
   console.log(`[ReferenceImages] Loaded ${REFERENCE_IMAGE_REGISTRY.length} reference images:`,
-    REFERENCE_IMAGE_REGISTRY.map(r => r.id));
+    REFERENCE_IMAGE_REGISTRY.map(r => `${r.id} (${r.hairstyle}/${r.outfitStyle})`));
 }

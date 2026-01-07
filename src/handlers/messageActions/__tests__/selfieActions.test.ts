@@ -50,7 +50,7 @@ describe('selfieActions', () => {
       const selfieAction = {
         scene: "cozy coffee shop",
         mood: "happy",
-        outfit_hint: "casual",
+        outfit: "casual",
       };
 
       const result = await processSelfieAction(selfieAction, {
