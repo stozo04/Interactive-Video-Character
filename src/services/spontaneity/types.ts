@@ -51,11 +51,6 @@ export type SpontaneousSelfieReason =
   | 'matching_topic';      // Selfie relates to what they're discussing
 
 /**
- * Types of things Kayley might want to share
- */
-export type PendingShareType = 'story' | 'thought' | 'question' | 'discovery' | 'vent' | 'selfie';
-
-/**
  * Types of idle thoughts Kayley generates during absence
  */
 export type IdleThoughtType = 'dream' | 'memory' | 'curiosity' | 'anticipation' | 'connection' | 'random';
@@ -128,24 +123,6 @@ export interface SpontaneityContext {
   currentMoodForSelfie: string | null; // "feeling cute", "looking rough", etc.
   userHadBadDay: boolean;            // Might send to cheer them up
   selfieProbability: number;         // Separate from general spontaneity
-}
-
-/**
- * A pending share - something Kayley wants to tell the user
- */
-export interface PendingShare {
-  id: string;
-  content: string;
-  type: PendingShareType;
-  urgency: number;                   // 0-1
-  relevanceTopics: string[];         // Topics that might trigger this
-  naturalOpener: string;             // "Oh! I've been meaning to tell you..."
-  canInterrupt: boolean;             // Important enough to hijack topic?
-  expiresAt: Date;
-  createdAt: Date;
-
-  // Selfie-specific (only if type === 'selfie')
-  selfieContext?: SpontaneousSelfieContext;
 }
 
 /**
@@ -332,28 +309,6 @@ export interface ConversationSpontaneityState {
 }
 
 // ============================================================================
-// INTERFACES - Association Engine
-// ============================================================================
-
-/**
- * A match between a pending share and current conversation topics
- */
-export interface AssociationMatch {
-  share: PendingShare;
-  matchedTopic: string;
-  relevanceScore: number;
-}
-
-/**
- * Suggested association to include in response
- */
-export interface SuggestedAssociation {
-  opener: string;
-  content: string;
-  shareId: string;
-}
-
-// ============================================================================
 // INTERFACES - Integration
 // ============================================================================
 
@@ -364,7 +319,6 @@ export interface SpontaneityIntegration {
   promptSection: string;
   humorGuidance: string;
   selfiePrompt: string;
-  suggestedAssociation: SuggestedAssociation | null;
 }
 
 // ============================================================================

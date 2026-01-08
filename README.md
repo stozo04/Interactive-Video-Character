@@ -269,7 +269,6 @@ The Spontaneity System makes Kayley feel alive by enabling spontaneous behaviors
 
 **Core Components:**
 - `src/services/spontaneity/spontaneityTracker.ts` - Tracks conversation state and probabilities
-- `src/services/spontaneity/associationEngine.ts` - Matches pending shares to conversation topics
 - `src/services/spontaneity/visualStateMapper.ts` - Maps emotional states to video manifests
 - `src/services/spontaneity/sessionReflection.ts` - Post-conversation synthesis
 - `src/services/spontaneity/idleThoughts.ts` - Dream/thought generation during absence
@@ -277,7 +276,6 @@ The Spontaneity System makes Kayley feel alive by enabling spontaneous behaviors
 **Key Features:**
 - **Probability-based spontaneity** (10-40% based on relationship, energy, conversation length)
 - **Selfie spontaneity** (2-15% for friend+ tiers, with 24-hour cooldown)
-- **Topic associations** - Kayley brings up pending shares when relevant topics arise
 - **Visual-emotional bridge** - Video manifests change based on emotional state
 - **Independent reflection** - Kayley "thinks" after conversations and has things to share
 

@@ -37,6 +37,7 @@ export interface SpontaneityOptions {
   currentOutfit?: string | null;
   currentMoodForSelfie?: string | null;
   userHadBadDay?: boolean;
+  vulnerabilityExchangeActive?: boolean;
 }
 
 /**
@@ -61,6 +62,7 @@ export async function getSoulLayerContextAsync(
   let moodKnobs: KayleyMood;
   let threadsPrompt: string = "";
   let presenceContext: PresenceContext | undefined;
+  let vulnerabilityExchangeActive = false;
 
   try {
     // 🚀 PARALLEL: Fire both major async operations simultaneously
@@ -73,6 +75,13 @@ export async function getSoulLayerContextAsync(
     ]);
 
     presenceContext = presenceResult;
+
+    // Extract vulnerability state from intimacy (for spontaneity)
+    vulnerabilityExchangeActive = fullContext.intimacy_state?.vulnerabilityExchangeActive ?? false;
+
+    if (vulnerabilityExchangeActive) {
+      console.log("💕 [Vulnerability] User recently shared something vulnerable - Kayley will be more sensitive");
+    }
 
     // Process mood using SIMPLIFIED system (energy + warmth instead of 6 knobs)
     if (fullContext.mood_state && fullContext.emotional_momentum) {
@@ -108,12 +117,16 @@ export async function getSoulLayerContextAsync(
     moodKnobs = moodKnobsResult;
     threadsPrompt = threadsResult;
     presenceContext = presenceResult;
+    // vulnerabilityExchangeActive stays false in fallback case
   }
 
   // Optionally integrate spontaneity (if options provided)
   let spontaneityIntegration;
   if (spontaneityOptions) {
     try {
+      // Use fetched vulnerability state, or override from options if provided
+      const effectiveVulnerability = spontaneityOptions.vulnerabilityExchangeActive ?? vulnerabilityExchangeActive;
+
       spontaneityIntegration = await integrateSpontaneity(
         spontaneityOptions.conversationalMood,
         moodKnobs,
@@ -125,7 +138,8 @@ export async function getSoulLayerContextAsync(
         spontaneityOptions.currentLocation,
         spontaneityOptions.currentOutfit,
         spontaneityOptions.currentMoodForSelfie,
-        spontaneityOptions.userHadBadDay
+        spontaneityOptions.userHadBadDay,
+        effectiveVulnerability
       );
     } catch (error) {
       console.warn("[SoulLayerContext] Failed to integrate spontaneity:", error);

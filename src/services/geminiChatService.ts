@@ -18,7 +18,11 @@ import { generateSpeech } from "./elevenLabsService";
 import { executeMemoryTool, MemoryToolName } from "./memoryService";
 import { getTopLoopToSurface, markLoopSurfaced } from "./presenceDirector";
 import { resolveActionKey } from "../utils/actionKeyMapper";
-import { getUndeliveredMessage, markMessageDelivered } from "./idleLife";
+import {
+  getUndeliveredMessage,
+  markMessageDelivered,
+  detectAndMarkSurfacedExperiences,
+} from "./idleLife";
 import { formatCharacterFactsForPrompt } from "./characterFactsService";
 import { analyzeUserMessageBackground } from "./messageAnalyzer";
 import {
@@ -957,6 +961,22 @@ export class GeminiService implements IAIChatService {
               err
             );
           });
+
+        // Detect and mark surfaced Kayley experiences
+        detectAndMarkSurfacedExperiences(aiResponse.text_response)
+          .then((markedIds) => {
+            if (markedIds.length > 0) {
+              console.log(
+                `🎭 [GeminiService] Marked ${markedIds.length} experience(s) as surfaced`
+              );
+            }
+          })
+          .catch((err) => {
+            console.warn(
+              "[GeminiService] Failed to detect surfaced experiences:",
+              err
+            );
+          });
       }
 
       // ============================================
@@ -1420,6 +1440,15 @@ Keep it very short (1 sentence).
         );
       }
 
+      // Detect and mark surfaced Kayley experiences (fire-and-forget)
+      detectAndMarkSurfacedExperiences(structuredResponse.text_response).catch(
+        (err) =>
+          console.warn(
+            "[GeminiService] Failed to detect surfaced experiences in greeting:",
+            err
+          )
+      );
+
       return {
         greeting: structuredResponse,
         session: {
@@ -1513,6 +1542,15 @@ Keep it very short (1 sentence).
 
       // Generate audio
       const audioData = await generateSpeech(structuredResponse.text_response);
+
+      // Detect and mark surfaced Kayley experiences (fire-and-forget)
+      detectAndMarkSurfacedExperiences(structuredResponse.text_response).catch(
+        (err) =>
+          console.warn(
+            "[GeminiService] Failed to detect surfaced experiences in non-greeting:",
+            err
+          )
+      );
 
       return {
         greeting: structuredResponse,

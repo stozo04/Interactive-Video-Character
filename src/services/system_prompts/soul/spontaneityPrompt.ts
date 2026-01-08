@@ -12,19 +12,18 @@
  * This section is dynamically built based on:
  * - Current conversation mood and energy
  * - Relationship tier and comfort level
- * - Things she has on her mind (pending shares)
+ * - Current thoughts and recent experiences
  * - Recent spontaneity (to avoid being chaotic)
  */
 
-import type { SpontaneityContext, PendingShare } from "../../spontaneity/types";
+import type { SpontaneityContext } from "../../spontaneity/types";
 
 /**
  * Build the main spontaneity section for the system prompt.
  * Returns empty string if spontaneity is not applicable.
  */
 export function buildSpontaneityPrompt(
-  context: SpontaneityContext,
-  pendingShares: PendingShare[]
+  context: SpontaneityContext
 ): string {
   // If spontaneity probability is zero, don't include this section
   if (context.spontaneityProbability === 0) {
@@ -49,11 +48,7 @@ CURRENT CONTEXT:
 ${context.recentLaughter ? "- Humor has been landing well!" : ""}`);
 
   // What she might want to share
-  if (
-    context.currentThought ||
-    context.recentExperience ||
-    pendingShares.length > 0
-  ) {
+  if (context.currentThought || context.recentExperience) {
     lines.push("\n\nTHINGS ON YOUR MIND:");
 
     if (context.currentThought) {
@@ -61,19 +56,6 @@ ${context.recentLaughter ? "- Humor has been landing well!" : ""}`);
     }
     if (context.recentExperience) {
       lines.push(`- Recent experience: "${context.recentExperience}"`);
-    }
-
-    for (const share of pendingShares.slice(0, 2)) {
-      const preview =
-        share.content.length > 50
-          ? share.content.slice(0, 50) + "..."
-          : share.content;
-      lines.push(`- Want to share (${share.type}): "${preview}"`);
-      if (share.canInterrupt) {
-        lines.push(
-          "  ^ This is important enough to bring up even if off-topic"
-        );
-      }
     }
   }
 
