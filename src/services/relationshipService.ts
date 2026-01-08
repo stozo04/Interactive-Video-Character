@@ -987,6 +987,9 @@ export async function recordMessageQualityAsync(
 
   // Update vulnerability exchange
   if (analysis.isVulnerable) {
+    if (!state.vulnerabilityExchangeActive) {
+      console.log("💕 [Vulnerability] DETECTED! User shared something vulnerable - activating sensitivity mode (30 min)");
+    }
     state.vulnerabilityExchangeActive = true;
     state.lastVulnerabilityAt = Date.now();
   } else {
@@ -995,6 +998,9 @@ export async function recordMessageQualityAsync(
       state.lastVulnerabilityAt &&
       Date.now() - state.lastVulnerabilityAt > 30 * 60 * 1000
     ) {
+      if (state.vulnerabilityExchangeActive) {
+        console.log("💕 [Vulnerability] Expired - returning to normal spontaneity");
+      }
       state.vulnerabilityExchangeActive = false;
     }
   }

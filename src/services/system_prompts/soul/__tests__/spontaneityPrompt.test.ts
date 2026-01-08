@@ -12,10 +12,7 @@ import {
   buildSpontaneousSelfiePrompt,
   buildHumorGuidance,
 } from "../spontaneityPrompt";
-import type {
-  SpontaneityContext,
-  PendingShare,
-} from "../../../spontaneity/types";
+import type { SpontaneityContext } from "../../../spontaneity/types";
 
 // ============================================
 // Test Helpers
@@ -52,23 +49,6 @@ function createBaseSpontaneityContext(
   };
 }
 
-function createPendingShare(
-  overrides: Partial<PendingShare> = {}
-): PendingShare {
-  return {
-    id: "share-1",
-    content: "I had the weirdest dream last night about flying penguins",
-    type: "story",
-    urgency: 0.5,
-    relevanceTopics: ["dreams", "animals"],
-    naturalOpener: "Oh! I've been meaning to tell you...",
-    canInterrupt: false,
-    expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
-    createdAt: new Date(),
-    ...overrides,
-  };
-}
-
 // ============================================
 // buildSpontaneityPrompt
 // ============================================
@@ -79,7 +59,7 @@ describe("buildSpontaneityPrompt", () => {
       spontaneityProbability: 0,
     });
 
-    const result = buildSpontaneityPrompt(context, []);
+    const result = buildSpontaneityPrompt(context);
 
     expect(result).toBe("");
   });
@@ -93,7 +73,7 @@ describe("buildSpontaneityPrompt", () => {
       spontaneityProbability: 0.25,
     });
 
-    const result = buildSpontaneityPrompt(context, []);
+    const result = buildSpontaneityPrompt(context);
 
     expect(result).toContain("✨ SPONTANEITY (Be Surprising Sometimes)");
     expect(result).toContain("Conversation mood: playful");
@@ -108,7 +88,7 @@ describe("buildSpontaneityPrompt", () => {
       recentLaughter: true,
     });
 
-    const result = buildSpontaneityPrompt(context, []);
+    const result = buildSpontaneityPrompt(context);
 
     expect(result).toContain("Humor has been landing well!");
   });
@@ -118,7 +98,7 @@ describe("buildSpontaneityPrompt", () => {
       currentThought: "I wonder if cats dream about being humans",
     });
 
-    const result = buildSpontaneityPrompt(context, []);
+    const result = buildSpontaneityPrompt(context);
 
     expect(result).toContain("THINGS ON YOUR MIND:");
     expect(result).toContain(
@@ -131,40 +111,11 @@ describe("buildSpontaneityPrompt", () => {
       recentExperience: "Just saw the most beautiful sunset",
     });
 
-    const result = buildSpontaneityPrompt(context, []);
+    const result = buildSpontaneityPrompt(context);
 
     expect(result).toContain("THINGS ON YOUR MIND:");
     expect(result).toContain(
       'Recent experience: "Just saw the most beautiful sunset"'
-    );
-  });
-
-  it("should include pending shares with preview", () => {
-    const context = createBaseSpontaneityContext();
-    const share = createPendingShare({
-      content:
-        "This is a really long story about something that happened yesterday that I want to share",
-      type: "story",
-    });
-
-    const result = buildSpontaneityPrompt(context, [share]);
-
-    expect(result).toContain("THINGS ON YOUR MIND:");
-    expect(result).toContain("Want to share (story):");
-    expect(result).toContain("This is a really long story about something"); // truncated
-  });
-
-  it("should mark interruptible shares", () => {
-    const context = createBaseSpontaneityContext();
-    const share = createPendingShare({
-      content: "Important news!",
-      canInterrupt: true,
-    });
-
-    const result = buildSpontaneityPrompt(context, [share]);
-
-    expect(result).toContain(
-      "This is important enough to bring up even if off-topic"
     );
   });
 
@@ -173,7 +124,7 @@ describe("buildSpontaneityPrompt", () => {
       topicsDiscussed: ["movies", "music", "travel", "food", "hobbies"],
     });
 
-    const result = buildSpontaneityPrompt(context, []);
+    const result = buildSpontaneityPrompt(context);
 
     expect(result).toContain("TOPICS DISCUSSED (for associations):");
     expect(result).toContain("movies, music, travel, food, hobbies");
@@ -192,7 +143,7 @@ describe("buildSpontaneityPrompt", () => {
       ],
     });
 
-    const result = buildSpontaneityPrompt(context, []);
+    const result = buildSpontaneityPrompt(context);
 
     expect(result).toContain("topic3, topic4, topic5, topic6, topic7");
     expect(result).not.toContain("topic1");
@@ -201,7 +152,7 @@ describe("buildSpontaneityPrompt", () => {
   it("should include all spontaneous behavior types", () => {
     const context = createBaseSpontaneityContext();
 
-    const result = buildSpontaneityPrompt(context, []);
+    const result = buildSpontaneityPrompt(context);
 
     expect(result).toContain("ASSOCIATIVE LEAP");
     expect(result).toContain("SPONTANEOUS HUMOR");
@@ -218,7 +169,7 @@ describe("buildSpontaneityPrompt", () => {
       userHadBadDay: true,
     });
 
-    const result = buildSpontaneityPrompt(context, []);
+    const result = buildSpontaneityPrompt(context);
 
     expect(result).toContain("SPONTANEOUS SELFIE");
     expect(result).toContain("~10% chance");
@@ -231,7 +182,7 @@ describe("buildSpontaneityPrompt", () => {
       selfieProbability: 0,
     });
 
-    const result = buildSpontaneityPrompt(context, []);
+    const result = buildSpontaneityPrompt(context);
 
     expect(result).not.toContain("SPONTANEOUS SELFIE");
   });
@@ -241,7 +192,7 @@ describe("buildSpontaneityPrompt", () => {
       conversationalMood: "heavy",
     });
 
-    const result = buildSpontaneityPrompt(context, []);
+    const result = buildSpontaneityPrompt(context);
 
     expect(result).toContain("DO NOT joke right now, the mood is heavy");
   });
@@ -251,7 +202,7 @@ describe("buildSpontaneityPrompt", () => {
       conversationalMood: "playful",
     });
 
-    const result = buildSpontaneityPrompt(context, []);
+    const result = buildSpontaneityPrompt(context);
 
     expect(result).toContain("If the vibe is right (IT IS!)");
   });
@@ -265,7 +216,7 @@ describe("buildSpontaneityPrompt", () => {
       ],
     });
 
-    const result = buildSpontaneityPrompt(context, []);
+    const result = buildSpontaneityPrompt(context);
 
     expect(result).toContain(
       "You've been spontaneous a lot recently - maybe hold back"

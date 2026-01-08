@@ -13,9 +13,6 @@ export * from './types';
 // Tracker
 export * from './spontaneityTracker';
 
-// Association Engine
-export * from './associationEngine';
-
 // Integration (main entry point)
 export * from './integrateSpontaneity';
 
