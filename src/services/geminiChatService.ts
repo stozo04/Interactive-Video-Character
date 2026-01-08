@@ -254,9 +254,10 @@ function extractJsonFromResponse(responseText: string): string {
  */
 function formatInteractionInput(userMessage: UserContent): any[] {
   if (userMessage.type === "text") {
-    // Empty text triggers idle breaker - return empty array so AI speaks first
+    // Empty text triggers idle breaker - send system placeholder
+    // (Gemini Interactions API requires non-empty input)
     if (!userMessage.text) {
-      return [];
+      return [{ type: "text", text: "[SYSTEM: Initiate conversation]" }];
     }
     return [{ type: "text", text: userMessage.text }];
   } else if (userMessage.type === "audio") {
@@ -1077,12 +1078,18 @@ export class GeminiService implements IAIChatService {
     let logReason = "";
     let threadIdToMark: string | null = null;
     let loopIdToMark: string | null = null;
+    let inputTopic = ""; // What Kayley is thinking about - passed as input to LLM
 
-    // STEP B: Conflict Resolution Logic (4-Tier Priority System)
+    // ============================================
+    // CONSERVATIVE PROACTIVE LOGIC
+    // Only trigger for TRULY URGENT things to avoid spam.
+    // Non-urgent thoughts/threads surface naturally during conversation.
+    // ============================================
 
-    // PRIORITY 1: High Salience User Loop
+    // URGENT: High salience open loop (something important about the USER)
     if (openLoop && openLoop.salience >= 0.8) {
       logReason = `High priority loop: ${openLoop.topic} (salience: ${openLoop.salience})`;
+      inputTopic = `[PROACTIVE: Ask about "${openLoop.topic}"]`;
       systemInstruction = `
 [SYSTEM EVENT: USER_IDLE - HIGH PRIORITY OPEN LOOP]
 The user has been silent for over 5 minutes.
@@ -1102,134 +1109,57 @@ Tone: Caring, curious, not demanding.
 `.trim();
       loopIdToMark = openLoop.id;
 
-      // PRIORITY 2: Proactive Thread
-    } else if (activeThread) {
-      logReason = `Proactive thread: ${activeThread.currentState.slice(
-        0,
-        50
-      )}...`;
+    // NOT URGENT: Skip proactive threads and lower-priority loops
+    // These will surface naturally during conversation via the system prompt
+    } else if (activeThread && activeThread.intensity >= 0.9) {
+      // Only share thoughts proactively if VERY high intensity (0.9+)
+      // This is rare - most thoughts wait for conversation
+      logReason = `Urgent thought: ${activeThread.currentState.slice(0, 50)}... (intensity: ${activeThread.intensity})`;
+      inputTopic = `[PROACTIVE: Share urgent thought - "${activeThread.currentState.slice(0, 80)}"]`;
       systemInstruction = buildProactiveThreadPrompt(activeThread);
       threadIdToMark = activeThread.id;
 
-      // PRIORITY 3: Lower Priority Open Loop
-    } else if (openLoop && openLoop.salience > 0.7) {
-      logReason = `Standard loop: ${openLoop.topic} (salience: ${openLoop.salience})`;
-      systemInstruction = `
-[SYSTEM EVENT: USER_IDLE - OPEN LOOP]
-The user has been silent for over 5 minutes.
-Casual check-in: "${openLoop.topic}"
-${
-  openLoop.triggerContext
-    ? `Context: They mentioned: "${openLoop.triggerContext.slice(0, 100)}..."`
-    : "From a previous conversation"
-}
-Suggested ask: "${
-        openLoop.suggestedFollowup || `How did ${openLoop.topic} go?`
-      }"
-
-Bring this up naturally. Keep it light and conversational.
-`.trim();
-      loopIdToMark = openLoop.id;
-
-      // PRIORITY 4: Generic Fallback
+    // CHECK-INS DISABLED OR NOTHING URGENT
     } else {
-      logReason = "Generic check-in";
+      // No urgent open loops or threads - check if we should do a gentle check-in
+      // This is MUCH more conservative than before
 
-      // Fetch context internally for fallback
+      // Check if check-ins are disabled entirely
+      if (!options.proactiveSettings?.checkins) {
+        console.log(
+          "💤 [GeminiService] No urgent topics and check-ins disabled, skipping idle breaker"
+        );
+        return null;
+      }
+
+      // Only do generic check-in if user has HIGH PRIORITY tasks pending
+      // Otherwise, stay silent and let thoughts surface naturally in conversation
       const fetchedContext = await this.fetchUserContext(
         options.googleAccessToken
       );
-      const relationshipData = fetchedContext.relationship;
       const tasksData = fetchedContext.tasks;
-
-      const relationshipContext = relationshipData?.relationshipTier
-        ? `Relationship tier with user: ${relationshipData.relationshipTier}.`
-        : "Relationship tier with user is unknown.";
-
       const highPriorityTasks = (tasksData || []).filter(
         (t) => !t.completed && t.priority === "high"
       );
-      const taskContext =
-        highPriorityTasks.length > 0
-          ? `User has ${highPriorityTasks.length} high-priority task(s): ${highPriorityTasks[0].text}. Consider gently mentioning it if appropriate.`
-          : "No urgent tasks pending.";
 
-      // Check if check-ins are disabled
-      if (
-        !options.proactiveSettings?.checkins &&
-        !options.proactiveSettings?.news
-      ) {
-        console.log(
-          "💤 [GeminiService] Check-ins and news disabled, skipping idle breaker"
-        );
-        return null;
-      }
-
-      // Fetch tech news if enabled
-      let newsContext = "";
-      if (options.proactiveSettings?.news) {
-        try {
-          const { fetchTechNews, getUnmentionedStory, markStoryMentioned } =
-            await import("./newsService");
-          const stories = await fetchTechNews();
-          const story = getUnmentionedStory(stories);
-          if (story) {
-            markStoryMentioned(story.id);
-            const hostname = story.url ? new URL(story.url).hostname : "";
-            newsContext = `
-[OPTIONAL NEWS TO DISCUSS]
-There's an interesting tech story trending on Hacker News: "${story.title}"
-${hostname ? `(from: ${hostname})` : ""}
-
-You can mention this if the conversation allows, or use it as a conversation starter.
-Translate it in your style - make it accessible and interesting!
-Don't force it - only bring it up if it feels natural.
-`.trim();
-          }
-        } catch (e) {
-          console.warn(
-            "[GeminiService] Failed to fetch news for idle breaker",
-            e
-          );
-        }
-      }
-
-      // If check-ins are off but news is on, only proceed if we have news
-      if (!options.proactiveSettings?.checkins && !newsContext) {
-        console.log(
-          "💤 [GeminiService] Check-ins disabled and no news to share, skipping"
-        );
-        return null;
-      }
-
-      // Build prompt based on what's enabled
-      if (options.proactiveSettings?.checkins) {
+      if (highPriorityTasks.length > 0) {
+        // User has urgent tasks - gently remind them
+        logReason = `Task reminder: ${highPriorityTasks[0].text}`;
+        inputTopic = `[PROACTIVE: Gentle reminder about "${highPriorityTasks[0].text}"]`;
         systemInstruction = `
-[SYSTEM EVENT: USER_IDLE]
-The user has been silent for over 5 minutes.
-${relationshipContext}
-${taskContext}
-${newsContext}
-Your goal: Gently check in or start a conversation.
-- If relationship is 'close_friend', maybe send a random thought or joke.
-- If 'acquaintance', politely ask if they are still there.
-- If there are high-priority tasks and relationship allows, you MAY gently mention them (but don't be pushy).
-- You can mention tech news if it feels natural and interesting.
-- Remember: you translate tech into human terms!
-- Keep it very short (1 sentence).
-- Do NOT repeat yourself if you did this recently.
+[SYSTEM EVENT: USER_IDLE - TASK REMINDER]
+The user has been idle and has a high-priority task: "${highPriorityTasks[0].text}"
+Gently check in about it. Don't be pushy.
+Example: "Hey, just checking - did you get a chance to work on that ${highPriorityTasks[0].text.toLowerCase()} thing?"
+Keep it very short (1 sentence).
 `.trim();
       } else {
-        // News only mode
-        systemInstruction = `
-[SYSTEM EVENT: NEWS_UPDATE]
-Share this interesting tech news with the user naturally.
-${newsContext}
-
-Your goal: Share this news in your style - make it accessible and interesting!
-- Keep it conversational and short (1-2 sentences).
-- Translate tech jargon into human terms.
-`.trim();
+        // Nothing urgent - stay silent
+        // Non-urgent thoughts/threads will surface naturally when user talks to us
+        console.log(
+          "💤 [GeminiService] No urgent topics to share, staying quiet (thoughts will surface in conversation)"
+        );
+        return null;
       }
     }
 
@@ -1274,10 +1204,11 @@ Your goal: Share this news in your style - make it accessible and interesting!
     // Combine the idle breaker instruction with the full system prompt
     const combinedSystemPrompt = `${fullSystemPrompt}\n\n${systemInstruction}`;
 
-    // STEP E: Call the LLM
+    // STEP E: Call the LLM with the proactive topic as input
+    console.log(`💭 [GeminiService] Proactive input: ${inputTopic}`);
     const { response, session: updatedSession } = await this.callGeminiAPI(
       combinedSystemPrompt,
-      { type: "text", text: "" }, // Empty trigger - she's initiating
+      { type: "text", text: inputTopic }, // What Kayley is thinking about
       session
     );
 

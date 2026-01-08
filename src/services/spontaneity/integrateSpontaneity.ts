@@ -20,33 +20,108 @@ import {
   findRelevantAssociations,
   generateAssociationOpener,
 } from "./associationEngine";
+import { supabase } from "../supabaseClient";
 import type {
   ConversationalMood,
   SpontaneityIntegration,
   PendingShare,
+  PendingShareType,
 } from "./types";
 import type { KayleyMood } from "../moodKnobs";
 
 // ============================================================================
-// PENDING SHARES - Database operations (to be implemented)
+// PENDING SHARES - Database operations
 // ============================================================================
 
+const USER_ID = import.meta.env.VITE_USER_ID;
+
 /**
- * Get pending shares from database (placeholder for now)
- * TODO: GATES!!! Implement actual database fetch from Supabase
+ * Get pending shares from database.
+ * Returns active shares that haven't been shared, dismissed, or expired.
  */
 async function getPendingShares(): Promise<PendingShare[]> {
-  // Placeholder - will be implemented with Supabase table
-  return [];
+  try {
+    const now = new Date().toISOString();
+
+    const { data, error } = await supabase
+      .from("kayley_pending_shares")
+      .select("*")
+      .eq("user_id", USER_ID)
+      .is("shared_at", null)
+      .is("dismissed_at", null)
+      .gt("expires_at", now)
+      .order("urgency", { ascending: false })
+      .limit(5);
+
+    if (error) {
+      console.error("[Spontaneity] Error fetching pending shares:", error);
+      return [];
+    }
+
+    // Map database rows to PendingShare type
+    return (data || []).map((row) => ({
+      id: row.id,
+      content: row.content,
+      type: row.share_type as PendingShareType,
+      urgency: row.urgency,
+      relevanceTopics: row.relevance_topics || [],
+      naturalOpener: row.natural_opener || "",
+      canInterrupt: row.can_interrupt || false,
+      expiresAt: new Date(row.expires_at),
+      createdAt: new Date(row.created_at),
+      // Selfie-specific context (only for type === 'selfie')
+      ...(row.share_type === "selfie" && row.selfie_reason
+        ? {
+            selfieContext: {
+              reason: row.selfie_reason,
+              scene: row.selfie_scene || "",
+              mood: row.selfie_mood || "",
+              outfit: row.selfie_outfit_hint,
+              caption: row.content,
+            },
+          }
+        : {}),
+    }));
+  } catch (error) {
+    console.error("[Spontaneity] Error in getPendingShares:", error);
+    return [];
+  }
 }
 
 /**
- * Get last spontaneous selfie timestamp (placeholder for now)
- * TODO:GATES  Implement actual database fetch from Supabase
+ * Get last spontaneous selfie timestamp from history or conversation state.
  */
 async function getLastSpontaneousSelfie(): Promise<Date | null> {
-  // Placeholder - will be implemented with Supabase table
-  return null;
+  try {
+    // First check conversation_spontaneity_state (faster, single row)
+    const { data: stateData, error: stateError } = await supabase
+      .from("conversation_spontaneity_state")
+      .select("last_spontaneous_selfie")
+      .eq("user_id", USER_ID)
+      .single();
+
+    if (!stateError && stateData?.last_spontaneous_selfie) {
+      return new Date(stateData.last_spontaneous_selfie);
+    }
+
+    // Fallback: Check selfie history for most recent
+    const { data: historyData, error: historyError } = await supabase
+      .from("spontaneous_selfie_history")
+      .select("sent_at")
+      .eq("user_id", USER_ID)
+      .order("sent_at", { ascending: false })
+      .limit(1)
+      .single();
+
+    if (!historyError && historyData?.sent_at) {
+      return new Date(historyData.sent_at);
+    }
+
+    return null;
+  } catch (error) {
+    console.error("[Spontaneity] Error in getLastSpontaneousSelfie:", error);
+    return null;
+  }
 }
 
 // ============================================================================

@@ -212,11 +212,18 @@ export const OpenAIMemoryToolDeclarations = [
 
 ### 6. Tool Documentation (`src/services/system_prompts/tools/toolsAndCapabilities.ts`)
 
+> ⚠️ **CRITICAL STEP - DO NOT SKIP!**
+>
+> Without this step, the LLM will see the tool in its function list but **WON'T KNOW WHEN TO USE IT**.
+> This causes tools to never be called, even when they should be.
+
 **Purpose**: Teach the LLM how and when to use the tool in the system prompt
 
 **Steps**:
 1. Add tool to the numbered list with clear examples
-2. Include usage notes and warnings
+2. Include **WHEN** to use it (triggers/scenarios)
+3. Include **HOW** to use it (exact parameter patterns)
+4. Add usage notes and warnings
 
 **Example**:
 ```typescript
@@ -304,38 +311,58 @@ npm test -- --run
 
 When adding a new LLM tool, check all 8 boxes:
 
-- [ ] **memoryService.ts**: Add to MemoryToolName, ToolCallArgs, executeMemoryTool()
-- [ ] **aiSchema.ts - Gemini**: Add to GeminiMemoryToolDeclarations
-- [ ] **aiSchema.ts - MemoryToolArgs**: Add to union type
-- [ ] **aiSchema.ts - PendingToolCall**: Add to name union type
-- [ ] **aiSchema.ts - OpenAI**: Add to OpenAIMemoryToolDeclarations (if using OpenAI)
-- [ ] **toolsAndCapabilities.ts**: Add documentation with examples
-- [ ] **systemPromptBuilder.ts**: Add context injection (if needed)
-- [ ] **Snapshot Tests**: Update with `-u` flag
+- [ ] **1. memoryService.ts**: Add to MemoryToolName, ToolCallArgs, executeMemoryTool()
+- [ ] **2. aiSchema.ts - Gemini**: Add to GeminiMemoryToolDeclarations
+- [ ] **3. aiSchema.ts - MemoryToolArgs**: Add to union type
+- [ ] **4. aiSchema.ts - PendingToolCall**: Add to name union type
+- [ ] **5. aiSchema.ts - OpenAI**: Add to OpenAIMemoryToolDeclarations (if using OpenAI)
+- [ ] **6. toolsAndCapabilities.ts**: ⚠️ **CRITICAL** - Add documentation with WHEN/HOW to use
+- [ ] **7. systemPromptBuilder.ts**: Add context injection (if needed)
+- [ ] **8. Snapshot Tests**: Update with `-u` flag
+
+> 💡 **Tip**: Steps 1-5 make the tool *available*. Step 6 makes the LLM *use* it. Don't skip step 6!
 
 ---
 
 ## Common Mistakes
 
-### ❌ Mistake 1: Forgetting MemoryToolArgs
+### ❌ Mistake 1: Skipping Tool Documentation (Most Common!)
+
+**Symptom**: Tool is declared, builds succeed, but LLM NEVER calls the tool
+
+**Cause**: Steps 1-5 register the tool with the API, but the LLM doesn't know **when** to use it
+
+**Fix**: Add documentation to `toolsAndCapabilities.ts` with:
+- Clear description of WHEN to use it
+- Examples showing exact parameter patterns
+- Any warnings or special instructions
+
+**Example of what happens without this step**:
+```
+You add resolve_open_loop tool → Build passes → LLM sees tool exists
+→ User addresses a topic → LLM doesn't call the tool → Loop never resolves
+→ You wonder "why isn't my tool being used?"
+```
+
+### ❌ Mistake 2: Forgetting MemoryToolArgs
 
 **Symptom**: Tool works in Gemini but fails in type checking
 
 **Fix**: Add to `MemoryToolArgs` union type in aiSchema.ts
 
-### ❌ Mistake 2: Forgetting PendingToolCall
+### ❌ Mistake 3: Forgetting PendingToolCall
 
 **Symptom**: Type error when LLM tries to call the tool
 
 **Fix**: Add to `PendingToolCall.name` union type in aiSchema.ts
 
-### ❌ Mistake 3: Missing Context Injection
+### ❌ Mistake 4: Missing Context Injection
 
 **Symptom**: Tool works but LLM doesn't know current state
 
 **Fix**: Add context formatter to systemPromptBuilder.ts parallel fetch and injection
 
-### ❌ Mistake 4: Not Updating Snapshots
+### ❌ Mistake 5: Not Updating Snapshots
 
 **Symptom**: Snapshot tests fail after adding tool
 
@@ -480,6 +507,7 @@ After integration, test with these steps:
 
 | Date | Change | Author |
 |------|--------|--------|
+| 2026-01-07 | **Emphasized step 6 as CRITICAL** - Added warnings that LLM won't use tool without documentation | Claude Opus 4.5 |
 | 2025-12-27 | Initial creation after Phase 2 implementation | Claude Sonnet 4.5 |
 
 ---

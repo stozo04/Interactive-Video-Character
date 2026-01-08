@@ -300,11 +300,14 @@ When adding a new tool that the AI can call (like `manage_narrative_arc` or `man
 3. **aiSchema.ts**: Add to `MemoryToolArgs` union type (**DON'T FORGET THIS**)
 4. **aiSchema.ts**: Add to `PendingToolCall.name` union type (**DON'T FORGET THIS**)
 5. **aiSchema.ts**: Add to `OpenAIMemoryToolDeclarations` (if using OpenAI)
-6. **toolsAndCapabilities.ts**: Add documentation with examples
+6. **toolsAndCapabilities.ts**: Add documentation with WHEN/HOW to use (**CRITICAL - LLM WON'T CALL TOOL WITHOUT THIS!**)
 7. **systemPromptBuilder.ts**: Add context injection (if needed)
 8. **Snapshot Tests**: Update with `-u` flag
 
+> 💡 Steps 1-5 make the tool *available*. Step 6 teaches the LLM *when* to use it!
+
 **Common Mistakes**:
+- ❌ Skipping step 6 (toolsAndCapabilities.ts) → Tool exists but LLM never calls it (most common!)
 - ❌ Forgetting to add to `MemoryToolArgs` → Type errors
 - ❌ Forgetting to add to `PendingToolCall.name` → Runtime failures
 - ❌ Skipping snapshot updates → Tests fail
