@@ -388,7 +388,8 @@ export type MemoryToolArgs =
   | { tool: 'recall_memory'; args: RecallMemoryArgs }
   | { tool: 'recall_user_info'; args: RecallUserInfoArgs }
   | { tool: 'store_user_info'; args: StoreUserInfoArgs }
-  | { tool: 'store_character_info'; args: { category: string; key: string; value: string } };
+  | { tool: 'store_character_info'; args: { category: string; key: string; value: string } }
+  | { tool: 'resolve_open_loop'; args: { topic: string; resolution_type: 'resolved' | 'dismissed'; reason?: string } };
 
 // ============================================
 // Function Declarations for AI Providers
@@ -587,6 +588,34 @@ export const GeminiMemoryToolDeclarations = [
       },
       required: ["action"]
     }
+  },
+  {
+    name: "resolve_open_loop",
+    description:
+      "Mark an open loop as resolved (user answered) or dismissed (user doesn't want to discuss). " +
+      "Use this IMMEDIATELY when the user addresses something you asked about earlier (a topic you were curious about, " +
+      "something they mentioned, or a follow-up question). " +
+      "Examples: If you asked 'How did the interview go?' and they answer, resolve the 'job interview' loop. " +
+      "If user says 'I don't want to talk about that', dismiss the loop instead.",
+    parameters: {
+      type: "object",
+      properties: {
+        topic: {
+          type: "string",
+          description: "The topic being resolved (e.g., 'job interview', 'doctor appointment', 'lost photos'). Use keywords that match what was stored."
+        },
+        resolution_type: {
+          type: "string",
+          enum: ["resolved", "dismissed"],
+          description: "'resolved' = user answered/addressed the topic. 'dismissed' = user doesn't want to discuss or topic is no longer relevant."
+        },
+        reason: {
+          type: "string",
+          description: "Brief reason for the resolution (e.g., 'user said interview went well', 'user changed subject')"
+        }
+      },
+      required: ["topic", "resolution_type"]
+    }
   }
 ];
 
@@ -775,6 +804,32 @@ export const OpenAIMemoryToolDeclarations = [
       required: ["category", "key", "value"]
     }
   },
+  {
+    type: "function" as const,
+    name: "resolve_open_loop",
+    description:
+      "Mark an open loop as resolved (user answered) or dismissed (user doesn't want to discuss). " +
+      "Use this IMMEDIATELY when the user addresses something you asked about earlier.",
+    parameters: {
+      type: "object",
+      properties: {
+        topic: {
+          type: "string",
+          description: "The topic being resolved (e.g., 'job interview', 'doctor appointment', 'lost photos')"
+        },
+        resolution_type: {
+          type: "string",
+          enum: ["resolved", "dismissed"],
+          description: "'resolved' = user answered. 'dismissed' = user doesn't want to discuss."
+        },
+        reason: {
+          type: "string",
+          description: "Brief reason for the resolution"
+        }
+      },
+      required: ["topic", "resolution_type"]
+    }
+  },
 ];
 
 // ============================================
@@ -786,7 +841,7 @@ export const OpenAIMemoryToolDeclarations = [
  */
 export interface PendingToolCall {
   id: string;
-  name: 'recall_memory' | 'recall_user_info' | 'store_user_info' | 'task_action' | 'calendar_action' | 'store_character_info';
+  name: 'recall_memory' | 'recall_user_info' | 'store_user_info' | 'task_action' | 'calendar_action' | 'store_character_info' | 'resolve_open_loop';
   arguments: Record<string, any>;
 }
 

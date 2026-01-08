@@ -394,7 +394,7 @@ export const formatFactsForAI = (facts: UserFact[]): string => {
 // Tool Execution Handler
 // ============================================
 
-export type MemoryToolName = 'recall_memory' | 'recall_user_info' | 'store_user_info' | 'task_action' | 'calendar_action' | 'store_character_info';
+export type MemoryToolName = 'recall_memory' | 'recall_user_info' | 'store_user_info' | 'task_action' | 'calendar_action' | 'store_character_info' | 'resolve_open_loop';
 
 /**
  * Optional context passed to tool execution (e.g., access tokens)
@@ -440,6 +440,11 @@ export interface ToolCallArgs {
     category: 'quirk' | 'relationship' | 'experience' | 'preference' | 'detail' | 'other';
     key: string;
     value: string;
+  };
+  resolve_open_loop: {
+    topic: string;
+    resolution_type: 'resolved' | 'dismissed';
+    reason?: string;
   };
 }
 
@@ -755,6 +760,43 @@ export const executeMemoryTool = async (
         return success
           ? `✓ Stored character fact: ${key} = "${value}"`
           : `Failed to store fact (it might process duplicates automatically).`;
+      }
+
+      case 'resolve_open_loop': {
+        const { resolveLoopsByTopic, dismissLoopsByTopic } = await import('./presenceDirector');
+        const { topic, resolution_type, reason } = args as ToolCallArgs['resolve_open_loop'];
+
+        console.log(`🔄 [Memory Tool] resolve_open_loop called:`);
+        console.log(`   Topic: "${topic}"`);
+        console.log(`   Resolution type: ${resolution_type}`);
+        console.log(`   Reason: ${reason || '(none provided)'}`);
+
+        try {
+          if (resolution_type === 'dismissed') {
+            // Dismiss by topic (user doesn't want to discuss)
+            const dismissedCount = await dismissLoopsByTopic(topic);
+            if (dismissedCount > 0) {
+              console.log(`✅ [Memory Tool] Dismissed ${dismissedCount} loop(s) for topic: "${topic}"`);
+              return `✓ Dismissed ${dismissedCount} open loop(s) about "${topic}"${reason ? ` (${reason})` : ''}`;
+            } else {
+              console.log(`⚠️ [Memory Tool] No loops found to dismiss for topic: "${topic}"`);
+              return `No open loops found matching "${topic}" to dismiss.`;
+            }
+          } else {
+            // Resolve by topic (user answered/addressed it)
+            const resolvedCount = await resolveLoopsByTopic(topic);
+            if (resolvedCount > 0) {
+              console.log(`✅ [Memory Tool] Resolved ${resolvedCount} loop(s) for topic: "${topic}"`);
+              return `✓ Resolved ${resolvedCount} open loop(s) about "${topic}"${reason ? ` - ${reason}` : ''}`;
+            } else {
+              console.log(`⚠️ [Memory Tool] No loops found to resolve for topic: "${topic}"`);
+              return `No open loops found matching "${topic}" to resolve.`;
+            }
+          }
+        } catch (error) {
+          console.error(`❌ [Memory Tool] Error resolving loop:`, error);
+          return `Error resolving open loop: ${error instanceof Error ? error.message : 'Unknown error'}`;
+        }
       }
 
       default:

@@ -58,6 +58,17 @@ Tool calls may happen BEFORE your final JSON response.
      - "Add dentist at 2pm tomorrow" → calendar_action(action="create", summary="Dentist", start="2024-01-15T14:00:00", end="2024-01-15T15:00:00")
      - "Delete the meeting" → calendar_action(action="delete", event_id="abc123...")
    ⚠️ If time IS given, create immediately! Only ask for time if none provided.
+
+**7. resolve_open_loop(topic, resolution_type, reason)** - Close open loops you've asked about
+   When: User ANSWERS something you asked about or brought up earlier
+   resolution_type: "resolved" (user answered) or "dismissed" (user doesn't want to discuss)
+   ⚠️ CRITICAL: Use the EXACT topic string from the PRESENCE section above!
+      If the loop says "lost picture", use "lost picture" - NOT "computer drama" or your interpretation.
+   Examples:
+     - PRESENCE shows Topic: "lost picture", user addresses it → resolve_open_loop("lost picture", "resolved", "user found them")
+     - PRESENCE shows Topic: "job interview", user says it went well → resolve_open_loop("job interview", "resolved", "went well")
+     - User says "I don't want to talk about it" → resolve_open_loop("[exact topic]", "dismissed", "user declined")
+   This prevents you from asking about the same thing again!
 `;
 }
 

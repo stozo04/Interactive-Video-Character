@@ -245,6 +245,7 @@ export function findRelevantOpinion(userMessage: string): Opinion | null {
  * Uses fuzzy matching to catch variations like "Holiday Parties" vs "Holiday party"
  */
 function isSimilarTopic(existingTopic: string, newTopic: string): boolean {
+  // Normalize: lowercase, trim, remove punctuation, normalize plurals
   const normalize = (s: string) =>
     s
       .toLowerCase()
@@ -257,29 +258,18 @@ function isSimilarTopic(existingTopic: string, newTopic: string): boolean {
   const existing = normalize(existingTopic);
   const incoming = normalize(newTopic);
 
-  // Exact match after normalization
+  // Exact match after normalization (handles casing, punctuation, plurals)
   if (existing === incoming) return true;
 
   // One contains the other (e.g., "holiday party" vs "holiday parties")
-  if (existing.includes(incoming) || incoming.includes(existing)) return true;
+  // Require the contained string to be substantial (5+ chars after normalization)
+  if (incoming.length >= 5 && existing.includes(incoming)) return true;
+  if (existing.length >= 5 && incoming.includes(existing)) return true;
 
-  // Check word overlap (e.g., "Holiday Parties" vs "party tonight")
-  const existingWords = new Set(
-    existing.split(" ").filter((w) => w.length > 2)
-  );
-  const incomingWords = new Set(
-    incoming.split(" ").filter((w) => w.length > 2)
-  );
-
-  // Skip if either has no meaningful words
-  if (existingWords.size === 0 || incomingWords.size === 0) return false;
-
-  // If there's significant word overlap, consider them similar
-  const overlap = [...existingWords].filter((w) => incomingWords.has(w));
-  const overlapRatio =
-    overlap.length / Math.min(existingWords.size, incomingWords.size);
-
-  return overlapRatio >= 0.5; // 50% word overlap = similar
+  // No word overlap matching - the LLM should use exact topic strings
+  // from the PRESENCE section. This prevents false matches like
+  // "Mila's gymnastics" matching "Mila's ear cleaning".
+  return false;
 }
 
 /**
@@ -780,6 +770,60 @@ export async function dismissLoopsByTopic(topic: string): Promise<number> {
     return matchingLoops.length;
   } catch (error) {
     console.error("[PresenceDirector] Error dismissing loops by topic:", error);
+    return 0;
+  }
+}
+
+/**
+ * Resolve all loops related to a topic.
+ * Call this when user answers/addresses a topic.
+ *
+ * Example: User says "The interview went great!" → resolve interview-related loops
+ *
+ * @param topic - The topic to resolve (fuzzy matched)
+ * @returns Number of loops resolved
+ */
+export async function resolveLoopsByTopic(topic: string): Promise<number> {
+  try {
+    // Get all active/surfaced loops
+    const { data, error } = await supabase
+      .from(PRESENCE_CONTEXTS_TABLE)
+      .select("*")
+      .in("status", ["active", "surfaced"]);
+
+    if (error || !data) return 0;
+
+    const loops = data.map(mapRowToLoop);
+    const matchingLoops = loops.filter(
+      (loop) =>
+        isSimilarTopic(loop.topic, topic) &&
+        (loop.status === "active" || loop.status === "surfaced")
+    );
+
+    if (matchingLoops.length === 0) {
+      console.log(
+        `[PresenceDirector] No loops found matching topic "${topic}" to resolve`
+      );
+      return 0;
+    }
+
+    // Resolve all matching loops
+    const ids = matchingLoops.map((l) => l.id);
+    await supabase
+      .from(PRESENCE_CONTEXTS_TABLE)
+      .update({ status: "resolved" })
+      .in("id", ids);
+
+    console.log(
+      `✅ [PresenceDirector] Resolved ${
+        matchingLoops.length
+      } loops matching "${topic}": ${matchingLoops
+        .map((l) => l.topic)
+        .join(", ")}`
+    );
+    return matchingLoops.length;
+  } catch (error) {
+    console.error("[PresenceDirector] Error resolving loops by topic:", error);
     return 0;
   }
 }
@@ -1308,6 +1352,7 @@ export const presenceDirector = {
   resolveLoop,
   dismissLoop,
   dismissLoopsByTopic,
+  resolveLoopsByTopic,
   expireOldLoops,
   detectOpenLoops,
   
