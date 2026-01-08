@@ -210,12 +210,16 @@ The checklist provides detailed examples and explanations for each step.
 3. **`aiSchema.ts`** - Add to `MemoryToolArgs` union type ⚠️ **CRITICAL - DON'T FORGET**
 4. **`aiSchema.ts`** - Add to `PendingToolCall.name` union type ⚠️ **CRITICAL - DON'T FORGET**
 5. **`aiSchema.ts`** - Add to `OpenAIMemoryToolDeclarations` (if using OpenAI)
-6. **`toolsAndCapabilities.ts`** - Add documentation with examples
+6. **`toolsAndCapabilities.ts`** - Add documentation with WHEN/HOW to use ⚠️ **CRITICAL - LLM WON'T USE TOOL WITHOUT THIS**
 7. **`systemPromptBuilder.ts`** - Add context injection (if needed)
 8. **Snapshot Tests** - Run `npm test -- --run -t "snapshot" -u`
 
+> 💡 **Key Insight**: Steps 1-5 make the tool *available* to the LLM. Step 6 teaches the LLM *when* to use it.
+> Without step 6, your tool exists but will never be called!
+
 ### ❌ Common Mistakes That WILL Break Your Code
 
+- **Skipping step 6 (`toolsAndCapabilities.ts`)** → Tool exists but LLM never calls it (most common mistake!)
 - **Forgetting step 3 (`MemoryToolArgs`)** → TypeScript errors, tool args not validated
 - **Forgetting step 4 (`PendingToolCall.name`)** → Runtime failures, tool calls silently fail
 - **Skipping step 8 (snapshot updates)** → All tests fail, CI blocks merge
