@@ -9,6 +9,7 @@
  * - systemPromptBuilder.ts    - buildSystemPrompt() - main system prompt
  * - greetingBuilder.ts        - buildGreetingPrompt() - relationship-aware greetings
  * - proactiveThreadBuilder.ts - buildProactiveThreadPrompt() - proactive starters
+ * - dailyCatchupBuilder.ts    - buildDailyCatchupPrompt() - first-login-of-day greeting context
  */
 
 // Phase 8: System prompt builder (main prompt)
@@ -19,6 +20,17 @@ export { buildProactiveThreadPrompt } from "./proactiveThreadBuilder";
 
 // Phase 7: Greeting prompt builder
 export { buildGreetingPrompt, buildNonGreetingPrompt } from "./greetingBuilder";
+
+// Daily catch-up builder (first-login context)
+export {
+  buildDailyCatchupPrompt,
+  buildDailyLogisticsSection,
+  getTimeContext,
+  type OpenLoopContext,
+  type DailyLogisticsContext,
+  type DailyCatchupContext,
+  type TimeContext,
+} from "./dailyCatchupBuilder";
 
 // Selfie action builder
 export { buildSelfieRulesPrompt, getSelfieRulesConfig } from "./selfiePromptBuilder";
