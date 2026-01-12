@@ -138,7 +138,6 @@ vi.mock("../intentService", () => ({
 import {
   parseCharacterOpinions,
   getCharacterOpinions,
-  findRelevantOpinion,
   detectOpenLoops,
   type Opinion,
   type LoopType
@@ -214,48 +213,6 @@ describe("presenceDirector", () => {
       
       // Should be the same reference (cached)
       expect(opinions1).toBe(opinions2);
-    });
-  });
-
-  describe("findRelevantOpinion", () => {
-    it("should find opinion when topic keywords match", () => {
-      // This tests the keyword matching system
-      const opinion = findRelevantOpinion("I love this fall weather!");
-      
-      // May or may not find depending on profile parsing
-      // The function should not throw
-      expect(typeof findRelevantOpinion).toBe('function');
-    });
-
-    it("should find opinion for food-related messages", () => {
-      const opinion = findRelevantOpinion("Let's go get some food");
-      
-      // Function should work without error
-      expect(opinion === null || opinion !== null).toBe(true);
-    });
-
-    it("should handle matcha keyword", () => {
-      // Test the keyword map for matcha
-      const opinion = findRelevantOpinion("matcha latte");
-      
-      // Should not throw, may or may not find opinion
-      expect(opinion === null || opinion?.category !== undefined).toBe(true);
-    });
-
-    it("should return null for unrelated messages", () => {
-      const opinion = findRelevantOpinion("My cat is sleeping");
-      
-      // Should handle gracefully
-      expect(opinion === null || opinion !== null).toBe(true);
-    });
-
-    it("should find dislike for hustle culture mentions", () => {
-      const opinion = findRelevantOpinion("These hustle culture influencers are exhausting");
-      
-      // Should find the hustle culture dislike if profile is parsed correctly
-      if (opinion) {
-        expect(opinion.category).toBe('dislikes');
-      }
     });
   });
 

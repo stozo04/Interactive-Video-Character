@@ -180,62 +180,6 @@ export function getCharacterOpinions(forceRefresh: boolean = false): Opinion[] {
   return cachedOpinions;
 }
 
-/**
- * Get a relevant opinion for a given topic context.
- * Used to layer in authentic perspectives.
- */
-export function findRelevantOpinion(userMessage: string): Opinion | null {
-  const opinions = getCharacterOpinions();
-  const messageLower = userMessage.toLowerCase();
-
-  // Look for topic matches
-  for (const opinion of opinions) {
-    const topicWords = opinion.topic.toLowerCase().split(/\s+/);
-    const matchCount = topicWords.filter(
-      (word) => word.length > 3 && messageLower.includes(word)
-    ).length;
-
-    // If at least 2 significant words match, it's relevant
-    if (matchCount >= 2 || (topicWords.length <= 2 && matchCount >= 1)) {
-      return opinion;
-    }
-  }
-
-  // Check specific keywords
-  const keywordMap: Record<string, string[]> = {
-    weather: ["Weather", "Season"],
-    rain: ["Weather"],
-    fall: ["Season"],
-    spring: ["Season"],
-    food: ["Food", "Drinks"],
-    coffee: ["Drinks"],
-    matcha: ["Drinks"],
-    brunch: ["Food"],
-    sushi: ["Food"],
-    work: ["Activities"],
-    tech: ["Tech"],
-    app: ["Tech"],
-    ai: ["Tech"],
-    hustle: ["Hustle culture"],
-    burnout: ["Hustle culture"],
-    gatekeep: ["Gatekeeping"],
-    drama: ["Group chats"],
-  };
-
-  for (const [keyword, topicNames] of Object.entries(keywordMap)) {
-    if (messageLower.includes(keyword)) {
-      const matchingOpinion = opinions.find((o) =>
-        topicNames.some((t) => o.topic.toLowerCase().includes(t.toLowerCase()))
-      );
-      if (matchingOpinion) {
-        return matchingOpinion;
-      }
-    }
-  }
-
-  return null;
-}
-
 // ============================================
 // Loop Deduplication & Topic Matching
 // ============================================
@@ -1342,8 +1286,7 @@ export const presenceDirector = {
   // Opinion functions
   parseCharacterOpinions,
   getCharacterOpinions,
-  findRelevantOpinion,
-  
+
   // Open loop functions
   createOpenLoop,
   getActiveLoops,
@@ -1355,17 +1298,17 @@ export const presenceDirector = {
   resolveLoopsByTopic,
   expireOldLoops,
   detectOpenLoops,
-  
+
   // Fix #3: Time-awareness
   isEventInFuture,
   shouldAskHowItWent,
   getFollowUpType,
-  
+
   // Fix #4: Salience boosting
   calculateSalienceBoost,
   findLoopsMatchingTopics,
   boostSalienceForMentionedTopics,
-  
+
   // Unified context
   getPresenceContext
 };

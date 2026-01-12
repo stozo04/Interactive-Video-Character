@@ -25,7 +25,7 @@ import type {
   GeneratedImagePrompt,
 } from "./imageGeneration/types";
 import { generateImagePrompt } from "./imageGeneration/promptGenerator";
-import { getActiveLoops, findRelevantOpinion } from "./presenceDirector";
+import { getActiveLoops } from "./presenceDirector";
 import { getMoodAsync } from "./moodKnobs";
 import { getCharacterFacts } from "./characterFactsService";
 import { getUserFacts } from "./memoryService";
@@ -121,15 +121,11 @@ export async function generateCompanionSelfie(
           kayleyMood,
           characterFacts,
           userFactsRaw,
-          relevantOpinion,
         ] = await Promise.all([
           getActiveLoops(),
           getMoodAsync(),
           getCharacterFacts(),
           getUserFacts("all"),
-          request.userMessage
-            ? findRelevantOpinion(request.userMessage)
-            : Promise.resolve(undefined),
         ]);
         const userFacts = userFactsRaw.map(
           (f) => `${f.fact_key}: ${f.fact_value}`
@@ -151,12 +147,6 @@ export async function generateCompanionSelfie(
             topic: l.topic,
             loopType: l.loopType,
           })),
-          relevantOpinion: relevantOpinion
-            ? {
-                topic: relevantOpinion.topic,
-                sentiment: relevantOpinion.sentiment,
-              }
-            : undefined,
           kayleyMood: { energy: kayleyMood.energy, warmth: kayleyMood.warmth },
           userFacts,
           characterFacts: characterFacts.map(
