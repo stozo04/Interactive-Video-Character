@@ -1,16 +1,14 @@
 // src/services/system_prompts/features/index.ts
 /**
- * Feature-Specific Sections
+ * Feature-Specific Prompt Sections
  *
- * These sections handle specific capabilities and integrations.
- * Each feature is self-contained.
+ * This module is reserved for feature-specific prompt sections.
+ * Currently empty - feature-specific rules are in builders/ folder:
+ * - Selfie rules: builders/selfiePromptBuilder.ts
+ * - Calendar/Tasks: Injected directly in systemPromptBuilder.ts
  *
- * Sections:
- * - selfieRules.ts        - Image/selfie generation rules ✅
- * - calendarContext.ts    - Calendar section builder
- * - taskContext.ts        - Daily checklist section
- * - toolsAndActions.ts    - Tools section, app launching
- * - proactiveStarters.ts  - Proactive conversation logic
+ * Future feature sections can be added here and exported.
  */
 
-// Phase 3 + Phase 4: Selfie rules configuration and prompt
+// Placeholder - no exports yet
+export {};
