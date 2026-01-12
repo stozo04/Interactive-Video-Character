@@ -52,6 +52,10 @@ export interface OpenLoop {
   maxSurfaces: number;
   /** For pending_event: when the actual event occurs */
   eventDateTime?: Date;
+  /** Source message ID that triggered this loop (for deduplication) */
+  sourceMessageId?: string;
+  /** Source calendar event ID (for calendar-based loops) */
+  sourceCalendarEventId?: string;
 }
 
 export interface Opinion {
@@ -234,6 +238,97 @@ async function findSimilarLoop(topic: string): Promise<OpenLoop | null> {
   } catch (error) {
     console.error("[PresenceDirector] Error finding similar loop:", error);
     return null;
+  }
+}
+
+/**
+ * Find an existing pending_event loop for a specific calendar event.
+ * Checks by sourceCalendarEventId first, then falls back to topic similarity.
+ *
+ * @param calendarEventId - The calendar event ID to search for
+ * @param eventSummary - The event summary/name for fallback topic matching
+ * @returns The matching loop or null if not found
+ */
+export async function findCalendarEventLoop(
+  calendarEventId: string,
+  eventSummary: string
+): Promise<OpenLoop | null> {
+  try {
+    // Get all active and surfaced pending_event loops
+    const { data, error } = await supabase
+      .from(PRESENCE_CONTEXTS_TABLE)
+      .select("*")
+      .eq("loop_type", "pending_event")
+      .in("status", ["active", "surfaced"]);
+
+    if (error || !data) return null;
+
+    const loops = data.map(mapRowToLoop);
+
+    // First try: match by calendar event ID (most reliable)
+    const byId = loops.find(
+      (loop) => loop.sourceCalendarEventId === calendarEventId
+    );
+    if (byId) {
+      console.log(
+        `📅 [PresenceDirector] Found existing loop by calendar ID: "${byId.topic}"`
+      );
+      return byId;
+    }
+
+    // Second try: match by similar topic (for old loops without sourceCalendarEventId)
+    const byTopic = loops.find((loop) => isSimilarTopic(loop.topic, eventSummary));
+    if (byTopic) {
+      console.log(
+        `📅 [PresenceDirector] Found existing loop by topic similarity: "${byTopic.topic}" ≈ "${eventSummary}"`
+      );
+      return byTopic;
+    }
+
+    return null;
+  } catch (error) {
+    console.error("[PresenceDirector] Error finding calendar event loop:", error);
+    return null;
+  }
+}
+
+/**
+ * Update an existing loop with calendar event metadata.
+ * Used to backfill missing fields on old loops.
+ *
+ * @param loopId - The loop ID to update
+ * @param eventDateTime - The event date/time
+ * @param sourceCalendarEventId - The calendar event ID
+ * @param salience - Optional new salience value
+ */
+export async function updateLoopCalendarData(
+  loopId: string,
+  eventDateTime: Date,
+  sourceCalendarEventId: string,
+  salience?: number
+): Promise<void> {
+  try {
+    const updates: Record<string, any> = {
+      event_datetime: eventDateTime.toISOString(),
+      source_calendar_event_id: sourceCalendarEventId,
+    };
+
+    if (salience !== undefined) {
+      updates.salience = salience;
+    }
+
+    const { error } = await supabase
+      .from(PRESENCE_CONTEXTS_TABLE)
+      .update(updates)
+      .eq("id", loopId);
+
+    if (error) {
+      console.error("[PresenceDirector] Error updating loop calendar data:", error);
+    } else {
+      console.log(`📅 [PresenceDirector] Updated loop ${loopId} with calendar metadata`);
+    }
+  } catch (error) {
+    console.error("[PresenceDirector] Error updating loop calendar data:", error);
   }
 }
 
@@ -1176,6 +1271,9 @@ You know they have "${topLoop.topic}" coming up!
 
 ⚠️ DO NOT ask "how did it go?" - it hasn't happened yet!
 
+⚠️ CRITICAL: When they respond or address this, call resolve_open_loop("${topLoop.topic}", "resolved", "brief reason")
+   This prevents you from asking about the same thing again!
+
 `;
     } else {
       // Event has passed - ask how it went
@@ -1194,6 +1292,9 @@ You have something to naturally follow up on! Consider asking:
 💡 Work this into your greeting or early in conversation. Don't be robotic about it.
    Good: "Oh hey! Wait, how did your [thing] go??"
    Bad: "I am following up on your previous mention of..."
+
+⚠️ CRITICAL: When they respond or address this, call resolve_open_loop("${topLoop.topic}", "resolved", "brief reason")
+   This prevents you from asking about the same thing again!
 
 `;
     }
@@ -1275,6 +1376,8 @@ function mapRowToLoop(row: any): OpenLoop {
     eventDateTime: row.event_datetime
       ? new Date(row.event_datetime)
       : undefined,
+    sourceMessageId: row.source_message_id || undefined,
+    sourceCalendarEventId: row.source_calendar_event_id || undefined,
   };
 }
 

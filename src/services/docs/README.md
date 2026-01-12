@@ -28,6 +28,8 @@ The system follows a "Perception -> processing -> Action" pipeline:
 *   [Mood Knobs](./MoodKnobs.md): Energy, social battery, and emotional momentum math.
 *   [Relationship Service](./RelationshipService.md): Trust, warmth, and long-term bond progression.
 *   [Ongoing Threads](./OngoingThreads.md): Her internal "mental weather" and hobby projects.
+*   [Autonomous Thought Service](./AutonomousThoughtService.md): LLM-based dynamic thought generation for ongoing threads.
+*   [Life Event Service](./LifeEventService.md): Tracks recent events in Kayley's life for thought context.
 *   [User Patterns](./UserPatterns.md): Cross-session behavioral trend detection.
 *   [Soul & Utility](./Soul_and_Utility.md): Broad overview of secondary utility services.
 
@@ -55,10 +57,10 @@ The system follows a "Perception -> processing -> Action" pipeline:
 ### 1. Which services use an LLM and which don't?
 This is the most common point of confusion. A simple rule of thumb:
 
-*   **LLM Services ("Thinking")**: These use `Gemini` or `OpenAI` because they need to understand language.
-    *   *Examples*: `intentService`, `BaseAIService`, `messageAnalyzer` (for deep loop detection).
+*   **LLM Services ("Thinking")**: These use `Gemini` or `OpenAI` because they need to understand language or generate content.
+    *   *Examples*: `intentService`, `BaseAIService`, `messageAnalyzer` (for deep loop detection), `autonomousThoughtService` (thought generation).
 *   **Non-LLM Services ("Data/Logic")**: These use `Typescript` logic and `Supabase` queries. They handle math, data storage, and timing.
-    *   *Examples*: `stateService`, `presenceDirector`, `moodKnobs`, `calendarService`.
+    *   *Examples*: `stateService`, `presenceDirector`, `moodKnobs`, `calendarService`, `lifeEventService`.
 
 ### 2. Is there overlap between these services?
 Yes, by design. Some services are "Managers" and some are "Workers":

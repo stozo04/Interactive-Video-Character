@@ -670,19 +670,17 @@ describe("Phase 1: Integration with moodKnobs", () => {
     expect(recordInteractionAsync).toBeDefined();
   });
 
-  it("should fall back to keyword detection when LLM fails", async () => {
+  it("should return no detection when LLM fails", async () => {
     mockGenerateContent.mockRejectedValueOnce(new Error("Network error"));
 
-    const { detectGenuineMomentWithLLM, resetEmotionalMomentumAsync, clearMoodKnobsCache } = await import("../moodKnobs");
+    const { detectGenuineMomentWithLLM, clearMoodKnobsCache } = await import("../moodKnobs");
 
     clearMoodKnobsCache();
 
-    // This message contains direct affirmation that keyword detection can catch
     const result = await detectGenuineMomentWithLLM("You're so thoughtful, I love how you think deeply");
 
-    // Even with LLM failure, keyword fallback should work for this message
-    expect(result).toBeDefined();
-    // The result depends on keyword detection since LLM failed
+    expect(result.isGenuine).toBe(false);
+    expect(result.category).toBeNull();
   });
 });
 

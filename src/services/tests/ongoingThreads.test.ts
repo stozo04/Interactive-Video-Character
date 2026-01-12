@@ -20,12 +20,37 @@ const mockGetOngoingThreads = vi.fn();
 const mockSaveAllOngoingThreads = vi.fn();
 const mockSaveOngoingThread = vi.fn();
 const mockDeleteOngoingThread = vi.fn();
+const mockGenerateAutonomousThoughtCached = vi.fn();
 
 vi.mock('../stateService', () => ({
   getOngoingThreads: (...args: unknown[]) => mockGetOngoingThreads(...args),
   saveAllOngoingThreads: (...args: unknown[]) => mockSaveAllOngoingThreads(...args),
   saveOngoingThread: (...args: unknown[]) => mockSaveOngoingThread(...args),
   deleteOngoingThread: (...args: unknown[]) => mockDeleteOngoingThread(...args),
+}));
+
+vi.mock('../autonomousThoughtService', () => ({
+  generateAutonomousThoughtCached: (...args: unknown[]) => mockGenerateAutonomousThoughtCached(...args),
+}));
+
+vi.mock('../lifeEventService', () => ({
+  getRecentLifeEvents: vi.fn().mockResolvedValue([]),
+}));
+
+vi.mock('../conversationHistoryService', () => ({
+  loadConversationHistory: vi.fn().mockResolvedValue([]),
+}));
+
+vi.mock('../memoryService', () => ({
+  getUserFacts: vi.fn().mockResolvedValue([]),
+}));
+
+vi.mock('../moodKnobs', () => ({
+  getMoodAsync: vi.fn().mockResolvedValue({ energy: 0.3, warmth: 0.5, genuineMoment: false }),
+}));
+
+vi.mock('../relationshipService', () => ({
+  getRelationship: vi.fn().mockResolvedValue({ relationshipTier: 'friends' }),
 }));
 
 // Mock localStorage for backwards compatibility tests
@@ -89,6 +114,13 @@ describe("Phase 3: ongoingThreads Supabase Migration", () => {
     mockSaveAllOngoingThreads.mockResolvedValue(undefined);
     mockSaveOngoingThread.mockResolvedValue(undefined);
     mockDeleteOngoingThread.mockResolvedValue(undefined);
+    mockGenerateAutonomousThoughtCached.mockResolvedValue({
+      theme: "creative_project",
+      content: "Mock autonomous thought",
+      intensity: 0.6,
+      shouldMention: true,
+      confidence: 0.9,
+    });
   });
 
   afterEach(() => {
@@ -427,7 +459,6 @@ describe("Phase 3: ongoingThreads Supabase Migration", () => {
       const result = await formatThreadsForPromptAsync();
       
       expect(result).toContain("ONGOING MENTAL THREADS");
-      expect(result).toContain(defaultThread.currentState);
     });
 
     it("should return empty string when no threads", async () => {

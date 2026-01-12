@@ -36,10 +36,7 @@ import { detectMilestoneInMessage } from './relationshipMilestones';
 import { maybeGenerateNewFeeling } from './almostMomentsService';
 import { 
   recordInteractionAsync,
-  detectGenuineMomentWithLLM,
-  detectGenuineMoment, // Keyword fallback function
-  type ConversationContext,
-  type GenuineMomentResult
+  type ConversationContext
 } from './moodKnobs';
 import {
   detectToneLLMCached,
@@ -430,15 +427,14 @@ export async function analyzeUserMessage(
     // Instead, use fast keyword/regex detection to keep the chat responsive.
     
     // Run keyword detection synchronously (fast, no network calls)
-    const keywordGenuine = detectGenuineMoment(message);
     const keywordTone = analyzeMessageToneKeywords(message);
     const keywordTopics = detectTopics(message);
     
     // Convert keyword results to intent format
     genuineMomentResult = {
-      isGenuine: keywordGenuine.isGenuine,
-      category: keywordGenuine.category as GenuineMomentCategory | null,
-      matchedKeywords: keywordGenuine.matchedKeywords
+      isGenuine: false,
+      category: null,
+      matchedKeywords: []
     };
     
     toneResult = {

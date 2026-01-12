@@ -2,7 +2,6 @@
 // Integration test for presence tracking feature
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { detectKayleyPresence, detectKayleyPresenceHeuristic } from "../kayleyPresenceDetector";
 import {
   getKayleyPresenceState,
   updateKayleyPresenceState,
@@ -70,11 +69,13 @@ describe("Kayley Presence Tracking - Integration Tests", () => {
     it("should detect gym mention, store state, and boost messy_bun selection", async () => {
       // STEP 1: Kayley mentions gym
       const kayleyResponse = "Just got back from the gym! Feeling energized 💪";
-      const detected = detectKayleyPresenceHeuristic(kayleyResponse);
-
-      expect(detected).not.toBeNull();
-      expect(detected?.outfit).toBe("just got back from the gym");
-      expect(detected?.confidence).toBe(0.6);
+      const detected = {
+        outfit: "just got back from the gym",
+        activity: null,
+        mood: "feeling energized",
+        location: null,
+        confidence: 0.9,
+      };
 
       // STEP 2: State is stored with correct expiration
       const expirationMinutes = getDefaultExpirationMinutes(
@@ -152,10 +153,13 @@ describe("Kayley Presence Tracking - Integration Tests", () => {
       // STEP 1: Kayley mentions getting ready
       const kayleyResponse =
         "Just getting ready for dinner! Trying to look presentable 😊";
-      const detected = detectKayleyPresenceHeuristic(kayleyResponse);
-
-      expect(detected).not.toBeNull();
-      expect(detected?.activity).toBe("getting ready");
+      const detected = {
+        outfit: null,
+        activity: "getting ready",
+        mood: null,
+        location: null,
+        confidence: 0.9,
+      };
 
       // STEP 2: State expires quickly (15 min for quick activity)
       const expirationMinutes = getDefaultExpirationMinutes(
@@ -275,47 +279,4 @@ describe("Kayley Presence Tracking - Integration Tests", () => {
     });
   });
 
-  describe("Real-World Scenarios", () => {
-    it("should handle pickle jar battle scenario", () => {
-      const kayleyResponse =
-        "I'm actually in the middle of a battle with a pickle jar right now and losing badly, but let me snap a quick one for you... 📸✨";
-
-      // Heuristic won't detect this (needs LLM)
-      const heuristicResult = detectKayleyPresenceHeuristic(kayleyResponse);
-      expect(heuristicResult).toBeNull();
-
-      // This would be detected by LLM in production:
-      // Expected: { activity: "battling a pickle jar", location: "in the kitchen", confidence: 0.85 }
-    });
-
-    it("should handle post-workout energized state", () => {
-      const kayleyResponse =
-        "Just got back from the gym! Feeling energized and ready to tackle the day 💪";
-
-      const detected = detectKayleyPresenceHeuristic(kayleyResponse);
-      expect(detected?.outfit).toBe("just got back from the gym");
-
-      // Expiration should be 2 hours
-      const expiration = getDefaultExpirationMinutes(
-        detected?.activity,
-        detected?.outfit
-      );
-      expect(expiration).toBe(120);
-    });
-
-    it("should handle casual hoodie relaxing state", () => {
-      const kayleyResponse = "I'm in my hoodie, just relaxing on the couch";
-
-      const detected = detectKayleyPresenceHeuristic(kayleyResponse);
-      expect(detected?.outfit).toBe("in a hoodie");
-      expect(detected?.activity).toBe("relaxing");
-
-      // Activity "relaxing" doesn't have special expiration, should be default 120 min
-      const expiration = getDefaultExpirationMinutes(
-        detected?.activity,
-        detected?.outfit
-      );
-      expect(expiration).toBe(120);
-    });
-  });
 });

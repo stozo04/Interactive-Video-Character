@@ -2212,13 +2212,13 @@ export async function detectFullIntentLLMCached(
 
   // TIER 1: Skip entirely for very short messages (< 3 words or < 10 chars)
   if (wordCount <= 2 || trimmed.length < 10) {
-    console.log(`⚡ [IntentService] SKIP: Very short message: "${trimmed}"`);
+    // console.log(`⚡ [IntentService] SKIP: Very short message: "${trimmed}"`);
     return getDefaultIntent(trimmed);
   }
 
   // TIER 2: Use defaults for simple/casual messages
   if (isSimpleMessage(trimmed)) {
-    console.log(`⚡ [IntentService] SKIP: Simple message pattern: "${trimmed}"`);
+    // console.log(`⚡ [IntentService] SKIP: Simple message pattern: "${trimmed}"`);
     return getDefaultIntent(trimmed);
   }
 

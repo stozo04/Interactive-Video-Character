@@ -72,11 +72,11 @@ class CalendarService extends EventTarget {
   async getEvents(accessToken: string, timeMin: string, timeMax: string, maxResults: number = 25): Promise<CalendarEvent[]> {
     try {
       const params = new URLSearchParams({
-        calendarId: 'primary',
+        calendarId: "primary",
         timeMin: timeMin,
         timeMax: timeMax,
-        singleEvents: 'true',
-        orderBy: 'startTime',
+        singleEvents: "true",
+        orderBy: "startTime",
         maxResults: maxResults.toString(),
       });
 
@@ -85,27 +85,31 @@ class CalendarService extends EventTarget {
         {
           headers: {
             Authorization: `Bearer ${accessToken}`,
-            'Content-Type': 'application/json',
+            "Content-Type": "application/json",
           },
         }
       );
 
       if (response.status === 401) {
-        console.error('Calendar API: Token expired or invalid');
-        this.dispatchEvent(new CustomEvent('auth-error'));
-        throw new Error('Authentication failed. Please reconnect your Google account.');
+        console.error("Calendar API: Token expired or invalid");
+        this.dispatchEvent(new CustomEvent("auth-error"));
+        throw new Error(
+          "Authentication failed. Please reconnect your Google account."
+        );
       }
 
       if (!response.ok) {
         const errorText = await response.text();
-        console.error('Calendar API error:', response.status, errorText);
-        throw new Error(`Failed to fetch calendar events: ${response.statusText}`);
+        console.error("Calendar API error:", response.status, errorText);
+        throw new Error(
+          `Failed to fetch calendar events: ${response.statusText}`
+        );
       }
 
       const data = await response.json();
       const rawEvents: CalendarEvent[] = data.items || [];
       const events = this.filterValidEvents(rawEvents);
-      console.log(`📅 Fetched ${events.length} valid events between ${timeMin} and ${timeMax}`);
+      // console.log(`📅 Fetched ${events.length} valid events between ${timeMin} and ${timeMax}`);
       return events;
     } catch (error) {
       console.error('Error fetching calendar events:', error);

@@ -19,6 +19,11 @@ import {
   cleanupOldCheckins,
   type CheckinType,
 } from '../services/calendarCheckinService';
+import {
+  createOpenLoop,
+  findCalendarEventLoop,
+  updateLoopCalendarData
+} from '../services/presenceDirector';
 import type { ProactiveSettings } from '../types';
 
 /**
@@ -153,7 +158,7 @@ export function useCalendar(options: UseCalendarOptions): UseCalendarResult {
   /**
    * Trigger a calendar check-in for a specific event
    */
-  const triggerCalendarCheckin = useCallback((event: CalendarEvent, type: CheckinType) => {
+  const triggerCalendarCheckin = useCallback(async (event: CalendarEvent, type: CheckinType) => {
     // Respect snooze and proactive settings
     if (isSnoozed || !proactiveSettings.calendar) {
       console.log(`📅 [useCalendar] Skipping check-in (snoozed: ${isSnoozed}, calendar: ${proactiveSettings.calendar})`);
@@ -162,6 +167,53 @@ export function useCalendar(options: UseCalendarOptions): UseCalendarResult {
 
     // Mark this check-in as done to avoid duplicates
     markCheckinDone(event.id, type);
+
+    // For future events, create/update an open loop to prevent contradictory follow-ups
+    if (type === 'day_before' || type === 'approaching' || type === 'starting_soon') {
+      const eventStart = new Date(event.start.dateTime || event.start.date || '');
+
+      // Only create/update loop if we have a valid date
+      if (!isNaN(eventStart.getTime())) {
+        try {
+          // Determine salience based on check-in type
+          const salience = type === 'starting_soon' ? 0.9 : type === 'approaching' ? 0.7 : 0.6;
+
+          // Check for existing loop (by event ID or topic similarity)
+          const existingLoop = await findCalendarEventLoop(event.id, event.summary || 'event');
+
+          if (existingLoop) {
+            // Update existing loop with calendar metadata if missing
+            const needsUpdate =
+              !existingLoop.sourceCalendarEventId ||
+              !existingLoop.eventDateTime ||
+              existingLoop.salience < salience;
+
+            if (needsUpdate) {
+              await updateLoopCalendarData(
+                existingLoop.id,
+                eventStart,
+                event.id,
+                Math.max(existingLoop.salience, salience) // Use higher salience
+              );
+              console.log(`📅 [useCalendar] Updated existing loop for: ${event.summary}`);
+            } else {
+              console.log(`📅 [useCalendar] Loop already exists with metadata: ${event.summary}`);
+            }
+          } else {
+            // Create new loop
+            await createOpenLoop('pending_event', event.summary || 'event', {
+              eventDateTime: eventStart,
+              sourceCalendarEventId: event.id,
+              salience,
+              triggerContext: `Calendar event: ${event.summary}`,
+            });
+            console.log(`📅 [useCalendar] Created open loop for future event: ${event.summary}`);
+          }
+        } catch (error) {
+          console.error(`📅 [useCalendar] Failed to manage open loop:`, error);
+        }
+      }
+    }
 
     // Build and send the prompt
     const prompt = buildEventCheckinPrompt(event, type);
