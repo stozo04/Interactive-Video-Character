@@ -97,7 +97,6 @@ vi.mock("../moodKnobs", async (importOriginal) => {
 vi.mock("../presenceDirector", () => ({
   getPresenceContext: vi.fn(() => Promise.resolve(null)),
   getCharacterOpinions: vi.fn(() => []),
-  findRelevantOpinion: vi.fn(() => null),
 }));
 
 // Mock actionKeyMapper

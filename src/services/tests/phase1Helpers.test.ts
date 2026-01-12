@@ -47,7 +47,6 @@ vi.mock("../ongoingThreads", () => ({ formatThreadsForPrompt: vi.fn(() => "") })
 vi.mock("../presenceDirector", () => ({
   getPresenceContext: vi.fn(() => null),
   getCharacterOpinions: vi.fn(() => []),
-  findRelevantOpinion: vi.fn(() => null),
 }));
 vi.mock("../moodKnobs", async (importOriginal) => {
   const actual = await importOriginal() as any;
