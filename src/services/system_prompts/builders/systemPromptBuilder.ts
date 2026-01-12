@@ -442,9 +442,7 @@ The following ${upcomingEvents.length} event(s) are scheduled:
         minute: "2-digit",
       })}\n`;
       prompt += eventLine;
-      console.log(
-        `📅 [PromptUtils] Added event to prompt: ${eventLine.trim()}`
-      );
+      // console.log(`📅 [PromptUtils] Added event to prompt: ${eventLine.trim()}`);
     });
   } else {
     prompt += `

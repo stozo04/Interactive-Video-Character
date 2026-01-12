@@ -619,12 +619,9 @@ export class GeminiService implements IAIChatService {
 
     // Determine if this is first message (no previous interaction)
     const isFirstMessage = !session?.interactionId;
-    console.log("🔗 [Gemini Interactions] SESSION DEBUG:");
-    console.log("   - isFirstMessage:", isFirstMessage);
-    console.log(
-      "   - Incoming session.interactionId:",
-      session?.interactionId || "NONE"
-    );
+    // console.log("🔗 [Gemini Interactions] SESSION DEBUG:");
+    // console.log("   - isFirstMessage:", isFirstMessage);
+    // console.log("   - Incoming session.interactionId:", session?.interactionId || "NONE");
 
     // Build interaction config
     const interactionConfig: any = {

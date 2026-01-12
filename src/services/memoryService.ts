@@ -558,11 +558,11 @@ export const executeMemoryTool = async (
             }
             // Find and complete the task
             const tasks = await fetchTasks();
-            console.log("Fetched Tasks: ", tasks);
+            // console.log("Fetched Tasks: ", tasks);
             const matchingTask = tasks.find((t) =>
               t.text.toLowerCase().includes(task_text.toLowerCase())
             );
-            console.log("matchingTask: ", matchingTask);
+            // console.log("matchingTask: ", matchingTask);
             if (matchingTask) {
               await toggleTask(matchingTask.id, false); // false = currently not completed, toggle to complete
               return `✓ Completed task: "${matchingTask.text}"`;

@@ -302,7 +302,7 @@ describe("relationshipMilestones", () => {
   // ============================================
 
   describe("detectMilestoneInMessage", () => {
-    it("should detect vulnerability patterns", async () => {
+    it("should detect vulnerability via intent signal", async () => {
       // Mock: no existing milestone + successful insert
       mocks.maybeSingle.mockResolvedValueOnce({ data: null, error: null });
       mocks.single.mockResolvedValueOnce({
@@ -321,14 +321,15 @@ describe("relationshipMilestones", () => {
 
       const result = await detectMilestoneInMessage(
         "I've never told anyone this, but...",
-        10
+        10,
+        { milestone: "first_vulnerability", milestoneConfidence: 0.9 }
       );
 
       expect(result).not.toBeNull();
       expect(result?.milestoneType).toBe("first_vulnerability");
     });
 
-    it("should detect joke/humor patterns", async () => {
+    it("should detect joke via intent signal", async () => {
       mocks.maybeSingle.mockResolvedValueOnce({ data: null, error: null });
       mocks.single.mockResolvedValueOnce({
         data: {
@@ -346,13 +347,14 @@ describe("relationshipMilestones", () => {
 
       const result = await detectMilestoneInMessage(
         "Hahaha that's so funny, you crack me up!",
-        15
+        15,
+        { milestone: "first_joke", milestoneConfidence: 0.9 }
       );
 
       expect(result?.milestoneType).toBe("first_joke");
     });
 
-    it("should detect support seeking patterns", async () => {
+    it("should detect support seeking via intent signal", async () => {
       mocks.maybeSingle.mockResolvedValueOnce({ data: null, error: null });
       mocks.single.mockResolvedValueOnce({
         data: {
@@ -370,7 +372,8 @@ describe("relationshipMilestones", () => {
 
       const result = await detectMilestoneInMessage(
         "I need help with something, can you listen?",
-        20
+        20,
+        { milestone: "first_support", milestoneConfidence: 0.9 }
       );
 
       expect(result?.milestoneType).toBe("first_support");

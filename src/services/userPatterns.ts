@@ -268,8 +268,11 @@ async function recordPattern(
     if (existing) {
       // Update existing pattern
       const newFrequency = (existing as PatternRow).frequency + 1;
-      const newConfidence = Math.min(1.0, (existing as PatternRow).confidence + CONFIDENCE_INCREMENT);
-      
+      const newConfidence = Math.min(
+        1.0,
+        (existing as PatternRow).confidence + CONFIDENCE_INCREMENT
+      );
+
       const { data: updated, error: updateError } = await supabase
         .from(PATTERNS_TABLE)
         .update({
@@ -278,16 +281,16 @@ async function recordPattern(
           last_observed: new Date().toISOString(),
           pattern_data: patternData,
         })
-        .eq('id', (existing as PatternRow).id)
+        .eq("id", (existing as PatternRow).id)
         .select()
         .single();
-      
+
       if (updateError) {
-        console.error('[UserPatterns] Error updating pattern:', updateError);
+        console.error("[UserPatterns] Error updating pattern:", updateError);
         return null;
       }
-      
-      console.log(`📊 [UserPatterns] Pattern strengthened: "${observation}" (freq: ${newFrequency}, conf: ${newConfidence.toFixed(2)})`);
+
+      // console.log(`📊 [UserPatterns] Pattern strengthened: "${observation}" (freq: ${newFrequency}, conf: ${newConfidence.toFixed(2)})`);
       return mapPatternRowToDomain(updated as PatternRow);
     }
     

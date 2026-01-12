@@ -72,45 +72,6 @@ const MAX_MILESTONE_REFERENCES = 3;
 // Minimum hours between referencing the same milestone
 const MIN_HOURS_BETWEEN_REFERENCES = 72;
 
-// ============================================
-// Milestone Detection Patterns
-// ============================================
-
-const VULNERABILITY_PATTERNS = [
-  /i('ve )?(never told|haven't told|don't usually share)/i,
-  /(honestly|truthfully|to be honest),?\s*(i|my)/i,
-  /i('m )?(scared|afraid|worried|anxious|nervous) (that|about|of)/i,
-  /can i (be real|be honest|tell you something)/i,
-  /this is (hard|difficult) (to|for me)/i,
-  /i trust you/i,
-  /(my secret|between us)/i,
-  /i('ve )?(been struggling|been having a hard time)/i,
-];
-
-const JOKE_PATTERNS = [
-  /(haha|hahaha|lol|lmao|😂|🤣)/i,
-  /that('s| is) (so funny|hilarious)/i,
-  /you crack me up/i,
-  /i can't stop laughing/i,
-  /good one/i,
-  /okay that was (funny|good)/i,
-];
-
-const SUPPORT_SEEKING_PATTERNS = [
-  /i need (help|advice|someone to talk to)/i,
-  /(what should i|what do you think i should)/i,
-  /i don't know what to do/i,
-  /can you (help|listen)/i,
-  /i('m )?(really struggling|having a hard time)/i,
-];
-
-const DEEP_TALK_PATTERNS = [
-  /i('ve )?(been thinking|realized|started to understand)/i,
-  /life (is|has been)/i,
-  /what do you think (about|of) (life|meaning|happiness|love)/i,
-  /(growing up|my childhood|my family)/i,
-  /my (dreams|goals|fears|hopes)/i,
-];
 
 // ============================================
 // Milestone Management Functions
@@ -329,6 +290,10 @@ export async function detectMilestoneInMessage(
     );
   }
 
+  if (message.length < 15) {
+    return null;
+  }
+
   // LLM Detection Strategy (Primary)
   if (intent?.milestone && intent.milestoneConfidence > 0.7) {
     const triggerContext = message.slice(0, 200);
@@ -359,51 +324,6 @@ export async function detectMilestoneInMessage(
           triggerContext
         );
     }
-  }
-
-  // Regex Fallback Strategy (Secondary)
-
-  // Check for vulnerability
-  if (VULNERABILITY_PATTERNS.some((pattern) => pattern.test(message))) {
-    return recordMilestone(
-      "first_vulnerability",
-      "First time opening up emotionally",
-      message.slice(0, 200)
-    );
-  }
-
-  // Check for shared humor
-  if (
-    JOKE_PATTERNS.some((pattern) => pattern.test(message)) &&
-    message.length > 15
-  ) {
-    // Only count as milestone if it's more than just "lol"
-    return recordMilestone(
-      "first_joke",
-      "First shared laugh together",
-      message.slice(0, 200)
-    );
-  }
-
-  // Check for support seeking (indicates trust)
-  if (SUPPORT_SEEKING_PATTERNS.some((pattern) => pattern.test(message))) {
-    return recordMilestone(
-      "first_support",
-      "First time seeking support or advice",
-      message.slice(0, 200)
-    );
-  }
-
-  // Check for deep conversation
-  if (
-    DEEP_TALK_PATTERNS.some((pattern) => pattern.test(message)) &&
-    message.length > 50
-  ) {
-    return recordMilestone(
-      "first_deep_talk",
-      "First deep, meaningful conversation",
-      message.slice(0, 200)
-    );
   }
 
   return null;

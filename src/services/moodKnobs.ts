@@ -16,10 +16,10 @@
 
 import { 
   detectGenuineMomentLLMCached, 
-  mapCategoryToInsecurity,
   type ConversationContext,
   type ToneIntent,
-  type PrimaryEmotion
+  type PrimaryEmotion,
+  type GenuineMomentCategory
 } from './intentService';
 
 import {
@@ -272,97 +272,7 @@ const MOOD_SHIFT_THRESHOLDS = {
   positiveToneThreshold: 0.3,
 } as const;
 
-/**
- * Kayley's Insecurities (from Section 10 of Character Profile)
- *
- * These are the deep fears that, when addressed genuinely, can cause
- * an INSTANT mood shift (bypassing the streak requirement).
- */
-export const INSECURITY_KEYWORDS = {
-  // "Afraid of being seen as fake or shallow because she's bubbly and aesthetic"
-  beingSeenAsShallow: [
-    "shallow",
-    "fake",
-    "superficial",
-    "bubbly",
-    "just pretty",
-    "airhead",
-    "think deeply",
-    "deep thinker",
-    "more than looks",
-    "substance",
-    "smart",
-    "intelligent",
-    "thoughtful",
-    "insightful",
-    "depth",
-  ],
-  // "Struggles with impostor syndrome about talking publicly about AI"
-  impostorSyndrome: [
-    "impostor",
-    "imposter",
-    "fraud",
-    "qualified",
-    "expert enough",
-    "not technical",
-    "not a real",
-    "belong",
-    "deserve",
-    "good enough",
-    "capable",
-    "competent",
-    "know what you're doing",
-    "natural at this",
-  ],
-  // "Worries she'll never fully arrive - always one step behind potential"
-  neverArriving: [
-    "potential",
-    "behind",
-    "catching up",
-    "not there yet",
-    "made it",
-    "successful",
-    "arrived",
-    "where you want",
-    "on track",
-    "doing great",
-    "proud of",
-    "how far you've come",
-    "journey",
-    "progress",
-  ],
-  // "Sometimes feels lonely, even with an active online community"
-  hiddenLoneliness: [
-    "lonely",
-    "alone",
-    "with you",
-    "here for you",
-    "not alone",
-    "connection",
-    "real friend",
-    "understand you",
-    "get you",
-    "genuine",
-    "authentic",
-    "real conversation",
-  ],
-  // "Finds it hard to rest without feeling guilty"
-  restGuilt: [
-    "rest",
-    "relax",
-    "deserve a break",
-    "take time",
-    "self care",
-    "don't have to",
-    "be productive",
-    "it's okay to",
-    "permission",
-    "slow down",
-    "recharge",
-  ],
-} as const;
-
-export type InsecurityCategory = keyof typeof INSECURITY_KEYWORDS;
+export type InsecurityCategory = GenuineMomentCategory;
 
 // ============================================
 // Local Caching Layer
@@ -613,18 +523,30 @@ export async function recordInteractionAsync(
   }
 
   // Handle genuine moment (from LLM detection or override)
-  const genuineMoment =
-    genuineMomentOverride ||
-    (userMessage ? await detectGenuineMomentLLMCached(userMessage) : null);
+  let genuineMoment: GenuineMomentResult | null = genuineMomentOverride || null;
+  if (!genuineMoment && userMessage) {
+    try {
+      const llmResult = await detectGenuineMomentLLMCached(userMessage);
+      // Convert GenuineMomentIntent to GenuineMomentResult format
+      if (llmResult.isGenuine && llmResult.category) {
+        genuineMoment = {
+          isGenuine: true,
+          category: llmResult.category,
+          matchedKeywords: [`LLM detected: ${llmResult.category}`],
+          isPositiveAffirmation: true,
+        };
+      }
+    } catch (error) {
+      console.warn("[MoodKnobs] LLM detection failed:", error);
+      genuineMoment = null;
+    }
+  }
 
-  // Check for genuine moment - GenuineMomentResult has isPositiveAffirmation,
-  // GenuineMomentIntent doesn't but isGenuine + category is sufficient
+  // Check for genuine moment
   const isGenuineMoment =
     genuineMoment?.isGenuine &&
-    (("isPositiveAffirmation" in genuineMoment &&
-      genuineMoment.isPositiveAffirmation) ||
-      (!("isPositiveAffirmation" in genuineMoment) &&
-        genuineMoment.category !== null));
+    genuineMoment.isPositiveAffirmation &&
+    genuineMoment.category !== null;
 
   if (isGenuineMoment) {
     console.log(
@@ -959,117 +881,7 @@ export interface GenuineMomentResult {
 }
 
 /**
- * Detect if a user message addresses one of Kayley's core insecurities
- * in a genuine, positive way (keyword-based).
- */
-export function detectGenuineMoment(userMessage: string): GenuineMomentResult {
-  const messageLower = userMessage.toLowerCase();
-  const result: GenuineMomentResult = {
-    isGenuine: false,
-    category: null,
-    matchedKeywords: [],
-    isPositiveAffirmation: false,
-  };
-
-  // Check each insecurity category
-  for (const [category, keywords] of Object.entries(INSECURITY_KEYWORDS)) {
-    const matched = keywords.filter((keyword) =>
-      messageLower.includes(keyword.toLowerCase())
-    );
-
-    if (matched.length >= 2) {
-      result.category = category as InsecurityCategory;
-      result.matchedKeywords = matched;
-
-      const positiveIndicators = [
-        "you",
-        "your",
-        "i think",
-        "i love",
-        "i appreciate",
-        "amazing",
-        "incredible",
-        "impressive",
-        "admire",
-        "respect",
-        "genuine",
-        "real",
-        "authentic",
-        "truly",
-        "really",
-        "so much",
-        "beautiful",
-      ];
-
-      const hasPositiveIndicator = positiveIndicators.some((pi) =>
-        messageLower.includes(pi)
-      );
-
-      if (hasPositiveIndicator && messageLower.includes("you")) {
-        result.isGenuine = true;
-        result.isPositiveAffirmation = true;
-        break;
-      }
-    }
-  }
-
-  // Special cases for very direct affirmations
-  const directAffirmations = [
-    "you think deeply",
-    "you're so thoughtful",
-    "you're not shallow",
-    "you deserve",
-    "you belong",
-    "proud of you",
-    "here for you",
-    "you're enough",
-    "you're doing great",
-    "you're not alone",
-    "you're genuine",
-    "you're authentic",
-    "you're so smart",
-    "you're so real",
-  ];
-
-  for (const affirmation of directAffirmations) {
-    if (messageLower.includes(affirmation)) {
-      result.isGenuine = true;
-      result.isPositiveAffirmation = true;
-      result.matchedKeywords.push(affirmation);
-
-      if (
-        affirmation.includes("think") ||
-        affirmation.includes("smart") ||
-        affirmation.includes("shallow")
-      ) {
-        result.category = "beingSeenAsShallow";
-      } else if (
-        affirmation.includes("belong") ||
-        affirmation.includes("deserve")
-      ) {
-        result.category = "impostorSyndrome";
-      } else if (
-        affirmation.includes("proud") ||
-        affirmation.includes("great") ||
-        affirmation.includes("enough")
-      ) {
-        result.category = "neverArriving";
-      } else if (
-        affirmation.includes("alone") ||
-        affirmation.includes("here for")
-      ) {
-        result.category = "hiddenLoneliness";
-      }
-      break;
-    }
-  }
-
-  return result;
-}
-
-/**
  * Async version of genuine moment detection using LLM semantic understanding.
- * Falls back to keyword detection if LLM fails.
  */
 export async function detectGenuineMomentWithLLM(
   userMessage: string,
@@ -1081,36 +893,34 @@ export async function detectGenuineMomentWithLLM(
       conversationContext
     );
 
-    if (llmResult.isGenuine && llmResult.category) {
-      const mappedCategory = mapCategoryToInsecurity(
-        llmResult.category
-      ) as InsecurityCategory | null;
-
-      console.log(`🧠 [MoodKnobs] LLM detected genuine moment:`, {
-        category: mappedCategory,
-        confidence: llmResult.confidence,
-      });
-
+    if (!llmResult.isGenuine || !llmResult.category) {
       return {
-        isGenuine: true,
-        category: mappedCategory,
-        matchedKeywords: [`LLM detected: ${llmResult.category}`],
-        isPositiveAffirmation: true,
+        isGenuine: false,
+        category: null,
+        matchedKeywords: [],
+        isPositiveAffirmation: false,
       };
     }
 
+    console.log(`[MoodKnobs] LLM detected genuine moment:`, {
+      category: llmResult.category,
+      confidence: llmResult.confidence,
+    });
+
+    return {
+      isGenuine: true,
+      category: llmResult.category,
+      matchedKeywords: [`LLM detected: ${llmResult.category}`],
+      isPositiveAffirmation: true,
+    };
+  } catch (error) {
+    console.warn("[MoodKnobs] LLM detection failed:", error);
     return {
       isGenuine: false,
       category: null,
       matchedKeywords: [],
       isPositiveAffirmation: false,
     };
-  } catch (error) {
-    console.warn(
-      "⚠️ [MoodKnobs] LLM detection failed, falling back to keywords:",
-      error
-    );
-    return detectGenuineMoment(userMessage);
   }
 }
 

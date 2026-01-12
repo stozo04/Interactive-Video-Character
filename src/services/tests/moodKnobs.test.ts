@@ -56,9 +56,9 @@ vi.mock('../intentService', () => ({
   detectGenuineMomentLLMCached: vi.fn().mockImplementation((message: string) => {
     // Simulate LLM detecting genuine moments for specific keywords
     const genuinePatterns = [
-      { pattern: /proud of you/i, category: 'neverArriving' },
-      { pattern: /here for you/i, category: 'hiddenLoneliness' },
-      { pattern: /thoughtful|think deeply|smart/i, category: 'beingSeenAsShallow' },
+      { pattern: /proud of you/i, category: 'progress' },
+      { pattern: /here for you/i, category: 'loneliness' },
+      { pattern: /thoughtful|think deeply|smart/i, category: 'depth' },
     ];
     
     for (const { pattern, category } of genuinePatterns) {
@@ -79,19 +79,16 @@ vi.mock('../intentService', () => ({
       explanation: 'No genuine moment detected',
     });
   }),
-  mapCategoryToInsecurity: vi.fn((cat: string) => cat),
 }));
 
 // Import after mocking
 import {
-  detectGenuineMoment,
   getEmotionalMomentumAsync,
   updateEmotionalMomentumAsync,
   resetEmotionalMomentumAsync,
   recordInteractionAsync,
   getMoodKnobsAsync,
   getMoodDescription,
-  INSECURITY_KEYWORDS,
   clearMoodKnobsCache,
 } from "../moodKnobs";
 
@@ -101,124 +98,6 @@ describe("Phase 2: Emotional Momentum", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     clearMoodKnobsCache();
-  });
-
-  // ============================================
-  // Genuine Moment Detection Tests (Pure function - sync)
-  // ============================================
-  
-  describe("detectGenuineMoment", () => {
-    describe("beingSeenAsShallow insecurity", () => {
-      it("should detect genuine moment when complimenting depth of thinking", () => {
-        const result = detectGenuineMoment(
-          "I love how you think deeply about things even though you're so fun"
-        );
-        
-        expect(result.isGenuine).toBe(true);
-        expect(result.category).toBe("beingSeenAsShallow");
-        expect(result.isPositiveAffirmation).toBe(true);
-      });
-
-      it("should detect direct affirmation about being thoughtful", () => {
-        const result = detectGenuineMoment("You're so thoughtful and smart");
-        
-        expect(result.isGenuine).toBe(true);
-        expect(result.category).toBe("beingSeenAsShallow");
-      });
-
-      it("should NOT detect when just mentioning 'shallow' negatively", () => {
-        const result = detectGenuineMoment("That movie was really shallow");
-        
-        expect(result.isGenuine).toBe(false);
-      });
-    });
-
-    describe("impostorSyndrome insecurity", () => {
-      it("should detect affirmation about belonging", () => {
-        const result = detectGenuineMoment(
-          "You totally deserve to be talking about AI. You belong in this space."
-        );
-        
-        expect(result.isGenuine).toBe(true);
-        expect(result.category).toBe("impostorSyndrome");
-      });
-
-      it("should detect 'you deserve' direct affirmation", () => {
-        const result = detectGenuineMoment("You deserve all the success you're getting!");
-        
-        expect(result.isGenuine).toBe(true);
-      });
-    });
-
-    describe("neverArriving insecurity", () => {
-      it("should detect when acknowledging progress", () => {
-        const result = detectGenuineMoment(
-          "I'm so proud of you and how far you've come. You're doing great!"
-        );
-        
-        expect(result.isGenuine).toBe(true);
-        expect(result.category).toBe("neverArriving");
-      });
-
-      it("should detect 'proud of you' direct affirmation", () => {
-        const result = detectGenuineMoment("I'm really proud of you");
-        
-        expect(result.isGenuine).toBe(true);
-        expect(result.category).toBe("neverArriving");
-      });
-    });
-
-    describe("hiddenLoneliness insecurity", () => {
-      it("should detect affirmation of connection", () => {
-        const result = detectGenuineMoment(
-          "You're not alone, I'm here for you. This is such a genuine connection."
-        );
-        
-        expect(result.isGenuine).toBe(true);
-        expect(result.category).toBe("hiddenLoneliness");
-      });
-
-      it("should detect 'here for you' direct affirmation", () => {
-        const result = detectGenuineMoment("I'm always here for you, you know that");
-        
-        expect(result.isGenuine).toBe(true);
-        expect(result.category).toBe("hiddenLoneliness");
-      });
-    });
-
-    describe("restGuilt insecurity", () => {
-      it("should detect permission to rest", () => {
-        const result = detectGenuineMoment(
-          "You deserve a break. It's okay to slow down and relax. You don't have to be productive all the time."
-        );
-        
-        expect(result.isGenuine).toBe(true);
-      });
-    });
-
-    describe("edge cases", () => {
-      it("should NOT detect generic positive messages without addressing insecurity", () => {
-        const result = detectGenuineMoment("You're awesome!");
-        
-        expect(result.isGenuine).toBe(false);
-      });
-
-      it("should NOT detect when insecurity keywords present but not directed at 'you'", () => {
-        const result = detectGenuineMoment(
-          "People who think deeply are rare in this shallow world"
-        );
-        
-        expect(result.isGenuine).toBe(false);
-      });
-
-      it("should return empty result for empty message", () => {
-        const result = detectGenuineMoment("");
-        
-        expect(result.isGenuine).toBe(false);
-        expect(result.category).toBeNull();
-        expect(result.matchedKeywords).toEqual([]);
-      });
-    });
   });
 
   // ============================================
@@ -471,27 +350,6 @@ describe("Phase 2: Emotional Momentum", () => {
   });
 
   // ============================================
-  // INSECURITY_KEYWORDS Export Tests
-  // ============================================
-
-  describe("INSECURITY_KEYWORDS", () => {
-    it("should export all 5 insecurity categories", () => {
-      expect(Object.keys(INSECURITY_KEYWORDS)).toHaveLength(5);
-      expect(INSECURITY_KEYWORDS.beingSeenAsShallow).toBeDefined();
-      expect(INSECURITY_KEYWORDS.impostorSyndrome).toBeDefined();
-      expect(INSECURITY_KEYWORDS.neverArriving).toBeDefined();
-      expect(INSECURITY_KEYWORDS.hiddenLoneliness).toBeDefined();
-      expect(INSECURITY_KEYWORDS.restGuilt).toBeDefined();
-    });
-
-    it("each category should have multiple keywords", () => {
-      for (const keywords of Object.values(INSECURITY_KEYWORDS)) {
-        expect(keywords.length).toBeGreaterThan(5);
-      }
-    });
-  });
-
-  // ============================================
   // Edge Cases
   // ============================================
 
@@ -517,13 +375,6 @@ describe("Phase 2: Emotional Momentum", () => {
       expect(momentum.currentMoodLevel).toBeGreaterThan(0.3);
     });
     
-    it("should detect genuine moment addressing 'shallow' insecurity", () => {
-      const result = detectGenuineMoment("You're so smart and thoughtful, I really appreciate that about you");
-      
-      expect(result.isGenuine).toBe(true);
-      expect(result.category).toBe("beingSeenAsShallow");
-    });
-
     it("should maintain momentum direction across interactions", async () => {
       await updateEmotionalMomentumAsync(0.7, "");
       await updateEmotionalMomentumAsync(0.8, "");

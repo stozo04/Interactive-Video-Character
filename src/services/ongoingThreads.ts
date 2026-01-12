@@ -23,6 +23,17 @@ import {
   type OngoingThread as SupabaseOngoingThread,
   type ThreadTheme as SupabaseThreadTheme,
 } from './stateService';
+import { getMoodAsync, type KayleyMood } from './moodKnobs';
+import { getRelationship } from './relationshipService';
+import { loadConversationHistory } from './conversationHistoryService';
+import { getUserFacts } from './memoryService';
+import { getRecentLifeEvents } from './lifeEventService';
+import {
+  generateAutonomousThoughtCached,
+  type ThoughtGenerationContext,
+  type ThoughtMessage,
+} from './autonomousThoughtService';
+import { KAYLEY_FULL_PROFILE } from '../domain/characters/kayleyCharacterProfile';
 
 // ============================================
 // Types (re-export for backwards compatibility)
@@ -72,78 +83,21 @@ export function clearThreadsCache(): void {
 }
 
 // ============================================
-// Autonomous Thread Templates
+// Autonomous Thread Themes
 // ============================================
 
-/**
- * Autonomous thread templates - things she might be thinking about
- * These feel natural because they're grounded in her character profile
- */
-const AUTONOMOUS_THREAD_TEMPLATES: Array<{
-  theme: ThreadTheme;
-  states: string[];
-}> = [
-  {
-    theme: 'creative_project',
-    states: [
-      "This video edit is fighting me. The color grading is just... not it.",
-      "I have this idea for a video that I can't get out of my head.",
-      "Finally figured out that transition I've been stuck on. Small wins.",
-      "Thumbnails are the bane of my existence. Why is this so hard.",
-      "I'm in that 'organize my content calendar' mood again.",
-    ],
-  },
-  {
-    theme: 'family',
-    states: [
-      "My mom called earlier. It was a whole thing.",
-      "Ethan sent me some meme and I can't stop thinking about it.",
-      "Thinking about calling my mom this weekend. We'll see.",
-      "Family group chat is being chaotic again.",
-      "Dad texted, which is rare. Processing that.",
-    ],
-  },
-  {
-    theme: 'self_improvement',
-    states: [
-      "I'm trying not to doomscroll tonight. Hold me accountable.",
-      "Therapy session today hit different. Still processing.",
-      "Been journaling more lately. It's helping.",
-      "Trying to be better about actually resting when I'm tired.",
-      "Working on that thing where I say yes to everything. Boundaries.",
-    ],
-  },
-  {
-    theme: 'social',
-    states: [
-      "Lena and I had this conversation and it's still bouncing around my head.",
-      "Haven't heard from Lena in a bit. Should probably reach out.",
-      "Creator friend group is planning something. Might be fun.",
-      "Had a weird interaction today that I'm overthinking.",
-      "Someone left a really sweet comment on my video and I'm still smiling.",
-    ],
-  },
-  {
-    theme: 'work',
-    states: [
-      "Client work is... a lot right now. Balancing act.",
-      "Brand deal opportunity came in. Trying to figure out if it's aligned.",
-      "Channel growth has been weird lately. Analytics brain is loud.",
-      "Had a good strategy session today. Feeling focused.",
-      "Freelance life means I'm always half-working, you know?",
-    ],
-  },
-  {
-    theme: 'existential',
-    states: [
-      "I'm in that 'what am I doing with my life' headspace. Fun times.",
-      "Feeling weirdly hopeful today? Not sure where that came from.",
-      "Been thinking about where I want to be in a year.",
-      "Sometimes I wonder if I'm on the right path. Normal, I think.",
-      "Having one of those 'everything is temporary' moments.",
-    ],
-  },
+const AUTONOMOUS_THEMES: ThreadTheme[] = [
+  "creative_project",
+  "family",
+  "self_improvement",
+  "social",
+  "work",
+  "existential",
 ];
+
+const MAX_AUTONOMOUS_ATTEMPTS = 6;
+
+type ThoughtContextBase = Omit<ThoughtGenerationContext, "theme">;
 
 // ============================================
 // Internal Helper Functions
@@ -199,23 +153,78 @@ function cleanupThreads(threads: OngoingThread[]): OngoingThread[] {
   });
 }
 
+
 /**
- * Generate a new autonomous thread
+ * Map conversation history to thought messages.
  */
-function generateAutonomousThread(): OngoingThread {
-  // Pick a random theme
-  const template = AUTONOMOUS_THREAD_TEMPLATES[
-    Math.floor(Math.random() * AUTONOMOUS_THREAD_TEMPLATES.length)
-  ];
-  
-  // Pick a random state from that theme
-  const state = template.states[Math.floor(Math.random() * template.states.length)];
-  
+function mapConversationHistoryToThoughtMessages(
+  history: Array<{ role: string; text: string }>
+): ThoughtMessage[] {
+  return history.slice(-5).map((message) => ({
+    role: message.role === "user" ? "user" : "assistant",
+    content: message.text,
+  }));
+}
+
+/**
+ * Build the shared context for autonomous thought generation.
+ */
+async function buildThoughtContextBase(): Promise<ThoughtContextBase> {
+  const [mood, relationship, lifeEvents, facts, history] = await Promise.all([
+    getMoodAsync().catch(() => ({ energy: 0, warmth: 0.5, genuineMoment: false })),
+    getRelationship().catch(() => null),
+    getRecentLifeEvents().catch(() => []),
+    getUserFacts("all").catch(() => []),
+    loadConversationHistory().catch(() => []),
+  ]);
+
+  const recentConversations = mapConversationHistoryToThoughtMessages(history);
+  const userFacts = facts
+    .slice(0, 10)
+    .map((fact) => `${fact.category}: ${fact.fact_key} = ${fact.fact_value}`);
+
+  return {
+    characterProfile: KAYLEY_FULL_PROFILE,
+    recentConversations,
+    currentMood: mood as KayleyMood,
+    relationshipTier: relationship?.relationshipTier ?? "acquaintance",
+    recentLifeEvents: lifeEvents,
+    userFacts,
+  };
+}
+
+function pickAutonomousTheme(existingThemes: Set<ThreadTheme>): ThreadTheme {
+  const availableThemes = AUTONOMOUS_THEMES.filter(
+    (theme) => !existingThemes.has(theme)
+  );
+  const pool = availableThemes.length > 0 ? availableThemes : AUTONOMOUS_THEMES;
+  return pool[Math.floor(Math.random() * pool.length)];
+}
+
+/**
+ * Generate a new autonomous thread using the LLM thought service.
+ */
+async function createAutonomousThread(
+  theme: ThreadTheme,
+  baseContext: ThoughtContextBase
+): Promise<OngoingThread | null> {
+  const thought = await generateAutonomousThoughtCached({
+    theme,
+    ...baseContext,
+  });
+
+  if (!thought.shouldMention || thought.confidence < 0.5 || !thought.content) {
+    console.log(`[OngoingThreads] Skipping low-confidence thought: ${thought.content}`);
+    return null;
+  }
+
+  const intensity = Math.min(1, Math.max(0.2, thought.intensity || 0.4));
+
   return {
     id: generateId(),
-    theme: template.theme,
-    currentState: state,
-    intensity: 0.4 + Math.random() * 0.4, // 0.4-0.8
+    theme,
+    currentState: thought.content,
+    intensity,
     lastMentioned: null,
     userRelated: false,
     createdAt: Date.now(),
@@ -223,43 +232,52 @@ function generateAutonomousThread(): OngoingThread {
 }
 
 /**
- * Ensure we have minimum threads
+ * Ensure we have minimum threads (async, LLM-backed)
  */
-function ensureMinimumThreads(threads: OngoingThread[]): OngoingThread[] {
-  while (threads.length < MIN_THREADS) {
-    // Avoid duplicate themes
-    const existingThemes = new Set(threads.map(t => t.theme));
-    let newThread = generateAutonomousThread();
-    
-    // Try a few times to get a unique theme
-    let attempts = 0;
-    while (existingThemes.has(newThread.theme) && attempts < 5) {
-      newThread = generateAutonomousThread();
-      attempts++;
-    }
-    
-    threads.push(newThread);
+async function ensureMinimumThreadsAsync(
+  threads: OngoingThread[]
+): Promise<OngoingThread[]> {
+  if (threads.length >= MIN_THREADS) {
+    return threads;
   }
-  
-  return threads;
+
+  const baseContext = await buildThoughtContextBase();
+  const existingThemes = new Set(threads.map((thread) => thread.theme));
+  const updated = [...threads];
+
+  let attempts = 0;
+  while (updated.length < MIN_THREADS && attempts < MAX_AUTONOMOUS_ATTEMPTS) {
+    const theme = pickAutonomousTheme(existingThemes);
+    const newThread = await createAutonomousThread(theme, baseContext);
+    attempts += 1;
+
+    if (!newThread) {
+      continue;
+    }
+
+    updated.push(newThread);
+    existingThemes.add(newThread.theme);
+  }
+
+  return updated;
 }
 
 /**
- * Process threads: apply decay, cleanup, ensure minimum
+ * Process threads: apply decay and cleanup (sync)
  */
-function processThreads(threads: OngoingThread[]): OngoingThread[] {
-  // Apply decay
+function processThreadsBase(threads: OngoingThread[]): OngoingThread[] {
   let processed = decayThreads(threads);
-  
-  // Cleanup old/dead threads
   processed = cleanupThreads(processed);
-  
-  // Ensure minimum
-  processed = ensureMinimumThreads(processed);
-  
-  // Limit to max
+  return processed;
+}
+
+/**
+ * Process threads: apply decay, cleanup, ensure minimum (async)
+ */
+async function processThreadsAsync(threads: OngoingThread[]): Promise<OngoingThread[]> {
+  let processed = processThreadsBase(threads);
+  processed = await ensureMinimumThreadsAsync(processed);
   processed = processed.slice(0, MAX_THREADS);
-  
   return processed;
 }
 
@@ -419,7 +437,7 @@ export async function getOngoingThreadsAsync(): Promise<OngoingThread[]> {
     const threads = await getSupabaseThreads();
     
     // Process threads (decay, cleanup, ensure minimum)
-    const processed = processThreads(threads);
+    const processed = await processThreadsAsync(threads);
     
     // Update cache
     threadsCache = { data: processed, timestamp: Date.now() };
@@ -432,7 +450,7 @@ export async function getOngoingThreadsAsync(): Promise<OngoingThread[]> {
     console.error('[OngoingThreads] Error fetching threads:', error);
     
     // Return minimum threads on error
-    const fallback = ensureMinimumThreads([]);
+    const fallback = await processThreadsAsync([]);
     threadsCache = { data: fallback, timestamp: Date.now() };
     return fallback;
   }
@@ -561,8 +579,8 @@ export async function getThreadToSurfaceAsync(): Promise<OngoingThread | null> {
  * @returns Formatted prompt string
  */
 export function formatThreadsFromData(threads: OngoingThread[]): string {
-  // Process threads (decay, cleanup, ensure minimum)
-  const processed = processThreads(threads);
+  // Process threads (decay, cleanup) without LLM calls
+  const processed = processThreadsBase(threads);
   
   // Find top thread to potentially surface
   const topThread = findThreadToSurface(processed);
