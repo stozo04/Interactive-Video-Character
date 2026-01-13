@@ -1528,7 +1528,7 @@ Keep it very short (1 sentence).
         pendingMessage = await getUndeliveredMessage();
         if (pendingMessage) {
           console.log(
-            `dY'O [GeminiService] Found pending ${pendingMessage.trigger} message to deliver`
+            `[GeminiService] Found pending ${pendingMessage.trigger} message to deliver`
           );
         }
       } catch (e) {

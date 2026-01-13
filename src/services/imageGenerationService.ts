@@ -246,6 +246,8 @@ export async function generateCompanionSelfie(
       generatedPrompt.sceneDescription,
       generatedPrompt.moodExpression,
       generatedPrompt.lightingDescription,
+      generatedPrompt.outfitContext.description,
+      generatedPrompt.outfitContext.style,
       generatedPrompt.additionalDetails
     );
 
@@ -426,11 +428,14 @@ function buildImagePrompt(
   scene: string,
   moodDescription: string,
   lightingDescription: string,
+  outfitDescription: string,
+  outfitStyle: string,
   additionalDetails: string = ""
 ): string {
   return [
     `She is looking into the lens ${moodDescription}.`,
     `She is situated in ${scene}.`,
+    `She is wearing ${outfitDescription}. in the style of ${outfitStyle}.`,
     `The lighting is ${lightingDescription}.`,
     additionalDetails ? `Note: ${additionalDetails}` : "",
   ]

@@ -12,16 +12,16 @@
  * Key principle: Call this AFTER each user message to enable
  * proactive behaviors and pattern recognition.
  * 
- * Phase 1 Semantic Intent Detection:
+ * Semantic Intent Detection:
  * Now uses LLM-based genuine moment detection with conversation context.
  * 
- * Phase 2 Semantic Intent Detection:
+ * Semantic Intent Detection:
  * Now uses LLM-based tone & sentiment detection with sarcasm handling.
  * 
- * Phase 5 Semantic Intent Detection:
+ * Semantic Intent Detection:
  * Now uses LLM-based open loop detection with timeframe inference.
  * 
- * Phase 6 Semantic Intent Detection:
+ * Semantic Intent Detection:
  * Now uses LLM-based relationship signal detection (milestones, ruptures).
  */
 
@@ -39,7 +39,6 @@ import {
   type ConversationContext
 } from './moodKnobs';
 import {
-  detectOpenLoopsLLMCached,
   detectFullIntentLLMCached,
   type ToneIntent,
   type PrimaryEmotion,
@@ -50,9 +49,8 @@ import {
   type FollowUpTimeframe,
   type RelationshipSignalIntent,
   type FullMessageIntent,
-  type GenuineMomentIntent,
-  type GenuineMomentCategory
-} from './intentService';
+  type GenuineMomentCategory,
+} from "./intentService";
 import type { OpenLoop } from './presenceDirector';
 import type { UserPattern } from './userPatterns';
 import type { RelationshipMilestone } from './relationshipMilestones';
@@ -152,42 +150,7 @@ function analyzeMessageTone(message: string): number {
   return analyzeMessageToneKeywords(message);
 }
 
-// ============================================
-// LLM-based Topic Detection with Fallback (Phase 4)
-// ============================================
 
-/**
- * Simple keyword-based topic detection for fallback.
- * Uses the same patterns as TOPIC_CATEGORIES in userPatterns.ts.
- */
-const TOPIC_KEYWORDS: Record<TopicCategory, string[]> = {
-  work: ['work', 'job', 'boss', 'coworker', 'meeting', 'project', 'deadline', 'office', 'career'],
-  family: ['mom', 'dad', 'parent', 'brother', 'sister', 'family', 'grandma', 'grandpa', 'uncle', 'aunt'],
-  relationships: ['boyfriend', 'girlfriend', 'partner', 'dating', 'relationship', 'ex', 'crush'],
-  health: ['sick', 'doctor', 'health', 'exercise', 'gym', 'sleep', 'therapy', 'medication'],
-  money: ['money', 'bills', 'debt', 'rent', 'broke', 'expensive', 'budget', 'paycheck'],
-  school: ['school', 'class', 'homework', 'exam', 'test', 'professor', 'college', 'study'],
-  hobbies: ['hobby', 'game', 'sport', 'music', 'art', 'book', 'movie', 'show'],
-  personal_growth: ['goal', 'habit', 'improve', 'learn', 'grow', 'change', 'better'],
-  other: [], // Catch-all, not matched by keywords
-};
-
-/**
- * Keyword-based topic detection for fallback.
- * Returns topics found based on keyword matching.
- */
-function detectTopicsKeywords(message: string): TopicCategory[] {
-  const lowerMessage = message.toLowerCase();
-  const foundTopics: TopicCategory[] = [];
-  
-  for (const [topic, keywords] of Object.entries(TOPIC_KEYWORDS)) {
-    if (keywords.some(keyword => lowerMessage.includes(keyword))) {
-      foundTopics.push(topic as TopicCategory);
-    }
-  }
-  
-  return foundTopics;
-}
 
 /**
  * Analyze a user message for patterns, loops, and milestones.
@@ -432,7 +395,7 @@ export async function analyzeUserMessage(
 
   // Run all background updates in parallel to maximize performance
   const [createdLoops, recordedMilestone, detectedPatterns] = await Promise.all([
-    // Phase 5: Create open loops
+    // Create open loops
     detectOpenLoops(
       message, 
       llmCall, 
@@ -440,13 +403,13 @@ export async function analyzeUserMessage(
       openLoopResult
     ),
     
-    // Phase 6: Milestone detection
+    // Milestone detection
     detectMilestoneInMessage(message, interactionCount, relationshipSignalResult),
     
-    // Phase 3: Cross-session patterns
+    // Cross-session patterns
     analyzeMessageForPatterns(message, new Date(), toneResult, topicResult),
     
-    // Phase 7: Emotional momentum update
+    // Emotional momentum update
     recordInteractionAsync(
       toneResult, 
       message,
@@ -458,7 +421,7 @@ export async function analyzeUserMessage(
       }
     ),
 
-    // Phase 7: Probabilistic intimacy / stats
+    // Probabilistic intimacy / stats
     relationshipService.recordMessageQualityAsync(message),
 
     // Almost Moments: Generate new unsaid feelings (rare)
