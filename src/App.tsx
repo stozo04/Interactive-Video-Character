@@ -894,11 +894,12 @@ const App: React.FC = () => {
     // Phase 1 Optimization: Build action key map for LLM response resolution
     if (character.actions?.length) {
       buildActionKeyMap(character.actions);
-      console.log(`🔑 Built action key map for ${character.actions.length} actions`);
+      // console.log(`🔑 Built action key map for ${character.actions.length} actions`);
     }
 
 
     // Load tasks (handled by useTasks hook)
+    // TODO: Ask AI why we added this and if it is still needed? (Must search many files to understand)
     const currentTasks = await loadTasks();
     
     // Load snooze state (handled by useProactiveSettings hook)

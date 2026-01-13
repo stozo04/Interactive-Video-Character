@@ -3,8 +3,15 @@
 export type HairstyleType =
   | 'curly'           // Natural voluminous curls (2B/2C waves)
   | 'straight'        // Blown out or naturally straight
-  | 'messy_bun'       // Casual updo, curly texture
+  | 'waves'           // Soft waves or beach waves
+  | 'heatless_curls'  // No-heat curls or set waves
+  | 'half_up'         // Half-up, half-down style
+  | 'claw_clip'       // Claw clip updo
+  | 'headband'        // Headband-styled hair
+  | 'dutch_braid'     // Single or double dutch braid
   | 'ponytail'        // High or low ponytail
+  | 'messy_bun'       // Casual updo, curly texture
+  | 'styled_bun'      // Sleek or styled bun
   | 'bob';            // Shorter style (future)
 
 export type OutfitStyle =
