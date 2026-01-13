@@ -15,9 +15,9 @@ import { supabase } from '../supabaseClient';
 // Types
 // ============================================================================
 
-export type MessageTrigger = 'calendar' | 'gift' | 'urgent';
-export type MessageType = 'text' | 'photo';
-export type MessagePriority = 'low' | 'normal' | 'high';
+export type MessageTrigger = "calendar" | "gift" | "urgent" | "promise";
+export type MessageType = "text" | "photo";
+export type MessagePriority = "low" | "normal" | "high";
 const USER_ID = import.meta.env.VITE_USER_ID;
 export interface PendingMessage {
   id: string;
@@ -105,6 +105,7 @@ export async function createPendingMessage(
  * Returns the highest priority message, or null if none waiting.
  */
 export async function getUndeliveredMessage(): Promise<PendingMessage | null> {
+  console.log("pendingMessageService: getUndeliveredMessage");
   const { data, error } = await supabase
     .from(PENDING_MESSAGES_TABLE)
     .select("*")
@@ -132,6 +133,7 @@ export async function getUndeliveredMessage(): Promise<PendingMessage | null> {
  * Check if there's any undelivered message waiting.
  */
 export async function hasUndeliveredMessage(): Promise<boolean> {
+  console.log("pendingMessageService: hasUndeliveredMessage");
   const { count, error } = await supabase
     .from(PENDING_MESSAGES_TABLE)
     .select("id", { count: "exact", head: true })
@@ -149,9 +151,38 @@ export async function hasUndeliveredMessage(): Promise<boolean> {
 }
 
 /**
+ * Check if there's an undelivered message for a specific trigger and event.
+ * Used to avoid duplicate promise deliveries.
+ */
+export async function hasUndeliveredMessageForTriggerEvent(
+  trigger: MessageTrigger,
+  triggerEventId: string
+): Promise<boolean> {
+  if (!triggerEventId) return false;
+
+  const { count, error } = await supabase
+    .from(PENDING_MESSAGES_TABLE)
+    .select("id", { count: "exact", head: true })
+    .is("delivered_at", null)
+    .eq("trigger", trigger)
+    .eq("trigger_event_id", triggerEventId);
+
+  if (error) {
+    console.error(
+      "[PendingMessage] Error checking trigger event messages:",
+      error
+    );
+    return false;
+  }
+
+  return (count || 0) > 0;
+}
+
+/**
  * Mark a message as delivered (shown to user).
  */
 export async function markMessageDelivered(messageId: string): Promise<void> {
+  console.log("pendingMessageService: markMessageDelivered");
   const { error } = await supabase
     .from(PENDING_MESSAGES_TABLE)
     .update({ delivered_at: new Date().toISOString() })
@@ -175,6 +206,7 @@ export async function recordMessageReaction(
   messageId: string,
   reaction: "positive" | "neutral" | "negative"
 ): Promise<void> {
+  console.log("pendingMessageService: recordMessageReaction");
   const { error } = await supabase
     .from(PENDING_MESSAGES_TABLE)
     .update({ reaction })
@@ -189,6 +221,7 @@ export async function recordMessageReaction(
  * Get all undelivered messages for a user (for display purposes).
  */
 export async function getAllUndeliveredMessages(): Promise<PendingMessage[]> {
+  console.log("pendingMessageService: getAllUndeliveredMessages");
   const { data, error } = await supabase
     .from(PENDING_MESSAGES_TABLE)
     .select("*")

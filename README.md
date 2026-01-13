@@ -96,7 +96,7 @@ This project includes **9 specialized sub-agents** for Claude Code that provide 
 | `state-manager` | Supabase/caching | Database tables, cache strategy, queries |
 | `relationship-dynamics` | Relationships | Tier logic, milestones, pattern detection |
 | `presence-proactivity` | Proactive behavior | Idle breaker, open loops, callbacks |
-| `memory-knowledge` | Memory systems | Fact storage, semantic search, embeddings |
+| `memory-knowledge` | Memory/Promises | Fact storage, semantic search, promise tracking |
 | `external-integrations` | External APIs | OAuth, Gmail, Calendar, TTS |
 | `test-engineer` | Testing | Writing tests, coverage, fixing failures |
 
@@ -128,6 +128,7 @@ Key developer documentation in the `docs/` folder:
 | [Reflection & Idle Thoughts](docs/Reflection_and_Idle_Thoughts.md) | Post-session reflection and idle thought generation during user absence. |
 | [System Prompt Plan](docs/System_Prompt_Plan.md) | Original optimization plan with implementation details and lessons learned. |
 | [Google OAuth Setup](docs/GOOGLE_OAUTH_SETUP.md) | Step-by-step guide for configuring Google authentication. |
+| [Promise Tracking System](src/services/docs/promiseService.md) | Temporal awareness: How Kayley manages future commitments for realism. |
 
 ## Architecture & State Management
 
@@ -163,6 +164,7 @@ All character state is now persisted in Supabase, replacing localStorage for clo
 - `intimacy_states` - Vulnerability exchange tracking, recent tone modifiers
 - `kayley_unsaid_feelings` - Almost moments: Unspoken feelings building over time
 - `kayley_almost_moment_log` - Tracks when almost moments occur in conversation
+- `promises` - Tracked future commitments (Phase 1 temporal realism)
 
 **Key Services:**
 - `src/services/stateService.ts` - Core Supabase operations (CRUD for all state)
@@ -170,6 +172,7 @@ All character state is now persisted in Supabase, replacing localStorage for clo
 - `src/services/ongoingThreads.ts` - Manages mental threads with decay/cleanup
 - `src/services/relationshipService.ts` - Relationship metrics and intimacy state
 - `src/services/almostMoments/` - Almost moments system: Unspoken feelings that build over time
+- `src/services/promiseService.ts` - Future commitment tracking and fulfillment
 
 **Unified State Fetch Optimization:**
 Instead of 3-4 separate database calls, use the unified RPC function:

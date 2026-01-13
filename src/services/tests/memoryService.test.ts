@@ -37,6 +37,11 @@ vi.mock('../characterFactsService', () => ({
   storeCharacterFact: vi.fn().mockResolvedValue(true),
 }));
 
+const mockCreatePromise = vi.fn();
+vi.mock('../promiseService', () => ({
+  createPromise: (...args: any[]) => mockCreatePromise(...args),
+}));
+
 describe('memoryService', () => {
   const userId = 'test-user-id';
   const mockAccessToken = 'mock-access-token';
@@ -266,6 +271,47 @@ describe('memoryService', () => {
       
       expect(charFactsMock.storeCharacterFact).toHaveBeenCalledWith('preference', 'laptop_name', 'Nova');
       expect(result).toContain('✓ Stored character fact');
+    });
+  });
+
+  describe('make_promise', () => {
+    it('should create a promise successfully', async () => {
+      mockCreatePromise.mockResolvedValue({ id: 'promise-123' });
+      
+      const args: ToolCallArgs['make_promise'] = {
+        promiseType: 'send_selfie',
+        description: 'Selfie from walk',
+        triggerEvent: 'when I go on my walk',
+      };
+      
+      const result = await executeMemoryTool('make_promise', args, {
+        ...mockContext,
+        userMessage: 'Send me a selfie later'
+      });
+      
+      expect(mockCreatePromise).toHaveBeenCalledWith(
+        'send_selfie',
+        'Selfie from walk',
+        'when I go on my walk',
+        expect.any(Date),
+        'Send me a selfie later',
+        undefined
+      );
+      expect(result).toContain('✓ Promise created: Selfie from walk');
+    });
+
+    it('should handle failure to create promise', async () => {
+      mockCreatePromise.mockResolvedValue(null);
+      
+      const args: ToolCallArgs['make_promise'] = {
+        promiseType: 'share_update',
+        description: 'Tell about audition',
+        triggerEvent: 'after audition',
+      };
+      
+      const result = await executeMemoryTool('make_promise', args, mockContext);
+      
+      expect(result).toContain('Failed to create promise');
     });
   });
 });

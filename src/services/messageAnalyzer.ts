@@ -39,10 +39,7 @@ import {
   type ConversationContext
 } from './moodKnobs';
 import {
-  detectToneLLMCached,
-  detectTopicsLLMCached,
   detectOpenLoopsLLMCached,
-  detectRelationshipSignalsLLMCached,
   detectFullIntentLLMCached,
   type ToneIntent,
   type PrimaryEmotion,
@@ -156,46 +153,6 @@ function analyzeMessageTone(message: string): number {
 }
 
 // ============================================
-// LLM-based Tone Detection with Fallback (Phase 2)
-// ============================================
-
-/**
- * Detect tone using LLM with fallback to keyword-based analysis.
- * This is the Phase 2 implementation that handles:
- * - Sarcasm detection ("Great, just great" = negative)
- * - Mixed emotions ("excited but also nervous")
- * - Context-dependent tone ("You suck!!" after good news = playful)
- * 
- * @param message - The user's message to analyze
- * @param context - Optional conversation context for accurate interpretation
- * @returns Promise resolving to ToneIntent
- */
-export async function detectToneWithLLM(
-  message: string,
-  context?: ConversationContext
-): Promise<ToneIntent> {
-  try {
-    const result = await detectToneLLMCached(message, context);
-    return result;
-  } catch (error) {
-    // LLM failed - fall back to keyword detection
-    console.warn('⚠️ [MessageAnalyzer] LLM tone detection failed, falling back to keywords:', error);
-    
-    const keywordTone = analyzeMessageToneKeywords(message);
-    
-    // Convert keyword result to ToneIntent format
-    return {
-      sentiment: keywordTone,
-      primaryEmotion: keywordTone > 0.3 ? 'happy' 
-                    : keywordTone < -0.3 ? 'sad' 
-                    : 'neutral',
-      intensity: Math.abs(keywordTone),
-      isSarcastic: false // Keyword detection can't detect sarcasm
-    };
-  }
-}
-
-// ============================================
 // LLM-based Topic Detection with Fallback (Phase 4)
 // ============================================
 
@@ -230,120 +187,6 @@ function detectTopicsKeywords(message: string): TopicCategory[] {
   }
   
   return foundTopics;
-}
-
-/**
- * Detect topics using LLM with fallback to keyword-based analysis.
- * This is the Phase 4 implementation that handles:
- * - Multiple topics per message ("My boss is stressing about money" = work + money)
- * - Emotional context per topic ("work: frustrated")
- * - Entity extraction ("boss", "deadline")
- * 
- * @param message - The user's message to analyze
- * @param context - Optional conversation context for accurate interpretation
- * @returns Promise resolving to TopicIntent
- */
-export async function detectTopicsWithLLM(
-  message: string,
-  context?: ConversationContext
-): Promise<TopicIntent> {
-  try {
-    const result = await detectTopicsLLMCached(message, context);
-    return result;
-  } catch (error) {
-    // LLM failed - fall back to keyword detection
-    console.warn('⚠️ [MessageAnalyzer] LLM topic detection failed, falling back to keywords:', error);
-    
-    const keywordTopics = detectTopicsKeywords(message);
-    
-    // Convert keyword result to TopicIntent format
-    return {
-      topics: keywordTopics,
-      primaryTopic: keywordTopics.length > 0 ? keywordTopics[0] : null,
-      emotionalContext: {}, // Keyword detection can't extract emotional context
-      entities: [] // Keyword detection can't extract entities
-    };
-  }
-}
-
-// ============================================
-// LLM-based Open Loop Detection with Fallback (Phase 5)
-// ============================================
-
-/**
- * Detect open loops using LLM with fallback when LLM fails.
- * This is the Phase 5 implementation that handles:
- * - Explicit events ("I have an interview tomorrow")
- * - Emotional states ("I'm really stressed about the move")
- * - Soft commitments ("Maybe I'll try that new gym")
- * - Timeframe inference ("tomorrow", "this_week", "soon")
- * 
- * Note: This wrapper is primarily for direct access. The actual 
- * integration with presenceDirector already uses detectOpenLoopsLLMCached
- * internally in detectOpenLoops(), which handles creating loops in Supabase.
- * 
- * @param message - The user's message to analyze
- * @param context - Optional conversation context for accurate interpretation
- * @returns Promise resolving to OpenLoopIntent
- */
-export async function detectOpenLoopsWithLLM(
-  message: string,
-  context?: ConversationContext
-): Promise<OpenLoopIntent> {
-  try {
-    const result = await detectOpenLoopsLLMCached(message, context);
-    return result;
-  } catch (error) {
-    // LLM failed - return no follow-up (regex fallback happens in presenceDirector)
-    console.warn('⚠️ [MessageAnalyzer] LLM open loop detection failed:', error);
-    
-    // Return a safe default - no follow-up detected
-    return {
-      hasFollowUp: false,
-      loopType: null,
-      topic: null,
-      suggestedFollowUp: null,
-      timeframe: null,
-      salience: 0
-    };
-  }
-}
-
-// ============================================
-// LLM-based Relationship Signal Detection (Phase 6)
-// ============================================
-
-/**
- * Detect relationship signals (milestones, ruptures) using LLM.
- * 
- * @param message - The user's message to analyze
- * @param context - Optional conversation context for accurate interpretation
- * @returns Promise resolving to RelationshipSignalIntent
- */
-export async function detectRelationshipSignalsWithLLM(
-  message: string,
-  context?: ConversationContext
-): Promise<RelationshipSignalIntent> {
-  try {
-    return await detectRelationshipSignalsLLMCached(message, context);
-  } catch (error) {
-    console.warn('⚠️ [MessageAnalyzer] LLM relationship signal detection failed:', error);
-    
-    // Return safe default - no signal detected
-    return {
-      isVulnerable: false,
-      isSeekingSupport: false,
-      isAcknowledgingSupport: false,
-      isJoking: false,
-      isDeepTalk: false,
-      milestone: null,
-      milestoneConfidence: 0,
-      isHostile: false,
-      hostilityReason: null,
-      isInappropriate: false,
-      inappropriatenessReason: null
-    };
-  }
 }
 
 /**
@@ -700,9 +543,5 @@ export default {
   analyzeUserMessage,
   analyzeUserMessageBackground,
   analyzeMessageTone,
-  analyzeMessageToneKeywords,
-  detectToneWithLLM,
-  detectTopicsWithLLM,
-  detectOpenLoopsWithLLM,
-  detectRelationshipSignalsWithLLM
+  analyzeMessageToneKeywords
 };

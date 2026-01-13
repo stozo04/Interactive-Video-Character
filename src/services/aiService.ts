@@ -34,6 +34,13 @@ export interface AIChatOptions {
   audioMode?: 'sync' | 'async' | 'none';
 
   /**
+   * Original user message (before enrichment with calendar/email data).
+   * Used for intent detection to keep payload small.
+   * If not provided, falls back to using the main input message.
+   */
+  originalMessageForIntent?: string;
+
+  /**
    * Only used when audioMode === 'async'. Called when audio is ready.
    */
   onAudioData?: (audioData: string) => void;

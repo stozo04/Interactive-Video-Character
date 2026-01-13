@@ -39,6 +39,7 @@ The system follows a "Perception -> processing -> Action" pipeline:
 *   [Kayley Presence](./KayleyPresence.md): Real-time tracking of what she's wearing/doing/feeling.
 *   [Proactive Systems](./Proactive_Systems.md): Overview of Calendar and News systems.
 *   [Loop Cleanup](./LoopCleanup.md): The "janitor" that keeps her memory from getting cluttered.
+*   [Promise Service](./promiseService.md): Temporal awareness and future commitment tracking.
 
 ### 🌙 Idle Life (Part Two: Kayley Lives Her Life)
 *   [Idle Life Service](./IdleLifeService.md): Overview of the complete idle-time system.

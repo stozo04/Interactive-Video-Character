@@ -39,7 +39,7 @@ import { TaskPanel } from './components/TaskPanel';
 import { WhiteboardView } from './components/WhiteboardView';
 import { WhiteboardAction } from './services/whiteboardModes';
 import { handleWhiteboardCapture as handleWhiteboardCaptureHandler } from './handlers/whiteboardHandler';
-import { processTaskAction } from './handlers/messageActions';
+import { processSelfieAction, processTaskAction } from './handlers/messageActions';
 import { processUserMessage } from './services/messageOrchestrator';
 import { useGoogleAuth } from './contexts/GoogleAuthContext';
 import { useDebounce } from './hooks/useDebounce';
@@ -56,6 +56,7 @@ import { useAIService } from './contexts/AIServiceContext';
 import { AIChatSession } from './services/aiService';
 import { startCleanupScheduler, stopCleanupScheduler } from './services/loopCleanupService';
 import { startIdleThoughtsScheduler, stopIdleThoughtsScheduler } from './services/idleThoughtsScheduler';
+import { startPromiseChecker, stopPromiseChecker } from './services/backgroundJobs';
 // Utility imports (Phase 1 extraction)
 import { isQuestionMessage } from './utils/textUtils';
 import { shuffleArray } from './utils/arrayUtils';
@@ -321,6 +322,18 @@ const App: React.FC = () => {
     } catch (e) {
       // Ignore if user ID check fails (e.g. env var missing in dev)
       console.log(`❌ [IdleThoughts] Error starting idle thoughts scheduler:`, e);
+    }
+  }, []);
+
+  // Promise Checker: Initialize background job to fulfill future commitments
+  useEffect(() => {
+    try {
+      startPromiseChecker();
+      return () => {
+        stopPromiseChecker();
+      };
+    } catch (e) {
+      console.log(`❌ [Promises] Error starting promise checker:`, e);
     }
   }, []);
 
@@ -928,6 +941,47 @@ const App: React.FC = () => {
           session.interactionId = existingInteractionId;
         }
 
+        const handleStartupSelfie = async (
+          selfieAction: { scene?: string; mood?: string; outfit?: string } | null | undefined,
+          baseHistory: ChatMessage[]
+        ) => {
+          if (!selfieAction?.scene) return;
+
+          const selfieResult = await processSelfieAction(selfieAction, {
+            userMessage: "pending message delivery",
+            chatHistory: baseHistory,
+            upcomingEvents,
+          });
+
+          if (selfieResult.success && selfieResult.imageBase64) {
+            setChatHistory(prev => {
+              if (prev.length === 0) return prev;
+              const updated = [...prev];
+              const lastIndex = updated.length - 1;
+              const lastMessage = updated[lastIndex];
+
+              if (lastMessage.role === 'model' && !lastMessage.assistantImage) {
+                updated[lastIndex] = {
+                  ...lastMessage,
+                  assistantImage: selfieResult.imageBase64,
+                  assistantImageMimeType: selfieResult.mimeType || 'image/png',
+                };
+              } else {
+                updated.push({
+                  role: 'model',
+                  text: '',
+                  assistantImage: selfieResult.imageBase64,
+                  assistantImageMimeType: selfieResult.mimeType || 'image/png',
+                });
+              }
+
+              return updated;
+            });
+          } else if (selfieResult.error) {
+            console.error('Selfie generation failed on startup:', selfieResult.error);
+          }
+        };
+
         if (!hasHadConversationToday) {
           // No conversation today: Generate greeting
           // The greeting service will automatically include daily logistics if it's the first login
@@ -948,6 +1002,7 @@ const App: React.FC = () => {
 
           const initialHistory = [{ role: 'model' as const, text: greeting.text_response }];
           setChatHistory(initialHistory);
+          await handleStartupSelfie(greeting.selfie_action, initialHistory);
 
           if (greeting.action_id && newActionUrls[greeting.action_id]) {
             setTimeout(() => playAction(greeting.action_id!), 100);
@@ -965,7 +1020,9 @@ const App: React.FC = () => {
           setAiSession(updatedSession);
 
           // Append the "welcome back" message to the restored history
-          setChatHistory(prev => [...prev, { role: 'model' as const, text: backMessage.text_response }]);
+          const updatedHistory = [...todayHistory, { role: 'model' as const, text: backMessage.text_response }];
+          setChatHistory(updatedHistory);
+          await handleStartupSelfie(backMessage.selfie_action, updatedHistory);
 
           // Save the interaction record
           await conversationHistoryService.appendConversationHistory(

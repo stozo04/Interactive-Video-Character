@@ -51,7 +51,6 @@ COMMENT ON TABLE kayley_experiences IS
 -- ============================================================================
 CREATE TABLE IF NOT EXISTS pending_messages (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id TEXT NOT NULL,
 
   -- Message content
   message_text TEXT NOT NULL,
@@ -62,7 +61,7 @@ CREATE TABLE IF NOT EXISTS pending_messages (
 
   -- Trigger and context
   trigger TEXT NOT NULL CHECK (
-    trigger IN ('calendar', 'gift', 'urgent')
+    trigger IN ('calendar', 'gift', 'urgent', 'promise')
   ),
   trigger_event_id TEXT,           -- Calendar event ID if applicable
   trigger_event_title TEXT,        -- Calendar event title for context

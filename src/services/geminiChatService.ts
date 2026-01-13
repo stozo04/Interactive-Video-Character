@@ -505,6 +505,7 @@ export class GeminiService implements IAIChatService {
 
           const toolResult = await executeMemoryTool(toolName, toolArgs, {
             googleAccessToken: options?.googleAccessToken,
+            userMessage: typeof options === 'object' && 'chatHistory' in options ? options.chatHistory?.[options.chatHistory.length - 1]?.text : undefined
           });
 
           return {
@@ -728,6 +729,10 @@ export class GeminiService implements IAIChatService {
       const userMessageText = "text" in input ? input.text : "";
       // console.log("userMessageText: ", userMessageText);
 
+      // Use original message for intent detection (without calendar/email enrichment)
+      // This keeps intent detection payload small (~3000 chars vs ~5000 chars)
+      const messageForIntent = options.originalMessageForIntent || userMessageText;
+
       // Build conversation context early (for intent detection)
       const interactionCount = options.chatHistory?.length || 0;
       // console.log("interactionCount: ", interactionCount);
@@ -798,10 +803,11 @@ export class GeminiService implements IAIChatService {
         );
       }
 
-      // Start intent detection
-      if (trimmedMessage && trimmedMessage.length > 5) {
+      // Start intent detection using CLEAN message (without calendar data)
+      const trimmedMessageForIntent = messageForIntent.trim();
+      if (trimmedMessageForIntent && trimmedMessageForIntent.length > 5) {
         intentPromise = detectFullIntentLLMCached(
-          trimmedMessage,
+          trimmedMessageForIntent,
           conversationContext
         );
         console.log("intentPromise initialized");
@@ -1516,10 +1522,26 @@ Keep it very short (1 sentence).
         // Ignore errors fetching name
       }
 
+      // Fetch any pending message from idle time
+      let pendingMessage = null;
+      try {
+        pendingMessage = await getUndeliveredMessage();
+        if (pendingMessage) {
+          console.log(
+            `dY'O [GeminiService] Found pending ${pendingMessage.trigger} message to deliver`
+          );
+        }
+      } catch (e) {
+        console.log(
+          "[GeminiService] Could not fetch pending message for non-greeting"
+        );
+      }
+
       const nonGreetingPrompt = buildNonGreetingPrompt(
         fetchedContext.relationship,
         userName,
-        fetchedContext.characterContext
+        fetchedContext.characterContext,
+        pendingMessage
       );
 
       // Build interaction config
@@ -1565,6 +1587,14 @@ Keep it very short (1 sentence).
             err
           )
       );
+
+      // Mark the pending message as delivered
+      if (pendingMessage) {
+        await markMessageDelivered(pendingMessage.id);
+        console.log(
+          `✅ [GeminiService] Marked pending ${pendingMessage.trigger} message as delivered`
+        );
+      }
 
       return {
         greeting: structuredResponse,

@@ -9,4 +9,5 @@ export {
   buildToolsSection,
   buildToolRulesSection,
   buildAppLaunchingSection,
+  buildPromiseGuidance,
 } from "./toolsAndCapabilities";
