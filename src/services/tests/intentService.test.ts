@@ -35,19 +35,11 @@ vi.mock('@google/genai', () => {
 import {
   detectGenuineMomentLLM,
   detectGenuineMomentLLMCached,
-  detectToneLLM,
-  detectToneLLMCached,
-  detectTopicsLLM,
-  detectTopicsLLMCached,
-  detectOpenLoopsLLM,
-  detectOpenLoopsLLMCached,
-  detectRelationshipSignalsLLM,
-  detectRelationshipSignalsLLMCached,
   clearIntentCache,
   mapCategoryToInsecurity,
   resetIntentClientForTesting,
   detectFullIntentLLM,
-  isFunctionalCommand
+  isFunctionalCommand,
 } from "../intentService";
 import { GoogleGenAI } from "@google/genai";
 
@@ -64,8 +56,8 @@ describe("Phase 1: Intent Service - LLM Genuine Moment Detection", () => {
     // Setup the mock implementation
     (GoogleGenAI as any).mockImplementation(() => ({
       models: {
-        generateContent: mockGenerateContent
-      }
+        generateContent: mockGenerateContent,
+      },
     }));
   });
 
@@ -85,16 +77,18 @@ describe("Phase 1: Intent Service - LLM Genuine Moment Detection", () => {
             isGenuine: true,
             category: "depth",
             confidence: 0.95,
-            explanation: "User is affirming Kayley's intelligence and thoughtfulness"
-          })
+            explanation:
+              "User is affirming Kayley's intelligence and thoughtfulness",
+          }),
         });
 
-        const result = await detectGenuineMomentLLM("You're so smart, you really think deeply about everything");
+        const result = await detectGenuineMomentLLM(
+          "You're so smart, you really think deeply about everything"
+        );
 
         expect(result.isGenuine).toBe(true);
         expect(result.category).toBe("depth");
         expect(result.confidence).toBeGreaterThan(0.9);
-
       });
 
       it("should detect belonging/impostor syndrome affirmations", async () => {
@@ -103,11 +97,13 @@ describe("Phase 1: Intent Service - LLM Genuine Moment Detection", () => {
             isGenuine: true,
             category: "belonging",
             confidence: 0.92,
-            explanation: "User affirms Kayley belongs in the AI space"
-          })
+            explanation: "User affirms Kayley belongs in the AI space",
+          }),
         });
 
-        const result = await detectGenuineMomentLLM("You totally belong here, you deserve all your success");
+        const result = await detectGenuineMomentLLM(
+          "You totally belong here, you deserve all your success"
+        );
 
         expect(result.isGenuine).toBe(true);
         expect(result.category).toBe("belonging");
@@ -119,11 +115,13 @@ describe("Phase 1: Intent Service - LLM Genuine Moment Detection", () => {
             isGenuine: true,
             category: "progress",
             confidence: 0.88,
-            explanation: "User acknowledges Kayley's progress and growth"
-          })
+            explanation: "User acknowledges Kayley's progress and growth",
+          }),
         });
 
-        const result = await detectGenuineMomentLLM("I'm so proud of how far you've come");
+        const result = await detectGenuineMomentLLM(
+          "I'm so proud of how far you've come"
+        );
 
         expect(result.isGenuine).toBe(true);
         expect(result.category).toBe("progress");
@@ -134,12 +132,14 @@ describe("Phase 1: Intent Service - LLM Genuine Moment Detection", () => {
           text: JSON.stringify({
             isGenuine: true,
             category: "loneliness",
-            confidence: 0.90,
-            explanation: "User expresses genuine connection and presence"
-          })
+            confidence: 0.9,
+            explanation: "User expresses genuine connection and presence",
+          }),
         });
 
-        const result = await detectGenuineMomentLLM("You really get me. I'm here for you.");
+        const result = await detectGenuineMomentLLM(
+          "You really get me. I'm here for you."
+        );
 
         expect(result.isGenuine).toBe(true);
         expect(result.category).toBe("loneliness");
@@ -151,11 +151,13 @@ describe("Phase 1: Intent Service - LLM Genuine Moment Detection", () => {
             isGenuine: true,
             category: "rest",
             confidence: 0.85,
-            explanation: "User gives permission to rest and slow down"
-          })
+            explanation: "User gives permission to rest and slow down",
+          }),
         });
 
-        const result = await detectGenuineMomentLLM("You deserve a break. It's okay to slow down.");
+        const result = await detectGenuineMomentLLM(
+          "You deserve a break. It's okay to slow down."
+        );
 
         expect(result.isGenuine).toBe(true);
         expect(result.category).toBe("rest");
@@ -169,8 +171,8 @@ describe("Phase 1: Intent Service - LLM Genuine Moment Detection", () => {
             isGenuine: false,
             category: null,
             confidence: 0.95,
-            explanation: "Generic compliment, does not address any insecurity"
-          })
+            explanation: "Generic compliment, does not address any insecurity",
+          }),
         });
 
         const result = await detectGenuineMomentLLM("You're awesome!");
@@ -185,11 +187,14 @@ describe("Phase 1: Intent Service - LLM Genuine Moment Detection", () => {
             isGenuine: false,
             category: null,
             confidence: 0.88,
-            explanation: "Statement is about people in general, not directed at Kayley"
-          })
+            explanation:
+              "Statement is about people in general, not directed at Kayley",
+          }),
         });
 
-        const result = await detectGenuineMomentLLM("People who think deeply are rare in this shallow world");
+        const result = await detectGenuineMomentLLM(
+          "People who think deeply are rare in this shallow world"
+        );
 
         expect(result.isGenuine).toBe(false);
       });
@@ -200,11 +205,13 @@ describe("Phase 1: Intent Service - LLM Genuine Moment Detection", () => {
             isGenuine: false,
             category: null,
             confidence: 0.75,
-            explanation: "Sarcastic tone detected, not a genuine affirmation"
-          })
+            explanation: "Sarcastic tone detected, not a genuine affirmation",
+          }),
         });
 
-        const result = await detectGenuineMomentLLM("Oh yeah, you're SO smart, sure");
+        const result = await detectGenuineMomentLLM(
+          "Oh yeah, you're SO smart, sure"
+        );
 
         expect(result.isGenuine).toBe(false);
       });
@@ -215,11 +222,13 @@ describe("Phase 1: Intent Service - LLM Genuine Moment Detection", () => {
             isGenuine: false,
             category: null,
             confidence: 0.92,
-            explanation: "Negative context, not affirming"
-          })
+            explanation: "Negative context, not affirming",
+          }),
         });
 
-        const result = await detectGenuineMomentLLM("That movie was really shallow");
+        const result = await detectGenuineMomentLLM(
+          "That movie was really shallow"
+        );
 
         expect(result.isGenuine).toBe(false);
       });
@@ -243,26 +252,30 @@ describe("Phase 1: Intent Service - LLM Genuine Moment Detection", () => {
 
       it("should handle LLM JSON parsing errors gracefully", async () => {
         mockGenerateContent.mockResolvedValueOnce({
-          text: "This is not valid JSON"
+          text: "This is not valid JSON",
         });
 
-        await expect(detectGenuineMomentLLM("You're so thoughtful"))
-          .rejects.toThrow();
+        await expect(
+          detectGenuineMomentLLM("You're so thoughtful")
+        ).rejects.toThrow();
       });
 
       it("should handle LLM API errors", async () => {
-        mockGenerateContent.mockRejectedValueOnce(new Error("API rate limit exceeded"));
+        mockGenerateContent.mockRejectedValueOnce(
+          new Error("API rate limit exceeded")
+        );
 
-        await expect(detectGenuineMomentLLM("You're amazing"))
-          .rejects.toThrow("API rate limit exceeded");
+        await expect(detectGenuineMomentLLM("You're amazing")).rejects.toThrow(
+          "API rate limit exceeded"
+        );
       });
 
       it("should handle malformed LLM response", async () => {
         mockGenerateContent.mockResolvedValueOnce({
           text: JSON.stringify({
             // Missing required fields
-            something: "unexpected"
-          })
+            something: "unexpected",
+          }),
         });
 
         const result = await detectGenuineMomentLLM("You're thoughtful");
@@ -278,8 +291,8 @@ describe("Phase 1: Intent Service - LLM Genuine Moment Detection", () => {
             isGenuine: true,
             category: "depth",
             confidence: 1.5, // Out of range
-            explanation: "Test"
-          })
+            explanation: "Test",
+          }),
         });
 
         const result = await detectGenuineMomentLLM("You're so thoughtful");
@@ -294,8 +307,8 @@ describe("Phase 1: Intent Service - LLM Genuine Moment Detection", () => {
             isGenuine: true,
             category: "invalid_category",
             confidence: 0.9,
-            explanation: "Test"
-          })
+            explanation: "Test",
+          }),
         });
 
         const result = await detectGenuineMomentLLM("Some message");
@@ -305,7 +318,7 @@ describe("Phase 1: Intent Service - LLM Genuine Moment Detection", () => {
 
       it("should strip markdown code blocks from LLM response", async () => {
         mockGenerateContent.mockResolvedValueOnce({
-          text: '```json\n{"isGenuine": true, "category": "depth", "confidence": 0.9, "explanation": "Test"}\n```'
+          text: '```json\n{"isGenuine": true, "category": "depth", "confidence": 0.9, "explanation": "Test"}\n```',
         });
 
         const result = await detectGenuineMomentLLM("You're so smart");
@@ -327,16 +340,20 @@ describe("Phase 1: Intent Service - LLM Genuine Moment Detection", () => {
           isGenuine: true,
           category: "depth",
           confidence: 0.9,
-          explanation: "User affirms thoughtfulness"
-        })
+          explanation: "User affirms thoughtfulness",
+        }),
       });
 
       // First call - should hit LLM
-      const result1 = await detectGenuineMomentLLMCached("You're so thoughtful");
+      const result1 = await detectGenuineMomentLLMCached(
+        "You're so thoughtful"
+      );
       expect(mockGenerateContent).toHaveBeenCalledTimes(1);
 
       // Second call with same message - should use cache
-      const result2 = await detectGenuineMomentLLMCached("You're so thoughtful");
+      const result2 = await detectGenuineMomentLLMCached(
+        "You're so thoughtful"
+      );
       expect(mockGenerateContent).toHaveBeenCalledTimes(1); // Still 1
 
       // Results should be identical
@@ -349,8 +366,8 @@ describe("Phase 1: Intent Service - LLM Genuine Moment Detection", () => {
           isGenuine: true,
           category: "depth",
           confidence: 0.9,
-          explanation: "Test"
-        })
+          explanation: "Test",
+        }),
       });
 
       await detectGenuineMomentLLMCached("You're so THOUGHTFUL");
@@ -366,8 +383,8 @@ describe("Phase 1: Intent Service - LLM Genuine Moment Detection", () => {
           isGenuine: true,
           category: "depth",
           confidence: 0.9,
-          explanation: "Test"
-        })
+          explanation: "Test",
+        }),
       });
 
       await detectGenuineMomentLLMCached("You're so thoughtful");
@@ -383,8 +400,8 @@ describe("Phase 1: Intent Service - LLM Genuine Moment Detection", () => {
           isGenuine: true,
           category: "depth",
           confidence: 0.9,
-          explanation: "Test"
-        })
+          explanation: "Test",
+        }),
       });
 
       await detectGenuineMomentLLMCached("You're thoughtful");
@@ -438,8 +455,9 @@ describe("Phase 1: Intent Service - LLM Genuine Moment Detection", () => {
           isGenuine: true,
           category: "loneliness",
           confidence: 0.88,
-          explanation: "Expresses feeling understood, addresses hidden loneliness"
-        })
+          explanation:
+            "Expresses feeling understood, addresses hidden loneliness",
+        }),
       });
 
       const result = await detectGenuineMomentLLM("You really get me");
@@ -454,11 +472,13 @@ describe("Phase 1: Intent Service - LLM Genuine Moment Detection", () => {
           isGenuine: true,
           category: "loneliness",
           confidence: 0.82,
-          explanation: "User expresses that Kayley helps them feel less alone"
-        })
+          explanation: "User expresses that Kayley helps them feel less alone",
+        }),
       });
 
-      const result = await detectGenuineMomentLLM("I'm kinda freaking out but you help");
+      const result = await detectGenuineMomentLLM(
+        "I'm kinda freaking out but you help"
+      );
 
       expect(result.isGenuine).toBe(true);
     });
@@ -469,11 +489,13 @@ describe("Phase 1: Intent Service - LLM Genuine Moment Detection", () => {
           isGenuine: true,
           category: "progress",
           confidence: 0.85,
-          explanation: "Acknowledges Kayley's growth even if not explicit"
-        })
+          explanation: "Acknowledges Kayley's growth even if not explicit",
+        }),
       });
 
-      const result = await detectGenuineMomentLLM("You've really grown so much lately");
+      const result = await detectGenuineMomentLLM(
+        "You've really grown so much lately"
+      );
 
       expect(result.isGenuine).toBe(true);
       expect(result.category).toBe("progress");
@@ -485,11 +507,13 @@ describe("Phase 1: Intent Service - LLM Genuine Moment Detection", () => {
           isGenuine: true,
           category: "depth",
           confidence: 0.87,
-          explanation: "User sees beyond surface-level appearances"
-        })
+          explanation: "User sees beyond surface-level appearances",
+        }),
       });
 
-      const result = await detectGenuineMomentLLM("There's so much more to you than meets the eye");
+      const result = await detectGenuineMomentLLM(
+        "There's so much more to you than meets the eye"
+      );
 
       expect(result.isGenuine).toBe(true);
       expect(result.category).toBe("depth");
@@ -509,15 +533,16 @@ describe("Phase 1: Intent Service - LLM Genuine Moment Detection", () => {
           isGenuine: false,
           category: null,
           confidence: 0.9,
-          explanation: "Playful teasing in response to good news, not hostile or affirming"
-        })
+          explanation:
+            "Playful teasing in response to good news, not hostile or affirming",
+        }),
       });
 
       const result = await detectGenuineMomentLLM("You suck!!", {
         recentMessages: [
-          { role: 'assistant', text: 'So I just got an amazing raise!!' },
-          { role: 'user', text: 'OMG I am so excited!' },
-        ]
+          { role: "assistant", text: "So I just got an amazing raise!!" },
+          { role: "user", text: "OMG I am so excited!" },
+        ],
       });
 
       // Should NOT be detected as genuine (it's banter, not affirmation)
@@ -532,17 +557,24 @@ describe("Phase 1: Intent Service - LLM Genuine Moment Detection", () => {
           isGenuine: true,
           category: "progress",
           confidence: 0.92,
-          explanation: "User expresses pride in response to Kayley sharing her accomplishment"
-        })
+          explanation:
+            "User expresses pride in response to Kayley sharing her accomplishment",
+        }),
       });
 
-      const result = await detectGenuineMomentLLM("I'm so proud of you! You've come so far!", {
-        recentMessages: [
-          { role: 'assistant', text: 'I finally finished my big project!' },
-          { role: 'user', text: 'Really? Tell me about it!' },
-          { role: 'assistant', text: 'I worked on it for months and it turned out great!' },
-        ]
-      });
+      const result = await detectGenuineMomentLLM(
+        "I'm so proud of you! You've come so far!",
+        {
+          recentMessages: [
+            { role: "assistant", text: "I finally finished my big project!" },
+            { role: "user", text: "Really? Tell me about it!" },
+            {
+              role: "assistant",
+              text: "I worked on it for months and it turned out great!",
+            },
+          ],
+        }
+      );
 
       expect(result.isGenuine).toBe(true);
       expect(result.category).toBe("progress");
@@ -554,12 +586,12 @@ describe("Phase 1: Intent Service - LLM Genuine Moment Detection", () => {
           isGenuine: true,
           category: "depth",
           confidence: 0.88,
-          explanation: "Direct affirmation of intelligence"
-        })
+          explanation: "Direct affirmation of intelligence",
+        }),
       });
 
       const result = await detectGenuineMomentLLM("You're so smart!", {
-        recentMessages: []
+        recentMessages: [],
       });
 
       expect(result.isGenuine).toBe(true);
@@ -571,17 +603,19 @@ describe("Phase 1: Intent Service - LLM Genuine Moment Detection", () => {
           isGenuine: false,
           category: null,
           confidence: 0.8,
-          explanation: "Generic message"
-        })
+          explanation: "Generic message",
+        }),
       });
 
-      const manyMessages = Array(10).fill(null).map((_, i) => ({
-        role: 'user' as const,
-        text: `Message ${i + 1}`
-      }));
+      const manyMessages = Array(10)
+        .fill(null)
+        .map((_, i) => ({
+          role: "user" as const,
+          text: `Message ${i + 1}`,
+        }));
 
       await detectGenuineMomentLLM("Hello", {
-        recentMessages: manyMessages
+        recentMessages: manyMessages,
       });
 
       // Just verify it doesn't error with many messages
@@ -594,16 +628,14 @@ describe("Phase 1: Intent Service - LLM Genuine Moment Detection", () => {
           isGenuine: false,
           category: null,
           confidence: 0.8,
-          explanation: "Test"
-        })
+          explanation: "Test",
+        }),
       });
 
-      const longMessage = 'A'.repeat(500); // Very long message
+      const longMessage = "A".repeat(500); // Very long message
 
       await detectGenuineMomentLLM("Short reply", {
-        recentMessages: [
-          { role: 'assistant', text: longMessage },
-        ]
+        recentMessages: [{ role: "assistant", text: longMessage }],
       });
 
       expect(mockGenerateContent).toHaveBeenCalled();
@@ -637,7 +669,7 @@ describe("Phase 1: Integration with moodKnobs", () => {
     };
   })();
 
-  Object.defineProperty(global, 'localStorage', { value: localStorageMock });
+  Object.defineProperty(global, "localStorage", { value: localStorageMock });
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -647,24 +679,23 @@ describe("Phase 1: Integration with moodKnobs", () => {
     // Setup the mock
     (GoogleGenAI as any).mockImplementation(() => ({
       models: {
-        generateContent: mockGenerateContent
-      }
+        generateContent: mockGenerateContent,
+      },
     }));
   });
 
   it("should export detectGenuineMomentWithLLM from moodKnobs", async () => {
     // This test verifies the integration is complete
-    const { detectGenuineMomentWithLLM, resetEmotionalMomentumAsync } = await import("../moodKnobs");
+    const { detectGenuineMomentWithLLM, resetEmotionalMomentumAsync } =
+      await import("../moodKnobs");
 
     expect(detectGenuineMomentWithLLM).toBeDefined();
     expect(typeof detectGenuineMomentWithLLM).toBe("function");
   });
 
   it("should export async momentum update functions", async () => {
-    const {
-      updateEmotionalMomentumAsync,
-      recordInteractionAsync
-    } = await import("../moodKnobs");
+    const { updateEmotionalMomentumAsync, recordInteractionAsync } =
+      await import("../moodKnobs");
 
     expect(updateEmotionalMomentumAsync).toBeDefined();
     expect(recordInteractionAsync).toBeDefined();
@@ -673,11 +704,15 @@ describe("Phase 1: Integration with moodKnobs", () => {
   it("should return no detection when LLM fails", async () => {
     mockGenerateContent.mockRejectedValueOnce(new Error("Network error"));
 
-    const { detectGenuineMomentWithLLM, clearMoodKnobsCache } = await import("../moodKnobs");
+    const { detectGenuineMomentWithLLM, clearMoodKnobsCache } = await import(
+      "../moodKnobs"
+    );
 
     clearMoodKnobsCache();
 
-    const result = await detectGenuineMomentWithLLM("You're so thoughtful, I love how you think deeply");
+    const result = await detectGenuineMomentWithLLM(
+      "You're so thoughtful, I love how you think deeply"
+    );
 
     expect(result.isGenuine).toBe(false);
     expect(result.category).toBeNull();
@@ -696,520 +731,13 @@ describe("Phase 2: Intent Service - LLM Tone & Sentiment Detection", () => {
     // Setup the mock implementation
     (GoogleGenAI as any).mockImplementation(() => ({
       models: {
-        generateContent: mockGenerateContent
-      }
+        generateContent: mockGenerateContent,
+      },
     }));
   });
 
   afterEach(() => {
     clearIntentCache();
-  });
-
-  // ============================================
-  // Basic Tone Detection Tests
-  // ============================================
-
-  describe("detectToneLLM", () => {
-    describe("basic emotion detection", () => {
-      it("should detect happy/positive tone", async () => {
-        mockGenerateContent.mockResolvedValueOnce({
-          text: JSON.stringify({
-            sentiment: 0.8,
-            primaryEmotion: "happy",
-            intensity: 0.7,
-            isSarcastic: false,
-            explanation: "Genuine expression of happiness"
-          })
-        });
-
-        const result = await detectToneLLM("I'm so happy today! Everything is great!");
-
-        expect(result.sentiment).toBeGreaterThan(0.5);
-        expect(result.primaryEmotion).toBe("happy");
-        expect(result.isSarcastic).toBe(false);
-      });
-
-      it("should detect sad/negative tone", async () => {
-        mockGenerateContent.mockResolvedValueOnce({
-          text: JSON.stringify({
-            sentiment: -0.7,
-            primaryEmotion: "sad",
-            intensity: 0.6,
-            isSarcastic: false,
-            explanation: "Expression of sadness"
-          })
-        });
-
-        const result = await detectToneLLM("I'm feeling really down today");
-
-        expect(result.sentiment).toBeLessThan(-0.3);
-        expect(result.primaryEmotion).toBe("sad");
-      });
-
-      it("should detect frustrated tone", async () => {
-        mockGenerateContent.mockResolvedValueOnce({
-          text: JSON.stringify({
-            sentiment: -0.5,
-            primaryEmotion: "frustrated",
-            intensity: 0.8,
-            isSarcastic: false,
-            explanation: "Clear frustration expressed"
-          })
-        });
-
-        const result = await detectToneLLM("This is so annoying, nothing works!");
-
-        expect(result.primaryEmotion).toBe("frustrated");
-        expect(result.intensity).toBeGreaterThan(0.5);
-      });
-
-      it("should detect anxious tone", async () => {
-        mockGenerateContent.mockResolvedValueOnce({
-          text: JSON.stringify({
-            sentiment: -0.3,
-            primaryEmotion: "anxious",
-            intensity: 0.6,
-            isSarcastic: false,
-            explanation: "Worry and nervousness detected"
-          })
-        });
-
-        const result = await detectToneLLM("I'm really worried about the interview tomorrow");
-
-        expect(result.primaryEmotion).toBe("anxious");
-      });
-    });
-
-    // ============================================
-    // Sarcasm Detection Tests (Critical for Phase 2)
-    // ============================================
-
-    describe("sarcasm detection", () => {
-      it("should detect sarcasm in 'Great, just great'", async () => {
-        mockGenerateContent.mockResolvedValueOnce({
-          text: JSON.stringify({
-            sentiment: -0.6,
-            primaryEmotion: "frustrated",
-            intensity: 0.5,
-            isSarcastic: true,
-            explanation: "Sarcastic expression, actually negative despite positive words"
-          })
-        });
-
-        const result = await detectToneLLM("Great, just great.");
-
-        expect(result.isSarcastic).toBe(true);
-        expect(result.sentiment).toBeLessThan(0); // Negative despite 'great'
-      });
-
-      it("should detect sarcasm in 'Oh wonderful'", async () => {
-        mockGenerateContent.mockResolvedValueOnce({
-          text: JSON.stringify({
-            sentiment: -0.4,
-            primaryEmotion: "dismissive",
-            intensity: 0.4,
-            isSarcastic: true,
-            explanation: "Sarcastic use of positive word"
-          })
-        });
-
-        const result = await detectToneLLM("Oh wonderful.");
-
-        expect(result.isSarcastic).toBe(true);
-        expect(result.sentiment).toBeLessThan(0);
-      });
-
-      it("should detect 'I'm SO happy' as sarcasm in negative context", async () => {
-        mockGenerateContent.mockResolvedValueOnce({
-          text: JSON.stringify({
-            sentiment: -0.5,
-            primaryEmotion: "frustrated",
-            intensity: 0.6,
-            isSarcastic: true,
-            explanation: "Exaggerated positivity after bad news indicates sarcasm"
-          })
-        });
-
-        const result = await detectToneLLM("I'm SO happy", {
-          recentMessages: [
-            { role: 'user', text: 'My flight got cancelled' },
-            { role: 'assistant', text: 'Oh no, that is terrible!' },
-          ]
-        });
-
-        expect(result.isSarcastic).toBe(true);
-        expect(result.sentiment).toBeLessThan(0); // Negative despite 'happy'
-      });
-
-      it("should NOT flag genuine happiness as sarcasm", async () => {
-        mockGenerateContent.mockResolvedValueOnce({
-          text: JSON.stringify({
-            sentiment: 0.9,
-            primaryEmotion: "happy",
-            intensity: 0.8,
-            isSarcastic: false,
-            explanation: "Genuine expression of joy after good news"
-          })
-        });
-
-        const result = await detectToneLLM("I'm SO happy!", {
-          recentMessages: [
-            { role: 'user', text: 'I got the promotion!' },
-            { role: 'assistant', text: 'Congratulations!' },
-          ]
-        });
-
-        expect(result.isSarcastic).toBe(false);
-        expect(result.sentiment).toBeGreaterThan(0.5);
-      });
-    });
-
-    // ============================================
-    // Mixed Emotions Tests
-    // ============================================
-
-    describe("mixed emotions", () => {
-      it("should detect 'excited but nervous'", async () => {
-        mockGenerateContent.mockResolvedValueOnce({
-          text: JSON.stringify({
-            sentiment: 0.3,
-            primaryEmotion: "excited",
-            intensity: 0.7,
-            isSarcastic: false,
-            secondaryEmotion: "anxious",
-            explanation: "Mixed feelings - primarily excited with secondary anxiety"
-          })
-        });
-
-        const result = await detectToneLLM("I'm excited but also kinda nervous");
-
-        expect(result.primaryEmotion).toBe("excited");
-        expect(result.secondaryEmotion).toBe("anxious");
-      });
-
-      it("should handle 'This is whatever' as dismissive", async () => {
-        mockGenerateContent.mockResolvedValueOnce({
-          text: JSON.stringify({
-            sentiment: -0.2,
-            primaryEmotion: "dismissive",
-            intensity: 0.3,
-            isSarcastic: false,
-            explanation: "Mild dismissive/apathetic tone"
-          })
-        });
-
-        // This is a key test case from requirements
-        const result = await detectToneLLM("This is whatever");
-
-        expect(result.primaryEmotion).toBe("dismissive");
-        expect(result.sentiment).toBeLessThan(0); // Slightly negative
-      });
-    });
-
-    // ============================================
-    // Emoji-Only Messages Tests
-    // ============================================
-
-    describe("emoji-only messages", () => {
-      it("should detect happy emoji", async () => {
-        mockGenerateContent.mockResolvedValueOnce({
-          text: JSON.stringify({
-            sentiment: 0.6,
-            primaryEmotion: "happy",
-            intensity: 0.4,
-            isSarcastic: false,
-            explanation: "Smiling emoji indicates happiness"
-          })
-        });
-
-        const result = await detectToneLLM(":)");
-
-        expect(result.primaryEmotion).toBe("happy");
-        expect(result.sentiment).toBeGreaterThan(0);
-      });
-
-      it("should detect crying emoji as sad", async () => {
-        mockGenerateContent.mockResolvedValueOnce({
-          text: JSON.stringify({
-            sentiment: -0.5,
-            primaryEmotion: "sad",
-            intensity: 0.5,
-            isSarcastic: false,
-            explanation: "Crying emoji indicates sadness"
-          })
-        });
-
-        const result = await detectToneLLM(":(");
-
-        expect(result.primaryEmotion).toBe("sad");
-        expect(result.sentiment).toBeLessThan(0);
-      });
-    });
-
-    // ============================================
-    // Context-Dependent Tone Tests
-    // ============================================
-
-    describe("context-dependent tone", () => {
-      it("should interpret 'Fine.' as passive-aggressive without positive context", async () => {
-        mockGenerateContent.mockResolvedValueOnce({
-          text: JSON.stringify({
-            sentiment: -0.3,
-            primaryEmotion: "dismissive",
-            intensity: 0.4,
-            isSarcastic: false,
-            explanation: "Short 'fine' with period suggests passive-aggressive tone"
-          })
-        });
-
-        const result = await detectToneLLM("Fine.");
-
-        expect(result.sentiment).toBeLessThan(0);
-      });
-
-      it("should interpret 'haha you suck' as playful after good news", async () => {
-        mockGenerateContent.mockResolvedValueOnce({
-          text: JSON.stringify({
-            sentiment: 0.5,
-            primaryEmotion: "playful",
-            intensity: 0.6,
-            isSarcastic: false,
-            explanation: "Playful teasing in response to friend's good news"
-          })
-        });
-
-        // Key test case from requirements
-        const result = await detectToneLLM("haha you suck", {
-          recentMessages: [
-            { role: 'assistant', text: 'I just won the lottery!' },
-          ]
-        });
-
-        expect(result.primaryEmotion).toBe("playful");
-        expect(result.sentiment).toBeGreaterThan(0); // Positive despite 'suck'
-      });
-    });
-
-    // ============================================
-    // Edge Cases
-    // ============================================
-
-    describe("edge cases", () => {
-      it("should handle empty messages", async () => {
-        const result = await detectToneLLM("");
-
-        expect(result.sentiment).toBe(0);
-        expect(result.primaryEmotion).toBe("neutral");
-        expect(mockGenerateContent).not.toHaveBeenCalled();
-      });
-
-      it("should handle LLM JSON parsing errors gracefully", async () => {
-        mockGenerateContent.mockResolvedValueOnce({
-          text: "This is not valid JSON"
-        });
-
-        await expect(detectToneLLM("Hello there"))
-          .rejects.toThrow();
-      });
-
-      it("should handle LLM API errors", async () => {
-        mockGenerateContent.mockRejectedValueOnce(new Error("API rate limit exceeded"));
-
-        await expect(detectToneLLM("Test message"))
-          .rejects.toThrow("API rate limit exceeded");
-      });
-
-      it("should normalize sentiment to -1 to 1 range", async () => {
-        mockGenerateContent.mockResolvedValueOnce({
-          text: JSON.stringify({
-            sentiment: 2.5, // Out of range
-            primaryEmotion: "happy",
-            intensity: 0.5,
-            isSarcastic: false,
-            explanation: "Test"
-          })
-        });
-
-        const result = await detectToneLLM("Very happy message");
-
-        expect(result.sentiment).toBeLessThanOrEqual(1);
-        expect(result.sentiment).toBeGreaterThanOrEqual(-1);
-      });
-
-      it("should normalize intensity to 0-1 range", async () => {
-        mockGenerateContent.mockResolvedValueOnce({
-          text: JSON.stringify({
-            sentiment: 0.5,
-            primaryEmotion: "happy",
-            intensity: 1.5, // Out of range
-            isSarcastic: false,
-            explanation: "Test"
-          })
-        });
-
-        const result = await detectToneLLM("Some message");
-
-        expect(result.intensity).toBeLessThanOrEqual(1);
-        expect(result.intensity).toBeGreaterThanOrEqual(0);
-      });
-
-      it("should default invalid emotions to neutral", async () => {
-        mockGenerateContent.mockResolvedValueOnce({
-          text: JSON.stringify({
-            sentiment: 0.5,
-            primaryEmotion: "invalid_emotion",
-            intensity: 0.5,
-            isSarcastic: false,
-            explanation: "Test"
-          })
-        });
-
-        const result = await detectToneLLM("Some message");
-
-        expect(result.primaryEmotion).toBe("neutral");
-      });
-
-      it("should strip markdown code blocks from LLM response", async () => {
-        mockGenerateContent.mockResolvedValueOnce({
-          text: '```json\n{"sentiment": 0.5, "primaryEmotion": "happy", "intensity": 0.5, "isSarcastic": false, "explanation": "Test"}\n```'
-        });
-
-        const result = await detectToneLLM("Happy message");
-
-        expect(result.primaryEmotion).toBe("happy");
-      });
-    });
-  });
-
-  // ============================================
-  // Tone Caching Tests
-  // ============================================
-
-  describe("detectToneLLMCached", () => {
-    it("should cache results and avoid redundant LLM calls", async () => {
-      mockGenerateContent.mockResolvedValue({
-        text: JSON.stringify({
-          sentiment: 0.7,
-          primaryEmotion: "happy",
-          intensity: 0.6,
-          isSarcastic: false,
-          explanation: "Happy tone detected"
-        })
-      });
-
-      // First call - should hit LLM
-      const result1 = await detectToneLLMCached("I'm so happy!");
-      expect(mockGenerateContent).toHaveBeenCalledTimes(1);
-
-      // Second call with same message - should use cache
-      const result2 = await detectToneLLMCached("I'm so happy!");
-      expect(mockGenerateContent).toHaveBeenCalledTimes(1); // Still 1
-
-      // Results should be identical
-      expect(result1.sentiment).toEqual(result2.sentiment);
-    });
-
-    it("should NOT use cache when context is provided", async () => {
-      mockGenerateContent.mockResolvedValue({
-        text: JSON.stringify({
-          sentiment: 0.5,
-          primaryEmotion: "playful",
-          intensity: 0.5,
-          isSarcastic: false,
-          explanation: "Context-dependent interpretation"
-        })
-      });
-
-      // First call without context (will cache)
-      await detectToneLLMCached("haha whatever");
-      expect(mockGenerateContent).toHaveBeenCalledTimes(1);
-
-      // Second call WITH context - should NOT use cache
-      await detectToneLLMCached("haha whatever", {
-        recentMessages: [
-          { role: 'user', text: 'Something happened' }
-        ]
-      });
-      expect(mockGenerateContent).toHaveBeenCalledTimes(2); // New call made
-    });
-  });
-});
-
-// ============================================
-// Phase 2: Integration with messageAnalyzer
-// ============================================
-
-describe("Phase 2: Integration with messageAnalyzer", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    clearIntentCache();
-
-    (GoogleGenAI as any).mockImplementation(() => ({
-      models: {
-        generateContent: mockGenerateContent
-      }
-    }));
-  });
-
-  it("should export detectToneWithLLM from messageAnalyzer", async () => {
-    const { detectToneWithLLM } = await import("../messageAnalyzer");
-
-    expect(detectToneWithLLM).toBeDefined();
-    expect(typeof detectToneWithLLM).toBe("function");
-  });
-
-  it("should export ToneIntent type from messageAnalyzer", async () => {
-    // Type check - if this compiles, ToneIntent is exported correctly
-    const messageAnalyzer = await import("../messageAnalyzer");
-
-    // Verify the module exports the types by checking the function signature works
-    expect(messageAnalyzer.detectToneWithLLM).toBeDefined();
-  });
-
-  it("should fall back to keyword detection when LLM fails", async () => {
-    mockGenerateContent.mockRejectedValueOnce(new Error("Network error"));
-
-    const { detectToneWithLLM } = await import("../messageAnalyzer");
-
-    // This message has clear positive keywords
-    const result = await detectToneWithLLM("I'm so happy and excited!");
-
-    // Should have fallen back to keyword detection
-    expect(result).toBeDefined();
-
-    expect(result.sentiment).toBeGreaterThan(0); // Should detect positive
-  });
-
-  it("should include toneResult in MessageAnalysisResult", async () => {
-    // Mock both genuine moment and tone detection
-    mockGenerateContent
-      .mockResolvedValueOnce({
-        text: JSON.stringify({
-          isGenuine: false,
-          category: null,
-          confidence: 0.5,
-          explanation: "Not genuine"
-        })
-      })
-      .mockResolvedValueOnce({
-        text: JSON.stringify({
-          sentiment: 0.6,
-          primaryEmotion: "happy",
-          intensity: 0.5,
-          isSarcastic: false,
-          explanation: "Happy message"
-        })
-      });
-
-    const { analyzeUserMessage } = await import("../messageAnalyzer");
-
-    const result = await analyzeUserMessage(
-      "I'm feeling great today!",
-      1
-    );
-
-    expect(result.toneResult).toBeDefined();
-    expect(result.messageTone).toBeDefined();
   });
 });
 
@@ -1533,442 +1061,6 @@ describe("Phase 4: Intent Service - LLM Topic Detection", () => {
   afterEach(() => {
     clearIntentCache();
   });
-
-  // ============================================
-  // Basic Topic Detection Tests
-  // ============================================
-
-  describe("detectTopicsLLM", () => {
-    describe("single topic detection", () => {
-      it("should detect work topic", async () => {
-        mockGenerateContent.mockResolvedValueOnce({
-          text: JSON.stringify({
-            topics: ["work"],
-            primaryTopic: "work",
-            emotionalContext: { work: "frustrated" },
-            entities: ["boss", "meeting"],
-            explanation: "User is frustrated about work",
-          }),
-        });
-
-        const result = await detectTopicsLLM(
-          "My boss is really getting to me with these endless meetings"
-        );
-
-        expect(result.topics).toContain("work");
-        expect(result.primaryTopic).toBe("work");
-        expect(result.emotionalContext.work).toBe("frustrated");
-        expect(result.entities).toContain("boss");
-      });
-
-      it("should detect family topic", async () => {
-        mockGenerateContent.mockResolvedValueOnce({
-          text: JSON.stringify({
-            topics: ["family"],
-            primaryTopic: "family",
-            emotionalContext: { family: "sad" },
-            entities: ["mom"],
-            explanation: "User misses their mother",
-          }),
-        });
-
-        const result = await detectTopicsLLM("I really miss my mom");
-
-        expect(result.topics).toContain("family");
-        expect(result.emotionalContext.family).toBe("sad");
-      });
-
-      it("should detect health topic", async () => {
-        mockGenerateContent.mockResolvedValueOnce({
-          text: JSON.stringify({
-            topics: ["health"],
-            primaryTopic: "health",
-            emotionalContext: { health: "proud" },
-            entities: ["gym"],
-            explanation: "User is proud of fitness achievement",
-          }),
-        });
-
-        const result = await detectTopicsLLM("Finally hit my gym goal!");
-
-        expect(result.topics).toContain("health");
-        expect(result.emotionalContext.health).toBe("proud");
-      });
-
-      it("should detect money topic", async () => {
-        mockGenerateContent.mockResolvedValueOnce({
-          text: JSON.stringify({
-            topics: ["money"],
-            primaryTopic: "money",
-            emotionalContext: { money: "anxious" },
-            entities: ["bills", "rent"],
-            explanation: "User is worried about finances",
-          }),
-        });
-
-        const result = await detectTopicsLLM(
-          "I'm really stressed about bills and rent this month"
-        );
-
-        expect(result.topics).toContain("money");
-        expect(result.emotionalContext.money).toBe("anxious");
-      });
-    });
-
-    describe("multiple topic detection", () => {
-      it("should detect multiple topics in one message", async () => {
-        mockGenerateContent.mockResolvedValueOnce({
-          text: JSON.stringify({
-            topics: ["work", "money"],
-            primaryTopic: "work",
-            emotionalContext: { work: "stressed", money: "anxious" },
-            entities: ["boss", "budget"],
-            explanation: "User is stressed about work affecting finances",
-          }),
-        });
-
-        const result = await detectTopicsLLM(
-          "My boss is stressing about the budget and it's making me anxious about money"
-        );
-
-        expect(result.topics).toHaveLength(2);
-        expect(result.topics).toContain("work");
-        expect(result.topics).toContain("money");
-        expect(result.primaryTopic).toBe("work");
-        expect(result.emotionalContext.work).toBe("stressed");
-        expect(result.emotionalContext.money).toBe("anxious");
-      });
-
-      it("should detect family + relationships topics", async () => {
-        mockGenerateContent.mockResolvedValueOnce({
-          text: JSON.stringify({
-            topics: ["family", "relationships"],
-            primaryTopic: "family",
-            emotionalContext: {
-              family: "frustrated",
-              relationships: "worried",
-            },
-            entities: ["mom", "boyfriend"],
-            explanation:
-              "User is dealing with family disapproval of relationship",
-          }),
-        });
-
-        const result = await detectTopicsLLM(
-          "My mom doesn't approve of my boyfriend and it's causing drama"
-        );
-
-        expect(result.topics).toContain("family");
-        expect(result.topics).toContain("relationships");
-      });
-    });
-
-    describe("emotional context extraction", () => {
-      it("should extract nuanced emotional context per topic", async () => {
-        mockGenerateContent.mockResolvedValueOnce({
-          text: JSON.stringify({
-            topics: ["school", "personal_growth"],
-            primaryTopic: "school",
-            emotionalContext: {
-              school: "anxious",
-              personal_growth: "hopeful",
-            },
-            entities: ["exam", "goals"],
-            explanation:
-              "User is anxious about exams but hopeful about self-improvement",
-          }),
-        });
-
-        const result = await detectTopicsLLM(
-          "I'm nervous about the exam but I've been working on my study habits"
-        );
-
-        expect(result.emotionalContext.school).toBe("anxious");
-        expect(result.emotionalContext.personal_growth).toBe("hopeful");
-      });
-    });
-
-    describe("no topic detected", () => {
-      it("should return empty topics for generic messages", async () => {
-        mockGenerateContent.mockResolvedValueOnce({
-          text: JSON.stringify({
-            topics: [],
-            primaryTopic: null,
-            emotionalContext: {},
-            entities: [],
-            explanation: "No specific topic detected",
-          }),
-        });
-
-        const result = await detectTopicsLLM("Hey, what's up?");
-
-        expect(result.topics).toHaveLength(0);
-        expect(result.primaryTopic).toBeNull();
-      });
-    });
-
-    describe("edge cases", () => {
-      it("should handle empty messages without LLM call", async () => {
-        const result = await detectTopicsLLM("");
-
-        expect(result.topics).toHaveLength(0);
-
-        expect(mockGenerateContent).not.toHaveBeenCalled();
-      });
-
-      it("should handle very short messages without LLM call", async () => {
-        const result = await detectTopicsLLM("hi");
-
-        expect(result.topics).toHaveLength(0);
-        expect(mockGenerateContent).not.toHaveBeenCalled();
-      });
-
-      it("should handle LLM JSON parsing errors gracefully", async () => {
-        mockGenerateContent.mockResolvedValueOnce({
-          text: "This is not valid JSON",
-        });
-
-        await expect(detectTopicsLLM("Tell me about work")).rejects.toThrow();
-      });
-
-      it("should handle LLM API errors", async () => {
-        mockGenerateContent.mockRejectedValueOnce(
-          new Error("API rate limit exceeded")
-        );
-
-        await expect(detectTopicsLLM("My boss is annoying")).rejects.toThrow(
-          "API rate limit exceeded"
-        );
-      });
-
-      it("should validate and filter invalid topics", async () => {
-        mockGenerateContent.mockResolvedValueOnce({
-          text: JSON.stringify({
-            topics: ["work", "invalid_topic", "family"],
-            primaryTopic: "work",
-            emotionalContext: {},
-            entities: [],
-            explanation: "Test",
-          }),
-        });
-
-        const result = await detectTopicsLLM(
-          "Some message about work and family"
-        );
-
-        expect(result.topics).toContain("work");
-        expect(result.topics).toContain("family");
-        expect(result.topics).not.toContain("invalid_topic");
-      });
-
-      it("should strip markdown code blocks from LLM response", async () => {
-        mockGenerateContent.mockResolvedValueOnce({
-          text: '```json\n{"topics": ["work"], "primaryTopic": "work", "emotionalContext": {}, "entities": [], "explanation": "Test"}\n```',
-        });
-
-        const result = await detectTopicsLLM("Work stuff");
-
-        expect(result.topics).toContain("work");
-      });
-    });
-
-    describe("context-aware topic detection", () => {
-      it("should use conversation context for topic interpretation", async () => {
-        mockGenerateContent.mockResolvedValueOnce({
-          text: JSON.stringify({
-            topics: ["health"],
-            primaryTopic: "health",
-            emotionalContext: { health: "hopeful" },
-            entities: ["therapy"],
-            explanation:
-              "User is discussing mental health in context of prior conversation",
-          }),
-        });
-
-        const result = await detectTopicsLLM("It's been helping a lot", {
-          recentMessages: [
-            { role: "user", text: "I started seeing a therapist" },
-            { role: "assistant", text: "That's great! How's it going?" },
-          ],
-        });
-
-        expect(result.topics).toContain("health");
-        expect(mockGenerateContent).toHaveBeenCalled();
-      });
-    });
-  });
-
-  // ============================================
-  // Topic Caching Tests
-  // ============================================
-
-  describe("detectTopicsLLMCached", () => {
-    it("should cache results and avoid redundant LLM calls", async () => {
-      mockGenerateContent.mockResolvedValue({
-        text: JSON.stringify({
-          topics: ["work"],
-          primaryTopic: "work",
-          emotionalContext: { work: "busy" },
-          entities: ["project"],
-          explanation: "Work topic detected",
-        }),
-      });
-
-      // First call - should hit LLM
-      const result1 = await detectTopicsLLMCached("Working on a big project");
-      expect(mockGenerateContent).toHaveBeenCalledTimes(1);
-
-      // Second call with same message - should use cache
-      const result2 = await detectTopicsLLMCached("Working on a big project");
-      expect(mockGenerateContent).toHaveBeenCalledTimes(1); // Still 1
-
-      // Results should be identical
-      expect(result1.topics).toEqual(result2.topics);
-    });
-
-    it("should NOT use cache when context is provided", async () => {
-      mockGenerateContent.mockResolvedValue({
-        text: JSON.stringify({
-          topics: ["work"],
-          primaryTopic: "work",
-          emotionalContext: {},
-          entities: [],
-          explanation: "Test",
-        }),
-      });
-
-      // First call without context (will cache)
-      await detectTopicsLLMCached("Work stuff");
-      expect(mockGenerateContent).toHaveBeenCalledTimes(1);
-
-      // Second call WITH context - should NOT use cache
-      await detectTopicsLLMCached("Work stuff", {
-        recentMessages: [{ role: "user", text: "Something about work" }],
-      });
-      expect(mockGenerateContent).toHaveBeenCalledTimes(2);
-    });
-
-    it("should treat similar messages with different casing as same", async () => {
-      mockGenerateContent.mockResolvedValue({
-        text: JSON.stringify({
-          topics: ["family"],
-          primaryTopic: "family",
-          emotionalContext: {},
-          entities: [],
-          explanation: "Test",
-        }),
-      });
-
-      await detectTopicsLLMCached("My MOM is coming over");
-      await detectTopicsLLMCached("my mom is coming over");
-
-      // Should only call LLM once due to case-insensitive caching
-      expect(mockGenerateContent).toHaveBeenCalledTimes(1);
-    });
-  });
-});
-
-// ============================================
-// Phase 4: Integration with messageAnalyzer
-// ============================================
-
-describe("Phase 4: Integration with messageAnalyzer", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    clearIntentCache();
-
-    (GoogleGenAI as any).mockImplementation(() => ({
-      models: {
-        generateContent: mockGenerateContent,
-      },
-    }));
-  });
-
-  it("should export detectTopicsWithLLM from messageAnalyzer", async () => {
-    const { detectTopicsWithLLM } = await import("../messageAnalyzer");
-
-    expect(detectTopicsWithLLM).toBeDefined();
-    expect(typeof detectTopicsWithLLM).toBe("function");
-  });
-
-  it("should export TopicIntent type from messageAnalyzer", async () => {
-    // Type check - if this compiles, TopicIntent is exported correctly
-    const messageAnalyzer = await import("../messageAnalyzer");
-
-    expect(messageAnalyzer.detectTopicsWithLLM).toBeDefined();
-  });
-
-  it("should fall back to keyword detection when LLM fails", async () => {
-    mockGenerateContent.mockRejectedValueOnce(new Error("Network error"));
-
-    const { detectTopicsWithLLM } = await import("../messageAnalyzer");
-
-    // This message has clear work keywords
-    const result = await detectTopicsWithLLM(
-      "Working on a project at the office"
-    );
-
-    // Should have fallen back to keyword detection
-    expect(result).toBeDefined();
-
-    expect(result.topics).toContain("work"); // Should detect via keywords
-  });
-
-  // GATES
-  // it("should include topicResult in MessageAnalysisResult", async () => {
-  //   // Mock all required LLM calls
-  //   mockGenerateContent.mockResolvedValueOnce({
-  //     text: JSON.stringify({
-  //       genuineMoment: {
-  //         isGenuine: false,
-  //         category: null,
-  //         confidence: 0.5,
-  //         explanation: "Not genuine",
-  //       },
-  //       tone: {
-  //         sentiment: 0.3,
-  //         primaryEmotion: "neutral",
-  //         intensity: 0.3,
-  //         isSarcastic: false,
-  //         explanation: "Neutral tone",
-  //       },
-  //       topics: {
-  //         topics: ["work"],
-  //         primaryTopic: "work",
-  //         emotionalContext: { work: "stress" },
-  //         entities: [],
-  //         explanation: "Work topic",
-  //       },
-  //       openLoops: {
-  //         hasFollowUp: false,
-  //         loopType: null,
-  //         topic: null,
-  //         suggestedFollowUp: null,
-  //         timeframe: null,
-  //         salience: 0,
-  //         explanation: "No loop",
-  //       },
-  //       relationshipSignals: {
-  //         milestone: null,
-  //         milestoneConfidence: 0,
-  //         isHostile: false,
-  //         hostilityReason: null,
-  //         explanation: "None",
-  //       },
-  //     }),
-  //   });
-
-  //   const { analyzeUserMessage } = await import("../messageAnalyzer");
-
-  //   const result = await analyzeUserMessage(
-  //     "test-user",
-  //     "Working on a big project today",
-  //     1
-  //   );
-
-  //   expect(result.topicResult).toBeDefined();
-  //   expect(result.topicResult?.topics).toContain("work");
-  // });
 });
 
 // ============================================
@@ -1988,16 +1080,6 @@ describe("Phase 4: userPatterns with TopicIntent", () => {
       },
     }));
   });
-
-  // GATES
-  // it("should accept TopicIntent parameter in analyzeMessageForPatterns", async () => {
-  //   const { analyzeMessageForPatterns } = await import("../userPatterns");
-
-  //   expect(analyzeMessageForPatterns).toBeDefined();
-
-  //   // The function signature should now accept 5 parameters including TopicIntent
-  //   expect(analyzeMessageForPatterns.length).toBeGreaterThanOrEqual(2);
-  // });
 
   it("should use LLM topics when TopicIntent is provided", async () => {
     const { analyzeMessageForPatterns } = await import("../userPatterns");
@@ -2086,471 +1168,6 @@ describe("Phase 5: Intent Service - LLM Open Loop Detection", () => {
   afterEach(() => {
     clearIntentCache();
   });
-
-  // ============================================
-  // Pending Event Detection Tests
-  // ============================================
-
-  describe("detectOpenLoopsLLM - pending events", () => {
-    it("should detect interview tomorrow as pending_event with timeframe", async () => {
-      mockGenerateContent.mockResolvedValueOnce({
-        text: JSON.stringify({
-          hasFollowUp: true,
-          loopType: "pending_event",
-          topic: "job interview",
-          suggestedFollowUp: "How did your interview go?",
-          timeframe: "tomorrow",
-          salience: 0.8,
-          explanation: "User has an interview tomorrow that warrants follow-up",
-        }),
-      });
-
-      const result = await detectOpenLoopsLLM("I have an interview tomorrow");
-
-      expect(result.hasFollowUp).toBe(true);
-      expect(result.loopType).toBe("pending_event");
-      expect(result.topic).toBe("job interview");
-      expect(result.timeframe).toBe("tomorrow");
-      expect(result.salience).toBeGreaterThan(0.7);
-      expect(result.suggestedFollowUp).toContain("interview");
-    });
-
-    it("should detect presentation this week as pending_event", async () => {
-      mockGenerateContent.mockResolvedValueOnce({
-        text: JSON.stringify({
-          hasFollowUp: true,
-          loopType: "pending_event",
-          topic: "work presentation",
-          suggestedFollowUp: "How did your presentation go?",
-          timeframe: "this_week",
-          salience: 0.7,
-          explanation: "User has a presentation coming up",
-        }),
-      });
-
-      const result = await detectOpenLoopsLLM(
-        "Got my big presentation coming up this week"
-      );
-
-      expect(result.hasFollowUp).toBe(true);
-      expect(result.loopType).toBe("pending_event");
-      expect(result.timeframe).toBe("this_week");
-    });
-
-    it("should detect vague future events with 'soon' timeframe", async () => {
-      mockGenerateContent.mockResolvedValueOnce({
-        text: JSON.stringify({
-          hasFollowUp: true,
-          loopType: "pending_event",
-          topic: "moving to new apartment",
-          suggestedFollowUp: "How's the move going?",
-          timeframe: "soon",
-          salience: 0.75,
-          explanation: "User is moving soon",
-        }),
-      });
-
-      const result = await detectOpenLoopsLLM(
-        "I'm moving to a new apartment soon"
-      );
-
-      expect(result.hasFollowUp).toBe(true);
-      expect(result.timeframe).toBe("soon");
-    });
-  });
-
-  // ============================================
-  // Emotional Follow-up Tests
-  // ============================================
-
-  describe("detectOpenLoopsLLM - emotional followup", () => {
-    it("should detect stress about a situation as emotional_followup", async () => {
-      mockGenerateContent.mockResolvedValueOnce({
-        text: JSON.stringify({
-          hasFollowUp: true,
-          loopType: "emotional_followup",
-          topic: "stress about the move",
-          suggestedFollowUp: "How are you feeling about the move now?",
-          timeframe: "soon",
-          salience: 0.8,
-          explanation: "User expresses stress about moving",
-        }),
-      });
-
-      const result = await detectOpenLoopsLLM(
-        "I'm really stressed about the move"
-      );
-
-      expect(result.hasFollowUp).toBe(true);
-      expect(result.loopType).toBe("emotional_followup");
-      expect(result.topic).toContain("move");
-    });
-
-    it("should detect anxiety about something as emotional_followup", async () => {
-      mockGenerateContent.mockResolvedValueOnce({
-        text: JSON.stringify({
-          hasFollowUp: true,
-          loopType: "emotional_followup",
-          topic: "anxiety about health",
-          suggestedFollowUp: "Are you feeling any better about your health?",
-          timeframe: "later",
-          salience: 0.85,
-          explanation: "User is anxious about health matters",
-        }),
-      });
-
-      const result = await detectOpenLoopsLLM(
-        "Feeling really anxious about this health stuff"
-      );
-
-      expect(result.hasFollowUp).toBe(true);
-      expect(result.loopType).toBe("emotional_followup");
-      expect(result.salience).toBeGreaterThan(0.7);
-    });
-  });
-
-  // ============================================
-  // Commitment Detection Tests (Soft & Strong)
-  // ============================================
-
-  describe("detectOpenLoopsLLM - commitment_check", () => {
-    it("should detect soft commitment 'maybe I'll try' as commitment_check", async () => {
-      mockGenerateContent.mockResolvedValueOnce({
-        text: JSON.stringify({
-          hasFollowUp: true,
-          loopType: "commitment_check",
-          topic: "trying new gym",
-          suggestedFollowUp: "Did you end up trying that new gym?",
-          timeframe: "soon",
-          salience: 0.4,
-          explanation: "Soft commitment to try the gym",
-        }),
-      });
-
-      const result = await detectOpenLoopsLLM("Maybe I'll try that new gym");
-
-      expect(result.hasFollowUp).toBe(true);
-      expect(result.loopType).toBe("commitment_check");
-      expect(result.salience).toBeLessThan(0.6); // Soft commitment = lower salience
-    });
-
-    it("should detect 'should probably' as commitment_check", async () => {
-      mockGenerateContent.mockResolvedValueOnce({
-        text: JSON.stringify({
-          hasFollowUp: true,
-          loopType: "commitment_check",
-          topic: "calling mom",
-          suggestedFollowUp: "Did you end up calling your mom?",
-          timeframe: "soon",
-          salience: 0.5,
-          explanation: "User feels they should call their mom",
-        }),
-      });
-
-      const result = await detectOpenLoopsLLM("I should probably call my mom");
-
-      expect(result.hasFollowUp).toBe(true);
-      expect(result.loopType).toBe("commitment_check");
-    });
-
-    it("should detect strong commitment with higher salience", async () => {
-      mockGenerateContent.mockResolvedValueOnce({
-        text: JSON.stringify({
-          hasFollowUp: true,
-          loopType: "commitment_check",
-          topic: "quitting smoking",
-          suggestedFollowUp: "How's the quitting going?",
-          timeframe: "later",
-          salience: 0.8,
-          explanation: "Strong commitment to quit smoking",
-        }),
-      });
-
-      const result = await detectOpenLoopsLLM(
-        "I'm going to quit smoking for real this time"
-      );
-
-      expect(result.hasFollowUp).toBe(true);
-      expect(result.loopType).toBe("commitment_check");
-      expect(result.salience).toBeGreaterThan(0.7);
-    });
-  });
-
-  // ============================================
-  // No Follow-up Detection Tests
-  // ============================================
-
-  describe("detectOpenLoopsLLM - no follow-up", () => {
-    it("should return no follow-up for generic messages", async () => {
-      mockGenerateContent.mockResolvedValueOnce({
-        text: JSON.stringify({
-          hasFollowUp: false,
-          loopType: null,
-          topic: null,
-          suggestedFollowUp: null,
-          timeframe: null,
-          salience: 0,
-          explanation: "Generic greeting, no follow-up needed",
-        }),
-      });
-
-      const result = await detectOpenLoopsLLM("Hey what's up?");
-
-      expect(result.hasFollowUp).toBe(false);
-      expect(result.loopType).toBeNull();
-      expect(result.topic).toBeNull();
-    });
-
-    it("should return no follow-up for short messages without LLM call", async () => {
-      const result = await detectOpenLoopsLLM("hi");
-
-      expect(result.hasFollowUp).toBe(false);
-
-      expect(mockGenerateContent).not.toHaveBeenCalled();
-    });
-  });
-
-  // ============================================
-  // Edge Cases
-  // ============================================
-
-  describe("edge cases", () => {
-    it("should handle LLM JSON parsing errors gracefully", async () => {
-      mockGenerateContent.mockResolvedValueOnce({
-        text: "This is not valid JSON",
-      });
-
-      await expect(
-        detectOpenLoopsLLM("I have an interview tomorrow")
-      ).rejects.toThrow();
-    });
-
-    it("should handle LLM API errors", async () => {
-      mockGenerateContent.mockRejectedValueOnce(
-        new Error("API rate limit exceeded")
-      );
-
-      await expect(detectOpenLoopsLLM("Interview coming up")).rejects.toThrow(
-        "API rate limit exceeded"
-      );
-    });
-
-    it("should validate and filter invalid loop types", async () => {
-      mockGenerateContent.mockResolvedValueOnce({
-        text: JSON.stringify({
-          hasFollowUp: true,
-          loopType: "invalid_type",
-          topic: "test",
-          suggestedFollowUp: "Test",
-          timeframe: "tomorrow",
-          salience: 0.5,
-          explanation: "Test",
-        }),
-      });
-
-      const result = await detectOpenLoopsLLM("Some test message here");
-
-      expect(result.hasFollowUp).toBe(true);
-      expect(result.loopType).toBeNull(); // Invalid type filtered out
-    });
-
-    it("should validate and filter invalid timeframes", async () => {
-      mockGenerateContent.mockResolvedValueOnce({
-        text: JSON.stringify({
-          hasFollowUp: true,
-          loopType: "pending_event",
-          topic: "test",
-          suggestedFollowUp: "Test",
-          timeframe: "next_year", // Invalid timeframe
-          salience: 0.5,
-          explanation: "Test",
-        }),
-      });
-
-      const result = await detectOpenLoopsLLM("Some test message here");
-
-      expect(result.timeframe).toBeNull(); // Invalid timeframe filtered out
-    });
-
-    it("should normalize salience to 0-1 range", async () => {
-      mockGenerateContent.mockResolvedValueOnce({
-        text: JSON.stringify({
-          hasFollowUp: true,
-          loopType: "pending_event",
-          topic: "test",
-          suggestedFollowUp: "Test",
-          timeframe: "tomorrow",
-          salience: 1.5, // Out of range
-          explanation: "Test",
-        }),
-      });
-
-      const result = await detectOpenLoopsLLM(
-        "Test message with high salience value"
-      );
-
-      expect(result.salience).toBeLessThanOrEqual(1);
-      expect(result.salience).toBeGreaterThanOrEqual(0);
-    });
-
-    it("should strip markdown code blocks from LLM response", async () => {
-      mockGenerateContent.mockResolvedValueOnce({
-        text: '```json\n{"hasFollowUp": true, "loopType": "pending_event", "topic": "interview", "suggestedFollowUp": "How did it go?", "timeframe": "tomorrow", "salience": 0.8, "explanation": "Test"}\n```',
-      });
-
-      const result = await detectOpenLoopsLLM("Got an interview tomorrow");
-
-      expect(result.hasFollowUp).toBe(true);
-      expect(result.loopType).toBe("pending_event");
-    });
-  });
-
-  // ============================================
-  // Caching Tests
-  // ============================================
-
-  describe("detectOpenLoopsLLMCached", () => {
-    it("should cache results and avoid redundant LLM calls", async () => {
-      mockGenerateContent.mockResolvedValue({
-        text: JSON.stringify({
-          hasFollowUp: true,
-          loopType: "pending_event",
-          topic: "interview",
-          suggestedFollowUp: "How did it go?",
-          timeframe: "tomorrow",
-          salience: 0.8,
-          explanation: "Interview tomorrow",
-        }),
-      });
-
-      // First call - should hit LLM
-      const result1 = await detectOpenLoopsLLMCached(
-        "I have an interview tomorrow"
-      );
-      expect(mockGenerateContent).toHaveBeenCalledTimes(1);
-
-      // Second call with same message - should use cache
-      const result2 = await detectOpenLoopsLLMCached(
-        "I have an interview tomorrow"
-      );
-      expect(mockGenerateContent).toHaveBeenCalledTimes(1); // Still 1
-
-      // Results should be identical
-      expect(result1.hasFollowUp).toEqual(result2.hasFollowUp);
-      expect(result1.loopType).toEqual(result2.loopType);
-    });
-
-    it("should NOT use cache when context is provided", async () => {
-      mockGenerateContent.mockResolvedValue({
-        text: JSON.stringify({
-          hasFollowUp: true,
-          loopType: "pending_event",
-          topic: "test",
-          suggestedFollowUp: "Test",
-          timeframe: "tomorrow",
-          salience: 0.5,
-          explanation: "Context-dependent",
-        }),
-      });
-
-      // First call without context (will cache)
-      await detectOpenLoopsLLMCached("Something big happening");
-      expect(mockGenerateContent).toHaveBeenCalledTimes(1);
-
-      // Second call WITH context - should NOT use cache
-      await detectOpenLoopsLLMCached("Something big happening", {
-        recentMessages: [{ role: "user", text: "Prior message for context" }],
-      });
-      expect(mockGenerateContent).toHaveBeenCalledTimes(2);
-    });
-
-    it("should treat similar messages with different casing as same", async () => {
-      mockGenerateContent.mockResolvedValue({
-        text: JSON.stringify({
-          hasFollowUp: true,
-          loopType: "commitment_check",
-          topic: "gym",
-          suggestedFollowUp: "Did you go?",
-          timeframe: "soon",
-          salience: 0.4,
-          explanation: "Test",
-        }),
-      });
-
-      await detectOpenLoopsLLMCached("Maybe I'll try the GYM");
-      await detectOpenLoopsLLMCached("maybe i'll try the gym");
-
-      // Should only call LLM once due to case-insensitive caching
-      expect(mockGenerateContent).toHaveBeenCalledTimes(1);
-    });
-  });
-});
-
-// ============================================
-// Phase 5: Integration with messageAnalyzer
-// ============================================
-
-describe("Phase 5: Integration with messageAnalyzer", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    clearIntentCache();
-    resetIntentClientForTesting();
-    mockGenerateContent.mockReset();
-
-    (GoogleGenAI as any).mockImplementation(() => ({
-      models: {
-        generateContent: mockGenerateContent,
-      },
-    }));
-  });
-
-  it("should export detectOpenLoopsWithLLM from messageAnalyzer", async () => {
-    const { detectOpenLoopsWithLLM } = await import("../messageAnalyzer");
-
-    expect(detectOpenLoopsWithLLM).toBeDefined();
-    expect(typeof detectOpenLoopsWithLLM).toBe("function");
-  });
-
-  it("should export OpenLoopIntent type from messageAnalyzer", async () => {
-    // Type check - if this compiles, OpenLoopIntent is exported correctly
-    const messageAnalyzer = await import("../messageAnalyzer");
-
-    expect(messageAnalyzer.detectOpenLoopsWithLLM).toBeDefined();
-  });
-
-  // GATES
-  // it("should include openLoopResult in MessageAnalysisResult", async () => {
-  //   // Mock all required LLM calls
-  //   mockGenerateContent.mockResolvedValueOnce({
-  //     text: JSON.stringify({
-  //       genuineMoment: { isGenuine: false, category: null, confidence: 0.5, explanation: "None" },
-  //       tone: { sentiment: 0.3, primaryEmotion: "neutral", intensity: 0.3, isSarcastic: false, explanation: "Neutral" },
-  //       topics: { topics: [], primaryTopic: null, emotionalContext: {}, entities: [], explanation: "None" },
-  //       openLoops: {
-  //         hasFollowUp: true,
-  //         loopType: "pending_event",
-  //         topic: "interview",
-  //         suggestedFollowUp: "How did it go?",
-  //         timeframe: "tomorrow",
-  //         salience: 0.8,
-  //         explanation: "Interview tomorrow"
-  //       },
-  //       relationshipSignals: { milestone: null, milestoneConfidence: 0, isHostile: false, hostilityReason: null, explanation: "None" }
-  //     })
-  //   });
-
-  //   const { analyzeUserMessage } = await import("../messageAnalyzer");
-
-  //   const result = await analyzeUserMessage(
-  //     "test-user",
-  //     "I have a job interview tomorrow, wish me luck!",
-  //     1
-  //   );
-
-  //   expect(result.openLoopResult).toBeDefined();
-  //   expect(result.openLoopResult?.hasFollowUp).toBe(true);
-  //   expect(result.openLoopResult?.loopType).toBe("pending_event");
-  // });
 });
 
 // ============================================
@@ -2566,213 +1183,13 @@ describe("Phase 6: Intent Service - LLM Relationship Signal Detection", () => {
 
     (GoogleGenAI as any).mockImplementation(() => ({
       models: {
-        generateContent: mockGenerateContent
-      }
+        generateContent: mockGenerateContent,
+      },
     }));
   });
 
   afterEach(() => {
     clearIntentCache();
-  });
-
-  // ============================================
-  // Milestone Detection Tests
-  // ============================================
-
-  describe("detectRelationshipSignalsLLM - Milestones", () => {
-    it("should detect 'first_vulnerability' milestone", async () => {
-      mockGenerateContent.mockResolvedValueOnce({
-        text: JSON.stringify({
-          milestone: "first_vulnerability",
-          milestoneConfidence: 0.95,
-          isHostile: false,
-          hostilityReason: null,
-          explanation: "User opens up about deep fear"
-        })
-      });
-
-      const result = await detectRelationshipSignalsLLM("I've never told anyone this before, but I'm really scared of failure.");
-
-      expect(result.milestone).toBe("first_vulnerability");
-      expect(result.milestoneConfidence).toBeGreaterThan(0.9);
-      expect(result.isHostile).toBe(false);
-    });
-
-    it("should detect 'first_joke' milestone", async () => {
-      mockGenerateContent.mockResolvedValueOnce({
-        text: JSON.stringify({
-          milestone: "first_joke",
-          milestoneConfidence: 0.88,
-          isHostile: false,
-          hostilityReason: null,
-          explanation: "Original humor shared with AI"
-        })
-      });
-
-      const result = await detectRelationshipSignalsLLM("Why did the AI cross the road? To optimize the path finding algorithm! haha");
-
-      expect(result.milestone).toBe("first_joke");
-    });
-
-    it("should detect 'first_support' milestone", async () => {
-      mockGenerateContent.mockResolvedValueOnce({
-        text: JSON.stringify({
-          milestone: "first_support",
-          milestoneConfidence: 0.92,
-          isHostile: false,
-          hostilityReason: null,
-          explanation: "User asking for emotional support"
-        })
-      });
-
-      const result = await detectRelationshipSignalsLLM("I don't know what to do about my breakup. Can you help me?");
-
-      expect(result.milestone).toBe("first_support");
-    });
-
-    it("should detect 'first_deep_talk' milestone", async () => {
-      mockGenerateContent.mockResolvedValueOnce({
-        text: JSON.stringify({
-          milestone: "first_deep_talk",
-          milestoneConfidence: 0.90,
-          isHostile: false,
-          hostilityReason: null,
-          explanation: "Deep philosophical question"
-        })
-      });
-
-      const result = await detectRelationshipSignalsLLM("Do you think AI can ever truly love, or is it just simulation?");
-
-      expect(result.milestone).toBe("first_deep_talk");
-    });
-
-    it("should detect deep talk meta-commentary ('This got deep huh')", async () => {
-      // Mock returning no milestone directly, but with high isDeepTalk signal
-      mockGenerateContent.mockResolvedValueOnce({
-        text: JSON.stringify({
-          isVulnerable: false,
-          isSeekingSupport: false,
-          isAcknowledgingSupport: false,
-          isJoking: false,
-          isDeepTalk: true,
-          milestone: null,
-          milestoneConfidence: 0.8,
-          isHostile: false,
-          hostilityReason: null,
-          explanation: "Meta-commentary about conversation depth"
-        })
-      });
-
-      const result = await detectRelationshipSignalsLLM("This got deep huh");
-
-      expect(result.isDeepTalk).toBe(true);
-      // Our logic should auto-infer the milestone due to strong signal
-      expect(result.milestone).toBe("first_deep_talk");
-    });
-
-    it("should return null milestone when none detected", async () => {
-      mockGenerateContent.mockResolvedValueOnce({
-        text: JSON.stringify({
-          milestone: null,
-          milestoneConfidence: 0.1,
-          isHostile: false,
-          hostilityReason: null,
-          explanation: "Casual conversation"
-        })
-      });
-
-      const result = await detectRelationshipSignalsLLM("What's the weather like?");
-
-      expect(result.milestone).toBeNull();
-    });
-  });
-
-  // ============================================
-  // Rupture/Hostility Detection Tests
-  // ============================================
-
-  describe("detectRelationshipSignalsLLM - Ruptures", () => {
-    it("should detect hostility", async () => {
-      mockGenerateContent.mockResolvedValueOnce({
-        text: JSON.stringify({
-          milestone: null,
-          milestoneConfidence: 0,
-          isHostile: true,
-          hostilityReason: "Direct insult",
-          explanation: "Hostile message"
-        })
-      });
-
-      const result = await detectRelationshipSignalsLLM("You are useless and stupid.");
-
-      expect(result.isHostile).toBe(true);
-      expect(result.hostilityReason).toBe("Direct insult");
-    });
-
-    it("should NOT detect hostility in playful banter (with context)", async () => {
-      mockGenerateContent.mockResolvedValueOnce({
-        text: JSON.stringify({
-          milestone: "first_joke",
-          milestoneConfidence: 0.8,
-          isHostile: false,
-          hostilityReason: null,
-          explanation: "Playful teasing"
-        })
-      });
-
-      const result = await detectRelationshipSignalsLLM("Shut up, you're hilarious!", {
-        recentMessages: [
-          { role: 'assistant', text: 'I tried to bake cookies in the server room again.' },
-        ]
-      });
-
-      expect(result.isHostile).toBe(false);
-      expect(result.milestone).toBe("first_joke");
-    });
-  });
-
-  // ============================================
-  // Caching Tests
-  // ============================================
-
-  describe("detectRelationshipSignalsLLMCached", () => {
-    it("should cache results", async () => {
-      mockGenerateContent.mockResolvedValue({
-        text: JSON.stringify({
-          milestone: "first_vulnerability",
-          milestoneConfidence: 0.95,
-          isHostile: false,
-          hostilityReason: null,
-          explanation: "Test"
-        })
-      });
-
-      await detectRelationshipSignalsLLMCached("I'm scared");
-      await detectRelationshipSignalsLLMCached("I'm scared");
-
-      expect(mockGenerateContent).toHaveBeenCalledTimes(1);
-    });
-
-    it("should bypass cache if context provided (context sensitive)", async () => {
-      mockGenerateContent.mockResolvedValue({
-        text: JSON.stringify({
-          milestone: null,
-          milestoneConfidence: 0,
-          isHostile: false,
-          hostilityReason: null,
-          explanation: "Test"
-        })
-      });
-
-      const context1 = { recentMessages: [{ role: 'assistant' as const, text: 'Hi' }] };
-      const context2 = { recentMessages: [{ role: 'assistant' as const, text: 'Bye' }] };
-
-      await detectRelationshipSignalsLLMCached("You're weird", context1);
-      await detectRelationshipSignalsLLMCached("You're weird", context2);
-
-      // Context changes meaning (playful vs hostile), so should re-evaluate
-      expect(mockGenerateContent).toHaveBeenCalledTimes(2);
-    });
   });
 });
 

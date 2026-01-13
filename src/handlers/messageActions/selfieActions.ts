@@ -16,7 +16,7 @@ import type { CalendarEvent } from '../../services/calendarService';
  * Selfie action from AI response
  */
 export interface SelfieAction {
-  scene: string;
+  scene?: string;
   mood?: string;
   outfit?: string;
 }

@@ -15,26 +15,29 @@
 
 import { supabase } from './supabaseClient';
 import { KAYLEY_FULL_PROFILE } from '../domain/characters/kayleyCharacterProfile';
-import { 
-  detectOpenLoopsLLMCached, 
-  type OpenLoopIntent, 
-  type LoopTypeIntent,
+import {
+  type OpenLoopIntent,
   type FollowUpTimeframe,
-  type ConversationContext
-} from './intentService';
+  type ConversationContext,
+} from "./intentService";
 
 // ============================================
 // Types
 // ============================================
 
-export type LoopType = 
-  | 'pending_event'       // "How did X go?"
-  | 'emotional_followup'  // "Are you feeling better about X?"
-  | 'commitment_check'    // "Did you end up doing X?"
-  | 'curiosity_thread'    // "I've been thinking about what you said about X"
-  | 'pattern_observation'; // "I noticed you tend to X when Y"
+export type LoopType =
+  | "pending_event" // "How did X go?"
+  | "emotional_followup" // "Are you feeling better about X?"
+  | "commitment_check" // "Did you end up doing X?"
+  | "curiosity_thread" // "I've been thinking about what you said about X"
+  | "pattern_observation"; // "I noticed you tend to X when Y"
 
-export type LoopStatus = 'active' | 'surfaced' | 'resolved' | 'expired' | 'dismissed';
+export type LoopStatus =
+  | "active"
+  | "surfaced"
+  | "resolved"
+  | "expired"
+  | "dismissed";
 
 export interface OpenLoop {
   id: string;
@@ -277,7 +280,9 @@ export async function findCalendarEventLoop(
     }
 
     // Second try: match by similar topic (for old loops without sourceCalendarEventId)
-    const byTopic = loops.find((loop) => isSimilarTopic(loop.topic, eventSummary));
+    const byTopic = loops.find((loop) =>
+      isSimilarTopic(loop.topic, eventSummary)
+    );
     if (byTopic) {
       console.log(
         `📅 [PresenceDirector] Found existing loop by topic similarity: "${byTopic.topic}" ≈ "${eventSummary}"`
@@ -287,7 +292,10 @@ export async function findCalendarEventLoop(
 
     return null;
   } catch (error) {
-    console.error("[PresenceDirector] Error finding calendar event loop:", error);
+    console.error(
+      "[PresenceDirector] Error finding calendar event loop:",
+      error
+    );
     return null;
   }
 }
@@ -323,12 +331,20 @@ export async function updateLoopCalendarData(
       .eq("id", loopId);
 
     if (error) {
-      console.error("[PresenceDirector] Error updating loop calendar data:", error);
+      console.error(
+        "[PresenceDirector] Error updating loop calendar data:",
+        error
+      );
     } else {
-      console.log(`📅 [PresenceDirector] Updated loop ${loopId} with calendar metadata`);
+      console.log(
+        `📅 [PresenceDirector] Updated loop ${loopId} with calendar metadata`
+      );
     }
   } catch (error) {
-    console.error("[PresenceDirector] Error updating loop calendar data:", error);
+    console.error(
+      "[PresenceDirector] Error updating loop calendar data:",
+      error
+    );
   }
 }
 
@@ -931,17 +947,7 @@ export async function detectOpenLoops(
   let llmResult: OpenLoopIntent | null = null;
 
   try {
-    // If we have a pre-calculated intent, use it!
-    if (providedIntent) {
-      llmResult = providedIntent;
-    } else {
-      // Otherwise, make the internal call (Phase 5 behavior)
-      llmResult = await detectOpenLoopsLLMCached(
-        userMessage,
-        conversationContext
-      );
-    }
-
+    llmResult = providedIntent;
     if (
       llmResult &&
       llmResult.hasFollowUp &&
