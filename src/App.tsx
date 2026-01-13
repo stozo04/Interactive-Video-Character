@@ -48,6 +48,7 @@ import { useCacheWarming } from './hooks/useCacheWarming';
 import { useTasks } from './hooks/useTasks';
 import { useCalendar } from './hooks/useCalendar';
 import { useProactiveSettings } from './hooks/useProactiveSettings';
+import { useGmail } from './hooks/useGmail';
 import { useIdleTracking } from './hooks/useIdleTracking';
 import { useCharacterActions } from './hooks/useCharacterActions';
 import { useCharacterManagement } from './hooks/useCharacterManagement';
@@ -248,8 +249,13 @@ const App: React.FC = () => {
   // --------------------------------------------------------------------------
   // GMAIL & CALENDAR INTEGRATION
   // --------------------------------------------------------------------------
-  const [isGmailConnected, setIsGmailConnected] = useState(false);
-  const [emailQueue, setEmailQueue] = useState<NewEmailPayload[]>([]);
+  // Gmail Hook
+  const {
+    emailQueue,
+    clearQueue: clearEmailQueue,
+    isConnected: isGmailConnected
+  } = useGmail({ session, status: authStatus });
+
   const debouncedEmailQueue = useDebounce(emailQueue, 5000);
   const calendarTriggerRef = useRef<(prompt: string) => void>(() => { });
 
@@ -765,26 +771,6 @@ const App: React.FC = () => {
   // GMAIL & CALENDAR POLLING EFFECTS
   // ==========================================================================
 
-  // Gmail polling
-  useEffect(() => {
-    if (!isGmailConnected || !session) return;
-
-    const pollNow = async () => {
-      try {
-        await gmailService.pollForNewMail(session.accessToken);
-      } catch (error) {
-        console.error('Gmail polling error:', error);
-      }
-    };
-
-    const initialDelayTimer = setTimeout(pollNow, 2000);
-    const intervalId = setInterval(pollNow, 60000);
-
-    return () => {
-      clearTimeout(initialDelayTimer);
-      clearInterval(intervalId);
-    };
-  }, [isGmailConnected, session]);
 
   // Calendar polling effects - now handled by useCalendar hook
   useEffect(() => {
@@ -812,22 +798,15 @@ const App: React.FC = () => {
   }, [weekEvents, selectedCharacter, proactiveSettings.calendar, checkForApplicableCheckins]);
 
   useEffect(() => {
-    const handleNewMail = (event: Event) => {
-      const customEvent = event as CustomEvent<NewEmailPayload[]>;
-      setEmailQueue(prev => [...prev, ...customEvent.detail]);
-    };
-
     const handleAuthError = () => {
       console.log("🔒 Google Auth error detected. Attempting background refresh...");
       refreshSession();
     };
 
-    gmailService.addEventListener('new-mail', handleNewMail);
     gmailService.addEventListener('auth-error', handleAuthError);
     calendarService.addEventListener('auth-error', handleAuthError);
 
     return () => {
-      gmailService.removeEventListener('new-mail', handleNewMail);
       gmailService.removeEventListener('auth-error', handleAuthError);
       calendarService.removeEventListener('auth-error', handleAuthError);
     };
@@ -863,7 +842,7 @@ const App: React.FC = () => {
         //   }
         // }
 
-      setEmailQueue([]);
+      clearEmailQueue();
     };
 
     processEmailNotification();
@@ -1324,8 +1303,7 @@ const App: React.FC = () => {
             </button>
           )}
           
-          <SettingsPanel 
-            onGmailConnectionChange={setIsGmailConnected}
+            <SettingsPanel 
             proactiveSettings={proactiveSettings}
             onProactiveSettingsChange={updateProactiveSettings}
           />
