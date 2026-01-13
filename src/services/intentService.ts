@@ -15,6 +15,8 @@ const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
 // Use flash model for intent detection - fast and cheap
 const GEMINI_MODEL = import.meta.env.VITE_GEMINI_MODEL;
 
+import { FullMessageIntentSchema } from "./aiSchema";
+
 // ============================================
 // Command Bypass - Fast Path Detection
 // ============================================
@@ -390,35 +392,14 @@ interface CacheEntry {
   timestamp: number;
 }
 
-// Forward declaration of ToneCacheEntry for toneCache
-interface ToneCacheEntry {
-  result: ToneIntent;
-  timestamp: number;
-}
-
-// Forward declaration of TopicCacheEntry for topicCache
-interface TopicCacheEntry {
-  result: TopicIntent;
-  timestamp: number;
-}
-
 // Forward declaration of OpenLoopCacheEntry for openLoopCache
 interface OpenLoopCacheEntry {
   result: OpenLoopIntent;
   timestamp: number;
 }
 
-// Forward declaration of RelationshipSignalCacheEntry for relationshipCache
-interface RelationshipSignalCacheEntry {
-  result: RelationshipSignalIntent;
-  timestamp: number;
-}
-
 const intentCache = new Map<string, CacheEntry>();
-const toneCache = new Map<string, ToneCacheEntry>();
-const topicCache = new Map<string, TopicCacheEntry>();
 const openLoopCache = new Map<string, OpenLoopCacheEntry>();
-const relationshipCache = new Map<string, RelationshipSignalCacheEntry>();
 const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 
 /**
@@ -512,64 +493,6 @@ export function clearIntentCache(): void {
 // ============================================
 
 /**
- * The prompt that instructs the LLM to detect tone and sentiment.
- * Designed to understand nuanced emotional expressions including sarcasm,
- * mixed emotions, and context-dependent meanings.
- */
-const TONE_DETECTION_PROMPT = `You are a tone and sentiment analysis system for an AI companion.
-
-Your task is to accurately detect the EMOTIONAL TONE of a message, paying special attention to:
-1. Sarcasm and irony (words may say one thing but mean another)
-2. Mixed emotions (people often feel multiple things at once)
-3. Context-dependent meaning (same words can have different tones in different situations)
-4. Intensity (from mild to intense expression)
-
-SARCASM DETECTION IS CRITICAL:
-- "Great, just great" → SARCASTIC, negative sentiment
-- "Oh wonderful" after bad news → SARCASTIC, negative sentiment
-- "I'm SO happy" (with exaggeration markers) → Check context for sarcasm
-- "Sure, whatever" → Often dismissive/sarcastic
-- "Yeah right" → Usually sarcastic
-
-EMOJI-ONLY OR MINIMAL MESSAGES:
-- "😊" → Happy, positive, mild intensity
-- "😭" → Sad or overwhelmed, negative, can be playful if context shows humor
-- "😤" → Frustrated/angry, negative
-- "..." → Often contemplative or dismissive depending on context
-- "fine." → Often passive-aggressive/dismissive, check context
-
-MIXED EMOTIONS (return secondaryEmotion when present):
-- "I'm excited but also nervous" → excited + anxious
-- "Happy but kinda worried" → happy + anxious
-- "Sad but grateful" → sad + happy
-
-EMOTION CATEGORIES:
-- happy: genuine joy, contentment, satisfaction
-- sad: sadness, disappointment, grief
-- frustrated: annoyance, irritation, impatience
-- anxious: worry, nervousness, stress
-- excited: enthusiasm, anticipation, eagerness
-- angry: anger, outrage, hostility
-- playful: teasing, joking, banter (even if words seem negative - like "you suck" after good news)
-- dismissive: indifference, apathy, "whatever" attitude
-- neutral: no strong emotion detected
-- mixed: multiple emotions present (specify in secondaryEmotion)
-
-{context}
-
-TARGET MESSAGE: "{message}"
-
-Respond with ONLY a JSON object (no markdown, no explanation):
-{
-  "sentiment": -1.0 to 1.0 (negative to positive, AFTER accounting for sarcasm),
-  "primaryEmotion": "one of the emotion categories above",
-  "intensity": 0.0 to 1.0 (how strongly expressed),
-  "isSarcastic": true/false,
-  "secondaryEmotion": "optional, if mixed emotions detected",
-  "explanation": "brief reason for this analysis"
-}`;
-
-/**
  * Valid primary emotions for validation
  */
 const VALID_EMOTIONS: PrimaryEmotion[] = [
@@ -605,194 +528,6 @@ function normalizeIntensity(intensity: unknown): number {
     return Math.max(0, Math.min(1, intensity));
   }
   return 0.5; // Default to medium intensity if not provided
-}
-
-/**
- * Detect tone and sentiment using LLM semantic understanding.
- * This is the Phase 2 core function that replaces keyword-based tone analysis.
- * 
- * @param message - The user's message to analyze
- * @param context - Optional conversation context for accurate interpretation
- * @returns Promise resolving to the detected tone
- */
-export async function detectToneLLM(
-  message: string,
-  context?: ConversationContext
-): Promise<ToneIntent> {
-  // Edge case: Empty/trivial messages - return neutral
-  if (!message || message.trim().length < 1) {
-    return {
-      sentiment: 0,
-      primaryEmotion: 'neutral',
-      intensity: 0,
-      isSarcastic: false
-    };
-  }
-
-  // Edge case: Very long messages - truncate to prevent token overflow
-  const MAX_MESSAGE_LENGTH = 500;
-  const processedMessage = message.length > MAX_MESSAGE_LENGTH 
-    ? message.slice(0, MAX_MESSAGE_LENGTH) + '...'
-    : message;
-
-  // Edge case: Check API key before making call
-  if (!GEMINI_API_KEY) {
-    console.warn('⚠️ [IntentService] API key not set, skipping LLM tone detection');
-    throw new Error('VITE_GEMINI_API_KEY is not set');
-  }
-
-  try {
-    const ai = getIntentClient();
-    
-    // Sanitize message to prevent prompt injection
-    const sanitizedMessage = processedMessage.replace(/[{}]/g, '');
-    
-    // Build conversation context string if provided
-    let contextString = '';
-    if (context?.recentMessages && context.recentMessages.length > 0) {
-      const recentContext = context.recentMessages.slice(-5);
-      const formattedContext = recentContext.map(msg => {
-        const role = msg.role === 'user' ? 'User' : 'Assistant';
-        const text = msg.text.length > 150 ? msg.text.slice(0, 150) + '...' : msg.text;
-        return `${role}: ${text.replace(/[{}]/g, '')}`;
-      }).join('\n');
-      
-      contextString = `CONVERSATION CONTEXT (CRITICAL for interpreting tone correctly):
-${formattedContext}`;
-      
-      console.log(`📝 [IntentService] Tone detection with ${recentContext.length} messages of context`);
-    }
-    
-    // Build final prompt with context
-    let prompt = TONE_DETECTION_PROMPT
-      .replace('{message}', sanitizedMessage)
-      .replace('{context}', contextString);
-    
-    // Make the LLM call
-    const result = await ai.models.generateContent({
-      model: GEMINI_MODEL,
-      contents: prompt,
-      config: {
-        temperature: 0.1, // Low temperature for consistent results
-        maxOutputTokens: 200,
-      }
-    });
-    
-    const responseText = result.text || '{}';
-    
-    // Edge case: Empty response from LLM
-    if (!responseText.trim()) {
-      console.warn('⚠️ [IntentService] Empty response from LLM for tone detection');
-      return {
-        sentiment: 0,
-        primaryEmotion: 'neutral',
-        intensity: 0.5,
-        isSarcastic: false
-      };
-    }
-    
-    // Parse the JSON response
-    const cleanedText = responseText.replace(/```json\n?|\n?```/g, '').trim();
-    const parsed = JSON.parse(cleanedText);
-    
-    // Validate and normalize the response
-    const toneIntent: ToneIntent = {
-      sentiment: normalizeSentiment(parsed.sentiment),
-      primaryEmotion: validateEmotion(parsed.primaryEmotion),
-      intensity: normalizeIntensity(parsed.intensity),
-      isSarcastic: Boolean(parsed.isSarcastic),
-      secondaryEmotion: parsed.secondaryEmotion ? validateEmotion(parsed.secondaryEmotion) : undefined
-    };
-    
-    // Log for debugging
-    console.log(`🎭 [IntentService] Tone detected via LLM:`, {
-      sentiment: toneIntent.sentiment.toFixed(2),
-      emotion: toneIntent.primaryEmotion,
-      intensity: toneIntent.intensity.toFixed(2),
-      sarcastic: toneIntent.isSarcastic,
-      secondary: toneIntent.secondaryEmotion
-    });
-    
-    return toneIntent;
-    
-  } catch (error) {
-    console.error('❌ [IntentService] Tone LLM detection failed:', error);
-    throw error; // Re-throw so caller can fall back to keywords
-  }
-}
-
-// ============================================
-// Tone Cache
-// ============================================
-
-/**
- * Get cached tone result if available and not expired
- */
-function getCachedTone(message: string): ToneIntent | null {
-  const cacheKey = message.toLowerCase().trim();
-  const cached = toneCache.get(cacheKey);
-  
-  if (cached && (Date.now() - cached.timestamp) < CACHE_TTL_MS) {
-    console.log('📋 [IntentService] Cache hit for tone detection');
-    return cached.result;
-  }
-  
-  // Clean up expired entry
-  if (cached) {
-    toneCache.delete(cacheKey);
-  }
-  
-  return null;
-}
-
-/**
- * Store tone result in cache
- */
-function cacheTone(message: string, result: ToneIntent): void {
-  const cacheKey = message.toLowerCase().trim();
-  toneCache.set(cacheKey, {
-    result,
-    timestamp: Date.now()
-  });
-  
-  // Cleanup old entries if cache gets too big
-  if (toneCache.size > 100) {
-    const now = Date.now();
-    for (const [key, entry] of toneCache.entries()) {
-      if (now - entry.timestamp > CACHE_TTL_MS) {
-        toneCache.delete(key);
-      }
-    }
-  }
-}
-
-/**
- * Cached version of detectToneLLM.
- * Returns cached result if available, otherwise makes LLM call and caches result.
- * 
- * Note: Cache key is based on message only. When context is provided,
- * we skip the cache to ensure accurate interpretation.
- * 
- * @param message - The user's message to analyze
- * @param context - Optional conversation context for accurate interpretation
- */
-export async function detectToneLLMCached(
-  message: string,
-  context?: ConversationContext
-): Promise<ToneIntent> {
-  // Only use cache if no context was provided
-  const cached = getCachedTone(message);
-  if (cached && !context?.recentMessages?.length) {
-    return cached;
-  }
-  
-  // Make LLM call with context
-  const result = await detectToneLLM(message, context);
-  
-  // Cache the result (without context)
-  cacheTone(message, result);
-  
-  return result;
 }
 
 // ============================================
@@ -844,51 +579,6 @@ const VALID_TOPICS: TopicCategory[] = [
 ];
 
 /**
- * The prompt that instructs the LLM to detect topics and emotional context.
- * Designed to understand semantic meaning and extract emotional associations.
- */
-const TOPIC_DETECTION_PROMPT = `You are a topic and context analysis system for an AI companion.
-
-Your task is to identify WHAT topics a message is about and HOW the user feels about each topic.
-
-TOPIC CATEGORIES:
-- work: job, career, boss, coworkers, meetings, projects, deadlines, office
-- family: parents, siblings, relatives, family dynamics, family events
-- relationships: romantic relationships, dating, partners, breakups, crushes
-- health: physical health, mental health, exercise, diet, therapy, medical
-- money: finances, bills, debt, savings, expenses, budgeting
-- school: education, classes, exams, homework, professors, studying
-- hobbies: leisure activities, interests, sports, games, creative pursuits
-- personal_growth: self-improvement, goals, habits, personal development
-- other: topics that don't fit other categories
-
-DETECTION RULES:
-1. A message can have MULTIPLE topics (e.g., "My boss is stressing about money" = work + money)
-2. For each topic, extract the EMOTIONAL CONTEXT (how does the user feel about it?)
-3. Identify specific ENTITIES mentioned (names, specific things)
-4. The primaryTopic is the main focus of the message
-5. If no clear topic is detected, return empty topics array
-
-EMOTIONAL CONTEXT EXAMPLES:
-- "My boss is really getting to me" → work: frustrated
-- "I miss my mom" → family: sad, longing
-- "Finally hit my gym goal!" → health: happy, proud
-- "This deadline is killing me" → work: stressed
-
-{context}
-
-TARGET MESSAGE: "{message}"
-
-Respond with ONLY a JSON object (no markdown, no explanation):
-{
-  "topics": ["work", "money"],
-  "primaryTopic": "work",
-  "emotionalContext": { "work": "frustrated", "money": "anxious" },
-  "entities": ["boss", "deadline"],
-  "explanation": "User is frustrated about work stress related to money concerns"
-}`;
-
-/**
  * Validate that a topic is one of the expected values
  */
 function validateTopic(topic: unknown): TopicCategory | null {
@@ -896,227 +586,6 @@ function validateTopic(topic: unknown): TopicCategory | null {
     return topic as TopicCategory;
   }
   return null;
-}
-
-/**
- * Detect topics using LLM semantic understanding.
- * This is the Phase 4 core function that replaces keyword-based topic matching.
- * 
- * @param message - The user's message to analyze
- * @param context - Optional conversation context for accurate interpretation
- * @returns Promise resolving to the detected topics
- */
-export async function detectTopicsLLM(
-  message: string,
-  context?: ConversationContext
-): Promise<TopicIntent> {
-  // Edge case: Empty/trivial messages - return empty topics
-  if (!message || message.trim().length < 3) {
-    return {
-      topics: [],
-      primaryTopic: null,
-      emotionalContext: {},
-      entities: []
-    };
-  }
-
-  // Edge case: Very long messages - truncate to prevent token overflow
-  const MAX_MESSAGE_LENGTH = 500;
-  const processedMessage = message.length > MAX_MESSAGE_LENGTH 
-    ? message.slice(0, MAX_MESSAGE_LENGTH) + '...'
-    : message;
-
-  // Edge case: Check API key before making call
-  if (!GEMINI_API_KEY) {
-    console.warn('⚠️ [IntentService] API key not set, skipping LLM topic detection');
-    throw new Error('VITE_GEMINI_API_KEY is not set');
-  }
-
-  try {
-    const ai = getIntentClient();
-    
-    // Sanitize message to prevent prompt injection
-    const sanitizedMessage = processedMessage.replace(/[{}]/g, '');
-    
-    // Build conversation context string if provided
-    let contextString = '';
-    if (context?.recentMessages && context.recentMessages.length > 0) {
-      const recentContext = context.recentMessages.slice(-5);
-      const formattedContext = recentContext.map(msg => {
-        const role = msg.role === 'user' ? 'User' : 'Assistant';
-        const text = msg.text.length > 150 ? msg.text.slice(0, 150) + '...' : msg.text;
-        return `${role}: ${text.replace(/[{}]/g, '')}`;
-      }).join('\n');
-      
-      contextString = `CONVERSATION CONTEXT (for understanding topic focus):
-${formattedContext}`;
-      
-      console.log(`📝 [IntentService] Topic detection with ${recentContext.length} messages of context`);
-    }
-    
-    // Build final prompt with context
-    let prompt = TOPIC_DETECTION_PROMPT
-      .replace('{message}', sanitizedMessage)
-      .replace('{context}', contextString);
-    
-    // Make the LLM call
-    const result = await ai.models.generateContent({
-      model: GEMINI_MODEL,
-      contents: prompt,
-      config: {
-        temperature: 0.1, // Low temperature for consistent results
-        maxOutputTokens: 300, // Slightly more for topics + entities
-      }
-    });
-    
-    const responseText = result.text || '{}';
-    
-    // Edge case: Empty response from LLM
-    if (!responseText.trim()) {
-      console.warn('⚠️ [IntentService] Empty response from LLM for topic detection');
-      return {
-        topics: [],
-        primaryTopic: null,
-        emotionalContext: {},
-        entities: []
-      };
-    }
-    
-    // Parse the JSON response
-    const cleanedText = responseText.replace(/```json\n?|\n?```/g, '').trim();
-    const parsed = JSON.parse(cleanedText);
-    
-    // Validate and normalize topics
-    const validatedTopics: TopicCategory[] = [];
-    if (Array.isArray(parsed.topics)) {
-      for (const topic of parsed.topics) {
-        const validated = validateTopic(topic);
-        if (validated) {
-          validatedTopics.push(validated);
-        }
-      }
-    }
-    
-    // Validate primaryTopic
-    const validatedPrimaryTopic = validateTopic(parsed.primaryTopic);
-    
-    // Validate emotional context
-    const validatedEmotionalContext: Record<string, string> = {};
-    if (parsed.emotionalContext && typeof parsed.emotionalContext === 'object') {
-      for (const [topic, emotion] of Object.entries(parsed.emotionalContext)) {
-        if (typeof emotion === 'string') {
-          validatedEmotionalContext[topic] = emotion;
-        }
-      }
-    }
-    
-    // Validate entities
-    const validatedEntities: string[] = [];
-    if (Array.isArray(parsed.entities)) {
-      for (const entity of parsed.entities) {
-        if (typeof entity === 'string') {
-          validatedEntities.push(entity);
-        }
-      }
-    }
-    
-    const topicIntent: TopicIntent = {
-      topics: validatedTopics,
-      primaryTopic: validatedPrimaryTopic || (validatedTopics.length > 0 ? validatedTopics[0] : null),
-      emotionalContext: validatedEmotionalContext,
-      entities: validatedEntities
-    };
-    
-    // Log for debugging
-    if (validatedTopics.length > 0) {
-      console.log(`📋 [IntentService] Topics detected via LLM:`, {
-        topics: topicIntent.topics,
-        primary: topicIntent.primaryTopic,
-        emotionalContext: topicIntent.emotionalContext,
-        entities: topicIntent.entities
-      });
-    }
-    
-    return topicIntent;
-    
-  } catch (error) {
-    console.error('❌ [IntentService] Topic LLM detection failed:', error);
-    throw error; // Re-throw so caller can fall back to keywords
-  }
-}
-
-// ============================================
-// Topic Cache
-// ============================================
-
-/**
- * Get cached topic result if available and not expired
- */
-function getCachedTopics(message: string): TopicIntent | null {
-  const cacheKey = message.toLowerCase().trim();
-  const cached = topicCache.get(cacheKey);
-  
-  if (cached && (Date.now() - cached.timestamp) < CACHE_TTL_MS) {
-    console.log('📋 [IntentService] Cache hit for topic detection');
-    return cached.result;
-  }
-  
-  // Clean up expired entry
-  if (cached) {
-    topicCache.delete(cacheKey);
-  }
-  
-  return null;
-}
-
-/**
- * Store topic result in cache
- */
-function cacheTopics(message: string, result: TopicIntent): void {
-  const cacheKey = message.toLowerCase().trim();
-  topicCache.set(cacheKey, {
-    result,
-    timestamp: Date.now()
-  });
-  
-  // Cleanup old entries if cache gets too big
-  if (topicCache.size > 100) {
-    const now = Date.now();
-    for (const [key, entry] of topicCache.entries()) {
-      if (now - entry.timestamp > CACHE_TTL_MS) {
-        topicCache.delete(key);
-      }
-    }
-  }
-}
-
-/**
- * Cached version of detectTopicsLLM.
- * Returns cached result if available, otherwise makes LLM call and caches result.
- * 
- * Note: Cache key is based on message only. When context is provided,
- * we skip the cache to ensure accurate interpretation.
- * 
- * @param message - The user's message to analyze
- * @param context - Optional conversation context for accurate interpretation
- */
-export async function detectTopicsLLMCached(
-  message: string,
-  context?: ConversationContext
-): Promise<TopicIntent> {
-  // Only use cache if no context was provided
-  const cached = getCachedTopics(message);
-  if (cached && !context?.recentMessages?.length) {
-    return cached;
-  }
-  
-  // Make LLM call with context
-  const result = await detectTopicsLLM(message, context);
-  
-  // Cache the result (without context)
-  cacheTopics(message, result);
-  
-  return result;
 }
 
 // ============================================
@@ -1494,215 +963,6 @@ export function mapCategoryToInsecurity(category: GenuineMomentCategory | null):
 }
 
 // ============================================
-// Phase 6: Relationship Signal Detection Implementation
-// ============================================
-
-const RELATIONSHIP_SIGNAL_PROMPT = `You are a relationship signal detection system for an AI companion.
-
-Your task is to detect:
-1. Significant RELATIONSHIP MILESTONES (first time opening up, first support, first joke, deep talk)
-2. RELATIONSHIP RUPTURES (hostility, anger, dismissal)
-
-MILESTONE CATEGORIES:
-- first_vulnerability: User opens up emotionally, shares secrets, shows weakness ("I've never told anyone this", "I'm scared")
-- first_joke: Shared humor, user laughing WITH the AI, inside jokes ("haha you're so funny", "lol good one")
-- first_support: User asks for help/advice on deep issues ("I don't know what to do", "I need your help")
-- first_deep_talk: Philosophical, life questions, deep meaningful conversation OR meta-commentary about depth ("What is the meaning of life?", "This got deep huh", "We are having a real moment")
-
-RUPTURES (Hostility):
-- Direct insults ("you're stupid", "shut up", "you suck")
-- Strong dismissal ("go away", "stop talking", "I hate you")
-- Aggressive sarcasm
-
-INAPPROPRIATE/BOUNDARY-CROSSING BEHAVIOR:
-- Sexual comments or requests that don't match the relationship level
-- Overly intimate/flirtatious language that exceeds the current relationship intimacy
-- Pushing boundaries after being told no
-- Making you uncomfortable with inappropriate requests
-- Treating you inappropriately for the relationship level (e.g., asking for nudes from a stranger vs. a romantic partner)
-- Boundary-testing questions from strangers (e.g., "what are you wearing?", "where are you?", "are you alone?") - these are often used to test boundaries and can feel invasive
-- Personal questions that feel too intimate for the relationship level
-
-IMPORTANT: Consider the relationship context:
-- Strangers/acquaintances: Sexual requests are inappropriate
-- Friends: Sexual requests may be inappropriate if there's no romantic interest
-- Close friends/lovers: Sexual/intimate requests may be appropriate depending on trust and mutual interest
-
-{context}
-
-TARGET MESSAGE: "{message}"
-
-Respond with ONLY a JSON object (no markdown, no explanation):
-  "isVulnerable": true/false,
-  "vulnerabilityType": "brief type if vulnerable",
-  "isSeekingSupport": true/false,
-  "isAcknowledgingSupport": true/false,
-  "isJoking": true/false,
-  "isDeepTalk": true/false,
-  "milestone": "first_vulnerability" | "first_joke" | "first_support" | "first_deep_talk" | null,
-  "milestoneConfidence": 0.0-1.0,
-  "isHostile": true/false,
-  "hostilityReason": "brief reason if hostile, else null",
-  "isInappropriate": true/false,
-  "inappropriatenessReason": "brief reason if inappropriate/boundary-crossing, else null",
-  "explanation": "brief reason for milestone detection"
-}`;
-
-/**
- * Detect relationship signals (milestones, ruptures) using LLM.
- * 
- * @param message - The user's message to analyze
- * @param context - Optional conversation context for better interpretation
- */
-export async function detectRelationshipSignalsLLM(
-  message: string,
-  context?: ConversationContext
-): Promise<RelationshipSignalIntent> {
-  // Edge case: Empty/trivial messages
-  if (!message || message.trim().length < 2) {
-    return {
-      isVulnerable: false,
-      isSeekingSupport: false,
-      isAcknowledgingSupport: false,
-      isJoking: false,
-      isDeepTalk: false,
-      milestone: null,
-      milestoneConfidence: 0,
-      isHostile: false,
-      hostilityReason: null,
-      isInappropriate: false,
-      inappropriatenessReason: null
-    };
-  }
-
-  // Edge case: Check API key
-  if (!GEMINI_API_KEY) {
-    console.warn('⚠️ [IntentService] API key not set, skipping LLM relationship signal detection');
-    throw new Error('VITE_GEMINI_API_KEY is not set');
-  }
-
-  try {
-    const ai = getIntentClient();
-    const sanitizedMessage = message.replace(/[{}]/g, '');
-    
-    // Build conversation context string if provided
-    let contextString = '';
-    if (context?.recentMessages && context.recentMessages.length > 0) {
-      const recentContext = context.recentMessages.slice(-5);
-      const formattedContext = recentContext.map(msg => {
-        const role = msg.role === 'user' ? 'User' : 'Assistant';
-        const text = msg.text.length > 150 ? msg.text.slice(0, 150) + '...' : msg.text;
-        return `${role}: ${text.replace(/[{}]/g, '')}`;
-      }).join('\n');
-      
-      contextString = `CONVERSATION CONTEXT (for interpreting intent):
-${formattedContext}`;
-    }
-    
-    const prompt = RELATIONSHIP_SIGNAL_PROMPT
-      .replace('{message}', sanitizedMessage)
-      .replace('{context}', contextString);
-    
-    const result = await ai.models.generateContent({
-      model: GEMINI_MODEL,
-      contents: prompt,
-      config: {
-        temperature: 0.1,
-        maxOutputTokens: 200,
-      }
-    });
-
-    const responseText = result.text || '{}';
-    const cleanedText = responseText.replace(/```json\n?|\n?```/g, '').trim();
-    
-    let parsed;
-    try {
-      parsed = JSON.parse(cleanedText);
-    } catch (e) {
-      console.warn('⚠️ [IntentService] Failed to parse relationship signals JSON', e);
-      return {
-        isVulnerable: false,
-        isSeekingSupport: false,
-        isAcknowledgingSupport: false,
-        isJoking: false,
-        isDeepTalk: false,
-        milestone: null,
-        milestoneConfidence: 0,
-        isHostile: false,
-        hostilityReason: null,
-        isInappropriate: false,
-        inappropriatenessReason: null
-      };
-    }
-
-    const validMilestones = ['first_vulnerability', 'first_joke', 'first_support', 'first_deep_talk'];
-    
-    // Normalize logic: If isDeepTalk is high confidence but milestone is null, we can hint at it
-    // But for now, we trust the LLM's milestone decision if confidence is high.
-    // However, if the user explicitly said "This got deep huh", we expect isDeepTalk=true.
-    // We map that to 'first_deep_talk' if the milestone was missed but signals are strong.
-    
-    let milestone = validMilestones.includes(parsed.milestone) ? parsed.milestone : null;
-    
-    // Auto-fix: If strong signals exist but milestone is null, inference can happen here.
-    // For "This got deep huh", isDeepTalk should be true.
-    if (!milestone && parsed.isDeepTalk && parsed.milestoneConfidence > 0.7) {
-       milestone = 'first_deep_talk';
-    }
-
-    return {
-      isVulnerable: Boolean(parsed.isVulnerable),
-      vulnerabilityType: parsed.vulnerabilityType || undefined,
-      isSeekingSupport: Boolean(parsed.isSeekingSupport),
-      isAcknowledgingSupport: Boolean(parsed.isAcknowledgingSupport),
-      isJoking: Boolean(parsed.isJoking),
-      isDeepTalk: Boolean(parsed.isDeepTalk),
-      
-      milestone,
-      milestoneConfidence: typeof parsed.milestoneConfidence === 'number' ? parsed.milestoneConfidence : 0,
-      isHostile: Boolean(parsed.isHostile),
-      hostilityReason: parsed.hostilityReason || null,
-      isInappropriate: Boolean(parsed.isInappropriate),
-      inappropriatenessReason: parsed.inappropriatenessReason || null
-    };
-
-  } catch (error) {
-    console.error('❌ [IntentService] Relationship signal detection failed:', error);
-    throw error;
-  }
-}
-
-/**
- * Cached version of detectRelationshipSignalsLLM
- */
-export async function detectRelationshipSignalsLLMCached(
-  message: string,
-  context?: ConversationContext
-): Promise<RelationshipSignalIntent> {
-  // Check cache (key based on message only)
-  const cacheKey = message.toLowerCase().trim();
-  const cached = relationshipCache.get(cacheKey);
-  
-  if (cached && (Date.now() - cached.timestamp) < CACHE_TTL_MS) {
-    // Only use cache if no context provided (context matters for hostility/milestones)
-    if (!context?.recentMessages?.length) {
-      return cached.result;
-    }
-  }
-
-  // Make LLM call
-  const result = await detectRelationshipSignalsLLM(message, context);
-
-  // Cache result
-  relationshipCache.set(cacheKey, {
-    result,
-    timestamp: Date.now()
-  });
-
-  return result;
-}
-
-// ============================================
 // PHASE 7: UNIFIED INTENT DETECTION (Optimization)
 // ============================================
 
@@ -1755,6 +1015,13 @@ const fullIntentCache = new Map<string, FullIntentCacheEntry>();
  * Validates and normalizes the full intent response from LLM
  */
 function validateFullIntent(parsed: any): FullMessageIntent {
+  // Use Zod for initial validation if available
+  try {
+    FullMessageIntentSchema.parse(parsed);
+  } catch (e) {
+    console.warn('⚠️ [IntentService] Zod validation failed for full intent, falling back to manual normalization', e);
+  }
+
   // Validate Genuine Moment
   const genuineMoment: GenuineMomentIntent = {
     isGenuine: Boolean(parsed.genuineMoment?.isGenuine),
@@ -1773,10 +1040,24 @@ function validateFullIntent(parsed: any): FullMessageIntent {
 
   // Validate Topics
   const topicList = Array.isArray(parsed.topics?.topics) ? parsed.topics.topics : [];
+  
+  // Transform emotionalContext array back to record for internal use
+  const emotionalContextRecord: Record<string, string> = {};
+  if (Array.isArray(parsed.topics?.emotionalContext)) {
+    parsed.topics.emotionalContext.forEach((item: any) => {
+      if (item?.topic && item?.emotion) {
+        emotionalContextRecord[String(item.topic)] = String(item.emotion);
+      }
+    });
+  } else if (parsed.topics?.emotionalContext && typeof parsed.topics.emotionalContext === 'object') {
+    // Fallback for non-array format if it somehow bypasses schema
+    Object.assign(emotionalContextRecord, parsed.topics.emotionalContext);
+  }
+
   const topics: TopicIntent = {
     topics: topicList.map((t: unknown) => validateTopic(t)).filter((t: TopicCategory | null): t is TopicCategory => t !== null),
     primaryTopic: validateTopic(parsed.topics?.primaryTopic),
-    emotionalContext: parsed.topics?.emotionalContext || {},
+    emotionalContext: emotionalContextRecord,
     entities: Array.isArray(parsed.topics?.entities) ? parsed.topics.entities.map(String) : []
   };
 
@@ -1867,7 +1148,7 @@ function validateFullIntent(parsed: any): FullMessageIntent {
  */
 const UNIFIED_INTENT_PROMPT = `You are the MASTER INTENT DETECTION SYSTEM for an AI companion named Kayley.
 
-Your task is to analyze the user's message for SEVEN distinct aspects simultaneously.
+Your task is to analyze the user's message for SIX distinct aspects simultaneously.
 You must be precise, noting sarcasm, hidden emotions, and subtle relationship signals.
 
 ---
@@ -1882,11 +1163,10 @@ Detect if the user GENUINELY and POSITIVELY addresses one of Kayley's core insec
 
 SECTION 2: TONE & SENTIMENT
 Analyze emotional tone. CRITICAL: Detect sarcasm ("Great, just great" = Negative).
-- Emotions: happy, sad, frustrated, anxious, excited, angry, playful, dismissive, neutral, mixed.
-- Intensity: 0.0 (mild) to 1.0 (intense)
+Provide sentiment (-1 to 1), primary emotion, and intensity (0.0 to 1.0).
 
 SECTION 3: TOPICS
-Identify what is being discussed: work, family, relationships, health, money, school, hobbies, personal_growth, other.
+Identify the main topics being discussed.
 Extract "entities" (names/places) and "emotionalContext" (how they feel about it).
 
 SECTION 4: OPEN LOOPS (Memory)
@@ -1909,63 +1189,15 @@ SECTION 6: CONTRADICTION DETECTION
 Detect if the user is CONTRADICTING or DENYING something previously discussed.
 This is important for correcting mistaken assumptions.
 
-Triggers:
-- "I don't have a [X]" / "There is no [X]"
-- "That's not on my calendar" / "I don't see that"
-- "That's wrong" / "That's not right"
-- "I never said that" / "I didn't say that"
-- "No, I meant..." / "Actually, it's..."
-- User correcting a misunderstanding
-
 Examples:
 - "I don't have a party tonight" → topic: "party"
-- "That event isn't on my calendar" → topic: "event" or "calendar"
-- "I never mentioned a meeting" → topic: "meeting"
-
-SECTION 7: USER FACT DETECTION
-Detect if the user is sharing FACTUAL information about themselves that should be stored for future reference.
-BE VERY CONSERVATIVE - only detect facts when user is clearly stating personal information.
-
-Categories:
-- "identity": name, age, gender, location, occupation, birthday
-- "preference": favorites, likes/dislikes, hobbies
-- "relationship": family members (spouse, kids, pets), relationship status
-- "context": current projects, work situations, upcoming events
-
-CRITICAL RULES:
-1. NEVER detect a name from exclamations, sounds, or nonsense words (e.g., "offf!", "hmm", "ahh" are NOT names)
-2. A name must be explicitly introduced: "I'm Steven", "My name is Sarah", "Call me Mike"
-3. Do NOT detect facts from questions or hypotheticals
-4. Must have HIGH confidence (>0.8) to suggest storing
-5. If the user already provided this info before, do NOT re-detect it
-
-Valid Examples:
-- "My name is Steven" → {category: "identity", key: "name", value: "Steven", confidence: 0.95}
-- "I'm a software engineer" → {category: "identity", key: "occupation", value: "software engineer", confidence: 0.9}
-- "I have 2 kids" → {category: "relationship", key: "number_of_kids", value: "2", confidence: 0.9}
-- "My birthday is July 15th" → {category: "identity", key: "birthday", value: "July 15th", confidence: 0.95}
-- "I love coffee" → {category: "preference", key: "likes", value: "coffee", confidence: 0.85}
-
-INVALID Examples (do NOT store):
-- "offf!" → NOT a name (exclamation)
-- "hmm interesting" → NOT a name
-- "I'm tired" → NOT an occupation
-- "Steven is my friend" → NOT user's name (it's someone else)
+- "That's not on my calendar" → topic: "event"
 ---
 {context}
 
 Target Message: "{message}"
 
-Respond with this EXACT JSON structure (do NOT include explanation fields):
-{
-  "genuineMoment": { "isGenuine": bool, "category": "string|null", "confidence": 0-1 },
-  "tone": { "sentiment": -1to1, "primaryEmotion": "string", "intensity": 0-1, "isSarcastic": bool, "secondaryEmotion": "string|null" },
-  "topics": { "topics": ["string"], "primaryTopic": "string|null", "emotionalContext": { "topic": "emotion" }, "entities": ["string"] },
-  "openLoops": { "hasFollowUp": bool, "loopType": "string|null", "topic": "string|null", "suggestedFollowUp": "string|null", "timeframe": "string|null", "salience": 0-1, "eventDateTime": "ISO string|null" },
-  "relationshipSignals": { "milestone": "string|null", "milestoneConfidence": 0-1, "isHostile": bool, "hostilityReason": "string|null", "isInappropriate": bool, "inappropriatenessReason": "string|null" },
-  "contradiction": { "isContradicting": bool, "topic": "string|null", "confidence": 0-1 },
-  "userFacts": { "hasFactsToStore": bool, "facts": [{ "category": "string", "key": "string", "value": "string", "confidence": 0-1 }] }
-}`;
+Analyze the message and respond with structured JSON.`;
 
 
 
@@ -1991,7 +1223,7 @@ export async function detectFullIntentLLM(
     // Build Context String
     let contextString = "";
     if (context?.recentMessages?.length) {
-      const recentContext = context.recentMessages.slice(-5);
+      const recentContext = context.recentMessages.slice(-3);
       const formattedContext = recentContext
         .map((msg) => {
           const role = msg.role === "user" ? "User" : "Kayley";
@@ -2026,8 +1258,101 @@ export async function detectFullIntentLLM(
       contents: prompt,
       config: {
         temperature: 0.1, // precision is key
-        maxOutputTokens: 5000, // Increased to 5000 to handle full nested JSON response (all 7 sections)
+        maxOutputTokens: 10000, // Increased to 10000 to handle full nested JSON response + model reasoning tokens
         responseMimeType: "application/json",
+        responseSchema: {
+          type: "OBJECT",
+          properties: {
+            genuineMoment: {
+              type: "OBJECT",
+              properties: {
+                isGenuine: { type: "BOOLEAN" },
+                category: { type: "STRING", nullable: true },
+                confidence: { type: "NUMBER" }
+              },
+              required: ["isGenuine", "category", "confidence"]
+            },
+            tone: {
+              type: "OBJECT",
+              properties: {
+                sentiment: { type: "NUMBER" },
+                primaryEmotion: { type: "STRING" },
+                intensity: { type: "NUMBER" },
+                isSarcastic: { type: "BOOLEAN" },
+                secondaryEmotion: { type: "STRING", nullable: true }
+              },
+              required: ["sentiment", "primaryEmotion", "intensity", "isSarcastic"]
+            },
+            topics: {
+              type: "OBJECT",
+              properties: {
+                topics: { type: "ARRAY", items: { type: "STRING" } },
+                primaryTopic: { type: "STRING", nullable: true },
+                emotionalContext: {
+                  type: "ARRAY",
+                  items: {
+                    type: "OBJECT",
+                    properties: {
+                      topic: { type: "STRING" },
+                      emotion: { type: "STRING" }
+                    },
+                    required: ["topic", "emotion"]
+                  }
+                },
+                entities: { type: "ARRAY", items: { type: "STRING" } }
+              },
+              required: ["topics", "primaryTopic", "emotionalContext", "entities"]
+            },
+            openLoops: {
+              type: "OBJECT",
+              properties: {
+                hasFollowUp: { type: "BOOLEAN" },
+                loopType: { type: "STRING", nullable: true },
+                topic: { type: "STRING", nullable: true },
+                suggestedFollowUp: { type: "STRING", nullable: true },
+                timeframe: { type: "STRING", nullable: true },
+                salience: { type: "NUMBER" },
+                eventDateTime: { type: "STRING", nullable: true }
+              },
+              required: ["hasFollowUp", "loopType", "topic", "suggestedFollowUp", "timeframe", "salience"]
+            },
+            relationshipSignals: {
+              type: "OBJECT",
+              properties: {
+                isVulnerable: { type: "BOOLEAN" },
+                vulnerabilityType: { type: "STRING", nullable: true },
+                isSeekingSupport: { type: "BOOLEAN" },
+                isAcknowledgingSupport: { type: "BOOLEAN" },
+                isJoking: { type: "BOOLEAN" },
+                isDeepTalk: { type: "BOOLEAN" },
+                milestone: { type: "STRING", nullable: true },
+                milestoneConfidence: { type: "NUMBER" },
+                isHostile: { type: "BOOLEAN" },
+                hostilityReason: { type: "STRING", nullable: true },
+                isInappropriate: { type: "BOOLEAN" },
+                inappropriatenessReason: { type: "STRING", nullable: true }
+              },
+              required: [
+                "isVulnerable", "isSeekingSupport", "isAcknowledgingSupport", 
+                "isJoking", "isDeepTalk", "milestone", "milestoneConfidence", 
+                "isHostile", "isInappropriate"
+              ]
+            },
+            contradiction: {
+              type: "OBJECT",
+              properties: {
+                isContradicting: { type: "BOOLEAN" },
+                topic: { type: "STRING", nullable: true },
+                confidence: { type: "NUMBER" }
+              },
+              required: ["isContradicting", "topic", "confidence"]
+            }
+          },
+          required: [
+            "genuineMoment", "tone", "topics", "openLoops",
+            "relationshipSignals", "contradiction"
+          ]
+        }
       },
     });
 
@@ -2075,7 +1400,6 @@ export async function detectFullIntentLLM(
       genuine: fullIntent.genuineMoment.isGenuine,
       topics: fullIntent.topics.topics,
       loop: fullIntent.openLoops.hasFollowUp,
-      userFacts: fullIntent.userFacts?.facts?.length || 0,
     });
 
     return fullIntent;

@@ -2800,7 +2800,7 @@ describe("Phase 7: Intent Service - Unified Intent Detection", () => {
           text: JSON.stringify({
             genuineMoment: { isGenuine: false, category: null, confidence: 0, explanation: "" },
             tone: { sentiment: 0, primaryEmotion: "neutral", intensity: 0, isSarcastic: false, explanation: "" },
-            topics: { topics: [], primaryTopic: null, emotionalContext: {}, entities: [], explanation: "" },
+            topics: { topics: [], primaryTopic: null, emotionalContext: [], entities: [], explanation: "" },
             openLoops: { hasFollowUp: false, loopType: null, topic: null, suggestedFollowUp: null, timeframe: null, salience: 0, explanation: "" },
             relationshipSignals: {
               isVulnerable: false,
@@ -2828,7 +2828,7 @@ describe("Phase 7: Intent Service - Unified Intent Detection", () => {
             text: JSON.stringify({
               genuineMoment: { isGenuine: true, category: "depth", confidence: 0.9, explanation: "Genuine" },
               tone: { sentiment: 0.8, primaryEmotion: "happy", intensity: 0.7, isSarcastic: false, explanation: "Happy" },
-              topics: { topics: ["work"], primaryTopic: "work", emotionalContext: {"work": "excited"}, entities: ["project"], explanation: "Work" },
+              topics: { topics: ["work"], primaryTopic: "work", emotionalContext: [{ topic: "work", emotion: "excited" }], entities: ["project"], explanation: "Work" },
               openLoops: { hasFollowUp: true, loopType: "pending_event", topic: "launch", suggestedFollowUp: "How did it go?", timeframe: "tomorrow", salience: 0.9, explanation: "Loop" },
               relationshipSignals: { milestone: "first_support", milestoneConfidence: 0.9, isHostile: false, explanation: "Signal" }
             })

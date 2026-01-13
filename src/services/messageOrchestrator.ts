@@ -183,6 +183,9 @@ export async function processUserMessage(input: OrchestratorInput): Promise<Orch
     // Build input and options for AI service
     const content: UserContent = { type: 'text', text: textToSend };
     const options: AIChatOptions = {
+      // Pass original message to intent detection (keeps payload small)
+      // Intent detection doesn't need calendar data - only main chat does
+      originalMessageForIntent: calendarContext ? userMessage : undefined,
       chatHistory,
       googleAccessToken: accessToken,
       audioMode: isMuted ? 'none' : 'sync',
@@ -297,13 +300,8 @@ export async function processUserMessage(input: OrchestratorInput): Promise<Orch
     result.stage = ProcessingStage.POSTPROCESSING;
     const intent = aiResult.intent;
 
-    // Background user fact detection from intent - don't await
-    if (intent?.userFacts?.hasFactsToStore && intent.userFacts.facts.length > 0) {
-      console.log(`🧠 [Orchestrator] Processing ${intent.userFacts.facts.length} detected facts`);
-      processDetectedFacts(intent.userFacts.facts).catch((err) =>
-        console.error('❌ [Orchestrator] Failed to process facts:', err)
-      );
-    }
+    // User facts detection has been removed from intent detection to reduce payload size
+    // Facts can be stored via the store_user_info tool in the main chat instead
 
     // Background character fact detection - don't await
     if (response.text_response) {

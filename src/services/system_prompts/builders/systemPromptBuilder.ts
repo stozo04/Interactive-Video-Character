@@ -49,6 +49,7 @@ import {
   buildToolsSection,
   buildToolRulesSection,
   buildAppLaunchingSection,
+  buildPromiseGuidance,
 } from "../tools";
 import {
   buildOutputFormatSection,
@@ -169,6 +170,7 @@ ${buildSelfKnowledgeSection(display, CHARACTER_COLLECTION_ID)}
 ${buildToolsSection()}
 ${buildToolRulesSection()}
 ${buildAppLaunchingSection()}
+${buildPromiseGuidance()}
 
 
 ${

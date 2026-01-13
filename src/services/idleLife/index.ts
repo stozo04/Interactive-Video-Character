@@ -47,6 +47,7 @@ export {
   createPendingMessage,
   getUndeliveredMessage,
   hasUndeliveredMessage,
+  hasUndeliveredMessageForTriggerEvent,
   markMessageDelivered,
   recordMessageReaction,
   getAllUndeliveredMessages,

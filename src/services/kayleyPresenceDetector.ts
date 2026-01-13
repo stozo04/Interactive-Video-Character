@@ -21,6 +21,25 @@ export interface DetectedPresence {
 }
 
 /**
+ * Quick keyword check to skip LLM call if response obviously has no presence info
+ */
+function mightContainPresenceInfo(response: string): boolean {
+  const lowerResponse = response.toLowerCase();
+
+  // Presence keywords
+  const presenceKeywords = [
+    "i'm in", "i'm wearing", "i'm at", "i'm feeling", "i feel",
+    "just got back", "getting ready", "working on", "making",
+    "relaxing", "sitting", "laying", "standing", "walking",
+    "tired", "excited", "stressed", "happy", "sad", "energized",
+    "gym", "home", "room", "coffee", "couch", "bed", "desk",
+    "pajamas", "hoodie", "outfit", "dressed", "clothes"
+  ];
+
+  return presenceKeywords.some(keyword => lowerResponse.includes(keyword));
+}
+
+/**
  * Detect Kayley's current state from her response
  */
 export async function detectKayleyPresence(
@@ -29,6 +48,12 @@ export async function detectKayleyPresence(
 ): Promise<DetectedPresence | null> {
   if (!GEMINI_API_KEY) {
     console.warn('[KayleyPresenceDetector] No API key, skipping detection');
+    return null;
+  }
+
+  // Quick pre-filter: Skip LLM call if response obviously has no presence info
+  if (!mightContainPresenceInfo(kayleyResponse)) {
+    // console.log('[KayleyPresenceDetector] No presence keywords found, skipping LLM call');
     return null;
   }
 

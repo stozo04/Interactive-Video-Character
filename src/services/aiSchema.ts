@@ -323,6 +323,74 @@ export const AIActionResponseSchema = z.object({
     ),
 });
 
+/**
+ * Unified intent detection schema for full message analysis.
+ * This ensures the LLM returns all 7 sections of analysis in a structured way.
+ */
+export const FullMessageIntentSchema = z.object({
+  genuineMoment: z.object({
+    isGenuine: z.boolean(),
+    category: z.enum(['depth', 'belonging', 'progress', 'loneliness', 'rest']).nullable(),
+    confidence: z.number()
+  }),
+  tone: z.object({
+    sentiment: z.number(),
+    primaryEmotion: z.string(),
+    intensity: z.number(),
+    isSarcastic: z.boolean(),
+    secondaryEmotion: z.string().nullable().optional()
+  }),
+  topics: z.object({
+    topics: z.array(z.string()),
+    primaryTopic: z.string().nullable(),
+    emotionalContext: z.array(z.object({
+      topic: z.string(),
+      emotion: z.string()
+    })),
+    entities: z.array(z.string())
+  }),
+  openLoops: z.object({
+    hasFollowUp: z.boolean(),
+    loopType: z.enum(['pending_event', 'emotional_followup', 'commitment_check', 'curiosity_thread']).nullable(),
+    topic: z.string().nullable(),
+    suggestedFollowUp: z.string().nullable(),
+    timeframe: z.enum(['today', 'tomorrow', 'this_week', 'soon', 'later']).nullable(),
+    salience: z.number(),
+    eventDateTime: z.string().nullable().optional()
+  }),
+  relationshipSignals: z.object({
+    isVulnerable: z.boolean(),
+    vulnerabilityType: z.string().nullable().optional(),
+    isSeekingSupport: z.boolean(),
+    isAcknowledgingSupport: z.boolean(),
+    isJoking: z.boolean(),
+    isDeepTalk: z.boolean(),
+    milestone: z.enum(['first_vulnerability', 'first_joke', 'first_support', 'first_deep_talk']).nullable(),
+    milestoneConfidence: z.number(),
+    isHostile: z.boolean(),
+    hostilityReason: z.string().nullable(),
+    isInappropriate: z.boolean().optional(),
+    inappropriatenessReason: z.string().nullable().optional()
+  }),
+  contradiction: z.object({
+    isContradicting: z.boolean(),
+    topic: z.string().nullable(),
+    confidence: z.number()
+  }).optional(),
+  // NOTE: userFacts is optional and no longer included in intent detection prompt
+  // to reduce payload size (~1200 chars). Facts should be stored via store_user_info
+  // tool in main chat instead. This field remains for backward compatibility.
+  userFacts: z.object({
+    hasFactsToStore: z.boolean(),
+    facts: z.array(z.object({
+      category: z.enum(['identity', 'preference', 'relationship', 'context']),
+      key: z.string(),
+      value: z.string(),
+      confidence: z.number()
+    }))
+  }).optional()
+});
+
 // Infer the TypeScript type from the schema
 export type AIActionResponse = z.infer<typeof AIActionResponseSchema>;
 
@@ -615,6 +683,46 @@ export const GeminiMemoryToolDeclarations = [
         }
       },
       required: ["topic", "resolution_type"]
+    }
+  },
+  {
+    name: "make_promise",
+    description: 
+      "Create a promise to do something later. Use this when you commit to sending something or doing something in the FUTURE (not right now). " +
+      "Examples: 'I'll send you a selfie when I go on my walk', 'I'll let you know how it goes', 'I'll check in on you later'.",
+    parameters: {
+      type: "object",
+      properties: {
+        promiseType: {
+          type: "string",
+          enum: ["send_selfie", "share_update", "follow_up", "send_content", "reminder", "send_voice_note"],
+          description: "Type of promise you're making"
+        },
+        description: {
+          type: "string",
+          description: "What you're promising to do (human-readable, e.g., 'Send selfie from hot girl walk')"
+        },
+        triggerEvent: {
+          type: "string",
+          description: "When this should happen (e.g., 'when I go on my walk', 'after my meeting')"
+        },
+        fulfillmentData: {
+          type: "object",
+          description: "Optional data for fulfillment (selfie params, message text)",
+          properties: {
+            messageText: { type: "string", description: "The message to send when fulfilled" },
+            selfieParams: {
+              type: "object",
+              properties: {
+                scene: { type: "string" },
+                mood: { type: "string" },
+                location: { type: "string" }
+              }
+            }
+          }
+        }
+      },
+      required: ["promiseType", "description", "triggerEvent"]
     }
   }
 ];

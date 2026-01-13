@@ -394,7 +394,7 @@ export const formatFactsForAI = (facts: UserFact[]): string => {
 // Tool Execution Handler
 // ============================================
 
-export type MemoryToolName = 'recall_memory' | 'recall_user_info' | 'store_user_info' | 'task_action' | 'calendar_action' | 'store_character_info' | 'resolve_open_loop';
+export type MemoryToolName = 'recall_memory' | 'recall_user_info' | 'store_user_info' | 'task_action' | 'calendar_action' | 'store_character_info' | 'resolve_open_loop' | 'make_promise';
 
 /**
  * Optional context passed to tool execution (e.g., access tokens)
@@ -402,6 +402,7 @@ export type MemoryToolName = 'recall_memory' | 'recall_user_info' | 'store_user_
 export interface ToolExecutionContext {
   googleAccessToken?: string;
   currentEvents?: Array<{ id: string; summary: string }>;
+  userMessage?: string;
 }
 
 export interface ToolCallArgs {
@@ -445,6 +446,20 @@ export interface ToolCallArgs {
     topic: string;
     resolution_type: 'resolved' | 'dismissed';
     reason?: string;
+  };
+  make_promise: {
+    promiseType: 'send_selfie' | 'share_update' | 'follow_up' | 'send_content' | 'reminder' | 'send_voice_note';
+    description: string;
+    triggerEvent: string;
+    fulfillmentData?: {
+      selfieParams?: {
+        scene: string;
+        mood: string;
+        location?: string;
+      };
+      messageText?: string;
+      contentToShare?: string;
+    };
   };
 }
 
@@ -796,6 +811,41 @@ export const executeMemoryTool = async (
         } catch (error) {
           console.error(`❌ [Memory Tool] Error resolving loop:`, error);
           return `Error resolving open loop: ${error instanceof Error ? error.message : 'Unknown error'}`;
+        }
+      }
+
+      case 'make_promise': {
+        const { createPromise } = await import('./promiseService');
+        const { promiseType, description, triggerEvent, fulfillmentData } = args as ToolCallArgs['make_promise'];
+
+        console.log(`🤝 [Memory Tool] make_promise called:`);
+        console.log(`   Promise Type: ${promiseType}`);
+        console.log(`   Description: "${description}"`);
+        console.log(`   Trigger: "${triggerEvent}"`);
+
+        try {
+          // Fixed 10-minute timing (Phase 1 - extensible for future)
+          const estimatedTiming = new Date(Date.now() + 10 * 60 * 1000);
+
+          const promise = await createPromise(
+            promiseType,
+            description,
+            triggerEvent,
+            estimatedTiming,
+            context?.userMessage || "User request", // Store the user's original message as context
+            fulfillmentData
+          );
+
+          if (promise) {
+            console.log(`✅ [Memory Tool] Promise created successfully (will fulfill in 10 minutes)`);
+            return `✓ Promise created: ${description} (will fulfill in 10 minutes)`;
+          } else {
+            console.error(`❌ [Memory Tool] Failed to create promise`);
+            return `Failed to create promise. Please try again.`;
+          }
+        } catch (error) {
+          console.error(`❌ [Memory Tool] Error creating promise:`, error);
+          return `Error creating promise: ${error instanceof Error ? error.message : 'Unknown error'}`;
         }
       }
 
