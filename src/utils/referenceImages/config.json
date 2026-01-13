@@ -3,13 +3,33 @@
     "hairstyle": "curly",
     "outfit": "casual",
     "images": [
-      { "fileName": "curly_hair_casual_smile.jpg", "id": "curly_casual_smile" },
-      { "fileName": "curly_hair_1.jpg", "id": "curly_casual_1" },
-      { "fileName": "curly_hair_casual.jpg", "id": "curly_casual" },
+      {
+        "fileName": "curly_hair_casual_smile.jpg",
+        "id": "curly_casual_smile"
+      },
+      {
+        "fileName": "curly_hair_1.jpg",
+        "id": "curly_casual_1"
+      },
+      {
+        "fileName": "curly_hair_casual.jpg",
+        "id": "curly_casual"
+      },
       {
         "fileName": "curly_hair_messy_bun_casual.jpg",
         "id": "messy_bun_casual",
         "hairstyle": "messy_bun"
+      },
+      {
+        "fileName": "curly_hair_bun_in_bed.jpg",
+        "id": "curly_bun_cozy",
+        "hairstyle": "messy_bun",
+        "outfit": "cozy"
+      },
+      {
+        "fileName": "waves.jpg",
+        "id": "waves_casual",
+        "hairstyle": "waves"
       }
     ]
   },
@@ -17,11 +37,9 @@
     "hairstyle": "curly",
     "outfit": "dressed_up",
     "images": [
-      { "fileName": "curly_hair_dressed_up.jpg", "id": "curly_dressed_up" },
       {
-        "fileName": "curly_hair_messy_bun_dressed_up.jpg",
-        "id": "messy_bun_dressed_up",
-        "hairstyle": "messy_bun"
+        "fileName": "curly_hair_dressed_up.jpg",
+        "id": "curly_dressed_up"
       }
     ]
   },
@@ -29,10 +47,18 @@
     "hairstyle": "straight",
     "outfit": "casual",
     "images": [
-      { "fileName": "straight_hair_casual.jpg", "id": "straight_casual" },
+      {
+        "fileName": "straight_hair_casual.jpg",
+        "id": "straight_casual"
+      },
       {
         "fileName": "straight_hair_bun_casual.jpg",
         "id": "straight_bun_casual",
+        "hairstyle": "messy_bun"
+      },
+      {
+        "fileName": "slickback_bun.jpg",
+        "id": "slickback_bun_casual",
         "hairstyle": "messy_bun"
       }
     ]
@@ -51,11 +77,82 @@
     "hairstyle": "messy_bun",
     "outfit": "athletic",
     "images": [
-      { "fileName": "athletic_hair_bun.jpg", "id": "athletic_bun" },
       {
-        "fileName": "athletic_hair_ponytail.jpg",
-        "id": "athletic_ponytail",
-        "hairstyle": "ponytail"
+        "fileName": "athletic_hair_bun.jpg",
+        "id": "athletic_bun"
+      },
+      {
+        "fileName": "athletic_hair_headband.jpg",
+        "id": "athletic_headband",
+        "hairstyle": "headband"
+      }
+    ]
+  },
+  "clawClipCasual": {
+    "hairstyle": "claw_clip",
+    "outfit": "casual",
+    "images": [
+      {
+        "fileName": "claw_clip.jpg",
+        "id": "claw_clip_casual"
+      }
+    ]
+  },
+  "halfUpCasual": {
+    "hairstyle": "half_up",
+    "outfit": "casual",
+    "images": [
+      {
+        "fileName": "half_up_half_down_curly.jpg",
+        "id": "half_up_casual_curly"
+      },
+      {
+        "fileName": "half_up_half_down_straight.jpg",
+        "id": "half_up_casual_straight"
+      }
+    ]
+  },
+  "heatlessCurlsCasual": {
+    "hairstyle": "heatless_curls",
+    "outfit": "casual",
+    "images": [
+      {
+        "fileName": "heatless_curls.jpg",
+        "id": "heatless_curls_casual"
+      }
+    ]
+  },
+  "ponytailCasual": {
+    "hairstyle": "ponytail",
+    "outfit": "casual",
+    "images": [
+      {
+        "fileName": "ponytail.jpg",
+        "id": "ponytail_casual"
+      },
+      {
+        "fileName": "slick_back_ponytail.jpg",
+        "id": "slick_back_ponytail_casual"
+      }
+    ]
+  },
+  "dutchBraidCasual": {
+    "hairstyle": "dutch_braid",
+    "outfit": "casual",
+    "images": [
+      {
+        "fileName": "single_dutch_braid.jpg",
+        "id": "dutch_braid_casual"
+      }
+    ]
+  },
+  "styledBunCasual": {
+    "hairstyle": "styled_bun",
+    "outfit": "casual",
+    "images": [
+      {
+        "fileName": "styled_bun.jpg",
+        "id": "styled_bun_casual"
       }
     ]
   }

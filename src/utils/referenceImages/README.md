@@ -140,7 +140,14 @@ The LLM will automatically know about the new option.
 ### HairstyleType
 - `curly` - Natural curls
 - `straight` - Blown out or naturally straight
+- `waves` - Soft waves or beach waves
+- `heatless_curls` - No-heat curls or set waves
+- `half_up` - Half-up, half-down style
+- `claw_clip` - Claw clip updo
+- `headband` - Headband-styled hair
+- `dutch_braid` - Single or double dutch braid
 - `messy_bun` - Casual updo
+- `styled_bun` - Sleek or styled bun
 - `ponytail` - High or low ponytail
 - `bob` - Shorter style
 

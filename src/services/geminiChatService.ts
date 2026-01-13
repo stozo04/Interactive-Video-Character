@@ -542,6 +542,23 @@ export class GeminiService implements IAIChatService {
    * Parse interaction response - extract and parse text output
    */
   private parseInteractionResponse(interaction: any): AIActionResponse {
+    // Check if outputs array exists and has content
+    if (!interaction.outputs || interaction.outputs.length === 0) {
+      console.error(
+        "❌ [Gemini Interactions] No outputs in response!",
+        "total_output_tokens:",
+        interaction.usage?.total_output_tokens || 0,
+        "status:",
+        interaction.status
+      );
+
+      // Return a fallback response instead of empty object
+      return {
+        text_response: "Sorry, I'm having trouble responding right now. Can you try again?",
+        action_id: null,
+      };
+    }
+
     const textOutput = interaction.outputs?.find(
       (output: any) => output.type === "text"
     );
@@ -709,11 +726,11 @@ export class GeminiService implements IAIChatService {
     try {
       // Extract user message text for analysis
       const userMessageText = "text" in input ? input.text : "";
-      console.log("userMessageText: ", userMessageText);
+      // console.log("userMessageText: ", userMessageText);
 
       // Build conversation context early (for intent detection)
       const interactionCount = options.chatHistory?.length || 0;
-      console.log("interactionCount: ", interactionCount);
+      // console.log("interactionCount: ", interactionCount);
 
       const conversationContext = userMessageText
         ? {
@@ -741,7 +758,7 @@ export class GeminiService implements IAIChatService {
       // ============================================
       const trimmedMessage = userMessageText?.trim() || "";
       const isCommand = trimmedMessage && isFunctionalCommand(trimmedMessage);
-      console.log("isCommand: ", isCommand);
+      //  console.log("isCommand: ", isCommand);
 
       let intentPromise: Promise<FullMessageIntent> | undefined;
       let preCalculatedIntent: FullMessageIntent | undefined;

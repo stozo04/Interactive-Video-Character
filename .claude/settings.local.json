@@ -22,7 +22,8 @@
       "Bash(done)",
       "Bash(mkdir:*)",
       "Bash(rm:*)",
-      "Bash(git -C \"C:\\\\Users\\\\gates\\\\Personal\\\\Interactive-Video-Character\" log --oneline --max-count=20)"
+      "Bash(git -C \"C:\\\\Users\\\\gates\\\\Personal\\\\Interactive-Video-Character\" log --oneline --max-count=20)",
+      "Bash(ls:*)"
     ]
   },
   "enabledPlugins": {

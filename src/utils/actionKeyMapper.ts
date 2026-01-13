@@ -23,15 +23,15 @@ let actionNamesSet: Set<string> = new Set();
 export function buildActionKeyMap(actions: CharacterAction[]): void {
   actionKeyMap = {};
   actionNamesSet = new Set();
-  
+
   for (const action of actions) {
     // Use lowercase action name as the key
-    const key = action.name.toLowerCase().replace(/\s+/g, '_');
+    const key = action.name.toLowerCase().replace(/\s+/g, "_");
     actionKeyMap[key] = action.id;
     actionNamesSet.add(key);
   }
-  
-  console.log('[ActionKeyMapper] Built action key map:', Object.keys(actionKeyMap));
+
+  // console.log('[ActionKeyMapper] Built action key map:', Object.keys(actionKeyMap));
 }
 
 /**

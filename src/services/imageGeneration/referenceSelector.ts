@@ -18,9 +18,9 @@ import { shouldUnlockCurrentLook } from "./temporalDetection";
 // Set to an image ID to bypass all selection logic
 // Set to null for normal behavior
 // ============================================
- const DEBUG_FORCE_REFERENCE: string | null = null;
+// const DEBUG_FORCE_REFERENCE: string | null = null;
 // Examples:
-// const DEBUG_FORCE_REFERENCE = "curly_casual_1";
+ const DEBUG_FORCE_REFERENCE = "slickback_bun_casual";
 // const DEBUG_FORCE_REFERENCE = "athletic_ponytail";
 // const DEBUG_FORCE_REFERENCE = "messy_bun_casual";
 
@@ -28,8 +28,15 @@ import { shouldUnlockCurrentLook } from "./temporalDetection";
 const HAIRSTYLE_PATTERNS: Record<HairstyleType, string[]> = {
   straight: ['straight hair', 'straighten', 'straightened'],
   curly: ['curly hair', 'natural hair', 'with curls', 'curls'],
-  messy_bun: ['bun', 'hair up', 'ponytail', 'updo'],
-  ponytail: ['ponytail'],
+  waves: ['waves', 'wavy hair', 'beach waves'],
+  heatless_curls: ['heatless curls', 'heatless curl', 'no-heat curls', 'no heat curls'],
+  half_up: ['half up', 'half-up', 'half up half down', 'half-up half-down'],
+  claw_clip: ['claw clip', 'clawclip', 'hair claw'],
+  headband: ['headband', 'hairband'],
+  dutch_braid: ['dutch braid', 'dutch braids', 'single dutch braid'],
+  ponytail: ['ponytail', 'slick back ponytail', 'slickback ponytail'],
+  messy_bun: ['bun', 'hair up', 'updo', 'messy bun', 'slick back bun', 'slickback bun'],
+  styled_bun: ['styled bun', 'sleek bun', 'neat bun', 'formal bun'],
   bob: ['bob'],
 };
 
@@ -137,6 +144,15 @@ export function selectReferenceImage(context: ReferenceSelectionContext): {
   console.log("selected:", selected);
   reasoning.push(
     "🎯 SELECTED: " + selected.ref.id + " (" + selected.score.toFixed(0) + ")"
+  );
+
+  // Log the selected reference image details
+  console.log(
+    `📸 [ReferenceSelector] Selected image: ${selected.ref.id}`,
+    `\n   Hairstyle: ${selected.ref.hairstyle}`,
+    `\n   Outfit: ${selected.ref.outfitStyle}`,
+    `\n   File: ${selected.ref.fileName}`,
+    `\n   Score: ${selected.score.toFixed(0)}`
   );
 
   const content = getReferenceImageContent(selected.ref.id);
