@@ -12,8 +12,8 @@ const USERINFO_PROFILE_SCOPE = "https://www.googleapis.com/auth/userinfo.profile
 export const SCOPES_ARRAY = [GMAIL_SCOPE, CALENDAR_SCOPE, USERINFO_EMAIL_SCOPE, USERINFO_PROFILE_SCOPE];
 const SCOPES = SCOPES_ARRAY.join(' ');
 
-// Buffer time before token expiry to refresh (5 minutes)
-const TOKEN_REFRESH_BUFFER_MS = 5 * 60 * 1000;
+// Buffer time before token expiry to refresh (10 minutes)
+const TOKEN_REFRESH_BUFFER_MS = 10 * 60 * 1000;
 
 /**
  * Stores session info in localStorage.
@@ -113,8 +113,9 @@ function getTokenClient(): any {
  * If false (default), it will try a silent login first.
  */
 /**
- * Gets a fresh access token from the Supabase session.
- * Supabase handles the refresh_token automatically.
+ * Gets a fresh access token from the Supabase session or local storage bridge.
+ * Supabase handles the refresh_token automatically for its own session, 
+ * but we manage the Google provider token persistence.
  */
 export async function getAccessToken(): Promise<Omit<GmailSession, "email">> {
   const { data: { session }, error } = await supabase.auth.getSession();
@@ -124,24 +125,34 @@ export async function getAccessToken(): Promise<Omit<GmailSession, "email">> {
     throw error;
   }
 
-  if (session) {
-    console.log('📦 Supabase session keys:', Object.keys(session));
-    if (session.provider_token) console.log('✅ Provider token present');
-    if (session.provider_refresh_token) console.log('✅ Provider refresh token present');
+  // Check if session has a provider token
+  if (session?.provider_token) {
+    console.log('✅ Provider token found in Supabase session');
+    // Use standard 1-hour expiry for Google tokens
+    const expiresAt = Date.now() + 3600 * 1000;
+    return {
+      accessToken: session.provider_token,
+      expiresAt: expiresAt,
+      refreshedAt: Date.now(),
+    };
   }
 
-  if (!session || !session.provider_token) {
-    throw new Error("No active Google session found in Supabase.");
+  // Bridge: If Supabase has no token, check if we have a valid one in local storage
+  const existingSession = getSession();
+  if (existingSession && existingSession.accessToken) {
+    const now = Date.now();
+    // If it's still valid (with 30s safety margin), use it
+    if (existingSession.expiresAt > now + 30000) {
+      console.log('✅ Using cached provider token from bridge');
+      return {
+        accessToken: existingSession.accessToken,
+        expiresAt: existingSession.expiresAt,
+        refreshedAt: existingSession.refreshedAt,
+      };
+    }
   }
 
-  // Supabase's session.expires_at is in seconds
-  const expiresAt = session.expires_at ? session.expires_at * 1000 : Date.now() + 3600 * 1000;
-
-  return {
-    accessToken: session.provider_token,
-    expiresAt: expiresAt,
-    refreshedAt: Date.now(),
-  };
+  throw new Error("No active Google session found in Supabase or bridge.");
 }
 
 /**
@@ -152,27 +163,41 @@ export async function refreshAccessToken(): Promise<Omit<GmailSession, "email">>
   const { data, error } = await supabase.auth.refreshSession();
   
   if (error) {
-    console.warn('Supabase refresh call completed but provider token may be missing:', error);
+    console.warn('Supabase refresh call failed:', error);
     throw error;
   }
 
   const sbSession = data.session;
-  if (sbSession) {
-    console.log('📦 Refreshed Supabase session keys:', Object.keys(sbSession));
-    if (sbSession.provider_token) console.log('✅ Refreshed Provider token present');
+  
+  // If Supabase returned a new provider token, use it
+  if (sbSession?.provider_token) {
+    console.log('✅ Refreshed Provider token present in Supabase response');
+    return {
+      accessToken: sbSession.provider_token,
+      expiresAt: Date.now() + 3600 * 1000,
+      refreshedAt: Date.now(),
+    };
   }
 
-  if (!sbSession || !sbSession.provider_token) {
-    // This is expected behavior for Supabase refreshes - they don't return the provider token
-    throw new Error("PROVIDER_TOKEN_MISSING");
+  // If no provider token in refresh response, bridge to local storage if valid
+  const existingSession = getSession();
+  if (existingSession && existingSession.accessToken) {
+    if (existingSession.expiresAt > Date.now() + 30000) {
+      console.log('✅ Provider token missing in refresh, but bridging to valid local token');
+      return {
+        accessToken: existingSession.accessToken,
+        expiresAt: existingSession.expiresAt,
+        refreshedAt: existingSession.refreshedAt,
+      };
+    }
   }
 
-  return {
-    accessToken: sbSession.provider_token,
-    expiresAt: sbSession.expires_at ? sbSession.expires_at * 1000 : Date.now() + 3600 * 1000,
-    refreshedAt: Date.now(),
-  };
+  // If we reach here, we truly have no valid provider token
+  throw new Error("PROVIDER_TOKEN_MISSING");
 }
+
+// Buffer time before token expiry to refresh (10 minutes)
+// (Moved to top level)
 
 /**
  * Checks if a session needs refresh and refreshes if necessary
@@ -183,9 +208,9 @@ export async function ensureValidSession(
   const now = Date.now();
   const timeUntilExpiry = session.expiresAt - now;
   
-  // If token expires within the buffer time, try to get a fresh one from Supabase
+  // If token expires within the buffer time, try to get a fresh one
   if (timeUntilExpiry < TOKEN_REFRESH_BUFFER_MS) {
-    console.log('Token expiring soon, checking Supabase session...');
+    console.log(`Token expiring soon (${Math.round(timeUntilExpiry / 1000)}s), checking session...`);
     try {
       // getAccessToken() logic will return a fresh token if Supabase has refreshed it
       const { accessToken, expiresAt, refreshedAt } = await getAccessToken();
@@ -295,12 +320,22 @@ export async function signOut(): Promise<void> {
 // --- LocalStorage Helpers ---
 
 /**
- * Saves the session to localStorage
+ * Saves the session to localStorage.
+ * SMART: Won't overwrite a valid access token with a null/empty one.
  */
 export function saveSession(session: GmailSession): void {
   try {
+    // Check if we already have a valid session and this new one is "empty"
+    const current = getSession();
+    if (current && current.accessToken && !session.accessToken) {
+      console.log('Skipping session save: Attempted to overwrite valid token with empty one');
+      return;
+    }
+
     localStorage.setItem(SESSION_KEY, JSON.stringify(session));
-    console.log('Session saved for:', session.email);
+    if (session.accessToken) {
+      console.log('Session saved for:', session.email);
+    }
   } catch (error) {
     console.error('Failed to save session:', error);
     throw new Error('Failed to save authentication session.');

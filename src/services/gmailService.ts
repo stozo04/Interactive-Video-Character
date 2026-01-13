@@ -35,11 +35,17 @@ class GmailService extends EventTarget {
     const response = await fetch(`${this.apiBase}/profile`, {
       headers: { Authorization: `Bearer ${accessToken}` },
     });
+    
+    if (!response.ok) {
+      throw new Error(`Failed to fetch Gmail profile: ${response.statusText}`);
+    }
+
     const data = await response.json();
     const historyId = data.historyId;
 
     // Save this as our "last seen" pointer
     localStorage.setItem(HISTORY_ID_KEY, historyId);
+    console.log(`📍 Gmail history pointer set to: ${historyId}`);
     return historyId;
   }
 

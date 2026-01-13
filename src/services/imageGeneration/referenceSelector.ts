@@ -18,9 +18,9 @@ import { shouldUnlockCurrentLook } from "./temporalDetection";
 // Set to an image ID to bypass all selection logic
 // Set to null for normal behavior
 // ============================================
-// const DEBUG_FORCE_REFERENCE: string | null = null;
+const DEBUG_FORCE_REFERENCE: string | null = null;
 // Examples:
- const DEBUG_FORCE_REFERENCE = "slickback_bun_casual";
+// const DEBUG_FORCE_REFERENCE = "slickback_bun_casual";
 // const DEBUG_FORCE_REFERENCE = "athletic_ponytail";
 // const DEBUG_FORCE_REFERENCE = "messy_bun_casual";
 

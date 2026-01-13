@@ -14,22 +14,6 @@ export function GmailConnectButton({
 }: GmailConnectButtonProps) {
   const { session, status, error, signIn, signOut, clearError } = useGoogleAuth();
 
-  // Initialize Gmail service when connected
-  useEffect(() => {
-    const initializeGmail = async () => {
-      if (session && status === 'connected') {
-        try {
-          await gmailService.getInitialHistoryId(session.accessToken);
-          console.log('Gmail service initialized');
-        } catch (err) {
-          console.error('Failed to initialize Gmail service:', err);
-        }
-      }
-    };
-
-    initializeGmail();
-  }, [session, status]);
-
   // Notify parent component of connection changes
   useEffect(() => {
     if (onConnectionChange) {
