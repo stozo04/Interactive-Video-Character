@@ -146,7 +146,7 @@ export const clearConversationHistory = async (): Promise<void> => {
 export const getTodaysMessageCount = async (): Promise<number> => {
   try {
     const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    today.setUTCHours(0, 0, 0, 0);
 
     const { count, error } = await supabase
       .from(CONVERSATION_HISTORY_TABLE)
@@ -173,7 +173,7 @@ export const loadTodaysConversationHistory = async (): Promise<
 > => {
   try {
     const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    today.setUTCHours(0, 0, 0, 0);
 
     const { data, error } = await supabase
       .from(CONVERSATION_HISTORY_TABLE)
@@ -206,7 +206,7 @@ export const loadTodaysConversationHistory = async (): Promise<
 export const getTodaysInteractionId = async (): Promise<string | null> => {
   try {
     const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    today.setUTCHours(0, 0, 0, 0);
 
     const { data, error } = await supabase
       .from(CONVERSATION_HISTORY_TABLE)
