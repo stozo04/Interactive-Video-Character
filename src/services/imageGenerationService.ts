@@ -432,6 +432,9 @@ function buildImagePrompt(
   outfitStyle: string,
   additionalDetails: string = ""
 ): string {
+  additionalDetails +=
+    " Important Detail: Please make the eyes on the person look naturally light blue.";
+  
   return [
     `She is looking into the lens ${moodDescription}.`,
     `She is situated in ${scene}.`,
