@@ -435,7 +435,7 @@ function buildImagePrompt(
   return [
     `She is looking into the lens ${moodDescription}.`,
     `She is situated in ${scene}.`,
-    `She is wearing ${outfitDescription}. in the style of ${outfitStyle}.`,
+    `She is wearing ${outfitDescription}, in the style of ${outfitStyle}.`,
     `The lighting is ${lightingDescription}.`,
     additionalDetails ? `Note: ${additionalDetails}` : "",
   ]

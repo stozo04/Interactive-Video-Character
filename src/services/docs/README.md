@@ -36,6 +36,7 @@ The system follows a "Perception -> processing -> Action" pipeline:
 ### 📅 Proactive & Memory
 *   [Presence Director](./PresenceDirector.md): Decides what's most important to mention *now*.
 *   [Memory & Callbacks](./Memory_and_Callbacks.md): Long-term RAG memory and session "inside jokes".
+*   [Character Facts Service](./CharacterFactsService.md): Kayley's emergent self-knowledge and memories.
 *   [Kayley Presence](./KayleyPresence.md): Real-time tracking of what she's wearing/doing/feeling.
 *   [Proactive Systems](./Proactive_Systems.md): Overview of Calendar and News systems.
 *   [Loop Cleanup](./LoopCleanup.md): The "janitor" that keeps her memory from getting cluttered.
