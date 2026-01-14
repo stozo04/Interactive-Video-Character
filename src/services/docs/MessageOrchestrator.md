@@ -159,7 +159,7 @@ Example logs:
 
 ### Background Processing (Fire-and-Forget)
 - `processDetectedFacts` - User fact storage
-- `processAndStoreCharacterFacts` - Character fact storage
+- ~~`processAndStoreCharacterFacts`~~ - Character fact storage ❌ **Removed 2026-01-13** (now via `store_self_info` LLM tool)
 - `detectKayleyPresence` - Presence state updates
 
 ## Testing

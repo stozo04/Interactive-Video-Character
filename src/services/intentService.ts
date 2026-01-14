@@ -596,7 +596,8 @@ export type LoopTypeIntent =
  * Timeframe inference for when to follow up.
  * The LLM infers this from temporal cues in the message.
  */
-export type FollowUpTimeframe = 
+export type FollowUpTimeframe =
+  | 'immediate'    // Right now, in this conversation
   | 'today'        // Should follow up very soon
   | 'tomorrow'     // Follow up next day
   | 'this_week'    // Follow up within a few days
@@ -640,7 +641,7 @@ const VALID_LOOP_TYPES: LoopTypeIntent[] = [
  * Valid timeframes for validation
  */
 const VALID_TIMEFRAMES: FollowUpTimeframe[] = [
-  'today', 'tomorrow', 'this_week', 'soon', 'later'
+  'immediate', 'today', 'tomorrow', 'this_week', 'soon', 'later'
 ];
 
 /**
@@ -1043,7 +1044,11 @@ export async function detectFullIntentLLM(
                 loopType: { type: "STRING", nullable: true },
                 topic: { type: "STRING", nullable: true },
                 suggestedFollowUp: { type: "STRING", nullable: true },
-                timeframe: { type: "STRING", nullable: true },
+                timeframe: {
+                  type: "STRING",
+                  enum: ["immediate", "today", "tomorrow", "this_week", "soon", "later"],
+                  nullable: true
+                },
                 salience: { type: "NUMBER" },
                 eventDateTime: { type: "STRING", nullable: true }
               },

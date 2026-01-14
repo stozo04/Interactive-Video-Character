@@ -41,11 +41,6 @@ vi.mock('../memoryService', () => ({
   processDetectedFacts: vi.fn().mockResolvedValue(undefined),
 }));
 
-// Mock character facts service
-vi.mock('../characterFactsService', () => ({
-  processAndStoreCharacterFacts: vi.fn().mockResolvedValue(undefined),
-}));
-
 // Mock presence detection
 vi.mock('../kayleyPresenceDetector', () => ({
   detectKayleyPresence: vi.fn().mockResolvedValue(null),

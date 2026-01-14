@@ -393,6 +393,7 @@ npm test -- --run
 
 ### Domain-Specific Documentation
 - `src/services/docs/Memory_and_Callbacks.md` - Long-term RAG memory and session "inside jokes"
+- `src/services/docs/CharacterFactsService.md` - Comprehensive guide to character facts (emergent self-knowledge)
 - `src/services/docs/KayleyPresence.md` - Real-time tracking of what she's wearing/doing/feeling
 
 ### Services Documentation Hub

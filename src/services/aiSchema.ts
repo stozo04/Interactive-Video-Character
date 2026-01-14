@@ -354,7 +354,7 @@ export const FullMessageIntentSchema = z.object({
     loopType: z.enum(['pending_event', 'emotional_followup', 'commitment_check', 'curiosity_thread']).nullable(),
     topic: z.string().nullable(),
     suggestedFollowUp: z.string().nullable(),
-    timeframe: z.enum(['today', 'tomorrow', 'this_week', 'soon', 'later']).nullable(),
+    timeframe: z.enum(['immediate', 'today', 'tomorrow', 'this_week', 'soon', 'later']).nullable(),
     salience: z.number(),
     eventDateTime: z.string().nullable().optional()
   }),

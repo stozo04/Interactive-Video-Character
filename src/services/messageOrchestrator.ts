@@ -36,7 +36,6 @@ import {
 
 // Background services (fire-and-forget)
 import { processDetectedFacts } from './memoryService';
-import { processAndStoreCharacterFacts } from './characterFactsService';
 import { detectKayleyPresence } from './kayleyPresenceDetector';
 import { updateKayleyPresenceState, getDefaultExpirationMinutes } from './kayleyPresenceService';
 import { appendConversationHistory } from './conversationHistoryService';
@@ -303,13 +302,8 @@ export async function processUserMessage(input: OrchestratorInput): Promise<Orch
     // User facts detection has been removed from intent detection to reduce payload size
     // Facts can be stored via the store_user_info tool in the main chat instead
 
-    // Background character fact detection - don't await
-    if (response.text_response) {
-      console.log(`🎭 [Orchestrator] Processing character facts from response`);
-      processAndStoreCharacterFacts(response.text_response).catch((err) =>
-        console.error('❌ [Orchestrator] Failed to process character facts:', err)
-      );
-    }
+    // Character facts are now stored exclusively via the store_self_info LLM tool
+    // Pattern-based detection has been removed in favor of LLM semantic understanding
 
     // Background presence detection - don't await
     detectKayleyPresence(response.text_response, userMessage)

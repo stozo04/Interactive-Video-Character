@@ -1011,6 +1011,9 @@ function mapTimeframeToSurfaceDate(
   const now = new Date();
 
   switch (timeframe) {
+    case "immediate":
+      // Surface immediately (within minutes, for in-conversation follow-ups)
+      return new Date(now.getTime() + 2 * 60 * 1000); // 2 minutes
     case "today":
       // Surface after 2 hours (give event time to happen)
       return new Date(now.getTime() + 2 * 60 * 60 * 1000);
