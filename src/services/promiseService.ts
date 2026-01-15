@@ -373,8 +373,7 @@ export async function cancelPromise(promiseId: string): Promise<void> {
  */
 export async function cleanupOldPromises(): Promise<void> {
   try {
-    const thirtyDaysAgo = new Date();
-    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+    const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
 
     await supabase
       .from(PROMISES_TABLE)

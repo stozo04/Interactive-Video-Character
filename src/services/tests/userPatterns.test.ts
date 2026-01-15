@@ -251,31 +251,31 @@ describe("userPatterns", () => {
   describe("getTimeOfDay", () => {
     it("should detect morning", () => {
       const morning = new Date();
-      morning.setHours(8, 0, 0, 0);
+      morning.setUTCHours(8, 0, 0, 0);
       expect(getTimeOfDay(morning)).toBe("morning");
     });
 
     it("should detect afternoon", () => {
       const afternoon = new Date();
-      afternoon.setHours(14, 0, 0, 0);
+      afternoon.setUTCHours(14, 0, 0, 0);
       expect(getTimeOfDay(afternoon)).toBe("afternoon");
     });
 
     it("should detect evening", () => {
       const evening = new Date();
-      evening.setHours(19, 0, 0, 0);
+      evening.setUTCHours(19, 0, 0, 0);
       expect(getTimeOfDay(evening)).toBe("evening");
     });
 
     it("should detect night (late)", () => {
       const night = new Date();
-      night.setHours(23, 0, 0, 0);
+      night.setUTCHours(23, 0, 0, 0);
       expect(getTimeOfDay(night)).toBe("night");
     });
 
     it("should detect night (early)", () => {
       const earlyNight = new Date();
-      earlyNight.setHours(2, 0, 0, 0);
+      earlyNight.setUTCHours(2, 0, 0, 0);
       expect(getTimeOfDay(earlyNight)).toBe("night");
     });
   });

@@ -252,7 +252,7 @@ function applyAntiRepetitionPenalty(
 }
 
 export function getCurrentSeason(): SeasonContext {
-  const month = new Date().getMonth();
+  const month = new Date().getUTCMonth();
   if (month >= 11 || month <= 1) return "winter";
   if (month >= 2 && month <= 4) return "spring";
   if (month >= 5 && month <= 7) return "summer";
@@ -260,7 +260,7 @@ export function getCurrentSeason(): SeasonContext {
 }
 
 export function getTimeOfDay(): "morning" | "afternoon" | "evening" | "night" {
-  const hour = new Date().getHours();
+  const hour = new Date().getUTCHours();
   if (hour >= 5 && hour < 12) return "morning";
   if (hour >= 12 && hour < 17) return "afternoon";
   if (hour >= 17 && hour < 21) return "evening";

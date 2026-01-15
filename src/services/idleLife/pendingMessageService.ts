@@ -245,8 +245,7 @@ export async function getAllUndeliveredMessages(): Promise<PendingMessage[]> {
  * Called periodically to keep the table small.
  */
 export async function cleanupDeliveredMessages(): Promise<void> {
-  const sevenDaysAgo = new Date();
-  sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+  const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
 
   const { error } = await supabase
     .from(PENDING_MESSAGES_TABLE)

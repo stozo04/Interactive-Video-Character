@@ -138,10 +138,9 @@ export async function expireOldLoops(
   options: { maxAgeDays?: number } = {}
 ): Promise<CleanupResult> {
   const maxAgeDays = options.maxAgeDays ?? CLEANUP_CONFIG.maxLoopAgeDays;
-  
+
   try {
-    const cutoffDate = new Date();
-    cutoffDate.setDate(cutoffDate.getDate() - maxAgeDays);
+    const cutoffDate = new Date(Date.now() - maxAgeDays * 24 * 60 * 60 * 1000);
     
     // Find old loops
     const { data: oldLoops, error: fetchError } = await supabase

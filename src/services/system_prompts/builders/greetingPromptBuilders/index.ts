@@ -38,13 +38,14 @@ export function getBaseGreetingContext(
   kayleyActivity?: string | null
 ): { timeContext: string; pendingMessageSection: string; sharedContext: string; jsonGuardrail: string } {
   const now = new Date();
-  const hour = now.getHours();
+  const hour = now.getUTCHours();
   const timeOfDay =
     hour < 12 ? "morning" : hour < 17 ? "afternoon" : hour < 21 ? "evening" : "night";
   const timeString = now.toLocaleTimeString("en-US", {
     hour: "numeric",
     minute: "2-digit",
     hour12: true,
+    timeZone: "UTC",
   });
 
   const timeContext = `CURRENT TIME: ${timeString} (${timeOfDay})

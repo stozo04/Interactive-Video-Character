@@ -161,7 +161,7 @@ async function buildRealCharacterContext(): Promise<string> {
     }
 
     // Fallback: Time-appropriate default (no fake random vibes)
-    const hour = new Date().getHours();
+    const hour = new Date().getUTCHours();
     if (hour >= 5 && hour < 12) {
       return "Starting my day, feeling pretty awake";
     } else if (hour >= 12 && hour < 17) {

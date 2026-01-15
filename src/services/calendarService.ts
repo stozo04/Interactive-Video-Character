@@ -173,11 +173,11 @@ class CalendarService extends EventTarget {
     
     // Start from beginning of today to catch any current/missed events
     const startDate = new Date(now);
-    startDate.setHours(0, 0, 0, 0);
-    
+    startDate.setUTCHours(0, 0, 0, 0);
+
     // Look ahead 7 days from now
     const endDate = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
-    endDate.setHours(23, 59, 59, 999);
+    endDate.setUTCHours(23, 59, 59, 999);
 
     return this.getEvents(accessToken, startDate.toISOString(), endDate.toISOString(), 50);
   }
