@@ -811,9 +811,13 @@ const App: React.FC = () => {
   }, [weekEvents, selectedCharacter, proactiveSettings.calendar, checkForApplicableCheckins]);
 
   useEffect(() => {
-    const handleAuthError = () => {
-      console.log("🔒 Google Auth error detected. Attempting background refresh...");
-      refreshSession();
+    const handleAuthError = async () => {
+      console.log('Google Auth error detected. Attempting background refresh...');
+      try {
+        await refreshSession();
+      } catch (err) {
+        console.warn('Background refresh failed:', err);
+      }
     };
 
     gmailService.addEventListener('auth-error', handleAuthError);
@@ -823,7 +827,7 @@ const App: React.FC = () => {
       gmailService.removeEventListener('auth-error', handleAuthError);
       calendarService.removeEventListener('auth-error', handleAuthError);
     };
-  }, [signOut]); 
+  }, [refreshSession]); 
 
   useEffect(() => {
     if (debouncedEmailQueue.length === 0 || !selectedCharacter) return;
