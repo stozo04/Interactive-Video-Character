@@ -107,8 +107,7 @@ export const searchMemories = async (
 
     // Apply timeframe filter
     if (timeframe === 'recent') {
-      const sevenDaysAgo = new Date();
-      sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+      const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
       queryBuilder = queryBuilder.gte('created_at', sevenDaysAgo.toISOString());
     }
 
@@ -723,11 +722,11 @@ export const executeMemoryTool = async (
                 endISO = timeMax;
               } else {
                 const startDate = timeMin ? new Date(timeMin) : new Date(now);
-                if (!timeMin) startDate.setHours(0, 0, 0, 0); // Start of today if not specified
-                
+                if (!timeMin) startDate.setUTCHours(0, 0, 0, 0); // Start of today if not specified
+
                 const lookaheadDays = days || 7;
                 const endDate = timeMax ? new Date(timeMax) : new Date(startDate.getTime() + lookaheadDays * 24 * 60 * 60 * 1000);
-                if (!timeMax) endDate.setHours(23, 59, 59, 999);
+                if (!timeMax) endDate.setUTCHours(23, 59, 59, 999);
                 
                 startISO = startDate.toISOString();
                 endISO = endDate.toISOString();

@@ -44,7 +44,7 @@ export interface TimeContext {
  */
 export function getTimeContext(): TimeContext {
   const now = new Date();
-  const hour = now.getHours();
+  const hour = now.getUTCHours();
 
   let timeOfDay: TimeContext['timeOfDay'];
   if (hour < 12) {
@@ -61,6 +61,7 @@ export function getTimeContext(): TimeContext {
     hour: 'numeric',
     minute: '2-digit',
     hour12: true,
+    timeZone: 'UTC',
   });
 
   return { timeOfDay, timeString };

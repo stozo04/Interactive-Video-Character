@@ -467,10 +467,7 @@ async function cleanupExperiences(): Promise<void> {
     }
 
     // 2. Delete old experiences
-    const expirationDate = new Date();
-    expirationDate.setDate(
-      expirationDate.getDate() - EXPERIENCE_EXPIRATION_DAYS
-    );
+    const expirationDate = new Date(Date.now() - EXPERIENCE_EXPIRATION_DAYS * 24 * 60 * 60 * 1000);
 
     await supabase
       .from(KAYLEY_EXPERIENCES_TABLE)

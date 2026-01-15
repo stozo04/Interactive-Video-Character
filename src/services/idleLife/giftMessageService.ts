@@ -130,10 +130,7 @@ export async function maybeGenerateGiftMessage(
  */
 export async function canSendGiftToday(): Promise<boolean> {
   try {
-    const twentyFourHoursAgo = new Date();
-    twentyFourHoursAgo.setHours(
-      twentyFourHoursAgo.getHours() - MIN_HOURS_BETWEEN_GIFTS
-    );
+    const twentyFourHoursAgo = new Date(Date.now() - MIN_HOURS_BETWEEN_GIFTS * 60 * 60 * 1000);
 
     const { count, error } = await supabase
       .from(GIFT_MESSAGE_HISTORY_TABLE)
@@ -263,8 +260,7 @@ async function recordGiftMessage(
  */
 export async function cleanupGiftHistory(): Promise<void> {
   try {
-    const thirtyDaysAgo = new Date();
-    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+    const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
 
     const { error } = await supabase
       .from(GIFT_MESSAGE_HISTORY_TABLE)

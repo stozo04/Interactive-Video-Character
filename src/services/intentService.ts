@@ -803,7 +803,21 @@ function validateFullIntent(parsed: any): FullMessageIntent {
       suggestedFollowUp: parsed.openLoops?.suggestedFollowUp ? String(parsed.openLoops.suggestedFollowUp) : null,
       timeframe: validateTimeframe(parsed.openLoops?.timeframe),
       salience: normalizeSalience(parsed.openLoops?.salience),
-      eventDateTime: parsed.openLoops?.eventDateTime ? String(parsed.openLoops.eventDateTime) : undefined
+      eventDateTime: (() => {
+        if (!parsed.openLoops?.eventDateTime) return undefined;
+
+        const dateStr = String(parsed.openLoops.eventDateTime);
+        const parsedDate = new Date(dateStr);
+
+        if (isNaN(parsedDate.getTime())) {
+          console.warn(
+            `[IntentService] LLM returned invalid eventDateTime: "${dateStr}". Ignoring.`
+          );
+          return undefined;
+        }
+
+        return dateStr;
+      })()
     };
 
   // Validate Relationship Signals

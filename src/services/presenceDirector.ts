@@ -629,7 +629,9 @@ export async function createOpenLoop(
         salience: options.salience ?? 0.5,
         source_message_id: options.sourceMessageId || null,
         source_calendar_event_id: options.sourceCalendarEventId || null,
-        event_datetime: options.eventDateTime?.toISOString() || null,
+        event_datetime: options.eventDateTime && !isNaN(options.eventDateTime.getTime())
+          ? options.eventDateTime.toISOString()
+          : null,
         status: "active",
         surface_count: 0,
         max_surfaces: loopType === "pending_event" ? 2 : 3,
@@ -964,7 +966,10 @@ export async function detectOpenLoops(
           salience: llmResult.salience,
           shouldSurfaceAfter: mapTimeframeToSurfaceDate(llmResult.timeframe),
           eventDateTime: llmResult.eventDateTime
-            ? new Date(llmResult.eventDateTime)
+            ? (() => {
+                const parsed = new Date(llmResult.eventDateTime);
+                return !isNaN(parsed.getTime()) ? parsed : undefined;
+              })()
             : undefined,
         }
       );

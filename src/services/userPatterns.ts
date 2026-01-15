@@ -151,8 +151,8 @@ export function detectTopics(message: string): string[] {
  * Get current time of day category.
  */
 export function getTimeOfDay(date: Date = new Date()): string {
-  const hour = date.getHours();
-  
+  const hour = date.getUTCHours();
+
   // Handle night crossing midnight
   if (hour >= 21 || hour < 5) return 'night';
   if (hour >= 5 && hour < 12) return 'morning';
@@ -164,7 +164,7 @@ export function getTimeOfDay(date: Date = new Date()): string {
  * Get day of week.
  */
 export function getDayOfWeek(date: Date = new Date()): { dayNumber: number; dayName: string } {
-  const dayNumber = date.getDay();
+  const dayNumber = date.getUTCDay();
   return { dayNumber, dayName: DAY_NAMES[dayNumber] };
 }
 
@@ -189,10 +189,10 @@ export async function recordMoodTimePattern(
   // Pattern data for analysis
   const patternData = {
     mood,
-    dayOfWeek: date.getDay(),
+    dayOfWeek: date.getUTCDay(),
     dayName,
     timeOfDay,
-    hour: date.getHours(),
+    hour: date.getUTCHours(),
   };
   
   return await recordPattern('mood_time', observation, patternData);

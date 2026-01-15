@@ -106,7 +106,7 @@ export interface SimplifiedEmotionalMomentum {
  * Much simpler than the old 7-bracket system.
  */
 function getSimpleTimeOfDay(): number {
-  const hour = new Date().getHours();
+  const hour = new Date().getUTCHours();
   if (hour >= 9 && hour < 17) return 0.9;  // Work hours: good
   if (hour >= 6 && hour < 9) return 0.7;   // Morning: warming up
   if (hour >= 17 && hour < 21) return 0.8; // Evening: winding down
@@ -613,7 +613,7 @@ function seededRandom(seed: number, offset: number = 0): number {
 function getDailySeed(): number {
   const today = new Date();
   return (
-    today.getFullYear() * 10000 + (today.getMonth() + 1) * 100 + today.getDate()
+    today.getUTCFullYear() * 10000 + (today.getUTCMonth() + 1) * 100 + today.getUTCDate()
   );
 }
 
@@ -639,7 +639,7 @@ function createFreshMoodStateWithSeed(
  * Calculate time-of-day energy modifier
  */
 function getTimeOfDayModifier(): { energy: number; mood: string } {
-  const hour = new Date().getHours();
+  const hour = new Date().getUTCHours();
 
   if (hour >= 6 && hour < 9) {
     return { energy: 0.6, mood: "waking" };

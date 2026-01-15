@@ -540,8 +540,7 @@ function mapRowToThought(row: any): IdleThought {
 async function cleanupThoughts(): Promise<void> {
   try {
     // 1. Expire thoughts older than THOUGHT_EXPIRATION_DAYS
-    const expirationDate = new Date();
-    expirationDate.setDate(expirationDate.getDate() - THOUGHT_EXPIRATION_DAYS);
+    const expirationDate = new Date(Date.now() - THOUGHT_EXPIRATION_DAYS * 24 * 60 * 60 * 1000);
 
     await supabase
       .from(IDLE_THOUGHTS_TABLE)

@@ -782,7 +782,7 @@ export async function integrateAlmostMoments(
     primaryFeeling.suppressionCount
   );
 
-  const hour = now.getHours();
+  const hour = now.getUTCHours();
   const lateNight = hour >= 22 || hour < 5;
 
   const context: AlmostMomentContext = {
