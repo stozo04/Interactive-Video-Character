@@ -38,6 +38,7 @@ export type AuthStatus =
   | 'error';
 
 const SESSION_KEY = "gmail_session";
+const CONNECTED_KEY = "google_connected";
 import { supabase } from './supabaseClient';
 export { supabase };
 
@@ -310,10 +311,12 @@ export async function signOut(): Promise<void> {
     
     // Clear local storage
     clearSession();
+    clearConnectedHint();
     console.log('Signed out from Supabase and cleared local session');
   } catch (error) {
     console.error('Error during sign out:', error);
     clearSession();
+    clearConnectedHint();
   }
 }
 
@@ -333,6 +336,9 @@ export function saveSession(session: GmailSession): void {
     }
 
     localStorage.setItem(SESSION_KEY, JSON.stringify(session));
+    if (session.accessToken) {
+      setConnectedHint(true);
+    }
     if (session.accessToken) {
       console.log('Session saved for:', session.email);
     }
@@ -375,6 +381,22 @@ export function getSession(): GmailSession | null {
 export function clearSession(): void {
   localStorage.removeItem(SESSION_KEY);
   console.log('Session cleared');
+}
+
+export function setConnectedHint(value: boolean): void {
+  if (value) {
+    localStorage.setItem(CONNECTED_KEY, "true");
+  } else {
+    localStorage.removeItem(CONNECTED_KEY);
+  }
+}
+
+export function clearConnectedHint(): void {
+  localStorage.removeItem(CONNECTED_KEY);
+}
+
+export function hasConnectedHint(): boolean {
+  return localStorage.getItem(CONNECTED_KEY) === "true";
 }
 
 /**

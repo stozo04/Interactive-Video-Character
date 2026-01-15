@@ -24,7 +24,8 @@
       "Bash(rm:*)",
       "Bash(git -C \"C:\\\\Users\\\\gates\\\\Personal\\\\Interactive-Video-Character\" log --oneline --max-count=20)",
       "Bash(ls:*)",
-      "Bash(git grep:*)"
+      "Bash(git grep:*)",
+      "Bash(mv:*)"
     ]
   },
   "enabledPlugins": {
