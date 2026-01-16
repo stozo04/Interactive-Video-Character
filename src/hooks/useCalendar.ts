@@ -136,9 +136,9 @@ export function useCalendar(options: UseCalendarOptions): UseCalendarResult {
    * Refresh upcoming events from the calendar API
    */
   const refreshEvents = useCallback(async (accessToken: string): Promise<CalendarEvent[]> => {
-    console.log('📅 [useCalendar] Refreshing upcoming events...');
+    // console.log('📅 [useCalendar] Refreshing upcoming events...');
     const events = await calendarService.getUpcomingEvents(accessToken);
-    console.log(`📅 [useCalendar] Loaded ${events.length} upcoming event(s)`);
+    // console.log(`📅 [useCalendar] Loaded ${events.length} upcoming event(s)`);
     setUpcomingEvents(events);
     return events;
   }, []);
@@ -147,9 +147,9 @@ export function useCalendar(options: UseCalendarOptions): UseCalendarResult {
    * Refresh week events from the calendar API
    */
   const refreshWeekEvents = useCallback(async (accessToken: string): Promise<void> => {
-    console.log('📅 [useCalendar] Refreshing week events...');
+    // console.log('📅 [useCalendar] Refreshing week events...');
     const events = await calendarService.getWeekEvents(accessToken);
-    console.log(`📅 [useCalendar] Loaded ${events.length} week event(s)`);
+    // console.log(`📅 [useCalendar] Loaded ${events.length} week event(s)`);
     setWeekEvents(events);
     // Clean up old check-in states for events no longer in this week
     cleanupOldCheckins(events.map(e => e.id));
@@ -161,7 +161,7 @@ export function useCalendar(options: UseCalendarOptions): UseCalendarResult {
   const triggerCalendarCheckin = useCallback(async (event: CalendarEvent, type: CheckinType) => {
     // Respect snooze and proactive settings
     if (isSnoozed || !proactiveSettings.calendar) {
-      console.log(`📅 [useCalendar] Skipping check-in (snoozed: ${isSnoozed}, calendar: ${proactiveSettings.calendar})`);
+      // console.log(`📅 [useCalendar] Skipping check-in (snoozed: ${isSnoozed}, calendar: ${proactiveSettings.calendar})`);
       return;
     }
 
@@ -195,9 +195,9 @@ export function useCalendar(options: UseCalendarOptions): UseCalendarResult {
                 event.id,
                 Math.max(existingLoop.salience, salience) // Use higher salience
               );
-              console.log(`📅 [useCalendar] Updated existing loop for: ${event.summary}`);
+              // console.log(`📅 [useCalendar] Updated existing loop for: ${event.summary}`);
             } else {
-              console.log(`📅 [useCalendar] Loop already exists with metadata: ${event.summary}`);
+              // console.log(`📅 [useCalendar] Loop already exists with metadata: ${event.summary}`);
             }
           } else {
             // Create new loop
@@ -207,7 +207,7 @@ export function useCalendar(options: UseCalendarOptions): UseCalendarResult {
               salience,
               triggerContext: `Calendar event: ${event.summary}`,
             });
-            console.log(`📅 [useCalendar] Created open loop for future event: ${event.summary}`);
+            // console.log(`📅 [useCalendar] Created open loop for future event: ${event.summary}`);
           }
         } catch (error) {
           console.error(`📅 [useCalendar] Failed to manage open loop:`, error);
@@ -217,7 +217,7 @@ export function useCalendar(options: UseCalendarOptions): UseCalendarResult {
 
     // Build and send the prompt
     const prompt = buildEventCheckinPrompt(event, type);
-    console.log(`📅 [useCalendar] Triggering ${type} check-in for: ${event.summary}`);
+    // console.log(`📅 [useCalendar] Triggering ${type} check-in for: ${event.summary}`);
     triggerSystemMessage(prompt);
   }, [isSnoozed, proactiveSettings.calendar, triggerSystemMessage]);
 
@@ -254,7 +254,7 @@ export function useCalendar(options: UseCalendarOptions): UseCalendarResult {
     const timeoutIds: NodeJS.Timeout[] = [];
 
     if (!session) {
-      console.log('📅 [useCalendar] No session, skipping calendar effects');
+      // console.log('📅 [useCalendar] No session, skipping calendar effects');
       return () => {};
     }
 
@@ -263,7 +263,7 @@ export function useCalendar(options: UseCalendarOptions): UseCalendarResult {
     // Poll upcoming events
     const pollUpcoming = async () => {
       try {
-        console.log('📅 [useCalendar] Polling upcoming events...');
+        // console.log('📅 [useCalendar] Polling upcoming events...');
         const events = await calendarService.getUpcomingEvents(accessToken);
         setUpcomingEvents(events);
       } catch (e) {
@@ -274,7 +274,7 @@ export function useCalendar(options: UseCalendarOptions): UseCalendarResult {
     // Poll week events
     const pollWeekEvents = async () => {
       try {
-        console.log('📅 [useCalendar] Polling week events...');
+        // console.log('📅 [useCalendar] Polling week events...');
         const events = await calendarService.getWeekEvents(accessToken);
         setWeekEvents(events);
         cleanupOldCheckins(events.map(e => e.id));
@@ -291,11 +291,11 @@ export function useCalendar(options: UseCalendarOptions): UseCalendarResult {
     intervalIds.push(setInterval(pollUpcoming, CALENDAR_POLL_INTERVAL));
     intervalIds.push(setInterval(pollWeekEvents, CALENDAR_POLL_INTERVAL));
 
-    console.log('📅 [useCalendar] Calendar effects registered');
+    // console.log('📅 [useCalendar] Calendar effects registered');
 
     // Return cleanup function
     return () => {
-      console.log('📅 [useCalendar] Cleaning up calendar effects');
+      // console.log('📅 [useCalendar] Cleaning up calendar effects');
       intervalIds.forEach(clearInterval);
       timeoutIds.forEach(clearTimeout);
     };

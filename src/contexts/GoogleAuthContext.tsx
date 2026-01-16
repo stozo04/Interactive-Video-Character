@@ -124,7 +124,7 @@ export function GoogleAuthProvider({
           }
 
           if (hasProviderToken) {
-            console.log(`?o. Session ${event}: New Google token received`);
+            // console.log(`?o. Session ${event}: New Google token received`);
             const next = {
               email: sbSession.user.email || '',
               accessToken: sbSession.provider_token!,
@@ -253,15 +253,15 @@ export function GoogleAuthProvider({
       const validSession = await googleAuth.ensureValidSession(session);
       setSession(validSession);
       setStatus('connected');
-      console.log('?o. Session refreshed successfully via Supabase');
+      // console.log('?o. Session refreshed successfully via Supabase');
     } catch (err: any) {
-      console.warn('?s??,? Standard refresh failed, trying silent silent re-auth...', err);
+      console.warn('Standard refresh failed, trying silent silent re-auth...', err);
 
       try {
         // Try silent re-auth as a last resort before showing banner
         await attemptSilentRefresh('refresh_failed');
       } catch (silentErr: any) {
-        console.error('??O Silent re-auth failed:', silentErr);
+        console.error('Silent re-auth failed:', silentErr);
         setError(err.message || 'Failed to refresh session');
         setStatus('needs_reconnect');
       }

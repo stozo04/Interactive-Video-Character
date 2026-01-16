@@ -231,7 +231,8 @@ describe("Latency Optimizations - Phase 1", () => {
         null, //     relationshipSignals?: RelationshipSignalIntent | null,
         null, //     toneIntent?: ToneIntent | null,
         null, //     fullIntent?: FullMessageIntent | null,
-        prefetchedContext
+        prefetchedContext,
+        0 //     messageCount: number
       );
 
       // Verify fetchers were NOT called
@@ -256,7 +257,9 @@ describe("Latency Optimizations - Phase 1", () => {
         [],
         null,
         null,
-        null
+        null,
+        undefined,
+        0
       );
 
       // Verify fetchers WERE called

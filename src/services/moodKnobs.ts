@@ -191,13 +191,44 @@ export function calculateMoodFromState(
 
 /**
  * Async function to get simplified mood (replacement for getMoodKnobsAsync).
+ * Includes storyline mood effects from Phase 3.
  *
  * @returns Promise resolving to KayleyMood
  */
 export async function getMoodAsync(): Promise<KayleyMood> {
   const state = await getMoodStateAsync();
   const momentum = await getEmotionalMomentumAsync();
-  return calculateMoodFromState(state, momentum);
+
+  // Calculate base mood
+  let mood = calculateMoodFromState(state, momentum);
+
+  // Apply storyline effects (Phase 3: Emotional Integration)
+  try {
+    const { getStorylineMoodEffects } = await import('./storylineService');
+    const storylineEffects = await getStorylineMoodEffects();
+
+    if (storylineEffects.length > 0) {
+      // Sum up all mood and energy deltas
+      const storylineMoodDelta = storylineEffects.reduce((sum, e) => sum + e.moodDelta, 0);
+      const storylineEnergyDelta = storylineEffects.reduce((sum, e) => sum + e.energyDelta, 0);
+
+      // Apply deltas to mood
+      // moodDelta affects warmth (mood toward user)
+      // energyDelta affects overall energy
+      mood = {
+        energy: clamp(mood.energy + storylineEnergyDelta, -1, 1),
+        warmth: clamp(mood.warmth + storylineMoodDelta, 0, 1),
+        genuineMoment: mood.genuineMoment,
+      };
+
+      console.log(`📖 [Storylines] Applied mood effects - Mood delta: ${storylineMoodDelta.toFixed(2)}, Energy delta: ${storylineEnergyDelta.toFixed(2)}`);
+    }
+  } catch (error) {
+    console.warn('📖 [Storylines] Failed to apply storyline mood effects:', error);
+    // Continue with base mood if storyline integration fails
+  }
+
+  return mood;
 }
 
 /**

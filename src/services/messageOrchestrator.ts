@@ -137,9 +137,18 @@ export function formatEventsForContext(events: CalendarEvent[]): string {
  * @returns OrchestratorResult with all UI updates needed
  */
 export async function processUserMessage(input: OrchestratorInput): Promise<OrchestratorResult> {
-  const { userMessage, aiService, session, accessToken, chatHistory, upcomingEvents, tasks, isMuted } = input;
+  const {
+    userMessage,
+    aiService,
+    session,
+    accessToken,
+    chatHistory,
+    upcomingEvents,
+    tasks,
+    isMuted,
+  } = input;
 
-  console.log(`🎯 [Orchestrator] Processing message: "${userMessage.substring(0, 50)}..."`);
+  // console.log(`🎯 [Orchestrator] Processing message: "${userMessage.substring(0, 50)}..."`);
 
   // Start with empty result
   const result: OrchestratorResult = {
@@ -153,14 +162,18 @@ export async function processUserMessage(input: OrchestratorInput): Promise<Orch
 
     // Detect if this is a calendar query
     const calendarQueryType = detectCalendarQuery(userMessage);
-    let calendarContext = '';
+    let calendarContext = "";
 
     if (calendarQueryType !== CalendarQueryType.NONE) {
-      console.log(`📅 [Orchestrator] Detected calendar query: ${calendarQueryType}`);
+      console.log(
+        `📅 [Orchestrator] Detected calendar query: ${calendarQueryType}`
+      );
 
       if (upcomingEvents && upcomingEvents.length > 0) {
         calendarContext = formatEventsForContext(upcomingEvents);
-        console.log(`📅 [Orchestrator] Injected ${upcomingEvents.length} events into context`);
+        console.log(
+          `📅 [Orchestrator] Injected ${upcomingEvents.length} events into context`
+        );
       }
     }
 
@@ -180,14 +193,14 @@ export async function processUserMessage(input: OrchestratorInput): Promise<Orch
     }
 
     // Build input and options for AI service
-    const content: UserContent = { type: 'text', text: textToSend };
+    const content: UserContent = { type: "text", text: textToSend };
     const options: AIChatOptions = {
       // Pass original message to intent detection (keeps payload small)
       // Intent detection doesn't need calendar data - only main chat does
       originalMessageForIntent: calendarContext ? userMessage : undefined,
       chatHistory,
       googleAccessToken: accessToken,
-      audioMode: isMuted ? 'none' : 'sync',
+      audioMode: isMuted ? "none" : "sync",
     };
 
     const aiResult = await aiService.generateResponse(
@@ -218,7 +231,9 @@ export async function processUserMessage(input: OrchestratorInput): Promise<Orch
     // ========================================================================
 
     // Detect task action from response or fallback detection
-    let detectedTask: TaskAction | null | undefined = response.task_action as TaskAction | undefined;
+    let detectedTask: TaskAction | null | undefined = response.task_action as
+      | TaskAction
+      | undefined;
     if (!detectedTask && response.text_response) {
       detectedTask = parseTaskActionFromResponse(response.text_response);
     }
@@ -229,7 +244,9 @@ export async function processUserMessage(input: OrchestratorInput): Promise<Orch
     // Pass task action directly to App.tsx
     if (detectedTask) {
       result.detectedTaskAction = detectedTask;
-      console.log(`📋 [Orchestrator] Detected task action: ${detectedTask.action}`);
+      console.log(
+        `📋 [Orchestrator] Detected task action: ${detectedTask.action}`
+      );
     }
 
     // ========================================================================
@@ -238,7 +255,9 @@ export async function processUserMessage(input: OrchestratorInput): Promise<Orch
 
     // Calendar Action
     if (actionType === ActionType.CALENDAR) {
-      const calendarAction = response.calendar_action as CalendarAction | undefined;
+      const calendarAction = response.calendar_action as
+        | CalendarAction
+        | undefined;
       if (calendarAction?.action && accessToken) {
         const calendarResult = await processCalendarAction(calendarAction, {
           accessToken,
@@ -246,7 +265,9 @@ export async function processUserMessage(input: OrchestratorInput): Promise<Orch
         });
         if (calendarResult.handled) {
           result.refreshCalendar = true;
-          console.log(`📅 [Orchestrator] Calendar action executed: ${calendarResult.action}`);
+          console.log(
+            `📅 [Orchestrator] Calendar action executed: ${calendarResult.action}`
+          );
         }
       }
     }
@@ -254,7 +275,7 @@ export async function processUserMessage(input: OrchestratorInput): Promise<Orch
     // News Action
     if (actionType === ActionType.NEWS) {
       const newsAction = response.news_action as NewsAction | undefined;
-      if (newsAction?.action === 'fetch') {
+      if (newsAction?.action === "fetch") {
         const newsResult = await processNewsAction(newsAction);
         if (newsResult.handled && newsResult.newsPrompt) {
           result.newsPrompt = newsResult.newsPrompt;
@@ -277,16 +298,20 @@ export async function processUserMessage(input: OrchestratorInput): Promise<Orch
             // Phase 5: Add selfie message with image directly to chatMessages
             result.selfieImage = {
               base64: selfieResult.imageBase64,
-              mimeType: selfieResult.mimeType || 'image/png',
+              mimeType: selfieResult.mimeType || "image/png",
             };
             // The selfie message text (App.tsx will generate TTS for this)
-            result.selfieMessageText = 'Here you go!';
+            result.selfieMessageText = "Here you go!";
             console.log(`📸 [Orchestrator] Selfie generated successfully`);
           } else {
-            result.selfieError = selfieResult.error || "I couldn't take that pic right now, sorry!";
+            result.selfieError =
+              selfieResult.error ||
+              "I couldn't take that pic right now, sorry!";
             // The error message text (App.tsx will generate TTS for this)
             result.selfieMessageText = result.selfieError;
-            console.log(`📸 [Orchestrator] Selfie failed: ${result.selfieError}`);
+            console.log(
+              `📸 [Orchestrator] Selfie failed: ${result.selfieError}`
+            );
           }
         }
       }
@@ -309,8 +334,13 @@ export async function processUserMessage(input: OrchestratorInput): Promise<Orch
     detectKayleyPresence(response.text_response, userMessage)
       .then((presence) => {
         if (presence && presence.confidence > 0.7) {
-          console.log(`👁️ [Orchestrator] Detected presence: ${presence.activity}`);
-          const expirationMinutes = getDefaultExpirationMinutes(presence.activity, presence.outfit);
+          console.log(
+            `👁️ [Orchestrator] Detected presence: ${presence.activity}`
+          );
+          const expirationMinutes = getDefaultExpirationMinutes(
+            presence.activity,
+            presence.outfit
+          );
           updateKayleyPresenceState({
             outfit: presence.outfit,
             mood: presence.mood,
@@ -319,19 +349,24 @@ export async function processUserMessage(input: OrchestratorInput): Promise<Orch
             expirationMinutes,
             confidence: presence.confidence,
           }).catch((err) =>
-            console.error('❌ [Orchestrator] Failed to update presence:', err)
+            console.error("❌ [Orchestrator] Failed to update presence:", err)
           );
         }
       })
-      .catch((err) => console.error('❌ [Orchestrator] Failed to detect presence:', err));
+      .catch((err) =>
+        console.error("❌ [Orchestrator] Failed to detect presence:", err)
+      );
 
     // Background conversation history - don't await
     const historyMessages = [
-      { role: 'user' as const, text: userMessage },
-      { role: 'model' as const, text: response.text_response },
+      { role: "user" as const, text: userMessage },
+      { role: "model" as const, text: response.text_response },
     ];
-    appendConversationHistory(historyMessages, aiResult.session?.interactionId).catch((err) =>
-      console.error('❌ [Orchestrator] Failed to append history:', err)
+    appendConversationHistory(
+      historyMessages,
+      aiResult.session?.interactionId
+    ).catch((err) =>
+      console.error("❌ [Orchestrator] Failed to append history:", err)
     );
 
     // ========================================================================
@@ -344,7 +379,7 @@ export async function processUserMessage(input: OrchestratorInput): Promise<Orch
     // Chat message
     result.chatMessages = [
       {
-        role: 'model',
+        role: "model",
         text: response.text_response,
       },
     ];
@@ -371,7 +406,9 @@ export async function processUserMessage(input: OrchestratorInput): Promise<Orch
     result.rawResponse = response;
     result.intent = intent;
 
-    console.log(`✅ [Orchestrator] Complete: actionType=${actionType}, success=true`);
+    console.log(
+      `✅ [Orchestrator] Complete: actionType=${actionType}, success=true`
+    );
 
     return result;
   } catch (error) {

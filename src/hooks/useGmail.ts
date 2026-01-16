@@ -16,7 +16,7 @@ export function useGmail({ session, status }: UseGmailOptions) {
     const init = async () => {
       if (session && status === 'connected' && !gmailService.isInitialized()) {
         try {
-          console.log('📬 [useGmail] Initializing Gmail history pointer...');
+          // console.log('📬 [useGmail] Initializing Gmail history pointer...');
           await gmailService.getInitialHistoryId(session.accessToken);
           setIsInitialized(true);
         } catch (err) {
