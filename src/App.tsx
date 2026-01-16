@@ -48,6 +48,7 @@ import { useAIService } from './contexts/AIServiceContext';
 import { AIChatSession } from './services/aiService';
 import { startCleanupScheduler, stopCleanupScheduler } from './services/loopCleanupService';
 import { startPromiseChecker, stopPromiseChecker } from './services/backgroundJobs';
+import { processStorylineOnStartup } from './services/storylineService';
 import { isQuestionMessage } from './utils/textUtils';
 import { shuffleArray } from './utils/arrayUtils';
 
@@ -314,6 +315,13 @@ const App: React.FC = () => {
       console.log(`❌ [Promises] Error starting promise checker:`, e);
     }
   }, []);
+
+  // Storyline Processing: Check for missed days on app startup
+  useEffect(() => {
+    processStorylineOnStartup().catch(error => {
+      console.error('📖 [Storylines] Error in startup processing:', error);
+    });
+  }, []); // Run once on mount
 
   // ==========================================================================
   // IMAGE & MESSAGE HANDLERS

@@ -407,6 +407,9 @@ When working on AI behavior:
 
 ## Supabase Schema Setup
 
+Before running the app, apply the latest migrations in `supabase/migrations/`.
+Recent additions for storylines include `20260116_add_should_reveal_at_to_storyline_updates.sql` (closure pacing).
+
 1. Create three storage buckets:
    - `character-videos` – stores the character idle video files
    - `character-action-videos` – stores short clips for each character action

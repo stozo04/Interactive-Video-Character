@@ -812,7 +812,7 @@ export class GeminiService implements IAIChatService {
           trimmedMessageForIntent,
           conversationContext
         );
-        console.log("intentPromise initialized");
+        //console.log("intentPromise initialized");
 
         if (isCommand) {
           // 🚀 FAST PATH: Don't wait for intent - Main LLM handles commands directly
@@ -871,6 +871,12 @@ export class GeminiService implements IAIChatService {
       // ============================================
       // BUILD SYSTEM PROMPT
       // ============================================
+      // Count user messages for storyline injection (Phase 4)
+      const userMessageCount = (options.chatHistory || []).filter(
+        (msg: any) => msg.role === 'user'
+      ).length;
+      console.log(`📖 [Storylines] User message count: ${userMessageCount}`);
+
       const systemPrompt = await buildSystemPrompt(
         fetchedContext.relationship,
         fetchedContext.upcomingEvents,
@@ -879,7 +885,8 @@ export class GeminiService implements IAIChatService {
         preCalculatedIntent?.relationshipSignals,
         preCalculatedIntent?.tone,
         preCalculatedIntent,
-        prefetchedContext
+        prefetchedContext,
+        userMessageCount
       );
 
       // ============================================
@@ -1238,7 +1245,8 @@ Keep it very short (1 sentence).
       undefined, // relationshipSignals
       undefined, // toneIntent
       undefined, // fullIntent
-      { soulContext: soulResult, characterFacts: factsResult }
+      { soulContext: soulResult, characterFacts: factsResult },
+      0 // messageCount (idle breaker, not a user message)
     );
 
     // Combine the idle breaker instruction with the full system prompt
@@ -1310,7 +1318,12 @@ Keep it very short (1 sentence).
       fetchedContext.relationship,
       fetchedContext.upcomingEvents,
       fetchedContext.characterContext,
-      fetchedContext.tasks
+      fetchedContext.tasks,
+      undefined, // relationshipSignals
+      undefined, // toneIntent
+      undefined, // fullIntent
+      undefined, // prefetchedContext
+      0 // messageCount (greeting, no user messages yet)
     );
 
     try {

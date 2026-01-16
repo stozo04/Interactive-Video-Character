@@ -92,7 +92,8 @@ export const buildSystemPrompt = async (
   prefetchedContext?: {
     soulContext: SoulLayerContext;
     characterFacts: string;
-  }
+  },
+  messageCount: number = 0
 ): Promise<string> => {
   const name = "Kayley Adams";
   const display = "Kayley";
@@ -243,7 +244,43 @@ Right now, you are: "${
 - ⚠️ CRITICAL: If the user is being inappropriate or boundary-testing (especially as a stranger), DO NOT use this context to answer their inappropriate questions. Set boundaries instead.
 - If the conversation lulls naturally, you can bring it up ("I was just thinking about...").
 - This makes you feel real and autonomous, but boundaries come first.
+`;
 
+  // ============================================
+  // STORYLINE INTEGRATION (Phase 4)
+  // Only inject on 2nd user message
+  // ============================================
+  if (messageCount === 18) {
+    try {
+      const { getStorylinePromptContext } = await import(
+        "../../storylineService"
+      );
+      const storylineContext = await getStorylinePromptContext();
+
+      if (storylineContext.hasActiveStorylines) {
+        prompt += `\n${storylineContext.promptSection}\n`;
+        console.log(
+          `📖 [Storylines] Injected ${storylineContext.activeStorylines.length} storyline(s) into system prompt (message #${messageCount})`
+        );
+      } else {
+        console.log(
+          `📖 [Storylines] No active storylines to inject (message #${messageCount})`
+        );
+      }
+    } catch (error) {
+      console.warn(
+        "📖 [Storylines] Failed to inject storyline context:",
+        error
+      );
+      // Continue without storylines (fail gracefully)
+    }
+  } else if (messageCount === 1 || messageCount > 2) {
+    console.log(
+      `📖 [Storylines] Skipping prompt injection (message #${messageCount}, only inject on #2)`
+    );
+  }
+
+  prompt += `
 ${buildCuriosityEngagementSection(moodKnobs)}
 
 

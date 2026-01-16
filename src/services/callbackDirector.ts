@@ -476,6 +476,12 @@ import {
 } from './relationshipMilestones';
 
 import {
+  getResolvedStorylineForCallback,
+  markStorylineMentioned,
+  type LifeStoryline,
+} from './storylineService';
+
+import {
   getPatternToSurface,
   markPatternSurfaced,
   generatePatternSurfacePrompt,
@@ -485,6 +491,26 @@ import {
 
 // Track which milestone IDs have been used this session
 const sessionMilestoneIds: Set<string> = new Set();
+const sessionStorylineIds: Set<string> = new Set();
+
+function generateStorylineCallbackPrompt(
+  storyline: LifeStoryline,
+  daysSinceResolution: number
+): string {
+  return `
+STORYLINE MEMORY (use sparingly - only if relevant):
+You can reference "${storyline.title}" - a ${storyline.category} storyline from ${daysSinceResolution} days ago.
+
+Outcome: ${storyline.outcome} - "${storyline.outcomeDescription}"
+
+Natural ways to reference:
+- "Remember when I was freaking out about ${storyline.title}? Wild."
+- "That reminds me of when ${storyline.title}..."
+${storyline.userInvolvement ? `- "I still think about how you helped me through ${storyline.title}"` : ''}
+
+Only mention if contextually relevant. Don't force it.
+`;
+}
 
 /**
  * Get a milestone-based "Remember when..." callback opportunity.
@@ -539,6 +565,50 @@ export async function getMilestoneCallback(
 }
 
 /**
+ * Get a storyline-based "Remember when..." callback opportunity.
+ * Pulls from resolved storylines (30+ days ago) that haven't been referenced recently.
+ */
+export async function getStorylineCallback(): Promise<{
+  storyline: LifeStoryline;
+  prompt: string;
+} | null> {
+  const storyline = await getResolvedStorylineForCallback();
+
+  if (!storyline) {
+    return null;
+  }
+
+  if (sessionStorylineIds.has(storyline.id)) {
+    return null;
+  }
+
+  const daysSinceResolution = storyline.resolvedAt
+    ? Math.floor((Date.now() - storyline.resolvedAt.getTime()) / (1000 * 60 * 60 * 24))
+    : 0;
+
+  const prompt = generateStorylineCallbackPrompt(storyline, daysSinceResolution);
+
+  console.log(`📖 [CallbackDirector] Storyline callback ready: "${storyline.title}"`);
+
+  return { storyline, prompt };
+}
+
+/**
+ * Mark a storyline callback as used.
+ * Call this after the AI has referenced the storyline.
+ */
+export async function markStorylineCallbackUsed(storylineId: string): Promise<void> {
+  sessionStorylineIds.add(storylineId);
+  await markStorylineMentioned(storylineId);
+
+  const state = getStoredState();
+  state.exchangesSinceCallback = 0;
+  storeState(state);
+
+  console.log(`✅ [CallbackDirector] Storyline callback used: ${storylineId}`);
+}
+
+/**
  * Mark a milestone callback as used.
  * Call this after the AI has referenced the milestone.
  */
@@ -576,9 +646,11 @@ export async function getEnhancedCallbackPrompt(
   const milestoneCallback = totalInteractions >= 50 
     ? await getMilestoneCallback(totalInteractions)
     : null;
+
+  const storylineCallback = await getStorylineCallback();
   
-  // If neither, return default
-  if (!regularCallback && !milestoneCallback) {
+  // If none, return default
+  if (!regularCallback && !milestoneCallback && !storylineCallback) {
     return `
 CALLBACKS: No callback this turn. Just be present.
 `;
@@ -590,6 +662,9 @@ CALLBACKS: No callback this turn. Just be present.
     parts.push(milestoneCallback.prompt);
     // Note: The caller should mark the milestone as used if adopted
     parts.push(`\nMILESTONE_ID: ${milestoneCallback.milestone.id}`);
+  } else if (storylineCallback && (!regularCallback || Math.random() > 0.6)) {
+    parts.push(storylineCallback.prompt);
+    parts.push(`\nSTORYLINE_ID: ${storylineCallback.storyline.id}`);
   } else if (regularCallback) {
     // Use regular callback
     const hoursAgo = Math.round((Date.now() - regularCallback.shard.capturedAt) / (1000 * 60 * 60));
@@ -733,7 +808,7 @@ export async function getFullEnhancedCallbackPrompt(
 ): Promise<string> {
   const parts: string[] = [];
   
-  // Try to get all three types of callbacks
+  // Try to get all four types of callbacks
   const regularCallback = getCallbackOpportunity();
   
   const milestoneCallback = totalInteractions >= 50 
@@ -741,9 +816,10 @@ export async function getFullEnhancedCallbackPrompt(
     : null;
   
   const patternCallback = await getPatternCallback();
+  const storylineCallback = await getStorylineCallback();
   
   // If nothing available
-  if (!regularCallback && !milestoneCallback && !patternCallback) {
+  if (!regularCallback && !milestoneCallback && !patternCallback && !storylineCallback) {
     return `
 CALLBACKS: No callback this turn. Just be present.
 `;
@@ -751,8 +827,9 @@ CALLBACKS: No callback this turn. Just be present.
   
   // Weighted selection based on significance
   // Pattern: 20% if available (rarest, most meaningful)
-  // Milestone: 30% if available (significant)
-  // Regular: 50% if available (common)
+  // Milestone: 25% if available (significant)
+  // Storyline: 15% if available (historical continuity)
+  // Regular: 40% if available (common)
   const random = Math.random();
   
   if (patternCallback && random < 0.20) {
@@ -760,11 +837,15 @@ CALLBACKS: No callback this turn. Just be present.
     parts.push(patternCallback.prompt);
     parts.push(`\nPATTERN_ID: ${patternCallback.pattern.id}`);
     console.log('[CallbackDirector] Selected: Pattern callback');
-  } else if (milestoneCallback && random < 0.50) {
+  } else if (milestoneCallback && random < 0.45) {
     // Use milestone callback
     parts.push(milestoneCallback.prompt);
     parts.push(`\nMILESTONE_ID: ${milestoneCallback.milestone.id}`);
     console.log('[CallbackDirector] Selected: Milestone callback');
+  } else if (storylineCallback && random < 0.60) {
+    parts.push(storylineCallback.prompt);
+    parts.push(`\nSTORYLINE_ID: ${storylineCallback.storyline.id}`);
+    console.log('[CallbackDirector] Selected: Storyline callback');
   } else if (regularCallback) {
     // Use regular callback
     const hoursAgo = Math.round((Date.now() - regularCallback.shard.capturedAt) / (1000 * 60 * 60));
@@ -792,6 +873,9 @@ If you use this callback, it should feel like something any attentive person wou
     // Fallback to milestone if available
     parts.push(milestoneCallback.prompt);
     parts.push(`\nMILESTONE_ID: ${milestoneCallback.milestone.id}`);
+  } else if (storylineCallback) {
+    parts.push(storylineCallback.prompt);
+    parts.push(`\nSTORYLINE_ID: ${storylineCallback.storyline.id}`);
   }
   
   return parts.join('\n');
@@ -803,7 +887,13 @@ If you use this callback, it should feel like something any attentive person wou
 export function resetAllCallbackSessions(): void {
   resetMilestoneSession();
   resetPatternSession();
+  resetStorylineSession();
   resetCallbacks();
+}
+
+export function resetStorylineSession(): void {
+  sessionStorylineIds.clear();
+  console.log('📖 [CallbackDirector] Reset storyline session');
 }
 
 // Re-export pattern functions for convenience

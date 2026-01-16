@@ -1,8 +1,71 @@
 # Life Event Storylines
 
-**Status:** Planning
+**Status:** In Progress (Phase 5 Complete)
 **Priority:** High
 **Created:** 2025-01-15
+**Last Updated:** 2026-01-16
+
+## Implementation Status
+
+### ✅ Phase 1: Data Foundation - COMPLETED (2026-01-16)
+- ✅ Database tables created (`life_storylines`, `storyline_updates`)
+- ✅ Migration scripts created (user must apply manually)
+- ✅ TypeScript service implemented (`storylineService.ts`)
+- ✅ Core CRUD functions fully operational
+- ✅ Data migration from `life_events` table
+- ✅ Service documentation created (`src/services/docs/StorylineService.md`)
+- ⏳ Tests deferred to Phase 6
+
+### ✅ Phase 2: Phase Progression - COMPLETED (2026-01-16)
+- ✅ Automatic phase transitions (time-based with probability)
+- ✅ On-startup processing (`processStorylineOnStartup()`)
+- ✅ Daily processing job (`processStorylineDay()`)
+- ✅ LLM update generation (Gemini integration)
+- ✅ Time-based progression rules (6 phase transitions)
+- ✅ CST timezone handling (avoids UTC bugs)
+- ✅ Database tracking (`storyline_config` table)
+- ✅ Integrated into App.tsx (runs on mount)
+
+### ✅ Phase 3: Emotional Integration - COMPLETED (2026-01-16)
+- ✅ Mood system integration (`moodKnobs.ts`)
+- ✅ `getStorylineMoodEffects()` function implemented
+- ✅ Mood/energy delta calculation (based on phase and intensity)
+- ✅ Preoccupation calculation (mental space taken)
+- ✅ Integration into `getMoodAsync()` in moodKnobs.ts
+- ✅ Cumulative effects from multiple storylines
+- ✅ Stressful phase energy drain (reality, active, climax)
+- ✅ Logging with 📖 [Storylines] prefix
+
+### ✅ Phase 4: Prompt Integration - COMPLETED (2026-01-16)
+- ✅ System prompt context builder
+- ✅ Greeting integration
+
+### ✅ Phase 5: Closure & Callbacks - COMPLETED (2026-01-16)
+- ✅ Resolution flow
+- ✅ Closure sequences
+- ✅ Historical callbacks
+- ✅ Character facts integration
+- ✅ Closure update reveal scheduling (`should_reveal_at`)
+- ✅ Single active storyline enforcement (one at a time)
+
+### ⏳ Phase 6: Polish & Testing - NOT IMPLEMENTED
+- ⏳ End-to-end testing
+- ⏳ Probability tuning
+
+**Files Created (Phases 1-2):**
+
+**Phase 1 - Data Foundation:**
+- `supabase/migrations/20260116_create_life_storylines.sql`
+- `supabase/migrations/20260116_create_storyline_updates.sql`
+- `supabase/migrations/20260116_migrate_life_events_to_storylines.sql`
+- `src/services/storylineService.ts`
+- `src/services/docs/StorylineService.md`
+
+**Phase 2 - Phase Progression:**
+- `src/services/storylineService.ts` (updated with phase transitions, LLM generation, on-startup processing)
+- `supabase/migrations/20260116_create_storyline_config.sql` (NEW - config table for tracking)
+- `src/App.tsx` (updated with on-startup processing)
+- `docs/Phase_2_Storylines_Implementation_Summary.md` (implementation summary)
 
 ## The Problem
 
@@ -108,6 +171,7 @@ CREATE TABLE storyline_updates (
   update_type TEXT NOT NULL,              -- 'progress', 'setback', 'milestone', 'reflection', 'mood_shift'
   content TEXT NOT NULL,                  -- "Contract negotiations are getting complicated"
   emotional_tone TEXT,                    -- How she feels about this update
+  should_reveal_at TIMESTAMPTZ,           -- Earliest time this update should surface
 
   -- Tracking
   mentioned BOOLEAN DEFAULT FALSE,
@@ -120,6 +184,7 @@ CREATE TABLE storyline_updates (
 CREATE INDEX idx_storylines_active ON life_storylines(phase) WHERE outcome IS NULL;
 CREATE INDEX idx_storylines_mention ON life_storylines(should_mention_by) WHERE outcome IS NULL;
 CREATE INDEX idx_updates_unmentioned ON storyline_updates(storyline_id, mentioned) WHERE mentioned = FALSE;
+CREATE INDEX idx_updates_should_reveal_at ON storyline_updates(should_reveal_at);
 ```
 
 ### Phase Definitions
@@ -542,40 +607,40 @@ const RESOLUTION_TEMPLATES = {
     emotions: ['thrilled', 'relieved', 'proud', 'grateful', 'surreal'],
     promptGuidance: `You did it! Let yourself celebrate. Share the win genuinely. Thank people who supported you. It's okay to be proud.`,
     closureSteps: [
-      'announcement',        // "I DID IT!"
+      'outcome_reaction',    // "I DID IT!"
       'gratitude',           // Thank user if they helped
       'reflection',          // What it means
-      'forward_looking',     // What's next
+      'lesson_learned',      // What's next
     ],
   },
   failure: {
     emotions: ['disappointed', 'sad', 'frustrated', 'accepting', 'processing'],
     promptGuidance: `It didn't work out. Be honest about disappointment. Don't fake positivity. It's okay to be sad. You'll process this.`,
     closureSteps: [
-      'announcement',        // "It didn't work out"
-      'processing',          // Working through feelings
+      'outcome_reaction',    // "It didn't work out"
+      'emotional_processing',// Working through feelings
       'meaning_making',      // Finding the lesson
-      'moving_forward',      // Not dwelling forever
+      'lesson_learned',      // Not dwelling forever
     ],
   },
   abandoned: {
     emotions: ['relieved', 'conflicted', 'peaceful', 'guilty', 'certain'],
     promptGuidance: `You chose to stop. That's valid. Explain why without over-justifying. Sometimes walking away is the right choice.`,
     closureSteps: [
-      'announcement',        // "I decided to stop"
-      'reasoning',           // Why it was right
-      'peace_making',        // Finding peace with it
-      'redirect',            // What energy goes to now
+      'outcome_reaction',    // "I decided to stop"
+      'emotional_processing',// Why it was right
+      'meaning_making',      // Finding peace with it
+      'reflection',          // What energy goes to now
     ],
   },
   transformed: {
     emotions: ['surprised', 'curious', 'excited', 'uncertain', 'open'],
     promptGuidance: `It became something different than expected. Life is weird like that. Share the surprise and what it's becoming.`,
     closureSteps: [
-      'announcement',        // "So this took a turn..."
-      'explanation',         // What it became
-      'feelings',            // How you feel about the change
-      'new_beginning',       // Starting the new story
+      'outcome_reaction',    // "So this took a turn..."
+      'emotional_processing',// What it became
+      'reflection',          // How you feel about the change
+      'lesson_learned',      // Starting the new story
     ],
   },
 };
@@ -597,7 +662,7 @@ async function generateClosureSequence(
   const closureUpdates: StorylineUpdate[] = [];
 
   // Generate an update for each closure step
-  // These will be revealed over 3-5 days
+  // These will be revealed over 4 days (one per day)
   for (let i = 0; i < template.closureSteps.length; i++) {
     const step = template.closureSteps[i];
     const emotion = template.emotions[Math.floor(Math.random() * template.emotions.length)];
@@ -611,7 +676,7 @@ async function generateClosureSequence(
     );
 
     // Schedule update for future (not all at once)
-    update.shouldRevealAt = addDays(new Date(), i + 1);
+    update.shouldRevealAt = addDays(new Date(), i);
     closureUpdates.push(update);
   }
 
@@ -865,7 +930,6 @@ await checkPhaseTransitions(userId);
 ## Migration from Current System
 
 ### Backward Compatibility
-
 The current `life_events` table can be migrated:
 
 ```sql
@@ -908,24 +972,29 @@ FROM life_events;
 
 ## Implementation Phases
 
-### Phase 1: Data Foundation (Week 1)
-- [ ] Create `life_storylines` table
-- [ ] Create `storyline_updates` table
-- [ ] Implement `storylineService.ts` core functions
-- [ ] Migrate existing life events
-- [ ] Write unit tests
+### Phase 1: Data Foundation ✅ COMPLETED (2026-01-16)
+- [x] Create `life_storylines` table
+- [x] Create `storyline_updates` table
+- [x] Implement `storylineService.ts` core functions
+- [x] Migrate existing life events
+- [ ] Write unit tests (Deferred to Phase 6)
 
-### Phase 2: Phase Progression (Week 2)
-- [ ] Implement phase transition logic
-- [ ] Add daily processing job
-- [ ] Generate phase-appropriate updates
-- [ ] Test phase flow end-to-end
+### Phase 2: Phase Progression ✅ COMPLETED (2026-01-16)
+- [x] Implement phase transition logic
+- [x] Add daily processing job
+- [x] Generate phase-appropriate updates
+- [x] Create standalone scheduler (`storylineProcessor.ts`)
+- [x] Integrate scheduler into App.tsx
+- [ ] End-to-end testing (user to verify)
 
-### Phase 3: Emotional Integration (Week 2-3)
-- [ ] Connect to mood system
-- [ ] Add storyline effects to `moodKnobs.ts`
-- [ ] Implement emotional variation
-- [ ] Test mood impact
+### Phase 3: Emotional Integration ✅ COMPLETE
+- [x] Connect to mood system
+- [x] Add storyline effects to `moodKnobs.ts`
+- [x] Implement `getStorylineMoodEffects()` function
+- [x] Calculate mood/energy deltas based on phase and intensity
+- [x] Integrate into `getMoodAsync()` in moodKnobs.ts
+- [x] Add preoccupation calculation
+- [x] Test mood impact with active storylines
 
 ### Phase 4: Prompt Integration (Week 3)
 - [ ] Build prompt section generator
@@ -1040,6 +1109,116 @@ Kayley: "I totally get that. Remember when I was losing my mind over that brand 
 
 ---
 
+## Design Decisions
+
+### Decision 1: Automatic vs LLM-Driven Progression
+
+Two approaches for how storylines progress through phases and generate updates.
+
+#### Option A: Automatic (System-Driven) Progression
+
+The system uses timers, probabilities, and rules to progress phases and generate updates.
+
+**Pros:**
+- **Guaranteed progression**: Storylines WILL move forward regardless of conversation patterns
+- **Consistent timing**: Phases follow realistic time scales (days/weeks, not months)
+- **Reduced LLM costs**: No extra LLM calls needed for phase transitions
+- **Predictable behavior**: Easier to test and debug
+- **No "forgotten" storylines**: System ensures every storyline reaches closure
+- **Works during low engagement**: Storylines progress even if user doesn't chat much
+
+**Cons:**
+- **Less contextually aware**: Phase changes may feel arbitrary, disconnected from conversation
+- **Potential mood whiplash**: System might progress to "stressed" phase right after user shares good news
+- **Harder to customize**: Can't easily adapt to storyline-specific quirks
+- **Updates may feel generic**: Without LLM generation, updates might lack variety
+
+#### Option B: LLM-Driven Progression
+
+The LLM decides when phases change and generates updates based on conversation context.
+
+**Pros:**
+- **Contextually aware**: Phase changes can align with conversation mood/timing
+- **Richer updates**: LLM can generate unique, storyline-specific content
+- **Emotional coherence**: Won't clash with ongoing conversation tone
+- **Adaptive**: Can adjust based on how user responds to storyline mentions
+- **More natural timing**: LLM can "read the room" before surfacing updates
+
+**Cons:**
+- **May never progress**: If LLM keeps deferring, storylines stagnate
+- **Inconsistent timing**: Some storylines might move too fast, others too slow
+- **Higher LLM costs**: Additional API calls for phase decisions and updates
+- **Harder to debug**: "Why didn't it progress?" is hard to answer
+- **Conversation dependency**: Storylines only progress when user is actively chatting
+
+#### Recommended: Hybrid Approach
+
+**System handles the clock. LLM handles the content.**
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    HYBRID PROGRESSION                        │
+├─────────────────────────────────────────────────────────────┤
+│  SYSTEM RESPONSIBILITIES              LLM RESPONSIBILITIES   │
+│  ─────────────────────────            ─────────────────────  │
+│  • Phase transition timers            • Generate update text │
+│  • Probability calculations           • Determine tone       │
+│  • Enforce min/max phase duration     • Context-aware timing │
+│  • Ensure eventual closure            • Natural surfacing    │
+│  • Track mention deadlines            • Emotional response   │
+│  • Daily processing job               • Conversation fit     │
+└─────────────────────────────────────────────────────────────┘
+```
+
+**How it works:**
+1. **System** runs daily: "Is it time for a phase transition?" (based on minDays, maxDays, probability)
+2. **System** determines: "An update should be generated for this phase"
+3. **LLM** generates: The actual update content with appropriate emotional texture
+4. **System** tracks: "This update needs to be mentioned by X date"
+5. **LLM** decides: When in conversation to naturally surface the update
+6. **System** fallback: If LLM hasn't surfaced after deadline, flag for greeting
+
+This gives you:
+- ✅ Guaranteed progression (system clocks)
+- ✅ Natural content (LLM generation)
+- ✅ No forgotten storylines (system deadlines)
+- ✅ Contextual surfacing (LLM timing)
+
+### Decision 2: Storyline Generation
+
+**Confirmed:** Storylines are system-generated (not user-seeded).
+
+The system creates life events for Kayley through:
+- `lifeEventService.ts` - Current event generation system
+- Random selection from category pools
+- Intensity-based selection for variety
+
+This feature enhances those system-generated events by giving them arcs rather than changing how they're created.
+
+### Decision 3: Proactive Update Sharing
+
+**Confirmed:** Kayley should proactively share updates.
+
+**Implementation:**
+- Updates that haven't been mentioned get a `should_mention_by` deadline
+- If deadline passes without organic mention, update gets flagged
+- Flagged updates get priority in greeting context
+- Kayley will lead with updates: "Hey! So update on the brand thing..."
+
+**Proactivity levels by phase:**
+| Phase | Proactivity | Reasoning |
+|-------|-------------|-----------|
+| `announced` | HIGH | This just happened, you WANT to share |
+| `honeymoon` | MEDIUM | Still excited, will mention if relevant |
+| `reality` | MEDIUM | Venting about challenges is natural |
+| `active` | LOW | Heads-down working, less to share |
+| `climax` | HIGH | This is consuming you, hard NOT to mention |
+| `resolving` | HIGH | Need to process by talking about it |
+| `resolved` | LOW | It's over, occasional reflection |
+| `reflecting` | VERY LOW | Only when contextually relevant |
+
+---
+
 ## Notes
 
 - Phase timing should feel natural, not rushed
@@ -1047,3 +1226,5 @@ Kayley: "I totally get that. Remember when I was losing my mind over that brand 
 - Failures and abandonments are as important as successes
 - User involvement (support, advice) should be tracked and acknowledged
 - Storylines should inform each other (e.g., one failure affecting confidence in another)
+- Only one active storyline is allowed at a time (new creation is blocked until outcome is set)
+- Closure updates are paced via `should_reveal_at` so only one surfaces per day
