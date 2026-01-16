@@ -990,15 +990,8 @@ export async function detectFullIntentLLM(
     ).replace("{context}", contextString);
 
     // 📊 DIAGNOSTIC: Log prompt size
-    console.log(
-      "📊 [IntentService] Prompt length:",
-      prompt.length,
-      "characters"
-    );
-    console.log(
-      "📊 [IntentService] Estimated input tokens:",
-      Math.ceil(prompt.length / 4)
-    );
+    // console.log("📊 [IntentService] Prompt length:", prompt.length, "characters");
+    // console.log("📊 [IntentService] Estimated input tokens:", Math.ceil(prompt.length / 4));
 
     // Call LLM
     const result = await ai.models.generateContent({
@@ -1016,9 +1009,9 @@ export async function detectFullIntentLLM(
               properties: {
                 isGenuine: { type: "BOOLEAN" },
                 category: { type: "STRING", nullable: true },
-                confidence: { type: "NUMBER" }
+                confidence: { type: "NUMBER" },
               },
-              required: ["isGenuine", "category", "confidence"]
+              required: ["isGenuine", "category", "confidence"],
             },
             tone: {
               type: "OBJECT",
@@ -1027,9 +1020,14 @@ export async function detectFullIntentLLM(
                 primaryEmotion: { type: "STRING" },
                 intensity: { type: "NUMBER" },
                 isSarcastic: { type: "BOOLEAN" },
-                secondaryEmotion: { type: "STRING", nullable: true }
+                secondaryEmotion: { type: "STRING", nullable: true },
               },
-              required: ["sentiment", "primaryEmotion", "intensity", "isSarcastic"]
+              required: [
+                "sentiment",
+                "primaryEmotion",
+                "intensity",
+                "isSarcastic",
+              ],
             },
             topics: {
               type: "OBJECT",
@@ -1042,14 +1040,19 @@ export async function detectFullIntentLLM(
                     type: "OBJECT",
                     properties: {
                       topic: { type: "STRING" },
-                      emotion: { type: "STRING" }
+                      emotion: { type: "STRING" },
                     },
-                    required: ["topic", "emotion"]
-                  }
+                    required: ["topic", "emotion"],
+                  },
                 },
-                entities: { type: "ARRAY", items: { type: "STRING" } }
+                entities: { type: "ARRAY", items: { type: "STRING" } },
               },
-              required: ["topics", "primaryTopic", "emotionalContext", "entities"]
+              required: [
+                "topics",
+                "primaryTopic",
+                "emotionalContext",
+                "entities",
+              ],
             },
             openLoops: {
               type: "OBJECT",
@@ -1060,13 +1063,27 @@ export async function detectFullIntentLLM(
                 suggestedFollowUp: { type: "STRING", nullable: true },
                 timeframe: {
                   type: "STRING",
-                  enum: ["immediate", "today", "tomorrow", "this_week", "soon", "later"],
-                  nullable: true
+                  enum: [
+                    "immediate",
+                    "today",
+                    "tomorrow",
+                    "this_week",
+                    "soon",
+                    "later",
+                  ],
+                  nullable: true,
                 },
                 salience: { type: "NUMBER" },
-                eventDateTime: { type: "STRING", nullable: true }
+                eventDateTime: { type: "STRING", nullable: true },
               },
-              required: ["hasFollowUp", "loopType", "topic", "suggestedFollowUp", "timeframe", "salience"]
+              required: [
+                "hasFollowUp",
+                "loopType",
+                "topic",
+                "suggestedFollowUp",
+                "timeframe",
+                "salience",
+              ],
             },
             relationshipSignals: {
               type: "OBJECT",
@@ -1082,29 +1099,39 @@ export async function detectFullIntentLLM(
                 isHostile: { type: "BOOLEAN" },
                 hostilityReason: { type: "STRING", nullable: true },
                 isInappropriate: { type: "BOOLEAN" },
-                inappropriatenessReason: { type: "STRING", nullable: true }
+                inappropriatenessReason: { type: "STRING", nullable: true },
               },
               required: [
-                "isVulnerable", "isSeekingSupport", "isAcknowledgingSupport", 
-                "isJoking", "isDeepTalk", "milestone", "milestoneConfidence", 
-                "isHostile", "isInappropriate"
-              ]
+                "isVulnerable",
+                "isSeekingSupport",
+                "isAcknowledgingSupport",
+                "isJoking",
+                "isDeepTalk",
+                "milestone",
+                "milestoneConfidence",
+                "isHostile",
+                "isInappropriate",
+              ],
             },
             contradiction: {
               type: "OBJECT",
               properties: {
                 isContradicting: { type: "BOOLEAN" },
                 topic: { type: "STRING", nullable: true },
-                confidence: { type: "NUMBER" }
+                confidence: { type: "NUMBER" },
               },
-              required: ["isContradicting", "topic", "confidence"]
-            }
+              required: ["isContradicting", "topic", "confidence"],
+            },
           },
           required: [
-            "genuineMoment", "tone", "topics", "openLoops",
-            "relationshipSignals", "contradiction"
-          ]
-        }
+            "genuineMoment",
+            "tone",
+            "topics",
+            "openLoops",
+            "relationshipSignals",
+            "contradiction",
+          ],
+        },
       },
     });
 

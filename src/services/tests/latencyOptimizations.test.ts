@@ -224,7 +224,6 @@ describe("Latency Optimizations - Phase 1", () => {
       };
 
       const prompt = await buildSystemPrompt(
-        undefined, //     character?: CharacterProfile,
         undefined, //     relationship?: RelationshipMetrics | null,
         [], //     upcomingEvents: any[] = [],
         undefined, //     characterContext?: string,
@@ -232,7 +231,6 @@ describe("Latency Optimizations - Phase 1", () => {
         null, //     relationshipSignals?: RelationshipSignalIntent | null,
         null, //     toneIntent?: ToneIntent | null,
         null, //     fullIntent?: FullMessageIntent | null,
-        undefined, //     userTimeZone?: string,
         prefetchedContext
       );
 
@@ -252,7 +250,6 @@ describe("Latency Optimizations - Phase 1", () => {
 
     it("should fallback to calling fetchers when pre-fetched context is NOT provided", async () => {
       const prompt = await buildSystemPrompt(
-        undefined,
         undefined,
         [],
         undefined,

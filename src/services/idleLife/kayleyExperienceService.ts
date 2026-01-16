@@ -143,7 +143,7 @@ const EXPERIENCE_TEMPLATES: ExperienceTemplate[] = [
 // ============================================================================
 // Core Functions
 // ============================================================================
-const USER_ID = import.meta.env.VITE_USER_ID;
+
 /**
  * Generate a life experience for Kayley.
  * Called during idle time (every 1-2 hours of user absence).

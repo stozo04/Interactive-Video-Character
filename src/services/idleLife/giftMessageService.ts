@@ -74,6 +74,10 @@ const THOUGHT_GIFT_MESSAGES = [
 // Core Functions
 // ============================================================================
 
+// GATES: THIS IS NOT IMPLEMENTED.
+// THIS IS ATTACHED TO IDLE THOUGHTS AND IDLE THOUGHTS IS TURNED OFF
+// THIS NEEDS TO BE DYNAMIC (BASED ON PAST CONV. HISTORY) AND NOT HARD CODED
+
 /**
  * Maybe generate a gift message.
  * Called during idle time with very low probability.
@@ -81,9 +85,7 @@ const THOUGHT_GIFT_MESSAGES = [
  * @param hoursAway - How long user has been away
  * @returns The pending message input, or null if no gift generated
  */
-export async function maybeGenerateGiftMessage(
-  hoursAway: number
-): Promise<CreatePendingMessageInput | null> {
+export async function maybeGenerateGiftMessage(): Promise<CreatePendingMessageInput | null> {
   // Roll the dice - 5% chance
   if (Math.random() > GIFT_MESSAGE_CHANCE) {
     return null;

@@ -731,7 +731,8 @@ export class GeminiService implements IAIChatService {
 
       // Use original message for intent detection (without calendar/email enrichment)
       // This keeps intent detection payload small (~3000 chars vs ~5000 chars)
-      const messageForIntent = options.originalMessageForIntent || userMessageText;
+      const messageForIntent =
+        options.originalMessageForIntent || userMessageText;
 
       // Build conversation context early (for intent detection)
       const interactionCount = options.chatHistory?.length || 0;
@@ -774,6 +775,7 @@ export class GeminiService implements IAIChatService {
 
       // 🚀 CHECK GLOBAL PREFETCH CACHE FIRST (Idle optimization)
       const cachedContext = getPrefetchedContext();
+      console.log("cachedContext: ", cachedContext);
       let prefetchedContext:
         | {
             soulContext: Awaited<ReturnType<typeof getSoulLayerContextAsync>>;
@@ -854,7 +856,6 @@ export class GeminiService implements IAIChatService {
       if (contextPrefetchPromise) {
         try {
           prefetchedContext = await contextPrefetchPromise;
-          console.log("✅ [GeminiService] Context prefetch completed");
         } catch (e) {
           console.warn("[GeminiService] Context prefetch failed:", e);
         }
@@ -866,12 +867,11 @@ export class GeminiService implements IAIChatService {
       const fetchedContext = await this.fetchUserContext(
         options.googleAccessToken
       );
-
+      console.log("fetchedContext: ", fetchedContext);
       // ============================================
       // BUILD SYSTEM PROMPT
       // ============================================
       const systemPrompt = await buildSystemPrompt(
-        undefined, // character - not needed, service handles internally
         fetchedContext.relationship,
         fetchedContext.upcomingEvents,
         fetchedContext.characterContext,
@@ -879,7 +879,6 @@ export class GeminiService implements IAIChatService {
         preCalculatedIntent?.relationshipSignals,
         preCalculatedIntent?.tone,
         preCalculatedIntent,
-        undefined, // userTimeZone
         prefetchedContext
       );
 
@@ -894,6 +893,8 @@ export class GeminiService implements IAIChatService {
       // ============================================
 
       // Log almost moment usage
+      console.log("aiResponse: ", aiResponse);
+      console.log("updatedSession: ", updatedSession);
       logAlmostMomentIfUsed(aiResponse).catch((err) => {
         console.warn("[GeminiService] Failed to log almost moment:", err);
       });
@@ -1002,8 +1003,8 @@ export class GeminiService implements IAIChatService {
       // ============================================
       // TTS GENERATION
       // ============================================
-      const audioMode = options.audioMode ?? "async";
-      console.log("audioMode: ", audioMode);
+      const audioMode = "none"; // Gates: Turning off ElevenLabs options.audioMode ?? "async";
+      // console.log("audioMode: ", audioMode);
 
       if (audioMode === "none") {
         this.triggerPostResponsePrefetch();
@@ -1014,58 +1015,59 @@ export class GeminiService implements IAIChatService {
         };
       }
 
-      if (audioMode === "async") {
-        // Fire-and-forget TTS
-        if (isValidTextForTTS(aiResponse.text_response)) {
-          generateSpeech(aiResponse.text_response)
-            .then((audioData) => {
-              if (audioData) options.onAudioData?.(audioData);
-            })
-            .catch((err) => {
-              console.warn("🔊 [GeminiService] async TTS failed", err);
-            });
-        } else {
-          console.warn(
-            "⚠️ [GeminiService] Skipped async TTS: text_response was empty or invalid:",
-            aiResponse.text_response
-          );
-        }
+      // if (audioMode === "async") {
+      //   // Fire-and-forget TTS
+      //   if (isValidTextForTTS(aiResponse.text_response)) {
+      //     generateSpeech(aiResponse.text_response)
+      //       .then((audioData) => {
+      //         if (audioData) options.onAudioData?.(audioData);
+      //       })
+      //       .catch((err) => {
+      //         console.warn("🔊 [GeminiService] async TTS failed", err);
+      //       });
+      //   } else {
+      //     console.warn(
+      //       "⚠️ [GeminiService] Skipped async TTS: text_response was empty or invalid:",
+      //       aiResponse.text_response
+      //     );
+      //   }
 
-        this.triggerPostResponsePrefetch();
+      //   this.triggerPostResponsePrefetch();
 
-        return {
-          response: aiResponse,
-          session: updatedSession,
-          intent: preCalculatedIntent,
-        };
-      }
+      //   return {
+      //     response: aiResponse,
+      //     session: updatedSession,
+      //     intent: preCalculatedIntent,
+      //   };
+      // }
 
       // SYNC mode: Wait for TTS
-      let audioData: string | undefined;
-      if (isValidTextForTTS(aiResponse.text_response)) {
-        audioData = await generateSpeech(aiResponse.text_response);
-        console.log("audioData: ", audioData);
-      } else {
-        console.warn(
-          "⚠️ [GeminiService] Skipped TTS: text_response was empty or invalid:",
-          aiResponse.text_response
-        );
-        audioData = undefined;
-      }
+      // let audioData: string | undefined;
+      // if (isValidTextForTTS(aiResponse.text_response)) {
+      //   audioData = await generateSpeech(aiResponse.text_response);
+      //   console.log("audioData: ", audioData);
+      // } else {
+      //   console.warn(
+      //     "⚠️ [GeminiService] Skipped TTS: text_response was empty or invalid:",
+      //     aiResponse.text_response
+      //   );
+      //   audioData = undefined;
+      // }
 
       // Post-response prefetch
-      this.triggerPostResponsePrefetch();
+      //   this.triggerPostResponsePrefetch();
 
-      return {
-        response: aiResponse,
-        session: updatedSession,
-        audioData,
-        intent: preCalculatedIntent,
-      };
-    } catch (error) {
-      console.error("Gemini Service Error:", error);
-      throw error;
-    }
+      //   return {
+      //     response: aiResponse,
+      //     session: updatedSession,
+      //     audioData,
+      //     intent: preCalculatedIntent,
+      //   };
+    } 
+    catch (error) {
+       console.error("Gemini Service Error:", error);
+       throw error;
+     }
   }
 
   // ============================================
@@ -1229,7 +1231,6 @@ Keep it very short (1 sentence).
     );
 
     const fullSystemPrompt = await buildSystemPrompt(
-      undefined, // character - not needed
       fetchedContext.relationship,
       fetchedContext.upcomingEvents,
       fetchedContext.characterContext,
@@ -1237,7 +1238,6 @@ Keep it very short (1 sentence).
       undefined, // relationshipSignals
       undefined, // toneIntent
       undefined, // fullIntent
-      undefined, // userTimeZone
       { soulContext: soulResult, characterFacts: factsResult }
     );
 
@@ -1307,15 +1307,10 @@ Keep it very short (1 sentence).
     }
 
     const systemPrompt = await buildSystemPrompt(
-      undefined, // character
       fetchedContext.relationship,
       fetchedContext.upcomingEvents,
       fetchedContext.characterContext,
-      fetchedContext.tasks,
-      undefined,
-      undefined,
-      undefined,
-      undefined
+      fetchedContext.tasks
     );
 
     try {
@@ -1496,15 +1491,10 @@ Keep it very short (1 sentence).
     const fetchedContext = await this.fetchUserContext();
 
     const systemPrompt = await buildSystemPrompt(
-      undefined, // character
       fetchedContext.relationship,
       fetchedContext.upcomingEvents,
       fetchedContext.characterContext,
-      fetchedContext.tasks,
-      undefined,
-      undefined,
-      undefined,
-      undefined
+      fetchedContext.tasks
     );
 
     try {

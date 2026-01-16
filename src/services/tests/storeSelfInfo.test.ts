@@ -291,43 +291,43 @@ describe('store_self_info Schema', () => {
 // ============================================
 
 describe('store_self_info Prompt Instructions', () => {
-  it('should include store_self_info instructions in system prompt', async () => {
-    const prompt = await buildSystemPrompt(mockCharacter, mockRelationship);
+  it("should include store_self_info instructions in system prompt", async () => {
+    const prompt = await buildSystemPrompt(mockRelationship);
 
-    expect(prompt).toContain('CHECK FOR NEW SELF-FACTS');
-    expect(prompt).toContain('store_character_info');
+    expect(prompt).toContain("CHECK FOR NEW SELF-FACTS");
+    expect(prompt).toContain("store_character_info");
   });
 
-  it('should explain all category types', async () => {
-    const prompt = await buildSystemPrompt(mockCharacter, mockRelationship);
+  it("should explain all category types", async () => {
+    const prompt = await buildSystemPrompt(mockRelationship);
 
-    expect(prompt).toContain('quirk');
-    expect(prompt).toContain('experience');
-    expect(prompt).toContain('preference');
-    expect(prompt).toContain('relationship');
-    expect(prompt).toContain('detail');
+    expect(prompt).toContain("quirk");
+    expect(prompt).toContain("experience");
+    expect(prompt).toContain("preference");
+    expect(prompt).toContain("relationship");
+    expect(prompt).toContain("detail");
   });
 
-  it('should include usage examples', async () => {
-    const prompt = await buildSystemPrompt(mockCharacter, mockRelationship);
+  it("should include usage examples", async () => {
+    const prompt = await buildSystemPrompt(mockRelationship);
 
     // Check for tool signature arguments
-    expect(prompt).toContain('category');
-    expect(prompt).toContain('key');
-    expect(prompt).toContain('value');
+    expect(prompt).toContain("category");
+    expect(prompt).toContain("key");
+    expect(prompt).toContain("value");
   });
 
-  it('should warn not to use for facts already in profile', async () => {
-    const prompt = await buildSystemPrompt(mockCharacter, mockRelationship);
+  it("should warn not to use for facts already in profile", async () => {
+    const prompt = await buildSystemPrompt(mockRelationship);
 
     expect(prompt).toContain("Only for NEW details");
   });
 
-  it('should explain when to use store_self_info', async () => {
-    const prompt = await buildSystemPrompt(mockCharacter, mockRelationship);
+  it("should explain when to use store_self_info", async () => {
+    const prompt = await buildSystemPrompt(mockRelationship);
 
-    expect(prompt).toContain('When: You make up a new detail about yourself');
-    expect(prompt).toContain('something new about yourself');
+    expect(prompt).toContain("When: You make up a new detail about yourself");
+    expect(prompt).toContain("something new about yourself");
   });
 });
 
