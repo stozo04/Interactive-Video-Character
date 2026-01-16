@@ -4,9 +4,7 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
   ChatMessage,
-  UploadedImage,
   CharacterProfile,
-  CharacterAction,
 } from './types';
 import * as dbService from './services/cacheService';
 import { supabase } from './services/supabaseClient';
@@ -14,15 +12,9 @@ import AuthWarningBanner from './components/AuthWarningBanner';
 import * as conversationHistoryService from './services/conversationHistoryService';
 import * as relationshipService from './services/relationshipService';
 import type { RelationshipMetrics } from './services/relationshipService';
-import type { FullMessageIntent } from './services/intentService';
 import { recordExchange } from './services/callbackDirector';
-import { getTopLoopToSurface } from './services/presenceDirector';
 import { gmailService, type NewEmailPayload } from './services/gmailService';
-import {
-  calendarService,
-  type CalendarEvent,
-} from './services/calendarService';
-import { generateSpeech } from './services/elevenLabsService'; // Import generateSpeech
+import { calendarService } from './services/calendarService';
 import { buildActionKeyMap } from './utils/actionKeyMapper';
 import { predictActionFromMessage } from './utils/intentUtils';
 import { prefetchOnIdle, clearPrefetchCache } from './services/prefetchService';
@@ -55,9 +47,7 @@ import { useCharacterManagement } from './hooks/useCharacterManagement';
 import { useAIService } from './contexts/AIServiceContext';
 import { AIChatSession } from './services/aiService';
 import { startCleanupScheduler, stopCleanupScheduler } from './services/loopCleanupService';
-import { startIdleThoughtsScheduler, stopIdleThoughtsScheduler } from './services/idleThoughtsScheduler';
 import { startPromiseChecker, stopPromiseChecker } from './services/backgroundJobs';
-// Utility imports (Phase 1 extraction)
 import { isQuestionMessage } from './utils/textUtils';
 import { shuffleArray } from './utils/arrayUtils';
 
@@ -89,8 +79,7 @@ const App: React.FC = () => {
   // --------------------------------------------------------------------------
   const [view, setView] = useState<View>('loading');
   const [characters, setCharacters] = useState<CharacterProfile[]>([]);
-  const [selectedCharacter, setSelectedCharacter] =
-    useState<CharacterProfile | null>(null);
+  const [selectedCharacter, setSelectedCharacter] = useState<CharacterProfile | null>(null);
 
   // Voice Mode State
   const [isSpeaking, setIsSpeaking] = useState(false);
@@ -145,7 +134,6 @@ const App: React.FC = () => {
   const taskPlayPositiveRef = useRef<() => void>(() => {});
   const {
     tasks,
-    setTasks,
     isTaskPanelOpen,
     setIsTaskPanelOpen,
     loadTasks,
@@ -173,7 +161,6 @@ const App: React.FC = () => {
   const {
     lastInteractionAt,
     setLastInteractionAt,
-    hasInteractedRef,
     registerInteraction,
   } = useIdleTracking();
 
@@ -185,9 +172,6 @@ const App: React.FC = () => {
     setActionVideoUrls,
     playAction,
     playRandomTalkingAction,
-    triggerIdleAction,
-    scheduleIdleAction,
-    clearIdleActionTimer,
     isTalkingActionId,
   } = useCharacterActions({
     selectedCharacter,
@@ -209,11 +193,8 @@ const App: React.FC = () => {
     isAddingIdleVideo,
     setIsUpdatingImage,
     deletingIdleVideoId,
-    isUpdatingImage,
     uploadedImage,
-    setUploadedImage,
     handleImageUpload,
-    handleCharacterCreated,
     handleSelectLocalVideo,
     handleManageCharacter,
     handleDeleteCharacter,
@@ -264,10 +245,7 @@ const App: React.FC = () => {
   const {
     upcomingEvents,
     weekEvents,
-    setUpcomingEvents,
     refreshEvents: refreshCalendarEvents,
-    refreshWeekEvents,
-    triggerCalendarCheckin,
     registerCalendarEffects,
     checkForApplicableCheckins,
   } = useCalendar({
@@ -280,8 +258,6 @@ const App: React.FC = () => {
     triggerSystemMessage: (prompt) => calendarTriggerRef.current(prompt),
   });
 
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const [notifiedEventIds, setNotifiedEventIds] = useState<Set<string>>(new Set());
   const lastIdleBreakerAtRef = useRef<number | null>(null);
 
   // ==========================================================================
@@ -311,13 +287,15 @@ const App: React.FC = () => {
   // Idle Thoughts: Initialize scheduler to generate thoughts during user absence
   useEffect(() => {
     try {
+      console.log("❌ Idle Thoughts are disabled.")
+      // Disabling Idle Thoughts as this is not working as expected.
+      // I need to get rid of the hard code logic in idleThougths.ts
+      // and make it dynamic
+      // startIdleThoughtsScheduler();
 
-
-      startIdleThoughtsScheduler();
-
-        return () => {
-          stopIdleThoughtsScheduler();
-        };
+      // return () => {
+      //   stopIdleThoughtsScheduler();
+      // };
 
     } catch (e) {
       // Ignore if user ID check fails (e.g. env var missing in dev)
@@ -421,7 +399,7 @@ const App: React.FC = () => {
     try {
       const savedCharacters = await dbService.getCharacters();
       const loadTime = performance.now() - startTime;
-      console.log(`✅ Loaded ${savedCharacters.length} character(s) in ${loadTime.toFixed(0)}ms`);
+      // console.log(`✅ Loaded ${savedCharacters.length} character(s) in ${loadTime.toFixed(0)}ms`);
       setCharacters(savedCharacters.sort((a, b) => b.createdAt - a.createdAt));
       setView('selectCharacter');
     } catch (error) {
@@ -524,7 +502,6 @@ const App: React.FC = () => {
   // ==========================================================================
   // SYSTEM MESSAGE & IDLE BREAKER
   // ==========================================================================
-
   const triggerSystemMessage = useCallback(async (systemPrompt: string) => {
     if (!selectedCharacter || !session) return;
 
@@ -532,7 +509,7 @@ const App: React.FC = () => {
     setIsProcessingAction(true);
 
     try {
-      // 2. Send to AI (Grok/Gemini)
+      // 2. Send to AI (Gemini)
       // Notice we pass the systemPrompt as 'text' but with a special type or just handle it as text
       const { response, session: updatedSession, audioData } = await activeService.generateResponse(
         { type: 'text', text: systemPrompt },
@@ -561,7 +538,7 @@ const App: React.FC = () => {
       if (!isMuted && audioData) enqueueAudio(audioData);
       if (response.action_id) playAction(response.action_id);
       if (response.open_app) {
-         console.log("dYs? Launching app:", response.open_app);
+        console.log("Launching app:", response.open_app);
          window.location.href = response.open_app;
       }
 
@@ -728,7 +705,13 @@ const App: React.FC = () => {
         !isSpeaking &&
         !recentlyTriggered
       ) {
-        triggerIdleBreaker();
+        // GATES: To get Idle thoughts complete I need a way to have Kayley 
+        // mention or share her idle thoughts (that she chooses) and then
+        // think about following up or resolving this thoughts
+        // Plus: Right now all thoughts are hard coded and not LLM Generated
+        // based on past conversation history
+        console.log("Idle thoughts are not conected.")
+        // triggerIdleBreaker();
       }
     };
 

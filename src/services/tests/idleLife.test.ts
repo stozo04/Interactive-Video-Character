@@ -355,7 +355,7 @@ describe("Gift Message Service", () => {
       const originalRandom = Math.random;
       Math.random = () => 0.2; // Above 0.05 threshold
 
-      const result = await maybeGenerateGiftMessage(2);
+      const result = await maybeGenerateGiftMessage();
 
       Math.random = originalRandom;
 
@@ -387,7 +387,7 @@ describe("Gift Message Service", () => {
       });
 
       // Note: This may still return null due to additional checks
-      const result = await maybeGenerateGiftMessage(2);
+      const result = await maybeGenerateGiftMessage();
 
       Math.random = originalRandom;
 

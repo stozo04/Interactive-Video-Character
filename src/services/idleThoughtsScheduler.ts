@@ -190,7 +190,7 @@ async function processIdleTick(): Promise<void> {
     const stillNoPending = await hasUndeliveredMessage();
     if (!stillNoPending) {
       try {
-        const giftMessage = await maybeGenerateGiftMessage(hoursAway);
+        const giftMessage = await maybeGenerateGiftMessage();
         if (giftMessage) {
           console.log(`🎁 [IdleScheduler] Created gift message: "${giftMessage.messageText.slice(0, 40)}..."`);
         }

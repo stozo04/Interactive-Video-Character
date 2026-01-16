@@ -5,10 +5,9 @@
  * This is the core prompt construction logic.
  */
 
-import { CharacterProfile, Task } from "../../../types";
+import { Task } from "../../../types";
 import type { RelationshipMetrics } from "../../relationshipService";
 import { KAYLEY_FULL_PROFILE } from "../../../domain/characters/kayleyCharacterProfile";
-import { GAMES_PROFILE } from "../../../domain/characters/gamesProfile";
 import { getRecentNewsContext } from "../../newsService";
 import { formatMoodForPrompt } from "../../moodKnobs";
 import { getIntimacyContextForPromptAsync } from "../../relationshipService";
@@ -17,15 +16,10 @@ import type {
   ToneIntent,
   FullMessageIntent,
 } from "../../intentService";
-import { getActionKeysForPrompt } from "../../../utils/actionKeyMapper";
 import { formatCharacterFactsForPrompt } from "../../characterFactsService";
-
 import type { SoulLayerContext } from "../types";
-
 import { buildComfortableImperfectionPrompt } from "../behavior/comfortableImperfection";
-import {
-  buildMinifiedSemanticIntent,
-} from "../context/messageContext";
+import { buildMinifiedSemanticIntent } from "../context/messageContext";
 import { buildStyleOutputSection } from "../context/styleOutput";
 import { buildRelationshipTierPrompt } from "./relationshipPromptBuilders";
 import { buildSelfieRulesPrompt } from "./selfiePromptBuilder";
@@ -88,7 +82,6 @@ function deriveVulnerabilityExchangeActive(
 }
 
 export const buildSystemPrompt = async (
-  character?: CharacterProfile,
   relationship?: RelationshipMetrics | null,
   upcomingEvents: any[] = [],
   characterContext?: string,
@@ -96,23 +89,23 @@ export const buildSystemPrompt = async (
   relationshipSignals?: RelationshipSignalIntent | null,
   toneIntent?: ToneIntent | null,
   fullIntent?: FullMessageIntent | null,
-
-  userTimeZone?: string,
-  // 🚀 NEW: Optional pre-fetched context to avoid duplicate fetches
   prefetchedContext?: {
     soulContext: SoulLayerContext;
     characterFacts: string;
   }
 ): Promise<string> => {
-  const name = character?.name || "Kayley Adams";
-  const display = character?.displayName || "Kayley";
+  const name = "Kayley Adams";
+  const display = "Kayley";
 
   let soulContext: SoulLayerContext;
   let characterFactsPrompt: string;
 
   if (prefetchedContext) {
     // Use pre-fetched data (saves ~300ms)
-    console.log("✅ [buildSystemPrompt] Using pre-fetched context");
+    console.log(
+      "✅ [buildSystemPrompt] Using pre-fetched context: ",
+      prefetchedContext
+    );
     soulContext = prefetchedContext.soulContext;
     characterFactsPrompt = prefetchedContext.characterFacts;
   } else {
@@ -436,7 +429,7 @@ The following ${upcomingEvents.length} event(s) are scheduled:
       const eventLine = `${index + 1}. "${event.summary}" (ID: ${
         event.id
       }) at ${t.toLocaleString("en-US", {
-        timeZone: userTimeZone || "America/Chicago",
+        timeZone: "America/Chicago",
         weekday: "short",
         month: "numeric",
         day: "numeric",
@@ -559,26 +552,6 @@ To create a task, call the task_action tool with action="create", task_text="des
 
 `;
   }
-
-  // Action menu (optional) - Phase 1 Optimization: Use simple key list instead of full objects
-  if (character?.actions?.length) {
-    console.log(
-      `[AI] Including ${character.actions.length} actions in system prompt (simplified keys)`,
-      character.actions.map((a) => a.name)
-    );
-
-    // Get simple action keys (e.g., "talking, confused, excited")
-    const actionKeys = getActionKeysForPrompt(character.actions);
-
-    prompt += `
-
-[Available Actions]
-${actionKeys}
-
-Note: Use these action names in the "action_id" field when triggered. Example: "action_id": "talking"
-`;
-  }
-
   prompt += `
 ${buildOutputFormatSection()}
 

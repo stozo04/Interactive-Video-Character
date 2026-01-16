@@ -225,21 +225,21 @@ describe("System Prompt - Core Structure", () => {
 
   describe("Identity Section", () => {
     it("should produce a non-empty prompt", async () => {
-      const prompt = await buildSystemPrompt(mockCharacter, mockRelationship);
+      const prompt = await buildSystemPrompt(mockRelationship);
 
       expect(prompt).toBeDefined();
       expect(prompt.length).toBeGreaterThan(1000);
     });
 
     it("should include comfortable imperfection section", async () => {
-      const prompt = await buildSystemPrompt(mockCharacter, mockRelationship);
+      const prompt = await buildSystemPrompt(mockRelationship);
 
       expect(prompt).toContain("CONVERSATIONAL IMPERFECTION");
       expect(prompt).toContain("UNCERTAINTY EXAMPLES");
     });
 
     it("should include character behavior guidance", async () => {
-      const prompt = await buildSystemPrompt(mockCharacter, mockRelationship);
+      const prompt = await buildSystemPrompt(mockRelationship);
 
       // These sections exist in the current promptUtils.ts
       expect(prompt).toContain("SELECTIVE ATTENTION");
@@ -253,27 +253,27 @@ describe("System Prompt - Core Structure", () => {
 
   describe("JSON Output Format", () => {
     it("should include JSON format section", async () => {
-      const prompt = await buildSystemPrompt(mockCharacter, mockRelationship);
+      const prompt = await buildSystemPrompt(mockRelationship);
 
       expect(prompt).toContain("OUTPUT FORMAT");
     });
 
     it("should define required JSON fields", async () => {
-      const prompt = await buildSystemPrompt(mockCharacter, mockRelationship);
+      const prompt = await buildSystemPrompt(mockRelationship);
 
       expect(prompt).toContain("text_response");
       expect(prompt).toContain("action_id");
     });
 
     it("should explain action_id should be null 90% of the time", async () => {
-      const prompt = await buildSystemPrompt(mockCharacter, mockRelationship);
+      const prompt = await buildSystemPrompt(mockRelationship);
 
       expect(prompt).toContain("90%");
       expect(prompt).toContain("null");
     });
 
     it("should include calendar_action schema", async () => {
-      const prompt = await buildSystemPrompt(mockCharacter, mockRelationship);
+      const prompt = await buildSystemPrompt(mockRelationship);
 
       expect(prompt).toContain("calendar_action");
       expect(prompt).toContain("create");
@@ -281,7 +281,7 @@ describe("System Prompt - Core Structure", () => {
     });
 
     it("should include task_action schema", async () => {
-      const prompt = await buildSystemPrompt(mockCharacter, mockRelationship);
+      const prompt = await buildSystemPrompt(mockRelationship);
 
       expect(prompt).toContain("task_action");
     });
@@ -293,48 +293,48 @@ describe("System Prompt - Core Structure", () => {
 
   describe("Negative Constraints (JSON Adherence)", () => {
     it("should include critical output rules at end", async () => {
-      const prompt = await buildSystemPrompt(mockCharacter, mockRelationship);
+      const prompt = await buildSystemPrompt(mockRelationship);
 
       expect(prompt).toContain("CRITICAL OUTPUT RULES");
     });
 
     it("should instruct to start with { and end with }", async () => {
-      const prompt = await buildSystemPrompt(mockCharacter, mockRelationship);
+      const prompt = await buildSystemPrompt(mockRelationship);
 
       expect(prompt).toContain("Start with '{'");
       expect(prompt).toContain("end with '}'");
     });
 
     it("should explicitly forbid preamble", async () => {
-      const prompt = await buildSystemPrompt(mockCharacter, mockRelationship);
+      const prompt = await buildSystemPrompt(mockRelationship);
 
       expect(prompt).toContain("NO PREAMBLE");
       expect(prompt).toContain("Sure!");
     });
 
     it("should forbid markdown code blocks", async () => {
-      const prompt = await buildSystemPrompt(mockCharacter, mockRelationship);
+      const prompt = await buildSystemPrompt(mockRelationship);
 
       expect(prompt).toContain("NO MARKDOWN");
       expect(prompt).toContain("```json");
     });
 
     it("should include quote escaping instructions", async () => {
-      const prompt = await buildSystemPrompt(mockCharacter, mockRelationship);
+      const prompt = await buildSystemPrompt(mockRelationship);
 
       expect(prompt).toContain("ESCAPE QUOTES");
       expect(prompt).toContain('\\"');
     });
 
     it("should include example JSON format", async () => {
-      const prompt = await buildSystemPrompt(mockCharacter, mockRelationship);
+      const prompt = await buildSystemPrompt(mockRelationship);
 
       expect(prompt).toContain('{"text_response"');
       expect(prompt).toContain('"action_id": null');
     });
 
     it("should have output rules near the end of the prompt", async () => {
-      const prompt = await buildSystemPrompt(mockCharacter, mockRelationship);
+      const prompt = await buildSystemPrompt(mockRelationship);
 
       // The critical output rules should be in the last 25% of the prompt
       const criticalRulesIndex = prompt.indexOf("CRITICAL OUTPUT RULES");
@@ -351,13 +351,13 @@ describe("System Prompt - Core Structure", () => {
 
   describe("Action Keys (Simplified Format)", () => {
     it("should include available actions section when character has actions", async () => {
-      const prompt = await buildSystemPrompt(mockCharacter, mockRelationship);
+      const prompt = await buildSystemPrompt(mockRelationship);
 
       expect(prompt).toContain("Available Actions");
     });
 
     it("should NOT include full UUID objects in actions", async () => {
-      const prompt = await buildSystemPrompt(mockCharacter, mockRelationship);
+      const prompt = await buildSystemPrompt(mockRelationship);
 
       // Should NOT have the old format with full UUID objects
       expect(prompt).not.toContain("action-uuid-talking");
@@ -365,28 +365,20 @@ describe("System Prompt - Core Structure", () => {
     });
 
     it("should include simple action key names", async () => {
-      const prompt = await buildSystemPrompt(mockCharacter, mockRelationship);
+      const prompt = await buildSystemPrompt(mockRelationship);
 
       // Should have simple key format
       expect(prompt).toContain("talking");
     });
 
     it("should include usage example for action_id", async () => {
-      const prompt = await buildSystemPrompt(mockCharacter, mockRelationship);
+      const prompt = await buildSystemPrompt(mockRelationship);
 
       expect(prompt).toContain('"action_id"');
     });
 
     it("should not include actions section if character has no actions", async () => {
-      const characterNoActions = {
-        ...mockCharacter,
-        actions: [],
-      };
-
-      const prompt = await buildSystemPrompt(
-        characterNoActions,
-        mockRelationship
-      );
+      const prompt = await buildSystemPrompt(mockRelationship);
 
       expect(prompt).not.toContain("[Available Actions]");
     });
@@ -399,31 +391,31 @@ describe("System Prompt - Core Structure", () => {
   // GATES: Help!!
   // describe("Relationship Context", () => {
   //   it("should include relationship state section", async () => {
-  //     const prompt = await buildSystemPrompt(mockCharacter, mockRelationship);
+  //     const prompt = await buildSystemPrompt(mockRelationship);
 
   //     expect(prompt).toContain("RELATIONSHIP STATE");
   //   });
 
   //   it("should include relationship tier", async () => {
-  //     const prompt = await buildSystemPrompt(mockCharacter, mockRelationship);
+  //     const prompt = await buildSystemPrompt(mockRelationship);
 
   //     expect(prompt).toContain("friend");
   //   });
 
   //   it("should include warmth score", async () => {
-  //     const prompt = await buildSystemPrompt(mockCharacter, mockRelationship);
+  //     const prompt = await buildSystemPrompt(mockRelationship);
 
   //     expect(prompt).toContain("Warmth");
   //   });
 
   //   it("should include trust score", async () => {
-  //     const prompt = await buildSystemPrompt(mockCharacter, mockRelationship);
+  //     const prompt = await buildSystemPrompt(mockRelationship);
 
   //     expect(prompt).toContain("Trust");
   //   });
 
   //   it("should include tier behavior guidance", async () => {
-  //     const prompt = await buildSystemPrompt(mockCharacter, mockRelationship);
+  //     const prompt = await buildSystemPrompt(mockRelationship);
 
   //     // Phase 3: Only the CURRENT tier is included (friend in this case), not all tiers
   //     // This is the key token-saving optimization
@@ -433,11 +425,11 @@ describe("System Prompt - Core Structure", () => {
 
   //   it("should differentiate between stranger and friend", async () => {
   //     const strangerPrompt = await buildSystemPrompt(
-  //       mockCharacter,
+  //
   //       strangerRelationship
   //     );
   //     const friendPrompt = await buildSystemPrompt(
-  //       mockCharacter,
+  //
   //       mockRelationship
   //     );
 
@@ -446,7 +438,7 @@ describe("System Prompt - Core Structure", () => {
   //   });
 
   //   it("should handle null relationship gracefully", async () => {
-  //     const prompt = await buildSystemPrompt(mockCharacter, null);
+  //     const prompt = await buildSystemPrompt(null);
 
   //     // Should not throw, should have default handling
   //     expect(prompt).toBeDefined();
@@ -480,7 +472,6 @@ describe("System Prompt - Core Structure", () => {
 
     it("should include daily checklist section when tasks exist", async () => {
       const prompt = await buildSystemPrompt(
-        mockCharacter,
         mockRelationship,
         [],
         undefined,
@@ -492,7 +483,6 @@ describe("System Prompt - Core Structure", () => {
 
     it("should include task text in prompt", async () => {
       const prompt = await buildSystemPrompt(
-        mockCharacter,
         mockRelationship,
         [],
         undefined,
@@ -504,7 +494,6 @@ describe("System Prompt - Core Structure", () => {
 
     it("should differentiate completed and pending tasks", async () => {
       const prompt = await buildSystemPrompt(
-        mockCharacter,
         mockRelationship,
         [],
         undefined,
@@ -517,7 +506,6 @@ describe("System Prompt - Core Structure", () => {
 
     it("should handle empty tasks array", async () => {
       const prompt = await buildSystemPrompt(
-        mockCharacter,
         mockRelationship,
         [],
         undefined,
@@ -534,25 +522,25 @@ describe("System Prompt - Core Structure", () => {
 
   describe("Soul Layer Components", () => {
     it("should include selective attention section", async () => {
-      const prompt = await buildSystemPrompt(mockCharacter, mockRelationship);
+      const prompt = await buildSystemPrompt(mockRelationship);
 
       expect(prompt).toContain("SELECTIVE ATTENTION");
     });
 
     it("should include comfortable imperfection section", async () => {
-      const prompt = await buildSystemPrompt(mockCharacter, mockRelationship);
+      const prompt = await buildSystemPrompt(mockRelationship);
 
       expect(prompt).toContain("CONVERSATIONAL IMPERFECTION");
     });
 
     it("should include motivated friction section", async () => {
-      const prompt = await buildSystemPrompt(mockCharacter, mockRelationship);
+      const prompt = await buildSystemPrompt(mockRelationship);
 
       expect(prompt).toContain("MOTIVATED FRICTION");
     });
 
     it("should include curiosity directive", async () => {
-      const prompt = await buildSystemPrompt(mockCharacter, mockRelationship);
+      const prompt = await buildSystemPrompt(mockRelationship);
 
       expect(prompt).toContain("CURIOSITY");
     });
@@ -564,24 +552,21 @@ describe("System Prompt - Core Structure", () => {
 
   describe("Selfie Generation Rules", () => {
     it("should include selfie rules section for friends", async () => {
-      const prompt = await buildSystemPrompt(mockCharacter, mockRelationship);
+      const prompt = await buildSystemPrompt(mockRelationship);
 
       // Friends get full selfie rules (Phase 3: conditional selfie rules)
       expect(prompt).toContain("SELFIE");
     });
 
     it("should include full selfie instructions for friends", async () => {
-      const prompt = await buildSystemPrompt(mockCharacter, mockRelationship);
+      const prompt = await buildSystemPrompt(mockRelationship);
 
       // Friends see selfie_action instructions
       expect(prompt).toContain("selfie_action");
     });
 
     it("should include deflection guidance for strangers", async () => {
-      const prompt = await buildSystemPrompt(
-        mockCharacter,
-        strangerRelationship
-      );
+      const prompt = await buildSystemPrompt(strangerRelationship);
 
       // Strangers see deflection guidance, not full selfie rules
       expect(prompt).toContain("Deflect");
@@ -659,10 +644,10 @@ describe("System Prompt - Core Structure", () => {
       it("should always produce non-empty prompts", async () => {
         const testCases = await Promise.all([
           buildSystemPrompt(),
-          buildSystemPrompt(mockCharacter),
-          buildSystemPrompt(mockCharacter, mockRelationship),
-          buildSystemPrompt(mockCharacter, null),
-          buildSystemPrompt(undefined, mockRelationship),
+          buildSystemPrompt(),
+          buildSystemPrompt(mockRelationship),
+          buildSystemPrompt(null),
+          buildSystemPrompt(mockRelationship),
         ]);
 
         testCases.forEach((prompt, i) => {
@@ -672,20 +657,14 @@ describe("System Prompt - Core Structure", () => {
       });
 
       it("should be deterministic (same input = same output)", async () => {
-        const prompt1 = await buildSystemPrompt(
-          mockCharacter,
-          mockRelationship
-        );
-        const prompt2 = await buildSystemPrompt(
-          mockCharacter,
-          mockRelationship
-        );
+        const prompt1 = await buildSystemPrompt(mockRelationship);
+        const prompt2 = await buildSystemPrompt(mockRelationship);
 
         expect(prompt1).toBe(prompt2);
       });
 
       it("should not contain JavaScript undefined serialization issues", async () => {
-        const prompt = await buildSystemPrompt(mockCharacter, mockRelationship);
+        const prompt = await buildSystemPrompt(mockRelationship);
 
         // Check only for patterns that indicate JavaScript's undefined being incorrectly serialized
         // Bad: ": undefined," (would break JSON) or stringified undefined in key places
@@ -696,13 +675,13 @@ describe("System Prompt - Core Structure", () => {
       });
 
       it("should not contain [object Object]", async () => {
-        const prompt = await buildSystemPrompt(mockCharacter, mockRelationship);
+        const prompt = await buildSystemPrompt(mockRelationship);
 
         expect(prompt).not.toContain("[object Object]");
       });
 
       it("should maintain section ordering: Identity -> Context -> Guidelines -> Output", async () => {
-        const prompt = await buildSystemPrompt(mockCharacter, mockRelationship);
+        const prompt = await buildSystemPrompt(mockRelationship);
 
         const identityIndex = prompt.indexOf("YOUR IDENTITY");
         const relationshipIndex = prompt.indexOf("RELATIONSHIP STATE");
@@ -724,7 +703,6 @@ describe("System Prompt - Core Structure", () => {
         // Explicitly pass undefined for optional parameters
         // This catches template literal ${undefined} issues
         const prompt = await buildSystemPrompt(
-          mockCharacter,
           mockRelationship,
           undefined, // upcomingEvents
           undefined, // characterContext
@@ -747,10 +725,7 @@ describe("System Prompt - Core Structure", () => {
 
       it("should not contain template literal undefined serialization", async () => {
         // Test with null relationship (edge case)
-        const promptNoRelationship = await buildSystemPrompt(
-          mockCharacter,
-          null
-        );
+        const promptNoRelationship = await buildSystemPrompt(null);
 
         // Check for patterns that indicate ${undefinedVar} in templates
         expect(promptNoRelationship).not.toContain("undefined]");
@@ -761,16 +736,10 @@ describe("System Prompt - Core Structure", () => {
 
       it("should produce prompts within expected size range (token savings regression)", async () => {
         // Test with friend relationship (typical case)
-        const friendPrompt = await buildSystemPrompt(
-          mockCharacter,
-          mockRelationship
-        );
+        const friendPrompt = await buildSystemPrompt(mockRelationship);
 
         // Test with stranger relationship (should be smaller due to Phase 3 optimizations)
-        const strangerPrompt = await buildSystemPrompt(
-          mockCharacter,
-          strangerRelationship
-        );
+        const strangerPrompt = await buildSystemPrompt(strangerRelationship);
 
         // Phase 2 baseline was ~72KB, Phase 3 should reduce further
         // Friend prompts: ~65-75KB (full selfie rules)
@@ -796,10 +765,7 @@ describe("System Prompt - Core Structure", () => {
 
       describe("Output Format Positioning", () => {
         it("should have JSON schema in the last 20% of the prompt", async () => {
-          const prompt = await buildSystemPrompt(
-            mockCharacter,
-            mockRelationship
-          );
+          const prompt = await buildSystemPrompt(mockRelationship);
 
           // The JSON schema (text_response, action_id structure) should be near the end
           const jsonSchemaIndex = prompt.indexOf('"text_response": string');
@@ -813,10 +779,7 @@ describe("System Prompt - Core Structure", () => {
         });
 
         it("should have CRITICAL OUTPUT RULES at the very end", async () => {
-          const prompt = await buildSystemPrompt(
-            mockCharacter,
-            mockRelationship
-          );
+          const prompt = await buildSystemPrompt(mockRelationship);
 
           const outputRulesIndex = prompt.indexOf("CRITICAL OUTPUT RULES");
           const promptLength = prompt.length;
@@ -826,10 +789,7 @@ describe("System Prompt - Core Structure", () => {
         });
 
         it("should have Available Actions near the end but before output format", async () => {
-          const prompt = await buildSystemPrompt(
-            mockCharacter,
-            mockRelationship
-          );
+          const prompt = await buildSystemPrompt(mockRelationship);
 
           const availableActionsIndex = prompt.indexOf("[Available Actions]");
           const outputRulesIndex = prompt.indexOf("CRITICAL OUTPUT RULES");
@@ -844,10 +804,7 @@ describe("System Prompt - Core Structure", () => {
 
       describe("Behavioral Content Before Output Format", () => {
         it("should have selfie rules before output format section", async () => {
-          const prompt = await buildSystemPrompt(
-            mockCharacter,
-            mockRelationship
-          );
+          const prompt = await buildSystemPrompt(mockRelationship);
 
           const selfieIndex = prompt.indexOf("SELFIE");
           const outputRulesIndex = prompt.indexOf("CRITICAL OUTPUT RULES");
@@ -856,10 +813,7 @@ describe("System Prompt - Core Structure", () => {
         });
 
         it("should have calendar rules before output format section", async () => {
-          const prompt = await buildSystemPrompt(
-            mockCharacter,
-            mockRelationship
-          );
+          const prompt = await buildSystemPrompt(mockRelationship);
 
           const calendarIndex = prompt.indexOf("CALENDAR");
           const outputRulesIndex = prompt.indexOf("CRITICAL OUTPUT RULES");
@@ -868,10 +822,7 @@ describe("System Prompt - Core Structure", () => {
         });
 
         it("should have style guidance before output format section", async () => {
-          const prompt = await buildSystemPrompt(
-            mockCharacter,
-            mockRelationship
-          );
+          const prompt = await buildSystemPrompt(mockRelationship);
 
           const styleIndex = prompt.indexOf("STYLE");
           const outputRulesIndex = prompt.indexOf("CRITICAL OUTPUT RULES");
@@ -882,10 +833,7 @@ describe("System Prompt - Core Structure", () => {
 
       describe("Recency Optimization Metrics", () => {
         it("should have identity anchor at the very beginning", async () => {
-          const prompt = await buildSystemPrompt(
-            mockCharacter,
-            mockRelationship
-          );
+          const prompt = await buildSystemPrompt(mockRelationship);
 
           // Identity should be in the first 5% of the prompt
           const identityIndex = prompt.indexOf("IDENTITY");
@@ -927,10 +875,7 @@ describe("System Prompt - Core Structure", () => {
         };
 
         it("should include adversarial tier behavior when relationship is adversarial", async () => {
-          const prompt = await buildSystemPrompt(
-            mockCharacter,
-            adversarialRelationship
-          );
+          const prompt = await buildSystemPrompt(adversarialRelationship);
 
           // Should include adversarial behavior guidance
           expect(prompt).toContain("adversarial");
@@ -938,10 +883,7 @@ describe("System Prompt - Core Structure", () => {
         });
 
         it("should include friend tier behavior when relationship is friend", async () => {
-          const prompt = await buildSystemPrompt(
-            mockCharacter,
-            mockRelationship
-          );
+          const prompt = await buildSystemPrompt(mockRelationship);
 
           // Should include friend behavior guidance
           expect(prompt).toContain("friend");
@@ -949,20 +891,14 @@ describe("System Prompt - Core Structure", () => {
         });
 
         it("should include deeply_loving tier behavior for close relationships", async () => {
-          const prompt = await buildSystemPrompt(
-            mockCharacter,
-            closeRelationship
-          );
+          const prompt = await buildSystemPrompt(closeRelationship);
 
           // Should include deeply_loving behavior guidance (Phase 3 format: [YOUR TIER: DEEPLY LOVING])
           expect(prompt).toContain("DEEPLY LOVING");
         });
 
         it("should have tier behavior section in prompt", async () => {
-          const prompt = await buildSystemPrompt(
-            mockCharacter,
-            mockRelationship
-          );
+          const prompt = await buildSystemPrompt(mockRelationship);
 
           // Phase 3: Tier behavior now uses [YOUR TIER: ...] format
           expect(prompt).toContain("YOUR TIER");
@@ -975,10 +911,7 @@ describe("System Prompt - Core Structure", () => {
 
       describe("Conditional Selfie Rules", () => {
         it("should include selfie rules for friend tier", async () => {
-          const prompt = await buildSystemPrompt(
-            mockCharacter,
-            mockRelationship
-          ); // friend tier
+          const prompt = await buildSystemPrompt(mockRelationship); // friend tier
 
           expect(prompt).toContain("SELFIE");
         });
@@ -990,20 +923,14 @@ describe("System Prompt - Core Structure", () => {
             warmthScore: 25,
           };
 
-          const prompt = await buildSystemPrompt(
-            mockCharacter,
-            closeRelationship
-          );
+          const prompt = await buildSystemPrompt(closeRelationship);
 
           expect(prompt).toContain("SELFIE");
         });
 
         it("should include selfie deflection guidance for strangers", async () => {
           // Strangers should see deflection-only guidance (Phase 3 optimization)
-          const prompt = await buildSystemPrompt(
-            mockCharacter,
-            strangerRelationship
-          );
+          const prompt = await buildSystemPrompt(strangerRelationship);
 
           // The compact selfie section for strangers contains deflection examples
           expect(prompt).toContain("Deflect");
@@ -1011,14 +938,8 @@ describe("System Prompt - Core Structure", () => {
         });
 
         it("should have relationship-appropriate selfie guidance", async () => {
-          const strangerPrompt = await buildSystemPrompt(
-            mockCharacter,
-            strangerRelationship
-          );
-          const friendPrompt = await buildSystemPrompt(
-            mockCharacter,
-            mockRelationship
-          );
+          const strangerPrompt = await buildSystemPrompt(strangerRelationship);
+          const friendPrompt = await buildSystemPrompt(mockRelationship);
 
           // Strangers see "IMAGES & SELFIES", friends see "SELFIE / PICTURE GENERATION"
           expect(strangerPrompt).toContain("SELFIES");
@@ -1034,10 +955,7 @@ describe("System Prompt - Core Structure", () => {
         it("should NOT include dimension effects for moderate values (token savings)", async () => {
           // mockRelationship has moderate values (warmth: 5, trust: 3)
           // Phase 3 optimization: don't include guidance for non-extreme dimensions
-          const prompt = await buildSystemPrompt(
-            mockCharacter,
-            mockRelationship
-          );
+          const prompt = await buildSystemPrompt(mockRelationship);
 
           // For moderate values, dimension effects section should not appear
           // This is the key Phase 3 optimization - only extreme values trigger guidance
@@ -1052,7 +970,7 @@ describe("System Prompt - Core Structure", () => {
             warmthScore: 20, // Extreme high (>15)
           };
 
-          const prompt = await buildSystemPrompt(mockCharacter, highWarmth);
+          const prompt = await buildSystemPrompt(highWarmth);
 
           // Should include dimension effects for extreme values
           expect(prompt).toContain("Dimension effects");
@@ -1065,7 +983,7 @@ describe("System Prompt - Core Structure", () => {
             trustScore: -15, // Extreme low (<-10)
           };
 
-          const prompt = await buildSystemPrompt(mockCharacter, lowTrust);
+          const prompt = await buildSystemPrompt(lowTrust);
 
           // Should include trust guidance for extreme values
           expect(prompt).toContain("Dimension effects");
@@ -1078,10 +996,7 @@ describe("System Prompt - Core Structure", () => {
             playfulnessScore: 20, // Extreme high
           };
 
-          const prompt = await buildSystemPrompt(
-            mockCharacter,
-            highPlayfulness
-          );
+          const prompt = await buildSystemPrompt(highPlayfulness);
 
           // Should include playfulness guidance for extreme values
           expect(prompt.toLowerCase()).toContain("playful");
@@ -1093,7 +1008,7 @@ describe("System Prompt - Core Structure", () => {
             stabilityScore: -15, // Extreme low (<-10)
           };
 
-          const prompt = await buildSystemPrompt(mockCharacter, lowStability);
+          const prompt = await buildSystemPrompt(lowStability);
 
           // Should include stability guidance
           expect(prompt.toLowerCase()).toContain("stability");
@@ -1106,10 +1021,7 @@ describe("System Prompt - Core Structure", () => {
 
       describe("Token Savings Metrics", () => {
         it("should not increase prompt size significantly for friends", async () => {
-          const prompt = await buildSystemPrompt(
-            mockCharacter,
-            mockRelationship
-          );
+          const prompt = await buildSystemPrompt(mockRelationship);
 
           // Baseline: prompt should be reasonable size
           // Phase 2 target was ~72KB, Phase 3 should not exceed this
@@ -1134,10 +1046,7 @@ describe("System Prompt - Core Structure", () => {
                 relationshipTier: tier,
               };
 
-              const prompt = await buildSystemPrompt(
-                mockCharacter,
-                tierRelationship
-              );
+              const prompt = await buildSystemPrompt(tierRelationship);
 
               // Should produce valid non-empty prompts for all tiers
               expect(prompt).toBeDefined();
