@@ -250,7 +250,7 @@ Right now, you are: "${
   // STORYLINE INTEGRATION (Phase 4)
   // Only inject on 2nd user message
   // ============================================
-  if (messageCount === 18) {
+  if (messageCount === 2) {
     try {
       const { getStorylinePromptContext } = await import(
         "../../storylineService"
