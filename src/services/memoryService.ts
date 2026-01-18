@@ -393,7 +393,7 @@ export const formatFactsForAI = (facts: UserFact[]): string => {
 // Tool Execution Handler
 // ============================================
 
-export type MemoryToolName = 'recall_memory' | 'recall_user_info' | 'store_user_info' | 'task_action' | 'calendar_action' | 'store_character_info' | 'resolve_open_loop' | 'make_promise';
+export type MemoryToolName = 'recall_memory' | 'recall_user_info' | 'store_user_info' | 'task_action' | 'calendar_action' | 'store_character_info' | 'resolve_open_loop' | 'make_promise' | 'create_life_storyline';
 
 /**
  * Optional context passed to tool execution (e.g., access tokens)
@@ -459,6 +459,16 @@ export interface ToolCallArgs {
       messageText?: string;
       contentToShare?: string;
     };
+  };
+  create_life_storyline: {
+    title: string;
+    category: 'work' | 'personal' | 'family' | 'social' | 'creative';
+    storylineType: 'project' | 'opportunity' | 'challenge' | 'relationship' | 'goal';
+    initialAnnouncement: string;
+    stakes: string;
+    userInvolvement?: 'none' | 'aware' | 'supportive' | 'involved' | 'central';
+    emotionalTone?: string;
+    emotionalIntensity?: number;
   };
 }
 
@@ -845,6 +855,40 @@ export const executeMemoryTool = async (
         } catch (error) {
           console.error(`❌ [Memory Tool] Error creating promise:`, error);
           return `Error creating promise: ${error instanceof Error ? error.message : 'Unknown error'}`;
+        }
+      }
+
+      case 'create_life_storyline': {
+        const { createStorylineFromTool } = await import('./storylineService');
+        const { title, category, storylineType, initialAnnouncement, stakes, userInvolvement, emotionalTone, emotionalIntensity } = args as ToolCallArgs['create_life_storyline'];
+
+        console.log(`📖 [Memory Tool] create_life_storyline called:`);
+        console.log(`   Title: "${title}"`);
+        console.log(`   Category: ${category}`);
+        console.log(`   Type: ${storylineType}`);
+
+        try {
+          const result = await createStorylineFromTool({
+            title,
+            category,
+            storylineType,
+            initialAnnouncement,
+            stakes,
+            userInvolvement,
+            emotionalTone,
+            emotionalIntensity,
+          }, 'conversation');
+
+          if (result.success) {
+            console.log(`✅ [Memory Tool] Storyline created successfully: ${result.storylineId}`);
+            return `✓ Storyline "${title}" created successfully`;
+          } else {
+            console.warn(`⚠️ [Memory Tool] Storyline creation failed: ${result.error}`);
+            return `${result.error}`;
+          }
+        } catch (error) {
+          console.error(`❌ [Memory Tool] Error creating storyline:`, error);
+          return `Error creating storyline: ${error instanceof Error ? error.message : 'Unknown error'}`;
         }
       }
 

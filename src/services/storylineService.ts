@@ -85,6 +85,96 @@ export type UpdateType =
   | 'comparison';
 
 // ============================================================================
+// STORYLINE CREATION TYPES (Phase 1: Conversation-Driven Creation)
+// ============================================================================
+
+/**
+ * Input for creating storyline from LLM tool
+ */
+export interface CreateStorylineFromToolInput {
+  title: string;
+  category: StorylineCategory;
+  storylineType: StorylineType;
+  initialAnnouncement: string;
+  stakes: string;
+  userInvolvement?: 'none' | 'aware' | 'supportive' | 'involved' | 'central';
+  emotionalTone?: string;
+  emotionalIntensity?: number;
+}
+
+/**
+ * Result of storyline creation attempt
+ */
+export interface StorylineCreationResult {
+  success: boolean;
+  storylineId?: string;
+  error?: string;
+  errorDetails?: {
+    reason: 'cooldown' | 'duplicate' | 'category_blocked' | 'db_error' | 'unknown';
+    hoursRemaining?: number;
+    duplicateTitle?: string;
+    activeStorylineTitle?: string;
+  };
+}
+
+/**
+ * Cooldown check result
+ */
+interface CooldownCheck {
+  allowed: boolean;
+  lastCreatedAt: Date | null;
+  hoursRemaining: number;
+}
+
+/**
+ * Category constraint check result
+ */
+interface CategoryCheck {
+  allowed: boolean;
+  activeStoryline?: LifeStoryline;
+}
+
+/**
+ * Failure reason enum (matches DB constraint)
+ */
+export type FailureReason =
+  | 'cooldown_active'
+  | 'duplicate_detected'
+  | 'category_constraint'
+  | 'db_error'
+  | 'unknown';
+
+// ============================================================================
+// CREATION CONFIGURATION (Phase 1)
+// ============================================================================
+
+/**
+ * Safety controls for storyline creation
+ */
+const CREATION_SAFETY_CONFIG = {
+  /** 48-hour cooldown between creations */
+  COOLDOWN_HOURS: 48,
+
+  /** Check last 7 days for duplicate storylines */
+  DEDUPE_WINDOW_DAYS: 7,
+
+  /** 60% word overlap = duplicate */
+  SIMILARITY_THRESHOLD: 0.6,
+
+  /** Phase 1: Only 1 total active storyline allowed */
+  MAX_ACTIVE_STORYLINES: 1,
+} as const;
+
+/**
+ * Table names for creation feature
+ */
+const CREATION_TABLES = {
+  CONFIG: 'storyline_config',
+  STORYLINES: 'life_storylines',
+  ATTEMPTS: 'storyline_creation_attempts',
+} as const;
+
+// ============================================================================
 // CORE INTERFACES
 // ============================================================================
 
@@ -253,6 +343,507 @@ function mapRowToUpdate(row: UpdateRow): StorylineUpdate {
     mentionedAt: row.mentioned_at ? new Date(row.mentioned_at) : null,
     createdAt: new Date(row.created_at),
   };
+}
+
+// ============================================================================
+// STORYLINE CREATION SAFETY FUNCTIONS (Phase 1)
+// ============================================================================
+
+/**
+ * Check if storyline creation cooldown has elapsed
+ *
+ * @returns CooldownCheck with allowed status and hours remaining
+ */
+async function checkStorylineCreationCooldown(): Promise<CooldownCheck> {
+  try {
+    const { data, error } = await supabase
+      .from(CREATION_TABLES.CONFIG)
+      .select('last_storyline_created_at')
+      .eq('id', 1)
+      .single();
+
+    if (error) {
+      console.error('[Storylines] Cooldown check error:', error);
+      // Fail open: allow creation if DB error
+      return { allowed: true, lastCreatedAt: null, hoursRemaining: 0 };
+    }
+
+    if (!data?.last_storyline_created_at) {
+      // No previous creation
+      return { allowed: true, lastCreatedAt: null, hoursRemaining: 0 };
+    }
+
+    const lastCreated = new Date(data.last_storyline_created_at);
+    const hoursSince = (Date.now() - lastCreated.getTime()) / (1000 * 60 * 60);
+
+    if (hoursSince < CREATION_SAFETY_CONFIG.COOLDOWN_HOURS) {
+      const hoursRemaining = Math.ceil(CREATION_SAFETY_CONFIG.COOLDOWN_HOURS - hoursSince);
+
+      console.log(`📖 [Storylines] Cooldown active: ${hoursRemaining}h remaining`);
+
+      return {
+        allowed: false,
+        lastCreatedAt: lastCreated,
+        hoursRemaining
+      };
+    }
+
+    console.log(`📖 [Storylines] Cooldown elapsed (${hoursSince.toFixed(1)}h since last creation)`);
+
+    return {
+      allowed: true,
+      lastCreatedAt: lastCreated,
+      hoursRemaining: 0
+    };
+
+  } catch (err) {
+    console.error('[Storylines] Cooldown check exception:', err);
+    // Fail open: allow creation if unexpected error
+    return { allowed: true, lastCreatedAt: null, hoursRemaining: 0 };
+  }
+}
+
+/**
+ * Update cooldown timestamp after successful creation
+ */
+async function updateStorylineCreationCooldown(): Promise<void> {
+  try {
+    const { error } = await supabase
+      .from(CREATION_TABLES.CONFIG)
+      .update({ last_storyline_created_at: new Date().toISOString() })
+      .eq('id', 1);
+
+    if (error) {
+      console.error('[Storylines] Failed to update cooldown timestamp:', error);
+    } else {
+      console.log(`📖 [Storylines] Cooldown timestamp updated`);
+    }
+  } catch (err) {
+    console.error('[Storylines] Cooldown update exception:', err);
+  }
+}
+
+/**
+ * Check if a similar storyline already exists (semantic deduplication)
+ *
+ * Uses fuzzy string matching (word overlap) to detect duplicates within
+ * a 7-day window in the same category.
+ *
+ * @param title - Proposed storyline title
+ * @param category - Storyline category
+ * @returns true if duplicate found, false otherwise
+ */
+async function checkDuplicateStoryline(
+  title: string,
+  category: StorylineCategory
+): Promise<boolean> {
+  try {
+    // Calculate window start (7 days ago)
+    const windowStart = new Date();
+    windowStart.setDate(windowStart.getDate() - CREATION_SAFETY_CONFIG.DEDUPE_WINDOW_DAYS);
+
+    // Query recent storylines in same category
+    const { data, error } = await supabase
+      .from(CREATION_TABLES.STORYLINES)
+      .select('title, created_at, outcome')
+      .eq('category', category)
+      .gte('created_at', windowStart.toISOString())
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      console.error('[Storylines] Duplicate check error:', error);
+      // Fail open: allow creation if DB error
+      return false;
+    }
+
+    if (!data || data.length === 0) {
+      console.log(`📖 [Storylines] No recent storylines in ${category} category`);
+      return false;
+    }
+
+    // Normalize input title
+    const normalizedTitle = title.toLowerCase().trim();
+
+    // Check similarity against each existing storyline
+    for (const existing of data) {
+      const existingTitle = existing.title.toLowerCase().trim();
+      const similarity = calculateStringSimilarity(normalizedTitle, existingTitle);
+
+      if (similarity >= CREATION_SAFETY_CONFIG.SIMILARITY_THRESHOLD) {
+        console.warn(
+          `📖 [Storylines] DUPLICATE DETECTED: "${title}" ~= "${existing.title}" ` +
+          `(${(similarity * 100).toFixed(0)}% similar, threshold ${CREATION_SAFETY_CONFIG.SIMILARITY_THRESHOLD * 100}%)`
+        );
+
+        return true;
+      }
+    }
+
+    console.log(`📖 [Storylines] No duplicates found for "${title}"`);
+    return false;
+
+  } catch (err) {
+    console.error('[Storylines] Duplicate check exception:', err);
+    // Fail open: allow creation if unexpected error
+    return false;
+  }
+}
+
+/**
+ * Calculate string similarity using word overlap ratio
+ *
+ * Uses same algorithm as loop cleanup service for consistency.
+ *
+ * @param str1 - First string
+ * @param str2 - Second string
+ * @returns Similarity score (0-1)
+ *
+ * @example
+ * calculateStringSimilarity("learning guitar", "guitar lessons")
+ * // Returns: 0.5 (50% overlap: "guitar" is common)
+ *
+ * calculateStringSimilarity("learning guitar", "learning to play guitar")
+ * // Returns: 0.75 (75% overlap: "learning" and "guitar" are common)
+ */
+function calculateStringSimilarity(str1: string, str2: string): number {
+  // Split into word sets
+  const words1 = new Set(str1.split(/\s+/).filter(w => w.length > 0));
+  const words2 = new Set(str2.split(/\s+/).filter(w => w.length > 0));
+
+  // Calculate intersection and union
+  const intersection = new Set([...words1].filter(w => words2.has(w)));
+  const union = new Set([...words1, ...words2]);
+
+  // Avoid division by zero
+  if (union.size === 0) return 0;
+
+  // Return overlap ratio
+  return intersection.size / union.size;
+}
+
+/**
+ * Check if category constraint allows new storyline creation
+ *
+ * Phase 1: Checks if ANY active storyline exists (global constraint)
+ *
+ * @param category - Category to check
+ * @returns CategoryCheck with allowed status and blocking storyline if any
+ */
+async function checkCategoryConstraint(
+  category: StorylineCategory
+): Promise<CategoryCheck> {
+  try {
+    // Phase 1: Check if ANY active storyline exists (global constraint)
+    const { data, error } = await supabase
+      .from(CREATION_TABLES.STORYLINES)
+      .select('*')
+      .is('outcome', null)  // outcome IS NULL = active
+      .limit(1);
+
+    if (error) {
+      console.error('[Storylines] Category constraint check error:', error);
+      // Fail closed: block creation if DB error (safer than allowing)
+      return { allowed: false };
+    }
+
+    if (data && data.length > 0) {
+      const activeStoryline = mapRowToStoryline(data[0]);
+
+      console.warn(
+        `📖 [Storylines] CATEGORY BLOCKED: Active storyline exists: ` +
+        `"${activeStoryline.title}" (${activeStoryline.category}, ${activeStoryline.phase})`
+      );
+
+      return {
+        allowed: false,
+        activeStoryline
+      };
+    }
+
+    console.log(`📖 [Storylines] Category constraint passed (no active storylines)`);
+    return { allowed: true };
+
+  } catch (err) {
+    console.error('[Storylines] Category constraint check exception:', err);
+    // Fail closed: block creation if unexpected error (safer)
+    return { allowed: false };
+  }
+}
+
+/**
+ * Log storyline creation attempt to audit table
+ *
+ * @param input - Creation input
+ * @param result - Creation result
+ * @param failureDetails - Failure details if unsuccessful
+ * @param source - Source of creation ('conversation' | 'idle_suggestion')
+ */
+async function logCreationAttempt(
+  input: CreateStorylineFromToolInput,
+  result: StorylineCreationResult,
+  failureDetails?: {
+    reason: FailureReason;
+    hoursRemaining?: number;
+    duplicateTitle?: string;
+    activeStorylineId?: string;
+  },
+  source: 'conversation' | 'idle_suggestion' = 'conversation'
+): Promise<void> {
+  try {
+    const { error } = await supabase
+      .from(CREATION_TABLES.ATTEMPTS)
+      .insert({
+        title: input.title,
+        category: input.category,
+        storyline_type: input.storylineType,
+        success: result.success,
+        failure_reason: failureDetails?.reason || null,
+        cooldown_hours_remaining: failureDetails?.hoursRemaining || null,
+        duplicate_match: failureDetails?.duplicateTitle || null,
+        active_storyline_blocking: failureDetails?.activeStorylineId || null,
+        source,
+      });
+
+    if (error) {
+      console.error('[Storylines] Failed to log creation attempt:', error);
+    }
+  } catch (err) {
+    console.error('[Storylines] Audit logging exception:', err);
+    // Don't throw - logging failure shouldn't block creation
+  }
+}
+
+/**
+ * Calculate mention deadline (days from now)
+ * @param days - Number of days to add
+ * @returns Date object for deadline
+ */
+function calculateMentionDeadline(days: number): Date {
+  const deadline = new Date();
+  deadline.setDate(deadline.getDate() + days);
+  return deadline;
+}
+
+/**
+ * Create storyline from LLM tool call
+ *
+ * Runs all safety checks (cooldown, dedupe, category constraint) before creating.
+ * Logs all attempts to audit table.
+ *
+ * @param input - Storyline creation input
+ * @param source - Source of creation ('conversation' | 'idle_suggestion')
+ * @returns StorylineCreationResult with success status or error details
+ *
+ * @example
+ * const result = await createStorylineFromTool({
+ *   title: "Learning guitar",
+ *   category: "creative",
+ *   storylineType: "project",
+ *   initialAnnouncement: "I'm starting guitar lessons",
+ *   stakes: "I've wanted to learn music for years"
+ * });
+ *
+ * if (result.success) {
+ *   console.log(`Created storyline: ${result.storylineId}`);
+ * } else {
+ *   console.log(`Failed: ${result.error}`);
+ * }
+ */
+export async function createStorylineFromTool(
+  input: CreateStorylineFromToolInput,
+  source: 'conversation' | 'idle_suggestion' = 'conversation'
+): Promise<StorylineCreationResult> {
+
+  console.log(`📖 [Storylines] Creation attempt: "${input.title}" (${input.category})`);
+  console.log(`📖 [Storylines] Source: ${source}`);
+
+  // ============================================
+  // SAFETY CHECK 1: Cooldown
+  // ============================================
+
+  const cooldown = await checkStorylineCreationCooldown();
+
+  if (!cooldown.allowed) {
+    const error = `Must wait ${cooldown.hoursRemaining} hours before creating another storyline`;
+
+    console.warn(`📖 [Storylines] ❌ COOLDOWN: ${error}`);
+
+    const result: StorylineCreationResult = {
+      success: false,
+      error,
+      errorDetails: {
+        reason: 'cooldown',
+        hoursRemaining: cooldown.hoursRemaining,
+      }
+    };
+
+    await logCreationAttempt(
+      input,
+      result,
+      {
+        reason: 'cooldown_active',
+        hoursRemaining: cooldown.hoursRemaining,
+      },
+      source
+    );
+
+    return result;
+  }
+
+  // ============================================
+  // SAFETY CHECK 2: Duplicate Detection
+  // ============================================
+
+  const isDuplicate = await checkDuplicateStoryline(input.title, input.category);
+
+  if (isDuplicate) {
+    const error = `A similar storyline already exists or recently resolved in ${input.category} category`;
+
+    console.warn(`📖 [Storylines] ❌ DUPLICATE: ${error}`);
+
+    const result: StorylineCreationResult = {
+      success: false,
+      error,
+      errorDetails: {
+        reason: 'duplicate',
+      }
+    };
+
+    await logCreationAttempt(
+      input,
+      result,
+      {
+        reason: 'duplicate_detected',
+        duplicateTitle: input.title,
+      },
+      source
+    );
+
+    return result;
+  }
+
+  // ============================================
+  // SAFETY CHECK 3: Category Constraint
+  // ============================================
+
+  const categoryCheck = await checkCategoryConstraint(input.category);
+
+  if (!categoryCheck.allowed) {
+    const activeTitle = categoryCheck.activeStoryline?.title || 'Unknown';
+    const error = `An active storyline already exists: "${activeTitle}". Resolve it before creating a new one.`;
+
+    console.warn(`📖 [Storylines] ❌ CATEGORY BLOCKED: ${error}`);
+
+    const result: StorylineCreationResult = {
+      success: false,
+      error,
+      errorDetails: {
+        reason: 'category_blocked',
+        activeStorylineTitle: activeTitle,
+      }
+    };
+
+    await logCreationAttempt(
+      input,
+      result,
+      {
+        reason: 'category_constraint',
+        activeStorylineId: categoryCheck.activeStoryline?.id,
+      },
+      source
+    );
+
+    return result;
+  }
+
+  // ============================================
+  // ALL CHECKS PASSED - CREATE STORYLINE
+  // ============================================
+
+  console.log(`📖 [Storylines] ✅ All safety checks passed, creating storyline...`);
+
+  try {
+    const storyline = await createStoryline({
+      title: input.title,
+      category: input.category,
+      storylineType: input.storylineType,
+      initialAnnouncement: input.initialAnnouncement,
+      stakes: input.stakes,
+      currentEmotionalTone: input.emotionalTone || null,
+      emotionalIntensity: input.emotionalIntensity || 0.7,
+    });
+
+    if (!storyline) {
+      const error = 'Failed to create storyline (database error)';
+
+      console.error(`📖 [Storylines] ❌ DB ERROR: ${error}`);
+
+      const result: StorylineCreationResult = {
+        success: false,
+        error,
+        errorDetails: {
+          reason: 'db_error',
+        }
+      };
+
+      await logCreationAttempt(
+        input,
+        result,
+        { reason: 'db_error' },
+        source
+      );
+
+      return result;
+    }
+
+    // Update cooldown timestamp
+    await updateStorylineCreationCooldown();
+
+    // Set user involvement if provided
+    if (input.userInvolvement) {
+      await updateStoryline(storyline.id, {
+        userInvolvement: input.userInvolvement,
+        shouldMentionBy: calculateMentionDeadline(1), // 1 day for announced phase
+      });
+    } else {
+      await updateStoryline(storyline.id, {
+        shouldMentionBy: calculateMentionDeadline(1), // 1 day for announced phase
+      });
+    }
+
+    console.log(`📖 [Storylines] ✅ SUCCESS: Created storyline "${storyline.title}" (${storyline.id})`);
+
+    const result: StorylineCreationResult = {
+      success: true,
+      storylineId: storyline.id,
+    };
+
+    await logCreationAttempt(input, result, undefined, source);
+
+    return result;
+
+  } catch (err) {
+    const error = 'Unexpected error during storyline creation';
+
+    console.error(`📖 [Storylines] ❌ EXCEPTION:`, err);
+
+    const result: StorylineCreationResult = {
+      success: false,
+      error,
+      errorDetails: {
+        reason: 'unknown',
+      }
+    };
+
+    await logCreationAttempt(
+      input,
+      result,
+      { reason: 'unknown' },
+      source
+    );
+
+    return result;
+  }
 }
 
 // ============================================================================

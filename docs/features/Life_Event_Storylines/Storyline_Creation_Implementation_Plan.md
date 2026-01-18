@@ -1,245 +1,165 @@
-# Life Storyline Creation Design - Ultra-Detailed Implementation Plan
+# Life Storyline Creation - 2-Phase Implementation Plan
 
-**Status:** Path B Selected - Ready for Implementation
-**Date:** 2026-01-16
-**Task:** Implement Clean Idle Thoughts v2 for storyline creation
-**Chosen Path:** Path B (Clean Idle Thoughts v2 - Autonomous storyline generation)
+**Status:** Ready for Implementation
+**Date:** 2026-01-18
+**Architecture:** Clean, LLM-driven, no threads system
+**Chosen Path:** Phase 1 (Conversation) → Phase 2 (Idle Suggestions)
 
 ---
 
 ## Table of Contents
 
-1. [Implementation Overview](#implementation-overview)
-2. [Step-by-Step Implementation Guide](#step-by-step-implementation-guide)
-3. [File-by-File Implementation](#file-by-file-implementation)
-4. [Database Migrations](#database-migrations)
-5. [Testing Strategy](#testing-strategy)
-6. [Error Handling & Edge Cases](#error-handling--edge-cases)
-7. [Configuration & Tuning](#configuration--tuning)
-8. [Rollout Checklist](#rollout-checklist)
-9. [Validation & Verification](#validation--verification)
+1. [Architecture Overview](#architecture-overview)
+2. [Phase 1: Conversation-Driven Creation](#phase-1-conversation-driven-creation)
+3. [Phase 2: Idle Suggestions with Direct Injection](#phase-2-idle-suggestions-with-direct-injection)
+4. [Safety Controls](#safety-controls)
+5. [Database Schema](#database-schema)
+6. [Testing Strategy](#testing-strategy)
+7. [Rollout Checklist](#rollout-checklist)
 
 ---
 
-## Implementation Overview
+## Architecture Overview
 
-### What We're Building
+### Design Principles
 
-**Clean Idle Thoughts v2:** A minimal, purpose-built service that:
-1. Detects when user is away (≥30 minutes)
-2. Generates ONE storyline suggestion via LLM (based on Kayley's personality, life story, conversation history)
-3. Stores suggestion (does NOT auto-create storyline)
-4. On user return: Converts suggestion → ongoing thread
-5. Thread surfaces in conversation naturally
-6. LLM validates suggestion → calls `create_life_storyline` tool
-7. Safety checks (cooldown, dedupe, category constraint) → create or fail gracefully
+1. **LLM-Driven:** Rely on Gemini for all decision-making (no hardcoded logic)
+2. **No Threads:** Direct prompt injection instead of complex thread system
+3. **Passive Surfacing:** LLM chooses when to mention (not forced)
+4. **Strong Safety:** Cooldown, deduplication, category constraints, audit logging
+5. **Phased Rollout:** Validate conversation-driven first, then add autonomy
 
-### Architecture Diagram
+### Two-Phase Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│  USER ABSENCE DETECTION                                     │
+│  PHASE 1: CONVERSATION-DRIVEN CREATION                      │
 └─────────────────────────────────────────────────────────────┘
                         ↓
-    lastInteractionAt (from conversation_history, UTC)
+    User: "I'm starting guitar lessons tomorrow"
                         ↓
-         Convert UTC → CST (timezone-safe)
-                        ↓
-    Calculate absence duration (minutes)
-                        ↓
-         If ≥30 min AND no pending suggestion:
-                        ↓
-┌─────────────────────────────────────────────────────────────┐
-│  STORYLINE SUGGESTION GENERATION (LLM)                      │
-└─────────────────────────────────────────────────────────────┘
-    Input:
-    - Character profile (Kayley's interests, personality)
-    - Recent conversation history (last 7 days)
-    - Active storylines (avoid duplicates)
-    - Category balance (suggest underrepresented)
-                        ↓
-    LLM generates suggestion:
-    - category: StorylineCategory
-    - theme: string ("learning guitar", "trip planning")
-    - reasoning: string ("Why this matters to Kayley now")
-                        ↓
-    Store in storyline_pending_suggestions table
-    Set expiration: created_at + 24 hours
-                        ↓
-┌─────────────────────────────────────────────────────────────┐
-│  USER RETURNS                                                │
-└─────────────────────────────────────────────────────────────┘
-                        ↓
-    getPendingSuggestion()
-                        ↓
-    If suggestion exists:
-        createUserThreadAsync({
-            theme: suggestion.theme,
-            content: "I've been thinking about [theme]",
-            intensity: 0.7
-        })
-                        ↓
-┌─────────────────────────────────────────────────────────────┐
-│  CONVERSATION (Next Message)                                │
-└─────────────────────────────────────────────────────────────┘
-                        ↓
-    selectProactiveThread() → picks high-intensity thread
-                        ↓
-    System prompt includes: "You've been thinking about [theme]"
-                        ↓
-    Kayley: "Hey! I've been thinking... [announces storyline]"
+    LLM recognizes: "This is storyline-worthy"
                         ↓
     LLM calls: create_life_storyline({ title, category, ... })
                         ↓
-┌─────────────────────────────────────────────────────────────┐
-│  SAFETY CHECKS                                              │
-└─────────────────────────────────────────────────────────────┘
-    1. Check cooldown (48 hours)
-       ├─ Query storyline_config.last_storyline_created_at
-       ├─ Calculate hours since
-       └─ If <48h: Return error, hours remaining
-
-    2. Check duplicate (7-day window, 60% similarity)
-       ├─ Query recent storylines in same category
-       ├─ Calculate string similarity (word overlap)
-       └─ If ≥60%: Return error, duplicate title
-
-    3. Check category constraint (1 total active)
-       ├─ Query life_storylines WHERE outcome IS NULL
-       └─ If exists: Return error, active storyline blocking
+    Safety checks: cooldown → dedupe → category constraint
                         ↓
-    If ALL checks pass:
-        - Create storyline (phase=announced)
-        - Update cooldown timestamp
-        - Clear pending suggestion
-        - Return success
-
-    If ANY check fails:
-        - Return error message
-        - LLM sees error
-        - Accepts gracefully (doesn't retry)
+    If pass: Create storyline (phase=announced)
+    If fail: Return error, LLM accepts gracefully
                         ↓
 ┌─────────────────────────────────────────────────────────────┐
 │  STORYLINE ACTIVE                                           │
 └─────────────────────────────────────────────────────────────┘
     Daily processing:
-    - processStorylineOnStartup() (App.tsx)
-    - checkPhaseTransitions()
-    - generateStorylineUpdate()
-    - Mood integration
-    - System prompt injection
+    - Phase transitions (announced → honeymoon → reality → ...)
+    - Update generation (LLM creates phase-specific updates)
+    - Mood integration (affects energy/warmth)
+    - System prompt injection (surfaces in conversation)
+```
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  PHASE 2: IDLE SUGGESTIONS (AUTONOMOUS)                     │
+└─────────────────────────────────────────────────────────────┘
+                        ↓
+    User absent ≥30 minutes
+                        ↓
+    Idle service checks (every 10 minutes)
+                        ↓
+    Generate suggestion via LLM:
+    - Input: Last 10 days conversation history
+    - Input: Kayley's life story
+    - Input: Existing storylines (avoid duplicates)
+    - Input: Category balance (suggest underrepresented)
+    - Output: { category, theme, reasoning }
+                        ↓
+    Store in storyline_pending_suggestions
+    (NOT created yet - just a suggestion)
+                        ↓
+┌─────────────────────────────────────────────────────────────┐
+│  USER RETURNS                                                │
+└─────────────────────────────────────────────────────────────┘
+                        ↓
+    Check: getPendingSuggestion()
+                        ↓
+    If suggestion exists:
+        Add to system prompt (PASSIVE):
+        "You've been thinking about [theme].
+         Reasoning: [why this matters to Kayley now]
+         If it feels natural, you might mention this."
+                        ↓
+    LLM sees suggestion in prompt
+                        ↓
+    LLM decides: "Should I mention this now?"
+        - YES → Kayley: "Hey! I've been thinking..."
+              → LLM calls create_life_storyline(...)
+              → Safety checks → Create or reject
+              → Clear suggestion
+        - NO → Saves it for later conversation
+             → Suggestion expires after 24 hours
 ```
 
 ### Key Configuration
 
 ```typescript
-// storylineIdleService.ts
-const CONFIG = {
-  ABSENCE_THRESHOLD_MINUTES: 30,         // Min absence before suggestion
-  CHECK_INTERVAL_MS: 10 * 60 * 1000,     // Check every 10 minutes
-  SUGGESTION_COOLDOWN_HOURS: 48,         // 48 hours between suggestions
-  SUGGESTION_EXPIRATION_HOURS: 24,       // Suggestions expire after 24 hours
-  MAX_PENDING_SUGGESTIONS: 1             // Only 1 pending at a time
+// Phase 1 Configuration
+const CREATION_SAFETY_CONFIG = {
+  COOLDOWN_HOURS: 48,              // 48 hours between creations
+  DEDUPE_WINDOW_DAYS: 7,           // Check last 7 days for duplicates
+  SIMILARITY_THRESHOLD: 0.6,       // 60% word overlap = duplicate
+  MAX_ACTIVE_STORYLINES: 1,        // Only 1 total active (Phase 1)
 };
 
-// storylineService.ts (safety controls)
-const SAFETY_CONFIG = {
-  CREATION_COOLDOWN_HOURS: 48,           // 48 hours between creations
-  DEDUPE_WINDOW_DAYS: 7,                 // Check last 7 days for duplicates
-  SIMILARITY_THRESHOLD: 0.6              // 60% word overlap = duplicate
+// Phase 2 Configuration
+const IDLE_CONFIG = {
+  ABSENCE_THRESHOLD_MINUTES: 30,   // Generate suggestion after 30 min away
+  CHECK_INTERVAL_MS: 10 * 60 * 1000, // Check every 10 minutes
+  SUGGESTION_COOLDOWN_HOURS: 48,   // 48 hours between suggestions
+  SUGGESTION_EXPIRATION_HOURS: 24, // Suggestions expire after 24 hours
+  MAX_PENDING_SUGGESTIONS: 1,      // Only 1 pending at a time
 };
 ```
 
 ---
 
-## Step-by-Step Implementation Guide
+## Phase 1: Conversation-Driven Creation
 
-### Phase 1: Database Migrations (30 minutes)
+### Overview
 
-#### Step 1.1: Add cooldown tracking to storyline_config
+**Goal:** Enable storyline creation when user or Kayley mention storyline-worthy events in conversation.
 
-**File:** `supabase/migrations/20260116_add_storyline_cooldown.sql`
+**Scope:** ~300 lines of new code, 3 database changes, 5 files modified
+
+**Timeline:** 1-2 days
+
+### Implementation Steps
+
+#### Step 1.1: Database Migration - Cooldown Tracking
+
+**File:** `supabase/migrations/20260118_add_storyline_cooldown.sql`
 
 ```sql
--- Add cooldown timestamp column
+-- Add cooldown timestamp to track last creation
 ALTER TABLE storyline_config
 ADD COLUMN last_storyline_created_at TIMESTAMPTZ;
 
--- Set initial value (allow immediate creation on first try)
--- 49 hours ago = outside 48-hour window
+-- Set initial value (49 hours ago = outside 48-hour window, allows immediate creation)
 UPDATE storyline_config
 SET last_storyline_created_at = NOW() - INTERVAL '49 hours'
 WHERE id = 1;
 
--- Add comment for documentation
+-- Documentation
 COMMENT ON COLUMN storyline_config.last_storyline_created_at IS
-  '48-hour cooldown tracking for storyline creation. Prevents runaway creation.';
+  'Tracks last storyline creation for 48-hour cooldown enforcement';
 ```
 
-**Apply Migration:**
-```bash
-# DO NOT apply yet - user will apply manually after review
-# supabase migration apply
-```
+**DO NOT APPLY YET** - User will apply manually after review.
 
-#### Step 1.2: Create storyline_pending_suggestions table
+---
 
-**File:** `supabase/migrations/20260116_create_pending_suggestions.sql`
+#### Step 1.2: Database Migration - Audit Logging
 
-```sql
--- Table for storing idle-generated storyline suggestions
-CREATE TABLE storyline_pending_suggestions (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-
-  -- Suggestion content
-  category TEXT NOT NULL CHECK (category IN ('work', 'personal', 'family', 'social', 'creative')),
-  theme TEXT NOT NULL,          -- "learning guitar", "trip planning"
-  reasoning TEXT NOT NULL,       -- Why this matters to Kayley now
-
-  -- Lifecycle
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  expires_at TIMESTAMPTZ NOT NULL,
-
-  -- Surfacing tracking
-  surfaced BOOLEAN NOT NULL DEFAULT FALSE,
-  surfaced_at TIMESTAMPTZ,
-
-  -- Thread tracking (if converted to ongoing thread)
-  thread_id UUID,  -- References ongoing_threads(id) if created
-
-  -- Outcome tracking
-  was_created BOOLEAN NOT NULL DEFAULT FALSE,    -- Did it become a storyline?
-  storyline_id UUID REFERENCES life_storylines(id),  -- If created
-  rejected_reason TEXT  -- If rejected: 'cooldown', 'duplicate', 'category_blocked', 'user_ignored'
-);
-
--- Indexes
-CREATE INDEX idx_pending_suggestions_active ON storyline_pending_suggestions(created_at DESC)
-  WHERE surfaced = FALSE AND expires_at > NOW();
-
-CREATE INDEX idx_pending_suggestions_category ON storyline_pending_suggestions(category);
-CREATE INDEX idx_pending_suggestions_expires ON storyline_pending_suggestions(expires_at);
-
--- Comments
-COMMENT ON TABLE storyline_pending_suggestions IS
-  'Stores storyline suggestions generated during user absence. Max 1 active at a time. Expire after 24 hours.';
-
-COMMENT ON COLUMN storyline_pending_suggestions.theme IS
-  'Short description of the storyline idea, e.g., "learning guitar"';
-
-COMMENT ON COLUMN storyline_pending_suggestions.reasoning IS
-  'LLM-generated explanation of why this storyline makes sense for Kayley now';
-```
-
-**Apply Migration:**
-```bash
-# DO NOT apply yet - user will apply manually after review
-# supabase migration apply
-```
-
-#### Step 1.3: Create storyline_creation_attempts table (audit log)
-
-**File:** `supabase/migrations/20260116_create_creation_attempts.sql`
+**File:** `supabase/migrations/20260118_create_storyline_creation_attempts.sql`
 
 ```sql
 -- Audit log for all storyline creation attempts (success and failure)
@@ -254,7 +174,7 @@ CREATE TABLE storyline_creation_attempts (
 
   -- Result
   success BOOLEAN NOT NULL,
-  failure_reason TEXT,  -- 'cooldown_active' | 'duplicate_detected' | 'category_constraint' | 'db_error' | 'unknown'
+  failure_reason TEXT,  -- 'cooldown_active' | 'duplicate_detected' | 'category_constraint' | 'db_error'
 
   -- Failure details
   cooldown_hours_remaining INTEGER,
@@ -262,36 +182,29 @@ CREATE TABLE storyline_creation_attempts (
   active_storyline_blocking UUID REFERENCES life_storylines(id),
 
   -- Source tracking
-  source TEXT NOT NULL DEFAULT 'conversation',  -- 'conversation' | 'idle_suggestion'
-  suggestion_id UUID REFERENCES storyline_pending_suggestions(id)
+  source TEXT NOT NULL DEFAULT 'conversation'  -- 'conversation' | 'idle_suggestion'
 );
 
--- Indexes
-CREATE INDEX idx_creation_attempts_time ON storyline_creation_attempts(attempted_at DESC);
-CREATE INDEX idx_creation_attempts_success ON storyline_creation_attempts(success);
-CREATE INDEX idx_creation_attempts_failure ON storyline_creation_attempts(failure_reason)
+-- Indexes for performance and observability
+CREATE INDEX idx_storyline_attempts_time ON storyline_creation_attempts(attempted_at DESC);
+CREATE INDEX idx_storyline_attempts_success ON storyline_creation_attempts(success);
+CREATE INDEX idx_storyline_attempts_failure ON storyline_creation_attempts(failure_reason)
   WHERE success = FALSE;
 
--- Comments
+-- Documentation
 COMMENT ON TABLE storyline_creation_attempts IS
   'Audit log for all storyline creation attempts. Used for observability, debugging, and rate limit tuning.';
 ```
 
-**Apply Migration:**
-```bash
-# DO NOT apply yet - user will apply manually after review
-# supabase migration apply
-```
+**DO NOT APPLY YET** - User will apply manually after review.
 
 ---
 
-### Phase 2: Core Service - storylineService.ts Additions (2 hours)
-
-#### Step 2.1: Add type definitions
+#### Step 1.3: Add Types to storylineService.ts
 
 **File:** `src/services/storylineService.ts`
 
-**Location:** Add at top of file (after existing type imports)
+**Location:** Add at top of file (after existing imports)
 
 ```typescript
 // ============================================================================
@@ -353,17 +266,9 @@ export type FailureReason =
   | 'category_constraint'
   | 'db_error'
   | 'unknown';
-```
 
-#### Step 2.2: Add configuration constants
-
-**File:** `src/services/storylineService.ts`
-
-**Location:** Add after type definitions
-
-```typescript
 // ============================================================================
-// STORYLINE CREATION CONFIGURATION
+// CONFIGURATION
 // ============================================================================
 
 /**
@@ -380,11 +285,8 @@ const CREATION_SAFETY_CONFIG = {
   SIMILARITY_THRESHOLD: 0.6,
 
   /** Phase 1: Only 1 total active storyline allowed */
-  MAX_ACTIVE_STORYLINES: 1,  // Will be removed in Phase 2
-
-  /** Daily cap on creations (not yet implemented) */
-  DAILY_CAP: 999,  // Effectively unlimited in Phase 1
-};
+  MAX_ACTIVE_STORYLINES: 1,
+} as const;
 
 /**
  * Table names
@@ -393,15 +295,16 @@ const CREATION_TABLES = {
   CONFIG: 'storyline_config',
   STORYLINES: 'life_storylines',
   ATTEMPTS: 'storyline_creation_attempts',
-  SUGGESTIONS: 'storyline_pending_suggestions',
 } as const;
 ```
 
-#### Step 2.3: Implement cooldown check function
+---
+
+#### Step 1.4: Add Safety Check Functions
 
 **File:** `src/services/storylineService.ts`
 
-**Location:** Add in new "Storyline Creation Safety Functions" section
+**Location:** Add in new section "Storyline Creation Safety Functions"
 
 ```typescript
 // ============================================================================
@@ -412,12 +315,6 @@ const CREATION_TABLES = {
  * Check if storyline creation cooldown has elapsed
  *
  * @returns CooldownCheck with allowed status and hours remaining
- *
- * @example
- * const cooldown = await checkStorylineCreationCooldown();
- * if (!cooldown.allowed) {
- *   console.log(`Must wait ${cooldown.hoursRemaining} hours`);
- * }
  */
 async function checkStorylineCreationCooldown(): Promise<CooldownCheck> {
   try {
@@ -470,8 +367,6 @@ async function checkStorylineCreationCooldown(): Promise<CooldownCheck> {
 
 /**
  * Update cooldown timestamp after successful creation
- *
- * @returns void
  */
 async function updateStorylineCreationCooldown(): Promise<void> {
   try {
@@ -489,15 +384,7 @@ async function updateStorylineCreationCooldown(): Promise<void> {
     console.error('[Storylines] Cooldown update exception:', err);
   }
 }
-```
 
-#### Step 2.4: Implement duplicate detection function
-
-**File:** `src/services/storylineService.ts`
-
-**Location:** Add after cooldown functions
-
-```typescript
 /**
  * Check if a similar storyline already exists (semantic deduplication)
  *
@@ -507,12 +394,6 @@ async function updateStorylineCreationCooldown(): Promise<void> {
  * @param title - Proposed storyline title
  * @param category - Storyline category
  * @returns true if duplicate found, false otherwise
- *
- * @example
- * const isDupe = await checkDuplicateStoryline("Learning guitar", "creative");
- * if (isDupe) {
- *   console.log("Similar storyline already exists");
- * }
  */
 async function checkDuplicateStoryline(
   title: string,
@@ -601,42 +482,24 @@ function calculateStringSimilarity(str1: string, str2: string): number {
   // Return overlap ratio
   return intersection.size / union.size;
 }
-```
 
-#### Step 2.5: Implement category constraint check
-
-**File:** `src/services/storylineService.ts`
-
-**Location:** Add after duplicate detection
-
-```typescript
 /**
  * Check if category constraint allows new storyline creation
  *
  * Phase 1: Checks if ANY active storyline exists (global constraint)
- * Phase 2: Will check if active storyline in THIS CATEGORY exists (per-category constraint)
  *
  * @param category - Category to check
  * @returns CategoryCheck with allowed status and blocking storyline if any
- *
- * @example
- * const check = await checkCategoryConstraint("creative");
- * if (!check.allowed) {
- *   console.log(`Blocked by: ${check.activeStoryline?.title}`);
- * }
  */
 async function checkCategoryConstraint(
   category: StorylineCategory
 ): Promise<CategoryCheck> {
   try {
     // Phase 1: Check if ANY active storyline exists (global constraint)
-    // Phase 2: Uncomment .eq() to check per-category
-
     const { data, error } = await supabase
       .from(CREATION_TABLES.STORYLINES)
       .select('*')
       .is('outcome', null)  // outcome IS NULL = active
-      // .eq('category', category)  // ← UNCOMMENT FOR PHASE 2 (per-category)
       .limit(1);
 
     if (error) {
@@ -668,15 +531,7 @@ async function checkCategoryConstraint(
     return { allowed: false };
   }
 }
-```
 
-#### Step 2.6: Implement audit logging function
-
-**File:** `src/services/storylineService.ts`
-
-**Location:** Add after category constraint
-
-```typescript
 /**
  * Log storyline creation attempt to audit table
  *
@@ -684,7 +539,6 @@ async function checkCategoryConstraint(
  * @param result - Creation result
  * @param failureDetails - Failure details if unsuccessful
  * @param source - Source of creation ('conversation' | 'idle_suggestion')
- * @param suggestionId - Suggestion ID if from idle service
  */
 async function logCreationAttempt(
   input: CreateStorylineFromToolInput,
@@ -695,8 +549,7 @@ async function logCreationAttempt(
     duplicateTitle?: string;
     activeStorylineId?: string;
   },
-  source: 'conversation' | 'idle_suggestion' = 'conversation',
-  suggestionId?: string
+  source: 'conversation' | 'idle_suggestion' = 'conversation'
 ): Promise<void> {
   try {
     const { error } = await supabase
@@ -711,7 +564,6 @@ async function logCreationAttempt(
         duplicate_match: failureDetails?.duplicateTitle || null,
         active_storyline_blocking: failureDetails?.activeStorylineId || null,
         source,
-        suggestion_id: suggestionId || null,
       });
 
     if (error) {
@@ -724,11 +576,13 @@ async function logCreationAttempt(
 }
 ```
 
-#### Step 2.7: Implement main creation function
+---
+
+#### Step 1.5: Add Main Creation Function
 
 **File:** `src/services/storylineService.ts`
 
-**Location:** Add after audit logging
+**Location:** Add after safety check functions
 
 ```typescript
 /**
@@ -739,7 +593,6 @@ async function logCreationAttempt(
  *
  * @param input - Storyline creation input
  * @param source - Source of creation ('conversation' | 'idle_suggestion')
- * @param suggestionId - Suggestion ID if from idle service
  * @returns StorylineCreationResult with success status or error details
  *
  * @example
@@ -759,8 +612,7 @@ async function logCreationAttempt(
  */
 export async function createStorylineFromTool(
   input: CreateStorylineFromToolInput,
-  source: 'conversation' | 'idle_suggestion' = 'conversation',
-  suggestionId?: string
+  source: 'conversation' | 'idle_suggestion' = 'conversation'
 ): Promise<StorylineCreationResult> {
 
   console.log(`📖 [Storylines] Creation attempt: "${input.title}" (${input.category})`);
@@ -793,8 +645,7 @@ export async function createStorylineFromTool(
         reason: 'cooldown_active',
         hoursRemaining: cooldown.hoursRemaining,
       },
-      source,
-      suggestionId
+      source
     );
 
     return result;
@@ -824,10 +675,9 @@ export async function createStorylineFromTool(
       result,
       {
         reason: 'duplicate_detected',
-        duplicateTitle: input.title,  // Note: actual duplicate title not returned by check function
+        duplicateTitle: input.title,
       },
-      source,
-      suggestionId
+      source
     );
 
     return result;
@@ -861,8 +711,7 @@ export async function createStorylineFromTool(
         reason: 'category_constraint',
         activeStorylineId: categoryCheck.activeStoryline?.id,
       },
-      source,
-      suggestionId
+      source
     );
 
     return result;
@@ -905,8 +754,7 @@ export async function createStorylineFromTool(
         input,
         result,
         { reason: 'db_error' },
-        source,
-        suggestionId
+        source
       );
 
       return result;
@@ -922,7 +770,7 @@ export async function createStorylineFromTool(
       storylineId: storyline.id,
     };
 
-    await logCreationAttempt(input, result, undefined, source, suggestionId);
+    await logCreationAttempt(input, result, undefined, source);
 
     return result;
 
@@ -943,8 +791,7 @@ export async function createStorylineFromTool(
       input,
       result,
       { reason: 'unknown' },
-      source,
-      suggestionId
+      source
     );
 
     return result;
@@ -954,26 +801,20 @@ export async function createStorylineFromTool(
 
 ---
 
-### Phase 3: LLM Tool Integration (1 hour)
-
-#### Step 3.1: Add tool to aiSchema.ts
+#### Step 1.6: Add LLM Tool Declaration
 
 **File:** `src/services/aiSchema.ts`
 
 **Location:** Add to `GeminiMemoryToolDeclarations` array
 
 ```typescript
-// ============================================================================
-// STORYLINE CREATION TOOL
-// ============================================================================
-
 {
   name: "create_life_storyline",
   description: `
 Create a new life storyline to track an ongoing life event or situation.
 
 WHEN TO USE:
-- You (Kayley) are announcing a new life event: "I'm starting to learn guitar"
+- You (Kayley) are announcing a new life event: "I'm starting guitar lessons"
 - User mentions a significant event they want you to track: "I got a new job"
 - A situation will unfold over days/weeks (not single-moment events)
 - The event has emotional weight or ongoing development
@@ -1071,7 +912,7 @@ User's role in this storyline:
 },
 ```
 
-**Location:** Add to `MemoryToolArgs` union type (CRITICAL - don't forget!)
+**⚠️ CRITICAL:** Also add to `MemoryToolArgs` union type:
 
 ```typescript
 export type MemoryToolArgs =
@@ -1089,7 +930,7 @@ export type MemoryToolArgs =
     };
 ```
 
-**Location:** Add to `PendingToolCall.name` union type (CRITICAL - don't forget!)
+**⚠️ CRITICAL:** Also add to `PendingToolCall.name` union type:
 
 ```typescript
 export interface PendingToolCall {
@@ -1101,23 +942,9 @@ export interface PendingToolCall {
 }
 ```
 
-**Location:** Add to `OpenAIMemoryToolDeclarations` (if using OpenAI)
+---
 
-```typescript
-// OpenAI format (convert from Gemini format above)
-{
-  type: "function",
-  function: {
-    name: "create_life_storyline",
-    description: "...",  // Same as Gemini
-    parameters: {
-      // Same as Gemini
-    }
-  }
-}
-```
-
-#### Step 3.2: Add tool executor to memoryService.ts
+#### Step 1.7: Add Tool Executor
 
 **File:** `src/services/memoryService.ts`
 
@@ -1174,7 +1001,9 @@ export async function executeMemoryTool(
 }
 ```
 
-#### Step 3.3: Add tool documentation to toolsAndCapabilities.ts
+---
+
+#### Step 1.8: Document Tool for LLM
 
 **File:** `src/services/system_prompts/tools/toolsAndCapabilities.ts`
 
@@ -1244,38 +1073,180 @@ export async function executeMemoryTool(
 
 ---
 
-### Phase 4: Idle Service Implementation (3 hours)
+### Phase 1 Testing
 
-#### Step 4.1: Create storylineIdleService.ts
+#### Manual Test Cases
+
+**Test Case 1: Successful Creation**
+
+1. Start conversation
+2. Say: "I'm starting guitar lessons tomorrow"
+3. Observe Kayley's response
+
+**Expected:**
+- Kayley announces storyline naturally
+- Tool call: `create_life_storyline` visible in logs
+- Database: New row in `life_storylines` (phase=announced)
+- Database: Row in `storyline_creation_attempts` (success=true)
+- Database: `storyline_config.last_storyline_created_at` updated
+
+**Test Case 2: Cooldown Enforcement**
+
+1. Create storyline (Test Case 1)
+2. Wait 5 minutes
+3. Say: "I'm also starting French lessons"
+4. Observe Kayley's response
+
+**Expected:**
+- Tool call happens
+- Tool returns error: "Must wait X hours..."
+- Kayley accepts gracefully (doesn't retry)
+- Example: "(I wanted to track this as a storyline, but I just started one recently)"
+- Database: Row in `storyline_creation_attempts` (success=false, failure_reason='cooldown_active')
+
+**Test Case 3: Duplicate Detection**
+
+1. Create storyline: "Learning guitar"
+2. Resolve storyline 2 days later (outcome: 'success')
+3. Within 7 days, say: "I'm learning to play guitar"
+4. Observe Kayley's response
+
+**Expected:**
+- Tool call happens
+- Tool returns error: "Similar storyline exists..."
+- Kayley accepts gracefully
+- Database: Row in `storyline_creation_attempts` (success=false, failure_reason='duplicate_detected')
+
+**Test Case 4: Category Constraint**
+
+1. Create storyline (any category)
+2. Try creating second storyline (any category)
+3. Observe Kayley's response
+
+**Expected:**
+- Tool call happens
+- Tool returns error: "Active storyline exists..."
+- Kayley accepts gracefully
+- Database: Row in `storyline_creation_attempts` (success=false, failure_reason='category_constraint')
+
+---
+
+### Phase 1 Rollout Checklist
+
+- [ ] Create `20260118_add_storyline_cooldown.sql`
+- [ ] Create `20260118_create_storyline_creation_attempts.sql`
+- [ ] Review migrations (DO NOT apply yet)
+- [ ] User applies migrations manually: `supabase migration apply`
+- [ ] Verify tables exist: Query Supabase dashboard
+- [ ] Add types to `storylineService.ts`
+- [ ] Add safety check functions to `storylineService.ts`
+- [ ] Add `createStorylineFromTool()` to `storylineService.ts`
+- [ ] Verify: TypeScript compiles (`npm run build`)
+- [ ] Add tool to `GeminiMemoryToolDeclarations` in `aiSchema.ts`
+- [ ] Add to `MemoryToolArgs` union type ⚠️ CRITICAL
+- [ ] Add to `PendingToolCall.name` union type ⚠️ CRITICAL
+- [ ] Add tool executor to `memoryService.ts`
+- [ ] Add documentation to `toolsAndCapabilities.ts`
+- [ ] Verify: TypeScript compiles
+- [ ] Run unit tests: `npm test -- --run`
+- [ ] Run snapshot tests: `npm test -- --run -t "snapshot"`
+- [ ] Update snapshots: `npm test -- --run -t "snapshot" -u`
+- [ ] Manual Test Case 1: Successful creation ✅
+- [ ] Manual Test Case 2: Cooldown enforcement ✅
+- [ ] Manual Test Case 3: Duplicate detection ✅
+- [ ] Manual Test Case 4: Category constraint ✅
+- [ ] Monitor for 24 hours (check logs, database)
+
+---
+
+## Phase 2: Idle Suggestions with Direct Injection
+
+### Overview
+
+**Goal:** Enable autonomous storyline suggestions when user is away, surfaced naturally via direct prompt injection.
+
+**Scope:** ~200 lines of new code, 1 database table, 3 files modified
+
+**Timeline:** 1-2 days
+
+**Prerequisites:** Phase 1 complete and validated
+
+### Implementation Steps
+
+#### Step 2.1: Database Migration - Pending Suggestions
+
+**File:** `supabase/migrations/20260118_create_storyline_pending_suggestions.sql`
+
+```sql
+-- Table for storing idle-generated storyline suggestions
+CREATE TABLE storyline_pending_suggestions (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+
+  -- Suggestion content
+  category TEXT NOT NULL CHECK (category IN ('work', 'personal', 'family', 'social', 'creative')),
+  theme TEXT NOT NULL,          -- "learning guitar", "trip planning"
+  reasoning TEXT NOT NULL,       -- Why this matters to Kayley now
+
+  -- Lifecycle
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  expires_at TIMESTAMPTZ NOT NULL,
+
+  -- Surfacing tracking
+  surfaced BOOLEAN NOT NULL DEFAULT FALSE,
+  surfaced_at TIMESTAMPTZ,
+
+  -- Outcome tracking
+  was_created BOOLEAN NOT NULL DEFAULT FALSE,    -- Did it become a storyline?
+  storyline_id UUID REFERENCES life_storylines(id),  -- If created
+  rejected_reason TEXT  -- If rejected: 'cooldown', 'duplicate', 'category_blocked', 'user_ignored', 'expired'
+);
+
+-- Indexes
+CREATE INDEX idx_pending_suggestions_active ON storyline_pending_suggestions(created_at DESC)
+  WHERE surfaced = FALSE AND expires_at > NOW();
+
+CREATE INDEX idx_pending_suggestions_category ON storyline_pending_suggestions(category);
+CREATE INDEX idx_pending_suggestions_expires ON storyline_pending_suggestions(expires_at);
+
+-- Comments
+COMMENT ON TABLE storyline_pending_suggestions IS
+  'Stores storyline suggestions generated during user absence. Max 1 active at a time. Expire after 24 hours.';
+
+COMMENT ON COLUMN storyline_pending_suggestions.theme IS
+  'Short description of the storyline idea, e.g., "learning guitar"';
+
+COMMENT ON COLUMN storyline_pending_suggestions.reasoning IS
+  'LLM-generated explanation of why this storyline makes sense for Kayley now';
+```
+
+**DO NOT APPLY YET** - User will apply manually after review.
+
+---
+
+#### Step 2.2: Create Idle Service
 
 **File:** `src/services/storylineIdleService.ts` (NEW FILE)
 
-**Full Implementation:**
-
 ```typescript
 /**
- * Storyline Idle Service (Clean Idle Thoughts v2)
+ * Storyline Idle Service - Clean v2
  *
  * Purpose-built service for generating storyline suggestions during user absence.
- * First feature in Idle Thoughts v2 - clean, minimal, focused.
+ * No threads, no complexity - just LLM-driven suggestions with direct prompt injection.
  *
  * Flow:
  * 1. Detect user absence (≥30 minutes, using conversation_history.created_at)
  * 2. Generate ONE storyline suggestion via LLM
  * 3. Store in storyline_pending_suggestions table
- * 4. On user return: Convert to ongoing thread
- * 5. Thread surfaces in conversation
- * 6. LLM validates → creates storyline via tool (or rejects)
+ * 4. On user return: Inject into system prompt (passive)
+ * 5. LLM decides to mention → creates storyline via tool (or doesn't)
  *
  * @module storylineIdleService
  */
 
 import { supabase } from '../supabaseClient';
-import { createUserThreadAsync, type ThreadTheme } from './ongoingThreads';
-import type { StorylineCategory, StorylineType } from './storylineService';
+import type { StorylineCategory } from './storylineService';
 import { callGeminiAPI } from './geminiService';
-import { getCharacterProfile } from './characterProfile';
-import { getActiveStorylines } from './storylineService';
 
 // ============================================================================
 // TYPES
@@ -1293,7 +1264,6 @@ export interface PendingStorylineSuggestion {
   expiresAt: Date;       // created_at + 24 hours
   surfaced: boolean;
   surfacedAt: Date | null;
-  threadId: string | null;
   wasCreated: boolean;
   storylineId: string | null;
   rejectedReason: string | null;
@@ -1333,6 +1303,7 @@ const TABLES = {
   SUGGESTIONS: 'storyline_pending_suggestions',
   CONVERSATION_HISTORY: 'conversation_history',
   CONFIG: 'storyline_config',
+  STORYLINES: 'life_storylines',
 } as const;
 
 // ============================================================================
@@ -1351,10 +1322,6 @@ let isRunning = false;
  *
  * Begins checking for user absence every 10 minutes.
  * Safe to call multiple times (stops existing scheduler first).
- *
- * @example
- * // In App.tsx
- * startStorylineIdleService();
  */
 export function startStorylineIdleService(): void {
   if (isRunning) {
@@ -1383,10 +1350,6 @@ export function startStorylineIdleService(): void {
 
 /**
  * Stop the storyline idle service
- *
- * @example
- * // In App.tsx cleanup
- * stopStorylineIdleService();
  */
 export function stopStorylineIdleService(): void {
   if (schedulerInterval) {
@@ -1439,18 +1402,6 @@ async function getLastInteractionTime(): Promise<Date | null> {
     console.error('💭 [StorylineIdle] Exception fetching last interaction:', err);
     return null;
   }
-}
-
-/**
- * Convert UTC timestamp to CST
- *
- * @param utcDate - UTC date
- * @returns CST date
- */
-function convertUTCtoCST(utcDate: Date): Date {
-  // CST is UTC-6
-  const cstDate = new Date(utcDate.getTime() - (6 * 60 * 60 * 1000));
-  return cstDate;
 }
 
 /**
@@ -1532,32 +1483,61 @@ export async function getPendingSuggestion(): Promise<PendingStorylineSuggestion
 }
 
 /**
- * Clear pending suggestion (mark as surfaced)
+ * Mark suggestion as surfaced (shown to user)
  *
  * @param suggestionId - Suggestion ID
- * @param threadId - Thread ID if converted to thread
  */
-export async function clearPendingSuggestion(
-  suggestionId: string,
-  threadId?: string
-): Promise<void> {
+export async function markSuggestionSurfaced(suggestionId: string): Promise<void> {
   try {
     const { error } = await supabase
       .from(TABLES.SUGGESTIONS)
       .update({
         surfaced: true,
         surfaced_at: new Date().toISOString(),
-        thread_id: threadId || null,
       })
       .eq('id', suggestionId);
 
     if (error) {
-      console.error('💭 [StorylineIdle] Error clearing suggestion:', error);
+      console.error('💭 [StorylineIdle] Error marking suggestion surfaced:', error);
     } else {
-      console.log(`💭 [StorylineIdle] Cleared suggestion: ${suggestionId}`);
+      console.log(`💭 [StorylineIdle] Marked suggestion surfaced: ${suggestionId}`);
     }
   } catch (err) {
-    console.error('💭 [StorylineIdle] Exception clearing suggestion:', err);
+    console.error('💭 [StorylineIdle] Exception marking suggestion surfaced:', err);
+  }
+}
+
+/**
+ * Update suggestion outcome (was it created or rejected?)
+ *
+ * @param suggestionId - Suggestion ID
+ * @param wasCreated - Did it become a storyline?
+ * @param storylineId - Storyline ID if created
+ * @param rejectedReason - Reason if rejected
+ */
+export async function updateSuggestionOutcome(
+  suggestionId: string,
+  wasCreated: boolean,
+  storylineId?: string,
+  rejectedReason?: string
+): Promise<void> {
+  try {
+    const { error } = await supabase
+      .from(TABLES.SUGGESTIONS)
+      .update({
+        was_created: wasCreated,
+        storyline_id: storylineId || null,
+        rejected_reason: rejectedReason || null,
+      })
+      .eq('id', suggestionId);
+
+    if (error) {
+      console.error('💭 [StorylineIdle] Error updating suggestion outcome:', error);
+    } else {
+      console.log(`💭 [StorylineIdle] Updated suggestion outcome: ${suggestionId} (created: ${wasCreated})`);
+    }
+  } catch (err) {
+    console.error('💭 [StorylineIdle] Exception updating suggestion outcome:', err);
   }
 }
 
@@ -1574,7 +1554,6 @@ function mapSuggestionFromDb(row: any): PendingStorylineSuggestion {
     expiresAt: new Date(row.expires_at),
     surfaced: row.surfaced,
     surfacedAt: row.surfaced_at ? new Date(row.surfaced_at) : null,
-    threadId: row.thread_id,
     wasCreated: row.was_created,
     storylineId: row.storyline_id,
     rejectedReason: row.rejected_reason,
@@ -1589,8 +1568,8 @@ function mapSuggestionFromDb(row: any): PendingStorylineSuggestion {
  * Generate storyline suggestion via LLM
  *
  * Uses Gemini API to generate a storyline idea based on:
- * - Kayley's personality and interests
- * - Recent conversation topics
+ * - Kayley's life story
+ * - Last 10 days of conversation history
  * - Active storylines (avoid duplicates)
  * - Category balance (suggest underrepresented categories)
  *
@@ -1601,14 +1580,14 @@ async function generateStorylineSuggestion(): Promise<PendingStorylineSuggestion
     console.log('💭 [StorylineIdle] Generating storyline suggestion via LLM...');
 
     // Fetch context
-    const [characterProfile, activeStorylines, recentConversation] = await Promise.all([
-      getCharacterProfile(),
+    const [kayleyStory, activeStorylines, recentConversation] = await Promise.all([
+      getKayleyLifeStory(),
       getActiveStorylines(),
       getRecentConversationSummary(),
     ]);
 
     // Build prompt
-    const prompt = buildSuggestionPrompt(characterProfile, activeStorylines, recentConversation);
+    const prompt = buildSuggestionPrompt(kayleyStory, activeStorylines, recentConversation);
 
     // Call LLM
     const response = await callGeminiAPI(prompt, {
@@ -1660,23 +1639,65 @@ async function generateStorylineSuggestion(): Promise<PendingStorylineSuggestion
 }
 
 /**
+ * Get Kayley's life story
+ *
+ * Fetch from character facts or return default.
+ *
+ * @returns Kayley's life story string
+ */
+async function getKayleyLifeStory(): Promise<string> {
+  // TODO: Implement once character facts service exists
+  // For now, return default story
+  return `
+Kayley Adams, 22, lives in Chicago. She's creative, thoughtful, and ambitious but also anxious.
+She loves music, art, theater, and exploring the city. She works as a barista and dreams of doing something creative professionally.
+She values genuine connections and is cautious about opening up too quickly.
+She would NEVER get a tattoo (not her style), but she WOULD learn guitar, take an improv class, or plan a weekend trip.
+  `.trim();
+}
+
+/**
+ * Get active storylines
+ *
+ * @returns List of active storylines
+ */
+async function getActiveStorylines(): Promise<any[]> {
+  try {
+    const { data, error } = await supabase
+      .from(TABLES.STORYLINES)
+      .select('title, category, phase')
+      .is('outcome', null)  // Active = no outcome yet
+      .order('created_at', { ascending: false });
+
+    if (error || !data) {
+      return [];
+    }
+
+    return data;
+  } catch (err) {
+    console.error('💭 [StorylineIdle] Error fetching active storylines:', err);
+    return [];
+  }
+}
+
+/**
  * Get recent conversation summary
  *
- * Fetches last 7 days of conversation to inform suggestion generation.
+ * Fetches last 10 days of conversation to inform suggestion generation.
  *
  * @returns Summary string or null
  */
 async function getRecentConversationSummary(): Promise<string | null> {
   try {
-    const sevenDaysAgo = new Date();
-    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+    const tenDaysAgo = new Date();
+    tenDaysAgo.setDate(tenDaysAgo.getDate() - 10);
 
     const { data, error } = await supabase
       .from(TABLES.CONVERSATION_HISTORY)
       .select('role, message_text')
-      .gte('created_at', sevenDaysAgo.toISOString())
+      .gte('created_at', tenDaysAgo.toISOString())
       .order('created_at', { ascending: false })
-      .limit(20);  // Last 20 messages
+      .limit(30);  // Last 30 messages
 
     if (error || !data || data.length === 0) {
       return null;
@@ -1699,15 +1720,15 @@ async function getRecentConversationSummary(): Promise<string | null> {
  * Build LLM prompt for suggestion generation
  */
 function buildSuggestionPrompt(
-  characterProfile: any,
+  kayleyStory: string,
   activeStorylines: any[],
   recentConversation: string | null
 ): string {
   return `
-You are Kayley Adams, a 22-year-old woman living in Chicago. You have been away from the user for a while, and you've been thinking about your life.
+You are Kayley Adams. You've been away from the user for a while, and you've been thinking about your life.
 
-# Your Character
-${characterProfile.description || 'Creative, thoughtful, ambitious but anxious'}
+# Your Character & Life Story
+${kayleyStory}
 
 # Your Current Life Storylines
 ${activeStorylines.length > 0
@@ -1715,18 +1736,18 @@ ${activeStorylines.length > 0
   : 'None - you have space for a new storyline'
 }
 
-# Recent Conversation Topics
+# Recent Conversation Topics (Last 10 Days)
 ${recentConversation || 'No recent conversation'}
 
 # Task
 Generate ONE new storyline idea that:
-1. **Fits your personality** (Kayley would realistically do this - you would NEVER get a tattoo, for example)
-2. **Is meaningful** (not trivial, has emotional weight)
-3. **Has future development** (will unfold over days/weeks)
-4. **Doesn't duplicate existing storylines**
-5. **Balances life categories** (if you have work storyline, suggest creative/personal/social/family)
+- Fits your personality (Kayley would realistically do this - you would NEVER get a tattoo, for example)
+- Is meaningful (not trivial, has emotional weight)
+- Has future development (will unfold over days/weeks)
+- Doesn't duplicate existing storylines
+- Balances life categories (if you have work storyline, suggest creative/personal/social/family)
 
-# Output Format (JSON)
+# Output Format (JSON only, no explanation)
 {
   "category": "work" | "personal" | "family" | "social" | "creative",
   "theme": "Short description (3-8 words): 'learning guitar', 'planning trip to NYC'",
@@ -1858,9 +1879,6 @@ export async function checkForStorylineSuggestion(): Promise<void> {
 
     if (suggestion) {
       console.log(`💭 [StorylineIdle] ✅ Suggestion generated and stored: "${suggestion.theme}"`);
-
-      // Update suggestion cooldown timestamp
-      await updateSuggestionCooldown();
     } else {
       console.warn('💭 [StorylineIdle] Failed to generate suggestion');
     }
@@ -1903,77 +1921,15 @@ async function checkSuggestionCooldown(): Promise<boolean> {
     return true;  // Fail open
   }
 }
-
-/**
- * Update suggestion cooldown timestamp
- */
-async function updateSuggestionCooldown(): Promise<void> {
-  try {
-    const { error } = await supabase
-      .from(TABLES.CONFIG)
-      .update({ last_storyline_created_at: new Date().toISOString() })
-      .eq('id', 1);
-
-    if (error) {
-      console.error('💭 [StorylineIdle] Failed to update suggestion cooldown:', error);
-    }
-  } catch (err) {
-    console.error('💭 [StorylineIdle] Cooldown update error:', err);
-  }
-}
-
-// ============================================================================
-// THREAD CONVERSION (called by ongoingThreads.ts on user return)
-// ============================================================================
-
-/**
- * Convert pending suggestion to ongoing thread
- *
- * Called when user returns and we want to surface the suggestion.
- *
- * @returns Thread ID if created, null otherwise
- */
-export async function convertSuggestionToThread(): Promise<string | null> {
-  const suggestion = await getPendingSuggestion();
-
-  if (!suggestion) {
-    return null;
-  }
-
-  console.log(`💭 [StorylineIdle] Converting suggestion to thread: "${suggestion.theme}"`);
-
-  try {
-    // Create ongoing thread
-    const threadId = await createUserThreadAsync(
-      suggestion.theme as ThreadTheme,  // Map category to theme
-      `I've been thinking about ${suggestion.theme}`,
-      0.7,  // High intensity (will surface soon)
-      false,  // Not user-related (Kayley's thought)
-      null    // No specific trigger event
-    );
-
-    if (threadId) {
-      // Mark suggestion as surfaced
-      await clearPendingSuggestion(suggestion.id, threadId);
-
-      console.log(`💭 [StorylineIdle] ✅ Converted to thread: ${threadId}`);
-
-      return threadId;
-    }
-
-    return null;
-  } catch (err) {
-    console.error('💭 [StorylineIdle] Error converting suggestion to thread:', err);
-    return null;
-  }
-}
 ```
 
-#### Step 4.2: Integrate with App.tsx
+---
+
+#### Step 2.3: Start Idle Service in App.tsx
 
 **File:** `src/App.tsx`
 
-**Location:** Add alongside promise checker startup
+**Location:** Add alongside existing background services
 
 ```typescript
 import { startStorylineIdleService, stopStorylineIdleService } from './services/storylineIdleService';
@@ -1994,486 +1950,60 @@ useEffect(() => {
 }, []);
 ```
 
-#### Step 4.3: Integrate with ongoingThreads.ts
+---
 
-**File:** `src/services/ongoingThreads.ts`
-
-**Location:** Add to beginning of main chat flow (when user returns)
-
-```typescript
-import { convertSuggestionToThread, getPendingSuggestion } from './storylineIdleService';
-
-// ... existing code
-
-/**
- * Check for pending storyline suggestion and convert to thread
- *
- * Call this when user returns (first message after absence).
- *
- * @returns Thread ID if suggestion converted, null otherwise
- */
-export async function checkAndSurfaceStorylineSuggestion(): Promise<string | null> {
-  const suggestion = await getPendingSuggestion();
-
-  if (!suggestion) {
-    return null;
-  }
-
-  console.log(`🧵 [OngoingThreads] Found pending storyline suggestion: "${suggestion.theme}"`);
-
-  const threadId = await convertSuggestionToThread();
-
-  if (threadId) {
-    console.log(`🧵 [OngoingThreads] ✅ Storyline suggestion surfaced as thread: ${threadId}`);
-  }
-
-  return threadId;
-}
-```
-
-**Location:** Call in chat flow
+#### Step 2.4: Inject Suggestion into System Prompt
 
 **File:** `src/services/GeminiChatService.ts` (or appropriate chat service)
 
-**Location:** Before main chat processing (on user return)
+**Location:** Before building system prompt
 
 ```typescript
+import { getPendingSuggestion, markSuggestionSurfaced } from './storylineIdleService';
+
+// ... in chat processing function, before building system prompt:
+
 // Check for pending storyline suggestion
-await checkAndSurfaceStorylineSuggestion();
+const pendingSuggestion = await getPendingSuggestion();
+
+if (pendingSuggestion) {
+  console.log(`💭 [Chat] Found pending storyline suggestion: "${pendingSuggestion.theme}"`);
+
+  // Add to system prompt (PASSIVE style - LLM decides when to mention)
+  const suggestionPrompt = `
+
+====================================================
+RECENT THOUGHTS (While You Were Away)
+====================================================
+
+You've been thinking about ${pendingSuggestion.theme}.
+
+**Why this matters to you:**
+${pendingSuggestion.reasoning}
+
+**How to handle this:**
+- If it feels natural to the conversation, you might mention this
+- Don't force it - only bring it up if it fits the flow
+- If you decide to announce this as a new life storyline, use the create_life_storyline tool
+- If you don't mention it this conversation, that's fine - it will still be on your mind for later
+
+`;
+
+  systemPrompt += suggestionPrompt;
+
+  // Mark as surfaced (shown to user)
+  await markSuggestionSurfaced(pendingSuggestion.id);
+}
 ```
 
 ---
 
-### Phase 5: Testing (2 hours)
+### Phase 2 Testing
 
-#### Step 5.1: Unit tests for storylineService.ts
+#### Manual Test Cases
 
-**File:** `src/services/__tests__/storylineService.test.ts`
+**Test Case 5: Idle Suggestion Generation**
 
-**Add tests:**
-
-```typescript
-import { describe, test, expect, beforeEach, afterEach, vi } from 'vitest';
-import {
-  createStorylineFromTool,
-  type CreateStorylineFromToolInput,
-  type StorylineCreationResult,
-} from '../storylineService';
-import { supabase } from '../../supabaseClient';
-
-// Mock Supabase
-vi.mock('../../supabaseClient');
-
-describe('createStorylineFromTool', () => {
-  beforeEach(() => {
-    // Reset mocks
-    vi.clearAllMocks();
-  });
-
-  test('creates storyline successfully when all checks pass', async () => {
-    // Mock cooldown check (allowed)
-    vi.mocked(supabase.from).mockReturnValueOnce({
-      select: vi.fn().mockReturnValue({
-        eq: vi.fn().mockReturnValue({
-          single: vi.fn().mockResolvedValue({
-            data: { last_storyline_created_at: null },
-            error: null,
-          }),
-        }),
-      }),
-    });
-
-    // Mock duplicate check (no duplicates)
-    vi.mocked(supabase.from).mockReturnValueOnce({
-      select: vi.fn().mockReturnValue({
-        eq: vi.fn().mockReturnValue({
-          gte: vi.fn().mockReturnValue({
-            order: vi.fn().mockResolvedValue({
-              data: [],
-              error: null,
-            }),
-          }),
-        }),
-      }),
-    });
-
-    // Mock category check (allowed)
-    vi.mocked(supabase.from).mockReturnValueOnce({
-      select: vi.fn().mockReturnValue({
-        is: vi.fn().mockReturnValue({
-          limit: vi.fn().mockResolvedValue({
-            data: [],
-            error: null,
-          }),
-        }),
-      }),
-    });
-
-    // Mock storyline creation
-    vi.mocked(supabase.from).mockReturnValueOnce({
-      insert: vi.fn().mockReturnValue({
-        select: vi.fn().mockReturnValue({
-          single: vi.fn().mockResolvedValue({
-            data: {
-              id: 'test-id',
-              title: 'Learning guitar',
-              category: 'creative',
-              // ... other fields
-            },
-            error: null,
-          }),
-        }),
-      }),
-    });
-
-    // Mock cooldown update
-    vi.mocked(supabase.from).mockReturnValueOnce({
-      update: vi.fn().mockReturnValue({
-        eq: vi.fn().mockResolvedValue({
-          error: null,
-        }),
-      }),
-    });
-
-    // Mock audit log
-    vi.mocked(supabase.from).mockReturnValueOnce({
-      insert: vi.fn().mockResolvedValue({
-        error: null,
-      }),
-    });
-
-    const input: CreateStorylineFromToolInput = {
-      title: 'Learning guitar',
-      category: 'creative',
-      storylineType: 'project',
-      initialAnnouncement: "I'm starting guitar lessons",
-      stakes: "I've wanted to learn music for years",
-    };
-
-    const result = await createStorylineFromTool(input);
-
-    expect(result.success).toBe(true);
-    expect(result.storylineId).toBe('test-id');
-    expect(result.error).toBeUndefined();
-  });
-
-  test('blocks creation when cooldown active', async () => {
-    // Mock cooldown check (blocked)
-    const twoDaysAgo = new Date();
-    twoDaysAgo.setDate(twoDaysAgo.getDate() - 1);  // Only 1 day ago (< 48 hours)
-
-    vi.mocked(supabase.from).mockReturnValueOnce({
-      select: vi.fn().mockReturnValue({
-        eq: vi.fn().mockReturnValue({
-          single: vi.fn().mockResolvedValue({
-            data: { last_storyline_created_at: twoDaysAgo.toISOString() },
-            error: null,
-          }),
-        }),
-      }),
-    });
-
-    // Mock audit log
-    vi.mocked(supabase.from).mockReturnValueOnce({
-      insert: vi.fn().mockResolvedValue({
-        error: null,
-      }),
-    });
-
-    const input: CreateStorylineFromToolInput = {
-      title: 'Learning guitar',
-      category: 'creative',
-      storylineType: 'project',
-      initialAnnouncement: "I'm starting guitar lessons",
-      stakes: "I've wanted to learn music for years",
-    };
-
-    const result = await createStorylineFromTool(input);
-
-    expect(result.success).toBe(false);
-    expect(result.error).toContain('wait');
-    expect(result.error).toContain('hours');
-    expect(result.errorDetails?.reason).toBe('cooldown');
-    expect(result.errorDetails?.hoursRemaining).toBeGreaterThan(0);
-  });
-
-  test('detects duplicate storylines', async () => {
-    // Mock cooldown check (allowed)
-    vi.mocked(supabase.from).mockReturnValueOnce({
-      select: vi.fn().mockReturnValue({
-        eq: vi.fn().mockReturnValue({
-          single: vi.fn().mockResolvedValue({
-            data: { last_storyline_created_at: null },
-            error: null,
-          }),
-        }),
-      }),
-    });
-
-    // Mock duplicate check (duplicate found)
-    vi.mocked(supabase.from).mockReturnValueOnce({
-      select: vi.fn().mockReturnValue({
-        eq: vi.fn().mockReturnValue({
-          gte: vi.fn().mockReturnValue({
-            order: vi.fn().mockResolvedValue({
-              data: [
-                { title: 'Learning to play guitar', created_at: new Date().toISOString() }
-              ],
-              error: null,
-            }),
-          }),
-        }),
-      }),
-    });
-
-    // Mock audit log
-    vi.mocked(supabase.from).mockReturnValueOnce({
-      insert: vi.fn().mockResolvedValue({
-        error: null,
-      }),
-    });
-
-    const input: CreateStorylineFromToolInput = {
-      title: 'Learning guitar',
-      category: 'creative',
-      storylineType: 'project',
-      initialAnnouncement: "I'm starting guitar lessons",
-      stakes: "I've wanted to learn music for years",
-    };
-
-    const result = await createStorylineFromTool(input);
-
-    expect(result.success).toBe(false);
-    expect(result.error).toContain('similar');
-    expect(result.errorDetails?.reason).toBe('duplicate');
-  });
-
-  test('blocks creation when active storyline exists', async () => {
-    // Mock cooldown check (allowed)
-    vi.mocked(supabase.from).mockReturnValueOnce({
-      select: vi.fn().mockReturnValue({
-        eq: vi.fn().mockReturnValue({
-          single: vi.fn().mockResolvedValue({
-            data: { last_storyline_created_at: null },
-            error: null,
-          }),
-        }),
-      }),
-    });
-
-    // Mock duplicate check (no duplicates)
-    vi.mocked(supabase.from).mockReturnValueOnce({
-      select: vi.fn().mockReturnValue({
-        eq: vi.fn().mockReturnValue({
-          gte: vi.fn().mockReturnValue({
-            order: vi.fn().mockResolvedValue({
-              data: [],
-              error: null,
-            }),
-          }),
-        }),
-      }),
-    });
-
-    // Mock category check (active storyline exists)
-    vi.mocked(supabase.from).mockReturnValueOnce({
-      select: vi.fn().mockReturnValue({
-        is: vi.fn().mockReturnValue({
-          limit: vi.fn().mockResolvedValue({
-            data: [
-              {
-                id: 'active-id',
-                title: 'Existing storyline',
-                category: 'work',
-                // ... other fields
-              }
-            ],
-            error: null,
-          }),
-        }),
-      }),
-    });
-
-    // Mock audit log
-    vi.mocked(supabase.from).mockReturnValueOnce({
-      insert: vi.fn().mockResolvedValue({
-        error: null,
-      }),
-    });
-
-    const input: CreateStorylineFromToolInput = {
-      title: 'Learning guitar',
-      category: 'creative',
-      storylineType: 'project',
-      initialAnnouncement: "I'm starting guitar lessons",
-      stakes: "I've wanted to learn music for years",
-    };
-
-    const result = await createStorylineFromTool(input);
-
-    expect(result.success).toBe(false);
-    expect(result.error).toContain('active storyline');
-    expect(result.errorDetails?.reason).toBe('category_blocked');
-  });
-});
-
-describe('string similarity', () => {
-  test('detects high similarity', () => {
-    const similarity = calculateStringSimilarity('learning guitar', 'learning to play guitar');
-    expect(similarity).toBeGreaterThan(0.6);  // Should be ~0.75
-  });
-
-  test('detects low similarity', () => {
-    const similarity = calculateStringSimilarity('learning guitar', 'running marathon');
-    expect(similarity).toBeLessThan(0.3);  // Should be 0
-  });
-
-  test('handles exact matches', () => {
-    const similarity = calculateStringSimilarity('learning guitar', 'learning guitar');
-    expect(similarity).toBe(1.0);
-  });
-});
-```
-
-#### Step 5.2: Unit tests for storylineIdleService.ts
-
-**File:** `src/services/__tests__/storylineIdleService.test.ts`
-
-**Add tests:**
-
-```typescript
-import { describe, test, expect, beforeEach, afterEach, vi } from 'vitest';
-import {
-  startStorylineIdleService,
-  stopStorylineIdleService,
-  isSchedulerRunning,
-  checkForStorylineSuggestion,
-} from '../storylineIdleService';
-
-describe('storylineIdleService', () => {
-  afterEach(() => {
-    stopStorylineIdleService();
-  });
-
-  test('starts scheduler', () => {
-    startStorylineIdleService();
-    expect(isSchedulerRunning()).toBe(true);
-  });
-
-  test('stops scheduler', () => {
-    startStorylineIdleService();
-    stopStorylineIdleService();
-    expect(isSchedulerRunning()).toBe(false);
-  });
-
-  test('safe to call start multiple times', () => {
-    startStorylineIdleService();
-    startStorylineIdleService();  // Should not throw
-    expect(isSchedulerRunning()).toBe(true);
-  });
-
-  test('safe to call stop when not running', () => {
-    stopStorylineIdleService();  // Should not throw
-    expect(isSchedulerRunning()).toBe(false);
-  });
-});
-```
-
-#### Step 5.3: Manual testing checklist
-
-**Create:** `docs/testing/storyline-creation-manual-tests.md`
-
-```markdown
-# Storyline Creation Manual Testing Checklist
-
-## Test Case 1: Successful Creation (Conversation)
-
-**Steps:**
-1. Start conversation
-2. Say: "I'm starting guitar lessons tomorrow"
-3. Observe LLM response
-
-**Expected:**
-- Kayley announces storyline naturally
-- Tool call: `create_life_storyline` visible in logs
-- Database: New row in `life_storylines` (phase=announced)
-- Database: Row in `storyline_creation_attempts` (success=true)
-- Database: `storyline_config.last_storyline_created_at` updated
-
-**Success Criteria:**
-- ✅ Storyline created
-- ✅ Cooldown timestamp updated
-- ✅ Audit log recorded
-
----
-
-## Test Case 2: Cooldown Enforcement
-
-**Steps:**
-1. Create storyline (Test Case 1)
-2. Wait 5 minutes
-3. Say: "I'm also starting French lessons"
-4. Observe LLM response
-
-**Expected:**
-- Tool call happens
-- Tool returns error: "Must wait X hours..."
-- Kayley accepts gracefully (doesn't retry)
-- Example: "(I wanted to track this as a storyline, but I just started one recently)"
-- Database: Row in `storyline_creation_attempts` (success=false, failure_reason='cooldown_active')
-
-**Success Criteria:**
-- ✅ Cooldown blocks creation
-- ✅ Error message includes hours remaining
-- ✅ Kayley doesn't retry
-- ✅ Audit log recorded
-
----
-
-## Test Case 3: Duplicate Detection
-
-**Steps:**
-1. Create storyline: "Learning guitar"
-2. Resolve storyline 2 days later (outcome: 'success')
-3. Within 7 days, say: "I'm learning to play guitar"
-4. Observe LLM response
-
-**Expected:**
-- Tool call happens
-- Tool returns error: "Similar storyline exists..."
-- Kayley accepts gracefully
-- Database: Row in `storyline_creation_attempts` (success=false, failure_reason='duplicate_detected')
-
-**Success Criteria:**
-- ✅ Duplicate detected (≥60% similarity)
-- ✅ Creation blocked
-- ✅ Audit log recorded
-
----
-
-## Test Case 4: Category Constraint
-
-**Steps:**
-1. Create storyline (any category)
-2. Try creating second storyline (any category)
-3. Observe LLM response
-
-**Expected:**
-- Tool call happens
-- Tool returns error: "Active storyline exists..."
-- Kayley accepts gracefully
-- Database: Row in `storyline_creation_attempts` (success=false, failure_reason='category_constraint')
-
-**Success Criteria:**
-- ✅ Category constraint enforced
-- ✅ Error message includes active storyline title
-- ✅ Audit log recorded
-
----
-
-## Test Case 5: Idle Suggestion Generation
-
-**Steps:**
 1. Chat with Kayley
 2. Close app (or wait 30+ minutes without chatting)
 3. Check database: `storyline_pending_suggestions`
@@ -2482,20 +2012,23 @@ describe('storylineIdleService', () => {
 
 **Expected:**
 - After 30 min: Row in `storyline_pending_suggestions` (surfaced=false)
-- On return: Kayley mentions: "Hey! I've been thinking... [theme]"
-- Database: Suggestion marked surfaced=true, thread_id set
-- Database: New row in `ongoing_threads`
+- On return: Kayley might mention: "Hey! I've been thinking... [theme]"
+- Database: Suggestion marked surfaced=true
+- If mentioned and tool called: was_created=true, storyline_id set
 
-**Success Criteria:**
-- ✅ Suggestion generated during absence
-- ✅ Converted to thread on return
-- ✅ Kayley surfaces naturally
+**Test Case 6: Passive Surfacing (LLM Choice)**
 
----
+1. Generate suggestion (Test Case 5)
+2. User returns and says: "Hey"
+3. Observe Kayley's response
 
-## Test Case 6: End-to-End (Idle → Creation)
+**Expected:**
+- Kayley might mention suggestion immediately
+- OR Kayley might not mention it (saves for later)
+- LLM has agency - not forced
 
-**Steps:**
+**Test Case 7: End-to-End (Idle → Creation)**
+
 1. Chat with Kayley
 2. Wait 30+ minutes
 3. Verify suggestion generated (database check)
@@ -2506,111 +2039,168 @@ describe('storylineIdleService', () => {
 8. Storyline created
 
 **Expected:**
-- Suggestion → Thread → Announcement → Tool call → Safety checks → Creation
+- Suggestion → Prompt injection → Announcement → Tool call → Safety checks → Creation
 - Database: Rows in:
   - `storyline_pending_suggestions` (surfaced=true, was_created=true, storyline_id set)
   - `life_storylines` (new storyline)
-  - `ongoing_threads` (thread created)
   - `storyline_creation_attempts` (success=true, source='idle_suggestion')
 
-**Success Criteria:**
-- ✅ Full pipeline works
-- ✅ All audit logs recorded
-- ✅ Storyline enters announced phase
+---
+
+### Phase 2 Rollout Checklist
+
+- [ ] Create `20260118_create_storyline_pending_suggestions.sql`
+- [ ] Review migration (DO NOT apply yet)
+- [ ] User applies migration manually: `supabase migration apply`
+- [ ] Verify table exists: Query Supabase dashboard
+- [ ] Create `storylineIdleService.ts`
+- [ ] Implement all functions (scheduler, absence detection, LLM generation, suggestion management)
+- [ ] Verify: TypeScript compiles (`npm run build`)
+- [ ] Add service startup to `App.tsx`
+- [ ] Add prompt injection to chat service (GeminiChatService.ts or similar)
+- [ ] Verify: TypeScript compiles
+- [ ] Verify: No runtime errors on app start
+- [ ] Verify: Idle service starts successfully (check console logs)
+- [ ] Manual Test Case 5: Idle suggestion generation ✅
+- [ ] Manual Test Case 6: Passive surfacing (LLM choice) ✅
+- [ ] Manual Test Case 7: End-to-end (idle → creation) ✅
+- [ ] Monitor for 48 hours (check logs, database, suggestion conversion rate)
 
 ---
 
-## Test Case 7: User Event Tracking
+## Safety Controls
 
-**Steps:**
-1. User says: "I got a new job, starting next week"
-2. Observe Kayley's response
+### Cooldown System
 
-**Expected:**
-- Kayley considers creating storyline
-- Tool call: `create_life_storyline` with userInvolvement='central'
-- Category: 'work'
-- Storyline created
+**48-hour cooldown between storyline creations**
 
-**Success Criteria:**
-- ✅ User-related storyline created
-- ✅ userInvolvement='central' set correctly
+- Enforced at tool call level (both conversation and idle)
+- Shared state: `storyline_config.last_storyline_created_at`
+- Prevents spam from any source
 
----
+### Semantic Deduplication
 
-## Test Case 8: Inappropriate Creation
+**60% word overlap = duplicate**
 
-**Steps:**
-1. Say: "I might think about maybe taking a class someday"
-2. Observe Kayley's response
+- Checks last 7 days of storylines in same category
+- Example: "Learning guitar" vs "Learning to play guitar" = 75% overlap → Blocked
+- Prevents repetitive storylines
 
-**Expected:**
-- Kayley does NOT call tool (too uncertain)
-- Natural conversation response
+### Category Constraint
 
-**Steps:**
-1. Say: "I did laundry"
-2. Observe Kayley's response
+**Phase 1: Only 1 total active storyline**
 
-**Expected:**
-- Kayley does NOT call tool (trivial)
-- Natural conversation response
+- Global constraint: `WHERE outcome IS NULL`
+- Any active storyline blocks new creation
+- Will be relaxed in future (per-category constraint)
 
-**Success Criteria:**
-- ✅ Kayley uses judgment
-- ✅ No tool call for uncertain/trivial mentions
+### Audit Logging
+
+**All attempts logged to `storyline_creation_attempts`**
+
+- Success and failure
+- Failure reason (cooldown, duplicate, category_blocked, db_error)
+- Source (conversation vs idle_suggestion)
+- Enables observability and tuning
 
 ---
 
-## Test Case 9: Daily Processing
+## Database Schema
 
-**Steps:**
-1. Create storyline
-2. Wait 24 hours (or manually trigger: `processStorylineOnStartup()`)
-3. Check database: `storyline_updates`
+### Tables Created
 
-**Expected:**
-- New row in `storyline_updates` (update_type based on phase)
-- Storyline phase may transition (if timing conditions met)
+**1. storyline_config (modified)**
+- Added: `last_storyline_created_at` column
+- Purpose: Track cooldown for creation
 
-**Success Criteria:**
-- ✅ Daily processing works
-- ✅ Updates generated
-- ✅ Phases transition
+**2. storyline_creation_attempts (new)**
+- Purpose: Audit log for all creation attempts
+- Indexes: attempted_at, success, failure_reason
+
+**3. storyline_pending_suggestions (new)**
+- Purpose: Store idle-generated suggestions
+- Lifecycle: created → surfaced → outcome (created or rejected)
+- Expiration: 24 hours
 
 ---
 
-## Database Verification Queries
+## Testing Strategy
 
-```sql
--- Check last created timestamp
-SELECT last_storyline_created_at FROM storyline_config WHERE id = 1;
+### Unit Tests
 
--- Check active storylines
-SELECT id, title, category, phase, created_at
-FROM life_storylines
-WHERE outcome IS NULL
-ORDER BY created_at DESC;
+**File:** `src/services/__tests__/storylineService.test.ts`
 
--- Check creation attempts
-SELECT attempted_at, title, category, success, failure_reason, cooldown_hours_remaining
-FROM storyline_creation_attempts
-ORDER BY attempted_at DESC
-LIMIT 10;
+- Test cooldown check (allowed/blocked)
+- Test duplicate detection (similarity calculation)
+- Test category constraint (global limit)
+- Test `createStorylineFromTool` success path
+- Test `createStorylineFromTool` failure paths
 
--- Check pending suggestions
-SELECT id, category, theme, surfaced, expires_at, created_at
-FROM storyline_pending_suggestions
-WHERE surfaced = FALSE AND expires_at > NOW()
-ORDER BY created_at DESC;
+**File:** `src/services/__tests__/storylineIdleService.test.ts`
 
--- Check storyline updates
-SELECT s.title, u.update_type, u.content, u.created_at
-FROM storyline_updates u
-JOIN life_storylines s ON s.id = u.storyline_id
-ORDER BY u.created_at DESC
-LIMIT 5;
-```
+- Test scheduler start/stop
+- Test absence detection
+- Test suggestion generation (mock LLM)
+- Test cooldown enforcement
+
+### Integration Tests
+
+- End-to-end: User message → Tool call → Creation
+- End-to-end: Idle → Suggestion → Prompt → Tool call → Creation
+- Cooldown enforcement across sources
+
+### Manual Tests
+
+See Phase 1 and Phase 2 test cases above.
+
+---
+
+## Rollout Checklist
+
+### Phase 1: Conversation-Driven Creation
+
+- [ ] Database migrations (cooldown column, audit table)
+- [ ] `storylineService.ts` additions (types, safety functions, main function)
+- [ ] LLM tool integration (`aiSchema.ts`, `memoryService.ts`, `toolsAndCapabilities.ts`)
+- [ ] TypeScript compiles
+- [ ] Tests pass
+- [ ] Snapshot tests updated
+- [ ] Manual testing (4 test cases)
+- [ ] Monitor for 24 hours
+
+### Phase 2: Idle Suggestions
+
+- [ ] Database migration (pending suggestions table)
+- [ ] `storylineIdleService.ts` implementation
+- [ ] `App.tsx` integration (start service)
+- [ ] Chat service integration (prompt injection)
+- [ ] TypeScript compiles
+- [ ] Tests pass
+- [ ] Idle service starts successfully
+- [ ] Manual testing (3 test cases)
+- [ ] Monitor for 48 hours
+
+---
+
+## Configuration Tuning
+
+### If too many storylines created:
+- Increase cooldown (48h → 72h)
+- Increase similarity threshold (0.6 → 0.7)
+- Decrease LLM temperature for suggestions (0.8 → 0.6)
+
+### If too few storylines created:
+- Decrease cooldown (48h → 36h)
+- Decrease similarity threshold (0.6 → 0.5)
+- Increase LLM temperature for suggestions (0.8 → 0.9)
+
+### If duplicate storylines created:
+- Increase similarity threshold (0.6 → 0.7)
+- Increase dedupe window (7 days → 14 days)
+
+### If category imbalance:
+- Adjust suggestion prompt to favor underrepresented categories
+- Add category rotation logic to idle service
 
 ---
 
@@ -2654,376 +2244,37 @@ SELECT
   ROUND(100.0 * SUM(CASE WHEN was_created THEN 1 ELSE 0 END) / COUNT(*), 2) AS conversion_rate
 FROM storyline_pending_suggestions;
 ```
-```
-
----
-
-### Phase 6: Snapshot Tests (30 minutes)
-
-#### Step 6.1: Update system prompt snapshots
-
-**File:** `src/services/tests/systemPromptBuilder.test.ts` (or similar)
-
-**Run:**
-```bash
-npm test -- --run -t "snapshot"
-```
-
-**Expected:** Test failures (prompt changed due to new tool)
-
-**Update:**
-```bash
-npm test -- --run -t "snapshot" -u
-```
-
-**Verify:** Review diff to ensure tool documentation added correctly
-
----
-
-## Rollout Checklist
-
-### Pre-Implementation
-
-- [ ] User reviews this plan
-- [ ] User approves Path B approach
-- [ ] User confirms understanding of 48-hour cooldown, category constraint, idle service requirements
-
-### Implementation Phase 1 (Database)
-
-- [ ] Create `20260116_add_storyline_cooldown.sql`
-- [ ] Create `20260116_create_pending_suggestions.sql`
-- [ ] Create `20260116_create_creation_attempts.sql`
-- [ ] Review migrations (DO NOT apply yet)
-- [ ] User applies migrations manually: `supabase migration apply`
-- [ ] Verify tables exist: Query Supabase dashboard
-
-### Implementation Phase 2 (storylineService.ts)
-
-- [ ] Add type definitions (CreateStorylineFromToolInput, StorylineCreationResult, etc.)
-- [ ] Add configuration constants (CREATION_SAFETY_CONFIG)
-- [ ] Implement `checkStorylineCreationCooldown()`
-- [ ] Implement `updateStorylineCreationCooldown()`
-- [ ] Implement `checkDuplicateStoryline()`
-- [ ] Implement `calculateStringSimilarity()`
-- [ ] Implement `checkCategoryConstraint()`
-- [ ] Implement `logCreationAttempt()`
-- [ ] Implement `createStorylineFromTool()`
-- [ ] Verify: TypeScript compiles (`npm run build`)
-
-### Implementation Phase 3 (LLM Tool)
-
-- [ ] Add tool to `GeminiMemoryToolDeclarations` in `aiSchema.ts`
-- [ ] Add to `MemoryToolArgs` union type ⚠️ CRITICAL
-- [ ] Add to `PendingToolCall.name` union type ⚠️ CRITICAL
-- [ ] Add to `OpenAIMemoryToolDeclarations` (if using OpenAI)
-- [ ] Add tool executor to `memoryService.ts` (`executeMemoryTool()`)
-- [ ] Add documentation to `toolsAndCapabilities.ts` (`buildToolsSection()`)
-- [ ] Verify: TypeScript compiles
-
-### Implementation Phase 4 (Idle Service)
-
-- [ ] Create `src/services/storylineIdleService.ts`
-- [ ] Implement types (PendingStorylineSuggestion, etc.)
-- [ ] Implement configuration (CONFIG constants)
-- [ ] Implement scheduler (start/stop functions)
-- [ ] Implement absence detection (`getLastInteractionTime()`, `convertUTCtoCST()`)
-- [ ] Implement suggestion management (`hasPendingSuggestion()`, `getPendingSuggestion()`, `clearPendingSuggestion()`)
-- [ ] Implement LLM generation (`generateStorylineSuggestion()`, `buildSuggestionPrompt()`, `parseSuggestionResponse()`)
-- [ ] Implement main check (`checkForStorylineSuggestion()`)
-- [ ] Implement thread conversion (`convertSuggestionToThread()`)
-- [ ] Verify: TypeScript compiles
-
-### Implementation Phase 5 (Integration)
-
-- [ ] Add to `App.tsx` (start/stop idle service)
-- [ ] Add to `ongoingThreads.ts` (`checkAndSurfaceStorylineSuggestion()`)
-- [ ] Add to chat service (call `checkAndSurfaceStorylineSuggestion()` on user return)
-- [ ] Verify: TypeScript compiles
-- [ ] Verify: No runtime errors on app start
-
-### Testing Phase
-
-- [ ] Run unit tests: `npm test -- --run`
-- [ ] Run snapshot tests: `npm test -- --run -t "snapshot"` (expect failures)
-- [ ] Update snapshots: `npm test -- --run -t "snapshot" -u`
-- [ ] Verify snapshot diffs (tool documentation added)
-- [ ] Manual Test Case 1: Successful creation ✅
-- [ ] Manual Test Case 2: Cooldown enforcement ✅
-- [ ] Manual Test Case 3: Duplicate detection ✅
-- [ ] Manual Test Case 4: Category constraint ✅
-- [ ] Manual Test Case 5: Idle suggestion generation ✅
-- [ ] Manual Test Case 6: End-to-end (idle → creation) ✅
-- [ ] Manual Test Case 7: User event tracking ✅
-- [ ] Manual Test Case 8: Inappropriate creation ✅
-- [ ] Manual Test Case 9: Daily processing ✅
-- [ ] Database verification queries (all pass)
-- [ ] Observability queries (data looks reasonable)
-
-### Deployment
-
-- [ ] All tests pass
-- [ ] Manual testing complete
-- [ ] No TypeScript errors
-- [ ] No console errors in browser
-- [ ] Idle service starts successfully
-- [ ] First suggestion generated successfully (wait 30+ min or manually trigger)
-- [ ] First storyline created successfully
-- [ ] Monitor for 24 hours (check logs, database)
-
-### Post-Deployment Monitoring
-
-- [ ] Check `storyline_creation_attempts` daily (success rate >80%)
-- [ ] Check failure reasons (cooldown should be most common)
-- [ ] Check suggestion conversion rate (should be >50%)
-- [ ] Check category distribution (should be balanced over time)
-- [ ] No runaway creation (daily cap not exceeded)
-- [ ] No duplicate storylines created
-
-### Phase 2 Preparation (After 2 Weeks)
-
-- [ ] Review success metrics
-- [ ] Tune cooldown if needed (48h → 12h?)
-- [ ] Prepare for multiple categories
-- [ ] Update category constraint (global → per-category)
-- [ ] Add daily cap enforcement (2-3 max)
-
----
-
-## Configuration & Tuning
-
-### Phase 1 Configuration (Conservative)
-
-```typescript
-// storylineIdleService.ts
-const CONFIG = {
-  ABSENCE_THRESHOLD_MINUTES: 30,
-  CHECK_INTERVAL_MS: 10 * 60 * 1000,
-  SUGGESTION_COOLDOWN_HOURS: 48,
-  SUGGESTION_EXPIRATION_HOURS: 24,
-  MAX_PENDING_SUGGESTIONS: 1,
-};
-
-// storylineService.ts
-const CREATION_SAFETY_CONFIG = {
-  COOLDOWN_HOURS: 48,
-  DEDUPE_WINDOW_DAYS: 7,
-  SIMILARITY_THRESHOLD: 0.6,
-  MAX_ACTIVE_STORYLINES: 1,
-};
-```
-
-### Phase 2 Configuration (Relaxed)
-
-```typescript
-// storylineService.ts
-const CREATION_SAFETY_CONFIG = {
-  COOLDOWN_HOURS: 48,  // Keep at 48h
-  DEDUPE_WINDOW_DAYS: 7,
-  SIMILARITY_THRESHOLD: 0.6,
-  MAX_ACTIVE_STORYLINES: 999,  // Remove global limit (use per-category instead)
-  DAILY_CAP: 2,  // NEW: Max 2 creations per day
-};
-```
-
-### Tuning Guidelines
-
-**If too many storylines created:**
-- Increase cooldown (48h → 72h)
-- Increase similarity threshold (0.6 → 0.7)
-- Decrease LLM temperature for suggestions (0.8 → 0.6)
-
-**If too few storylines created:**
-- Decrease cooldown (48h → 36h)
-- Decrease similarity threshold (0.6 → 0.5)
-- Increase LLM temperature for suggestions (0.8 → 0.9)
-
-**If duplicate storylines created:**
-- Increase similarity threshold (0.6 → 0.7)
-- Increase dedupe window (7 days → 14 days)
-
-**If category imbalance:**
-- Adjust suggestion prompt to favor underrepresented categories
-- Add category rotation logic to idle service
-
----
-
-## Error Handling & Edge Cases
-
-### Edge Case 1: App Closed During Absence
-
-**Scenario:** User away 30+ min, but app closed (idle service not running)
-
-**Behavior:**
-- No suggestion generated (service requires app open)
-- Next time app opens: Service starts, checks absence
-- If still ≥30 min away: Generates suggestion
-
-**Mitigation:** Service Worker (future enhancement)
-
-### Edge Case 2: Multiple Browser Tabs
-
-**Scenario:** User has 2 tabs open, both running idle service
-
-**Behavior:**
-- Both schedulers run independently
-- Both may try to generate suggestion
-- Database constraint: `MAX_PENDING_SUGGESTIONS = 1`
-- Second attempt fails (pending already exists)
-
-**Mitigation:** Handled by `hasPendingSuggestion()` check
-
-### Edge Case 3: Clock Skew (UTC/CST)
-
-**Scenario:** Server time vs client time differ
-
-**Behavior:**
-- Absence detection uses `conversation_history.created_at` (UTC from server)
-- Conversion to CST happens client-side
-- Skew unlikely to cause issues (30-min threshold has buffer)
-
-**Mitigation:** Use server timestamps only
-
-### Edge Case 4: Suggestion Expires Before User Returns
-
-**Scenario:** Suggestion created, user doesn't return for 25+ hours
-
-**Behavior:**
-- Suggestion expires (expires_at < NOW)
-- `getPendingSuggestion()` returns null
-- No thread created, suggestion lost
-
-**Mitigation:** Acceptable (user was away too long, suggestion stale)
-
-### Edge Case 5: LLM Returns Invalid JSON
-
-**Scenario:** LLM suggestion response malformed
-
-**Behavior:**
-- `parseSuggestionResponse()` catches error
-- Returns null
-- Logs warning
-- No suggestion created
-
-**Mitigation:** Retry on next check (10 min later)
-
-### Edge Case 6: Race Condition (Cooldown)
-
-**Scenario:** Two tool calls happen simultaneously (conversation + idle)
-
-**Behavior:**
-- Both check cooldown (both see "allowed")
-- Both try to create
-- First succeeds, updates cooldown
-- Second checks cooldown again (now "blocked")
-- Second fails gracefully
-
-**Mitigation:** Already handled by sequential safety checks
-
----
-
-## Validation & Verification
-
-### Build Validation
-
-```bash
-npm run build
-```
-
-**Expected:** No TypeScript errors
-
-### Test Validation
-
-```bash
-npm test -- --run
-```
-
-**Expected:** All tests pass (including new tests)
-
-### Snapshot Validation
-
-```bash
-npm test -- --run -t "snapshot"
-```
-
-**Expected:** Failures (prompt changed)
-
-```bash
-npm test -- --run -t "snapshot" -u
-```
-
-**Expected:** Snapshots updated, tests pass
-
-### Runtime Validation
-
-```bash
-npm run dev
-```
-
-**Expected:**
-- App starts without errors
-- Console: `💭 [StorylineIdle] Starting idle service...`
-- Console: `💭 [StorylineIdle] ✅ Started`
-- Console: `💭 [StorylineIdle] Running periodic check...`
-
-### Database Validation
-
-**Query:**
-```sql
-SELECT * FROM storyline_config WHERE id = 1;
-```
-
-**Expected:** `last_storyline_created_at` column exists
-
-**Query:**
-```sql
-SELECT * FROM storyline_pending_suggestions LIMIT 1;
-```
-
-**Expected:** Table exists, no errors
-
-**Query:**
-```sql
-SELECT * FROM storyline_creation_attempts LIMIT 1;
-```
-
-**Expected:** Table exists, no errors
 
 ---
 
 ## Summary
 
-This ultra-detailed plan covers:
-- ✅ Every file to modify (11 files)
-- ✅ Every function to implement (20+ functions)
-- ✅ Every type to define (10+ types)
-- ✅ Every safety check (cooldown, dedupe, category, audit)
-- ✅ Every integration point (aiSchema, memoryService, toolsAndCapabilities, App, ongoingThreads)
-- ✅ Every test case (9 manual tests + unit tests)
-- ✅ Every database migration (3 tables)
-- ✅ Every edge case (6 scenarios)
-- ✅ Every configuration option (tuning guidelines)
-- ✅ Complete rollout checklist (50+ items)
+### Phase 1 Deliverables
+- ✅ LLM tool: `create_life_storyline`
+- ✅ Safety controls: Cooldown, dedupe, category constraint
+- ✅ Audit logging: All attempts tracked
+- ✅ Conversation-driven creation works
+
+### Phase 2 Deliverables
+- ✅ Idle service: Detects absence, generates suggestions
+- ✅ Direct prompt injection: PASSIVE style, LLM chooses when to mention
+- ✅ End-to-end flow: Idle → Suggestion → Prompt → Tool → Creation
+- ✅ No threads system needed
+
+### Success Criteria
+- ✅ Storylines create reliably (success rate >80%)
+- ✅ No runaway creation (cooldown respected)
+- ✅ No duplicate storylines (dedupe works)
+- ✅ Kayley feels autonomous (idle suggestions work)
+- ✅ LLM has agency (passive surfacing, not forced)
+- ✅ User experience positive (storylines enhance conversations)
+
+---
 
 **Next Steps:**
-1. User reviews plan
-2. User confirms: "This is exactly what I want"
-3. Begin implementation (follow checklist sequentially)
-4. Test after each phase
-5. Deploy after all tests pass
-6. Monitor for 2 weeks
-7. Proceed to Phase 2 (multiple categories)
-
-**Estimated Timeline:**
-- Implementation: 8-10 hours (full focus)
-- Testing: 2-3 hours
-- Monitoring: 2 weeks
-- Total: ~2-3 weeks to Phase 2
-
-**Risk Level:** Low (conservative approach, strong safety controls, comprehensive testing)
-
-**Success Criteria:**
-- ✅ Storylines created reliably (success rate >80%)
-- ✅ No runaway creation (daily cap respected)
-- ✅ No duplicate storylines
-- ✅ Kayley feels autonomous (idle suggestions work)
-- ✅ User experience positive (storylines enhance conversations)
+1. User reviews this plan
+2. User confirms architecture decisions
+3. Begin Phase 1 implementation
+4. Test thoroughly
+5. Monitor for 24 hours
+6. If successful, proceed to Phase 2
