@@ -457,7 +457,8 @@ export type MemoryToolArgs =
   | { tool: 'recall_user_info'; args: RecallUserInfoArgs }
   | { tool: 'store_user_info'; args: StoreUserInfoArgs }
   | { tool: 'store_character_info'; args: { category: string; key: string; value: string } }
-  | { tool: 'resolve_open_loop'; args: { topic: string; resolution_type: 'resolved' | 'dismissed'; reason?: string } };
+  | { tool: 'resolve_open_loop'; args: { topic: string; resolution_type: 'resolved' | 'dismissed'; reason?: string } }
+  | { tool: 'create_life_storyline'; args: { title: string; category: 'work' | 'personal' | 'family' | 'social' | 'creative'; storylineType: 'project' | 'opportunity' | 'challenge' | 'relationship' | 'goal'; initialAnnouncement: string; stakes: string; userInvolvement?: 'none' | 'aware' | 'supportive' | 'involved' | 'central'; emotionalTone?: string; emotionalIntensity?: number } };
 
 // ============================================
 // Function Declarations for AI Providers
@@ -724,6 +725,82 @@ export const GeminiMemoryToolDeclarations = [
       },
       required: ["promiseType", "description", "triggerEvent"]
     }
+  },
+  {
+    name: "create_life_storyline",
+    description:
+      "Create a new life storyline to track an ongoing life event or situation. " +
+      "WHEN TO USE: You (Kayley) are announcing a new life event (\"I'm starting guitar lessons\"), " +
+      "or user mentions a significant event they want you to track. " +
+      "A situation will unfold over days/weeks (not single-moment events). " +
+      "WHEN NOT TO USE: Casual mentions (\"I might take a class\"), completed events (\"I went to a concert yesterday\"), " +
+      "trivial activities (\"I need to do laundry\"). " +
+      "PERSONALITY CHECK: The storyline MUST align with your character. " +
+      "Example: You would NEVER get a tattoo (not your style). You WOULD learn guitar (creative, fits your interests). " +
+      "CONSTRAINTS: Only ONE active storyline allowed currently (Phase 1). " +
+      "If active storyline exists, this tool will return error. Must wait 48 hours between creations (cooldown). " +
+      "If tool returns error: Accept gracefully, don't retry.",
+    parameters: {
+      type: "object",
+      properties: {
+        title: {
+          type: "string",
+          description: "Short title (3-8 words): 'Learning guitar', 'Auditioning for theater', 'Planning NYC trip'"
+        },
+        category: {
+          type: "string",
+          enum: ["work", "personal", "family", "social", "creative"],
+          description:
+            "Life domain: " +
+            "work (job, career, professional development), " +
+            "personal (self-improvement, health, solo hobbies), " +
+            "family (family relationships, family events), " +
+            "social (friends, social activities, community), " +
+            "creative (music, art, writing, performance)"
+        },
+        storylineType: {
+          type: "string",
+          enum: ["project", "opportunity", "challenge", "relationship", "goal"],
+          description:
+            "Type of storyline: " +
+            "project (something you're working on), " +
+            "opportunity (potential positive outcome), " +
+            "challenge (difficult situation), " +
+            "relationship (relationship development), " +
+            "goal (achievement target)"
+        },
+        initialAnnouncement: {
+          type: "string",
+          description: "The message you just said announcing this (or user's announcement). Used for context tracking."
+        },
+        stakes: {
+          type: "string",
+          description: "Why this matters to you (1-2 sentences): 'I've wanted to learn music for years', 'This could be my big break'"
+        },
+        userInvolvement: {
+          type: "string",
+          enum: ["none", "aware", "supportive", "involved", "central"],
+          description:
+            "User's role in this storyline: " +
+            "none (they don't know yet), " +
+            "aware (you told them, they know about it), " +
+            "supportive (they're encouraging you), " +
+            "involved (they're actively helping you), " +
+            "central (this is THEIR storyline, not yours, e.g., 'User got a new job')"
+        },
+        emotionalTone: {
+          type: "string",
+          description: "Current emotion about this: 'excited', 'anxious', 'hopeful', 'nervous', 'determined', 'conflicted', etc."
+        },
+        emotionalIntensity: {
+          type: "number",
+          description: "0-1 scale, how intensely you feel about this (0.3=mild, 0.5=moderate, 0.7=strong, 0.9=consuming)",
+          minimum: 0,
+          maximum: 1
+        }
+      },
+      required: ["title", "category", "storylineType", "initialAnnouncement", "stakes"]
+    }
   }
 ];
 
@@ -949,7 +1026,7 @@ export const OpenAIMemoryToolDeclarations = [
  */
 export interface PendingToolCall {
   id: string;
-  name: 'recall_memory' | 'recall_user_info' | 'store_user_info' | 'task_action' | 'calendar_action' | 'store_character_info' | 'resolve_open_loop';
+  name: 'recall_memory' | 'recall_user_info' | 'store_user_info' | 'task_action' | 'calendar_action' | 'store_character_info' | 'resolve_open_loop' | 'make_promise' | 'create_life_storyline';
   arguments: Record<string, any>;
 }
 

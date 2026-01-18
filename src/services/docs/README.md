@@ -31,6 +31,7 @@ The system follows a "Perception -> processing -> Action" pipeline:
 *   [Autonomous Thought Service](./AutonomousThoughtService.md): LLM-based dynamic thought generation for ongoing threads.
 *   [Life Event Service](./LifeEventService.md): Tracks recent events in Kayley's life for thought context.
 *   [Storyline Service](./StorylineService.md): Life events as living storylines with emotional arcs and closure. *(Phase 1 Complete)*
+*   [Storyline Creation Service](./StorylineCreationService.md): Conversation-driven storyline creation with safety controls (Phase 1). **NEW**
 *   [User Patterns](./UserPatterns.md): Cross-session behavioral trend detection.
 *   [Soul & Utility](./Soul_and_Utility.md): Broad overview of secondary utility services.
 

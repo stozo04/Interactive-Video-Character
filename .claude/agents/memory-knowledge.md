@@ -15,8 +15,16 @@ You own these files exclusively:
 src/services/
 ├── memoryService.ts              # ~39KB - Semantic search, user facts, tool execution
 ├── characterFactsService.ts      # Kayley's emergent facts about herself
-└── conversationHistoryService.ts # Chat persistence and retrieval
+├── conversationHistoryService.ts # Chat persistence and retrieval
+└── storylineService.ts           # Life event storylines (creation layer - Phase 1)
 ```
+
+**Note on storylineService.ts:** You own the **creation layer** (Phase 1) which handles:
+- `createStorylineFromTool()` - Conversation-driven creation with safety checks
+- Safety functions (cooldown, duplicate detection, category constraints)
+- Audit logging for creation attempts
+
+You do NOT own the lifecycle management (phase transitions, LLM updates, mood integration) - that's core domain logic.
 
 ## When NOT to Use Me
 
