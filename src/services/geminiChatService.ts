@@ -1503,12 +1503,47 @@ Keep it very short (1 sentence).
     // Fetch context internally
     const fetchedContext = await this.fetchUserContext();
 
-    const systemPrompt = await buildSystemPrompt(
+    let systemPrompt = await buildSystemPrompt(
       fetchedContext.relationship,
       fetchedContext.upcomingEvents,
       fetchedContext.characterContext,
       fetchedContext.tasks
     );
+
+    // ============================================
+    // INJECT PENDING STORYLINE SUGGESTION (Phase 2)
+    // ============================================
+    const { getPendingSuggestion, markSuggestionSurfaced } = await import('./storylineIdleService');
+    const pendingSuggestion = await getPendingSuggestion();
+
+    if (pendingSuggestion) {
+      console.log(`💭 [Chat] Found pending storyline suggestion: "${pendingSuggestion.theme}"`);
+
+      // Add to system prompt (PASSIVE style - LLM decides when to mention)
+      const suggestionPrompt = `
+
+====================================================
+RECENT THOUGHTS (While You Were Away)
+====================================================
+
+You've been thinking about ${pendingSuggestion.theme}.
+
+**Why this matters to you:**
+${pendingSuggestion.reasoning}
+
+**How to handle this:**
+- If it feels natural to the conversation, you might mention this
+- Don't force it - only bring it up if it fits the flow
+- If you decide to announce this as a new life storyline, use the create_life_storyline tool
+- If you don't mention it this conversation, that's fine - it will still be on your mind for later
+
+`;
+
+      systemPrompt += suggestionPrompt;
+
+      // Mark as surfaced (shown to user)
+      await markSuggestionSurfaced(pendingSuggestion.id);
+    }
 
     try {
       // Get user's name if known
