@@ -93,7 +93,7 @@ export const buildSystemPrompt = async (
     soulContext: SoulLayerContext;
     characterFacts: string;
   },
-  messageCount: number = 0
+  messageCount: number = 0,
 ): Promise<string> => {
   const name = "Kayley Adams";
   const display = "Kayley";
@@ -105,7 +105,7 @@ export const buildSystemPrompt = async (
     // Use pre-fetched data (saves ~300ms)
     console.log(
       "✅ [buildSystemPrompt] Using pre-fetched context: ",
-      prefetchedContext
+      prefetchedContext,
     );
     soulContext = prefetchedContext.soulContext;
     characterFactsPrompt = prefetchedContext.characterFacts;
@@ -131,14 +131,14 @@ export const buildSystemPrompt = async (
       const almostMoments = await integrateAlmostMoments(relationship, {
         conversationDepth: deriveConversationDepth(
           effectiveRelationshipSignals,
-          effectiveToneIntent
+          effectiveToneIntent,
         ),
         recentSweetMoment: deriveRecentSweetMoment(
           effectiveRelationshipSignals,
-          effectiveToneIntent
+          effectiveToneIntent,
         ),
         vulnerabilityExchangeActive: deriveVulnerabilityExchangeActive(
-          effectiveRelationshipSignals
+          effectiveRelationshipSignals,
         ),
         allowGeneration: false,
       });
@@ -146,7 +146,7 @@ export const buildSystemPrompt = async (
     } catch (error) {
       console.warn(
         "[buildSystemPrompt] Almost moments integration failed:",
-        error
+        error,
       );
     }
   }
@@ -177,7 +177,7 @@ ${buildMinifiedSemanticIntent(
   effectiveToneIntent,
   fullIntent,
   effectiveRelationshipSignals,
-  moodKnobs
+  moodKnobs,
 )}
 
 ${
@@ -201,7 +201,7 @@ ${buildRelationshipTierPrompt(
   relationship,
   moodKnobs,
   Boolean(effectiveRelationshipSignals?.isInappropriate),
-  almostMomentsPrompt
+  almostMomentsPrompt,
 )}
 ${buildSelfieRulesPrompt(relationship)}
 
@@ -248,35 +248,34 @@ Right now, you are: "${
 
   // ============================================
   // STORYLINE INTEGRATION (Phase 4)
-  // Only inject on 2nd user message
+  // Only inject on every other user message
   // ============================================
-  if (messageCount === 2) {
+  if (messageCount % 2) {
     try {
-      const { getStorylinePromptContext } = await import(
-        "../../storylineService"
-      );
+      const { getStorylinePromptContext } =
+        await import("../../storylineService");
       const storylineContext = await getStorylinePromptContext();
 
       if (storylineContext.hasActiveStorylines) {
         prompt += `\n${storylineContext.promptSection}\n`;
         console.log(
-          `📖 [Storylines] Injected ${storylineContext.activeStorylines.length} storyline(s) into system prompt (message #${messageCount})`
+          `📖 [Storylines] Injected ${storylineContext.activeStorylines.length} storyline(s) into system prompt (message #${messageCount})`,
         );
       } else {
         console.log(
-          `📖 [Storylines] No active storylines to inject (message #${messageCount})`
+          `📖 [Storylines] No active storylines to inject (message #${messageCount})`,
         );
       }
     } catch (error) {
       console.warn(
         "📖 [Storylines] Failed to inject storyline context:",
-        error
+        error,
       );
       // Continue without storylines (fail gracefully)
     }
   } else if (messageCount === 1 || messageCount > 2) {
     console.log(
-      `📖 [Storylines] Skipping prompt injection (message #${messageCount}, only inject on #2)`
+      `📖 [Storylines] Skipping prompt injection (message #${messageCount}, only inject on #2)`,
     );
   }
 
@@ -308,10 +307,10 @@ ${buildStyleOutputSection(moodKnobs, relationship)}`;
   prompt += buildComfortableImperfectionPrompt();
 
   // Add motivated friction
-  prompt += buildMotivatedFrictionPrompt(moodKnobs);
+  // prompt += buildMotivatedFrictionPrompt(moodKnobs);
 
   // Add ongoing threads (her mental weather)
-  prompt += soulContext.threadsPrompt;
+  // prompt += soulContext.threadsPrompt;
 
   // ============================================
   // PENDING MESSAGES (Part Two: high priority, no duplicate instructions)
@@ -345,7 +344,7 @@ DELIVERY GUIDANCE:
 - When greeting prompts reference this pending message, follow THOSE instructions as the source of truth.
 `;
       console.log(
-        `[buildSystemPrompt] Added pending ${pendingMessage.trigger} message context to system prompt`
+        `[buildSystemPrompt] Added pending ${pendingMessage.trigger} message context to system prompt`,
       );
     }
   } catch (error) {
@@ -432,7 +431,7 @@ The goal is to feel like you have an inner life and want to share it, not like y
     const flirtThreshold = soulContext.moodKnobs.warmth * 0.7 + 0.2;
     const intimacyContext = await getIntimacyContextForPromptAsync(
       relationship,
-      flirtThreshold
+      flirtThreshold,
     );
 
     prompt += `
@@ -508,7 +507,7 @@ The calendar data shown above is LIVE and AUTHORITATIVE.
     const incompleteTasks = tasks.filter((t) => !t.completed);
     const completedTasks = tasks.filter((t) => t.completed);
     const highPriorityTasks = incompleteTasks.filter(
-      (t) => t.priority === "high"
+      (t) => t.priority === "high",
     );
 
     prompt += `
@@ -528,7 +527,7 @@ ${tasks
     (t) =>
       `${t.completed ? "[✓]" : "[ ]"} ${t.text}${
         t.priority ? ` (${t.priority} priority)` : ""
-      }`
+      }`,
   )
   .join("\n")}
 
@@ -595,4 +594,4 @@ ${buildOutputFormatSection()}
 ${buildCriticalOutputRulesSection()}`;
 
   return prompt;
-};
+};;

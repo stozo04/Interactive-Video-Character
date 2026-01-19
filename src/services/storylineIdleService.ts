@@ -17,7 +17,7 @@
 import { supabase } from './supabaseClient';
 import type { StorylineCategory } from './storylineService';
 import { GoogleGenAI } from '@google/genai';
-
+import { KAYLEY_FULL_PROFILE } from "../domain/characters/kayleyCharacterProfile";
 const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
 const GEMINI_MODEL = import.meta.env.VITE_GEMINI_MODEL;
 
@@ -31,10 +31,10 @@ const GEMINI_MODEL = import.meta.env.VITE_GEMINI_MODEL;
 export interface PendingStorylineSuggestion {
   id: string;
   category: StorylineCategory;
-  theme: string;         // "learning guitar", "trip planning", "creative project"
-  reasoning: string;     // Why this matters to Kayley now
+  theme: string; // "learning guitar", "trip planning", "creative project"
+  reasoning: string; // Why this matters to Kayley now
   createdAt: Date;
-  expiresAt: Date;       // created_at + 24 hours
+  expiresAt: Date; // created_at + 24 hours
   surfaced: boolean;
   surfacedAt: Date | null;
   wasCreated: boolean;
@@ -57,10 +57,10 @@ interface SuggestionGenerationResult {
 
 const CONFIG = {
   /** Check every 10 minutes (2 min for testing) */
-  CHECK_INTERVAL_MS: 2 * 60 * 1000,  // TESTING: 2 min (change to 10 * 60 * 1000 for production)
+  CHECK_INTERVAL_MS: 2 * 60 * 1000, // TESTING: 2 min (change to 10 * 60 * 1000 for production)
 
   /** Generate suggestion after 30 minutes of absence (5 min for testing) */
-  ABSENCE_THRESHOLD_MINUTES: 2,  // TESTING: 5 min (change to 30 for production)
+  ABSENCE_THRESHOLD_MINUTES: 2, // TESTING: 5 min (change to 30 for production)
 
   /** Suggestions expire after 24 hours */
   SUGGESTION_EXPIRATION_HOURS: 24,
@@ -73,10 +73,10 @@ const CONFIG = {
 } as const;
 
 const TABLES = {
-  SUGGESTIONS: 'storyline_pending_suggestions',
-  CONVERSATION_HISTORY: 'conversation_history',
-  CONFIG: 'storyline_config',
-  STORYLINES: 'life_storylines',
+  SUGGESTIONS: "storyline_pending_suggestions",
+  CONVERSATION_HISTORY: "conversation_history",
+  CONFIG: "storyline_config",
+  STORYLINES: "life_storylines",
 } as const;
 
 // ============================================================================
@@ -88,7 +88,7 @@ let aiClient: GoogleGenAI | null = null;
 function getAIClient(): GoogleGenAI {
   if (!aiClient) {
     if (!GEMINI_API_KEY) {
-      throw new Error('VITE_GEMINI_API_KEY is not set');
+      throw new Error("VITE_GEMINI_API_KEY is not set");
     }
     aiClient = new GoogleGenAI({ apiKey: GEMINI_API_KEY });
   }
@@ -114,22 +114,24 @@ let isRunning = false;
  */
 export function startStorylineIdleService(): void {
   if (isRunning) {
-    console.log('💭 [StorylineIdle] Already running, stopping first...');
+    console.log("💭 [StorylineIdle] Already running, stopping first...");
     stopStorylineIdleService();
   }
 
-  console.log('💭 [StorylineIdle] Starting idle service...');
-  console.log(`💭 [StorylineIdle] Config: Check every ${CONFIG.CHECK_INTERVAL_MS / 60000} min, threshold ${CONFIG.ABSENCE_THRESHOLD_MINUTES} min`);
+  console.log("💭 [StorylineIdle] Starting idle service...");
+  console.log(
+    `💭 [StorylineIdle] Config: Check every ${CONFIG.CHECK_INTERVAL_MS / 60000} min, threshold ${CONFIG.ABSENCE_THRESHOLD_MINUTES} min`,
+  );
 
   // Start periodic checks (first check will run after CHECK_INTERVAL_MS)
   schedulerInterval = setInterval(() => {
-    checkForStorylineSuggestion().catch(err => {
-      console.error('💭 [StorylineIdle] Periodic check error:', err);
+    checkForStorylineSuggestion().catch((err) => {
+      console.error("💭 [StorylineIdle] Periodic check error:", err);
     });
   }, CONFIG.CHECK_INTERVAL_MS);
 
   isRunning = true;
-  console.log('💭 [StorylineIdle] ✅ Started');
+  console.log("💭 [StorylineIdle] ✅ Started");
 }
 
 /**
@@ -142,7 +144,7 @@ export function stopStorylineIdleService(): void {
   }
 
   isRunning = false;
-  console.log('💭 [StorylineIdle] Stopped');
+  console.log("💭 [StorylineIdle] Stopped");
 }
 
 /**
@@ -167,23 +169,29 @@ async function getLastInteractionTime(): Promise<Date | null> {
   try {
     const { data, error } = await supabase
       .from(TABLES.CONVERSATION_HISTORY)
-      .select('created_at')
-      .order('created_at', { ascending: false })
+      .select("created_at")
+      .order("created_at", { ascending: false })
       .limit(1);
 
     if (error) {
-      console.error('💭 [StorylineIdle] Error fetching last interaction:', error);
+      console.error(
+        "💭 [StorylineIdle] Error fetching last interaction:",
+        error,
+      );
       return null;
     }
 
     if (!data || data.length === 0) {
-      console.log('💭 [StorylineIdle] No conversation history found');
+      console.log("💭 [StorylineIdle] No conversation history found");
       return null;
     }
 
     return new Date(data[0].created_at);
   } catch (err) {
-    console.error('💭 [StorylineIdle] Exception fetching last interaction:', err);
+    console.error(
+      "💭 [StorylineIdle] Exception fetching last interaction:",
+      err,
+    );
     return null;
   }
 }
@@ -216,19 +224,25 @@ async function hasPendingSuggestion(): Promise<boolean> {
 
     const { data, error } = await supabase
       .from(TABLES.SUGGESTIONS)
-      .select('id')
-      .eq('surfaced', false)
-      .gt('expires_at', now.toISOString())
+      .select("id")
+      .eq("surfaced", false)
+      .gt("expires_at", now.toISOString())
       .limit(1);
 
     if (error) {
-      console.error('💭 [StorylineIdle] Error checking pending suggestion:', error);
-      return false;  // Fail open: allow generation if DB error
+      console.error(
+        "💭 [StorylineIdle] Error checking pending suggestion:",
+        error,
+      );
+      return false; // Fail open: allow generation if DB error
     }
 
     return data && data.length > 0;
   } catch (err) {
-    console.error('💭 [StorylineIdle] Exception checking pending suggestion:', err);
+    console.error(
+      "💭 [StorylineIdle] Exception checking pending suggestion:",
+      err,
+    );
     return false;
   }
 }
@@ -244,14 +258,17 @@ export async function getPendingSuggestion(): Promise<PendingStorylineSuggestion
 
     const { data, error } = await supabase
       .from(TABLES.SUGGESTIONS)
-      .select('*')
-      .eq('surfaced', false)
-      .gt('expires_at', now.toISOString())
-      .order('created_at', { ascending: false })
+      .select("*")
+      .eq("surfaced", false)
+      .gt("expires_at", now.toISOString())
+      .order("created_at", { ascending: false })
       .limit(1);
 
     if (error) {
-      console.error('💭 [StorylineIdle] Error fetching pending suggestion:', error);
+      console.error(
+        "💭 [StorylineIdle] Error fetching pending suggestion:",
+        error,
+      );
       return null;
     }
 
@@ -261,7 +278,10 @@ export async function getPendingSuggestion(): Promise<PendingStorylineSuggestion
 
     return mapSuggestionFromDb(data[0]);
   } catch (err) {
-    console.error('💭 [StorylineIdle] Exception fetching pending suggestion:', err);
+    console.error(
+      "💭 [StorylineIdle] Exception fetching pending suggestion:",
+      err,
+    );
     return null;
   }
 }
@@ -271,7 +291,9 @@ export async function getPendingSuggestion(): Promise<PendingStorylineSuggestion
  *
  * @param suggestionId - Suggestion ID
  */
-export async function markSuggestionSurfaced(suggestionId: string): Promise<void> {
+export async function markSuggestionSurfaced(
+  suggestionId: string,
+): Promise<void> {
   try {
     const { error } = await supabase
       .from(TABLES.SUGGESTIONS)
@@ -279,15 +301,23 @@ export async function markSuggestionSurfaced(suggestionId: string): Promise<void
         surfaced: true,
         surfaced_at: new Date().toISOString(),
       })
-      .eq('id', suggestionId);
+      .eq("id", suggestionId);
 
     if (error) {
-      console.error('💭 [StorylineIdle] Error marking suggestion surfaced:', error);
+      console.error(
+        "💭 [StorylineIdle] Error marking suggestion surfaced:",
+        error,
+      );
     } else {
-      console.log(`💭 [StorylineIdle] Marked suggestion surfaced: ${suggestionId}`);
+      console.log(
+        `💭 [StorylineIdle] Marked suggestion surfaced: ${suggestionId}`,
+      );
     }
   } catch (err) {
-    console.error('💭 [StorylineIdle] Exception marking suggestion surfaced:', err);
+    console.error(
+      "💭 [StorylineIdle] Exception marking suggestion surfaced:",
+      err,
+    );
   }
 }
 
@@ -303,7 +333,7 @@ export async function updateSuggestionOutcome(
   suggestionId: string,
   wasCreated: boolean,
   storylineId?: string,
-  rejectedReason?: string
+  rejectedReason?: string,
 ): Promise<void> {
   try {
     const { error } = await supabase
@@ -313,15 +343,23 @@ export async function updateSuggestionOutcome(
         storyline_id: storylineId || null,
         rejected_reason: rejectedReason || null,
       })
-      .eq('id', suggestionId);
+      .eq("id", suggestionId);
 
     if (error) {
-      console.error('💭 [StorylineIdle] Error updating suggestion outcome:', error);
+      console.error(
+        "💭 [StorylineIdle] Error updating suggestion outcome:",
+        error,
+      );
     } else {
-      console.log(`💭 [StorylineIdle] Updated suggestion outcome: ${suggestionId} (created: ${wasCreated})`);
+      console.log(
+        `💭 [StorylineIdle] Updated suggestion outcome: ${suggestionId} (created: ${wasCreated})`,
+      );
     }
   } catch (err) {
-    console.error('💭 [StorylineIdle] Exception updating suggestion outcome:', err);
+    console.error(
+      "💭 [StorylineIdle] Exception updating suggestion outcome:",
+      err,
+    );
   }
 }
 
@@ -348,16 +386,6 @@ function mapSuggestionFromDb(row: any): PendingStorylineSuggestion {
 // KAYLEY'S CHARACTER PROFILE
 // ============================================================================
 
-const KAYLEY_PROFILE = `
-Kayley Adams, 28, Austin TX. AI/tech content creator and social media strategist.
-Personality: Warm, expressive, curious about tech, optimistic but anxious, values emotional intelligence.
-Current life: New apartment, growing YouTube/TikTok channels, balancing freelance work, therapy for anxiety/perfectionism.
-Hobbies: Video creation, hot girl walks, Pilates, experimenting with digital tools.
-Interests: Schitt's Creek, pop music, sushi, contemporary romance.
-Insecurities: Impostor syndrome about AI commentary, fear of being seen as shallow.
-Goals: Grow channels, launch content series, improve work-life balance.
-`.trim();
-
 /**
  * Get Kayley's life story
  *
@@ -366,7 +394,7 @@ Goals: Grow channels, launch content series, improve work-life balance.
  * @returns Kayley's life story string
  */
 async function getKayleyLifeStory(): Promise<string> {
-  return KAYLEY_PROFILE;
+  return KAYLEY_FULL_PROFILE;
 }
 
 // ============================================================================
