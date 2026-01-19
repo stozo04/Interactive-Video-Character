@@ -16,7 +16,8 @@ src/services/
 ├── memoryService.ts              # ~39KB - Semantic search, user facts, tool execution
 ├── characterFactsService.ts      # Kayley's emergent facts about herself
 ├── conversationHistoryService.ts # Chat persistence and retrieval
-└── storylineService.ts           # Life event storylines (creation layer - Phase 1)
+├── storylineService.ts           # Life event storylines (creation layer - Phase 1)
+└── storylineIdleService.ts       # Idle storyline suggestion generation (Phase 2)
 ```
 
 **Note on storylineService.ts:** You own the **creation layer** (Phase 1) which handles:
@@ -25,6 +26,12 @@ src/services/
 - Audit logging for creation attempts
 
 You do NOT own the lifecycle management (phase transitions, LLM updates, mood integration) - that's core domain logic.
+
+**Note on storylineIdleService.ts:** You own the **idle suggestion system** (Phase 2) which handles:
+- `startStorylineIdleService()` / `stopStorylineIdleService()` - Background scheduler
+- `checkForStorylineSuggestion()` - Periodic absence detection and LLM-based suggestion generation
+- `getPendingSuggestion()` / `markSuggestionSurfaced()` - Suggestion lifecycle management
+- Autonomous storyline ideation based on Kayley's profile and recent conversation history
 
 ## When NOT to Use Me
 
@@ -403,6 +410,7 @@ npm test -- --run
 - `src/services/docs/Memory_and_Callbacks.md` - Long-term RAG memory and session "inside jokes"
 - `src/services/docs/CharacterFactsService.md` - Comprehensive guide to character facts (emergent self-knowledge)
 - `src/services/docs/KayleyPresence.md` - Real-time tracking of what she's wearing/doing/feeling
+- `src/services/docs/StorylineCreationService.md` - Phase 1 (conversation-driven) and Phase 2 (idle suggestions) storyline creation system
 
 ### Services Documentation Hub
 - `src/services/docs/README.md` - Central documentation hub for all services

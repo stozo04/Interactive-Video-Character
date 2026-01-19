@@ -349,11 +349,144 @@ npm test -- --run -t "Storyline Creation"
 
 ---
 
+## Phase 2: Idle Suggestions (IMPLEMENTED)
+
+**File:** `src/services/storylineIdleService.ts`
+**Status:** ✅ Complete
+
+Phase 2 adds **autonomous storyline generation** during user absence. The system generates suggestions while the user is away, then injects them passively into the system prompt for the LLM to decide whether to mention.
+
+### How It Works
+
+1. **Absence Detection**: Checks every 10 minutes if user has been away ≥30 minutes
+2. **Suggestion Generation**: LLM generates one storyline idea based on:
+   - Kayley's character profile
+   - Last 10 days of conversation history
+   - Active storylines (avoids duplicates)
+   - Category balance (suggests underrepresented categories)
+3. **Storage**: Stores in `storyline_pending_suggestions` (expires after 24 hours)
+4. **Passive Surfacing**: On user return, suggestion is injected into system prompt
+5. **LLM Agency**: LLM decides autonomously whether to mention/create it
+
+### Key Functions
+
+**Scheduler:**
+- `startStorylineIdleService()` - Start background scheduler (runs every 10 min)
+- `stopStorylineIdleService()` - Stop scheduler
+- `checkForStorylineSuggestion()` - Main periodic check function
+
+**Suggestion Management:**
+- `getPendingSuggestion()` - Get active suggestion (not surfaced, not expired)
+- `markSuggestionSurfaced(id)` - Mark suggestion as shown to user
+- `updateSuggestionOutcome(id, wasCreated, storylineId?, rejectedReason?)` - Update outcome
+
+### Database Schema
+
+**Table:** `storyline_pending_suggestions`
+
+```sql
+CREATE TABLE storyline_pending_suggestions (
+  id UUID PRIMARY KEY,
+  category TEXT NOT NULL,
+  theme TEXT NOT NULL,          -- "learning guitar"
+  reasoning TEXT NOT NULL,       -- Why this matters now
+  created_at TIMESTAMPTZ NOT NULL,
+  expires_at TIMESTAMPTZ NOT NULL,  -- +24 hours
+  surfaced BOOLEAN DEFAULT FALSE,
+  surfaced_at TIMESTAMPTZ,
+  was_created BOOLEAN DEFAULT FALSE,
+  storyline_id UUID REFERENCES life_storylines(id),
+  rejected_reason TEXT
+);
+```
+
+### Configuration
+
+```typescript
+const CONFIG = {
+  CHECK_INTERVAL_MS: 10 * 60 * 1000,        // Check every 10 min
+  ABSENCE_THRESHOLD_MINUTES: 30,            // Generate after 30 min
+  SUGGESTION_EXPIRATION_HOURS: 24,          // Expire after 24 hours
+  MAX_PENDING_SUGGESTIONS: 1,               // Only 1 at a time
+  SUGGESTION_COOLDOWN_HOURS: 48,            // 48-hour cooldown
+};
+```
+
+### Prompt Injection (Passive Style)
+
+When a pending suggestion exists, it's injected into the system prompt:
+
+```
+====================================================
+RECENT THOUGHTS (While You Were Away)
+====================================================
+
+You've been thinking about [theme].
+
+**Why this matters to you:**
+[reasoning]
+
+**How to handle this:**
+- If it feels natural to the conversation, you might mention this
+- Don't force it - only bring it up if it fits the flow
+- If you decide to announce this as a new life storyline, use the create_life_storyline tool
+- If you don't mention it this conversation, that's fine - it will still be on your mind for later
+```
+
+**Key Design:** The LLM has full agency - it can choose to mention the suggestion, create a storyline, or ignore it entirely. No forced behavior.
+
+### Integration Points
+
+**App.tsx** (lines 320-330):
+- Starts/stops idle service on app mount/unmount
+
+**geminiChatService.ts** (lines 892-925):
+- Checks for pending suggestion before each chat
+- Injects into system prompt if found
+- Marks as surfaced
+
+### Safety Controls (Inherited from Phase 1)
+
+All Phase 1 safety controls apply:
+1. **Cooldown**: 48-hour window between creations
+2. **Duplicate Detection**: 60% word overlap threshold
+3. **Category Constraint**: Max 1 active storyline (Phase 1)
+4. **Audit Logging**: All attempts logged with source (`'idle_suggestion'`)
+
+### Observability
+
+**Conversion Rate Query:**
+```sql
+SELECT
+  COUNT(*) AS total_suggestions,
+  SUM(CASE WHEN surfaced THEN 1 ELSE 0 END) AS surfaced,
+  SUM(CASE WHEN was_created THEN 1 ELSE 0 END) AS created_storylines,
+  ROUND(100.0 * SUM(CASE WHEN was_created THEN 1 ELSE 0 END) / COUNT(*), 2) AS conversion_rate
+FROM storyline_pending_suggestions;
+```
+
+### Troubleshooting
+
+**"Scheduler running but no suggestions generated"**
+- Check console logs for check results
+- Verify user has been away ≥30 minutes
+- Check cooldown isn't active
+- Check no pending suggestion already exists
+
+**"Suggestion generated but never surfaced"**
+- Check `expires_at` - may have expired (24-hour window)
+- Check user returned and sent a message (surfacing only happens on chat)
+
+**"LLM never mentions suggestions"**
+- This is expected behavior - LLM has agency
+- Suggestion may not fit conversation flow
+- Monitor conversion rate over time for tuning
+
+---
+
 ## Future Enhancements
 
-**Phase 2: Idle Suggestions**
-- Background process suggests storylines during idle time
-- Source: `'idle_suggestion'` in audit log
+**Multi-storyline support:**
 
 **Multi-storyline support:**
 - Increase limit to 3-5 active storylines

@@ -251,8 +251,8 @@ Should compile with no TypeScript errors.
 1. **Clear existing thoughts** (optional, for clean test):
 ```sql
 -- In Supabase SQL editor
-DELETE FROM idle_thoughts WHERE user_id = 'your-user-id';
-DELETE FROM kayley_experiences WHERE user_id = 'your-user-id';
+DELETE FROM idle_thoughts;
+DELETE FROM kayley_experiences;
 ```
 
 2. **Start app:**
@@ -362,43 +362,4 @@ After activation:
 
 ---
 
-## Rollback Plan
-
-If things go wrong, revert changes:
-
-```bash
-git diff src/services/system_prompts/builders/systemPromptBuilder.ts
-git checkout src/services/system_prompts/builders/systemPromptBuilder.ts
-```
-
-Or comment out the injection:
-```typescript
-// DISABLED FOR NOW
-// if (idleThoughtsPrompt) {
-//   prompt += idleThoughtsPrompt;
-// }
-```
-
 ---
-
-## Next Phase
-
-Once this works well:
-- **Phase 2:** Strengthen existing prompt sections (ongoing threads, unsaid feelings)
-- **Phase 3:** Add new capabilities (web search, music, GIFs) if desired
-
-But test Phase 1 for natural emergence first. **If it feels robotic, pull back before adding more.**
-
----
-
-## Questions to Ask Yourself After Testing
-
-1. Does it feel like Kayley has her own inner life?
-2. Are the mentions natural or forced?
-3. Does it add depth or just noise?
-4. Would I want this in a real relationship?
-
-If answers are mostly "yes," proceed to Phase 2.
-If mostly "no," adjust prompt language and test again.
-
-**Remember:** The goal is emergence, not prescription. Let the LLM surprise you.

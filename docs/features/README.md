@@ -53,6 +53,10 @@ This directory contains comprehensive documentation for fully implemented and pr
 ### 7. Service Documentation (REQUIRED)
 Every new service MUST have documentation in `src/services/docs/`:
 
+### 8. Do not use userId (REQUIRED)
+This is a single user application. So do not require or use userId anywhere
+in the application including SQL
+
 **Required sections:**
 - Core Responsibilities (what it does)
 - Workflow Interaction (ASCII diagram)

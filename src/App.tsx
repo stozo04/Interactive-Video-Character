@@ -49,6 +49,7 @@ import { AIChatSession } from './services/aiService';
 import { startCleanupScheduler, stopCleanupScheduler } from './services/loopCleanupService';
 import { startPromiseChecker, stopPromiseChecker } from './services/backgroundJobs';
 import { processStorylineOnStartup } from './services/storylineService';
+import { startStorylineIdleService, stopStorylineIdleService } from './services/storylineIdleService';
 import { isQuestionMessage } from './utils/textUtils';
 import { shuffleArray } from './utils/arrayUtils';
 
@@ -313,6 +314,18 @@ const App: React.FC = () => {
       };
     } catch (e) {
       console.log(`❌ [Promises] Error starting promise checker:`, e);
+    }
+  }, []);
+
+  // Storyline Idle Service: Generate storyline suggestions during user absence
+  useEffect(() => {
+    try {
+      startStorylineIdleService();
+      return () => {
+        stopStorylineIdleService();
+      };
+    } catch (e) {
+      console.log(`❌ [StorylineIdle] Error starting idle service:`, e);
     }
   }, []);
 
