@@ -4,61 +4,6 @@
 **Tables:** `life_storylines`, `storyline_updates`
 **Purpose:** Transform life events into living storylines with emotional arcs, phase progression, and meaningful closure
 
-## Implementation Status
-
-### Phase 1: Data Foundation ✅ COMPLETED
-- ✅ TypeScript types and interfaces
-- ✅ Database tables (`life_storylines`, `storyline_updates`)
-- ✅ Core CRUD functions
-- ✅ Data migration from `life_events`
-- ⏳ Tests deferred to Phase 6
-
-### Phase 2: Phase Progression ✅ COMPLETED
-- ✅ Automatic phase transitions (time-based with probability)
-- ✅ On-startup processing (checks for missed days)
-- ✅ LLM update generation (Gemini integration)
-- ✅ Time-based progression rules (CST timezone)
-- ✅ Phase behaviors configuration (8 phases)
-- ✅ Database tracking (`storyline_config` table)
-
-**Processing Model:**
-- Storylines progress based on **calendar days** (not app runtime)
-- On app startup, checks days since last process (in CST)
-- Processes any missed days automatically
-- Phase transitions and updates happen on startup
-
-### Phase 3: Emotional Integration ✅ COMPLETED
-- ✅ Mood system integration (`moodKnobs.ts`)
-- ✅ Storyline mood effects calculation (`getStorylineMoodEffects()`)
-- ✅ Energy and mood delta application
-- ✅ Preoccupation calculation
-
-**Integration Points:**
-- `getStorylineMoodEffects()` calculates mood/energy impact from active storylines
-- `getMoodAsync()` in moodKnobs.ts applies storyline effects to base mood
-- Effects are cumulative across all active storylines
-- Stressful phases (reality, active, climax) drain energy
-
-### Phase 4: Prompt Integration ✅ COMPLETED
-- ✅ System prompt injection (2nd user message only)
-- ✅ Storyline context builder
-- ✅ Mention detection and tracking
-
-### Phase 5: Closure & Callbacks ✅ COMPLETED
-- ✅ Resolution flow
-- ✅ Closure sequences
-- ✅ Historical callbacks
-- ✅ Character facts integration
-
-### Phase 6: Polish & Testing ⏳ NOT IMPLEMENTED
-- ⏳ End-to-end testing
-- ⏳ Manual conversation testing
-- ⏳ Probability tuning
-
-**Current State:** Phase 1-3 complete. Storylines automatically progress through phases, generate updates, and affect Kayley's mood/energy. Phase 4 will make Kayley talk about storylines in conversation.
-
----
-
 ## Overview
 
 The Storyline Service transforms point-in-time life events into **living storylines** that:
