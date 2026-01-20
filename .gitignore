@@ -1,12 +1,15 @@
-# Codex config (keep config committed, ignore local/tool artifacts)
+# Codex config (ignore local/tool artifacts)
 .codex/*
-!.codex/config.toml
+.codex/config.toml
 
 # (Optional) if Codex creates any of these locally, ignore them explicitly
 .codex/cache/
 .codex/tmp/
 .codex/logs/
 .codex/**/*.log
+
+# Local agent instructions
+AGENTS.md
 
 
 # Logs

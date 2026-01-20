@@ -337,71 +337,6 @@ const App: React.FC = () => {
   }, []); // Run once on mount
 
   // ==========================================================================
-  // IMAGE & MESSAGE HANDLERS
-  // ==========================================================================
-
-  const handleSendImage = async (base64: string, mimeType: string) => {
-    if (!selectedCharacter || !session) return;
-    registerInteraction();
-    setErrorMessage(null);
-
-    // 1. Add the image to the chat history visually so the user sees it
-    setChatHistory(prev => [...prev, { 
-      role: 'user', 
-      text: '📷 [Sent an Image]', 
-      image: base64 
-    }]);
-    setIsProcessingAction(true);
-
-    try {
-      const sessionToUse: AIChatSession = aiSession || { model: activeService.model };
-
-      // 2. Send to AI Service (service fetches context internally)
-      const { response, session: updatedSession, audioData } = await activeService.generateResponse(
-        {
-          type: 'image_text',
-          text: "What do you think of this?", // Default prompt
-          imageData: base64,
-          mimeType: mimeType
-        },
-        {
-          chatHistory: chatHistory,
-          googleAccessToken: session?.accessToken,
-        },
-        sessionToUse
-      );
-      
-      setAiSession(updatedSession);
-
-      // 3. Handle response
-      setChatHistory(prev => [...prev, { role: 'model' as const, text: response.text_response }]);
-
-      await conversationHistoryService.appendConversationHistory(
-        [{ role: 'user', text: '📷 [Sent an Image]' }, { role: 'model', text: response.text_response }],
-        updatedSession?.interactionId || aiSession?.interactionId
-      );
-
-      if (!isMuted && audioData) {
-        enqueueAudio(audioData);
-      }
-
-      if (response.action_id) {
-        playAction(response.action_id);
-      }
-      if (response.open_app) {
-        console.log("🚀 Launching app:", response.open_app);
-        window.location.href = response.open_app;
-      }
-
-    } catch (error) {
-      console.error('Error sending image:', error);
-      setErrorMessage('Failed to process image.');
-    } finally {
-      setIsProcessingAction(false);
-    }
-  };
-
-  // ==========================================================================
   // UTILITY FUNCTIONS
   // ==========================================================================
 
@@ -1160,13 +1095,73 @@ const App: React.FC = () => {
   // MAIN MESSAGE HANDLER (Refactored to use messageOrchestrator)
   // ==========================================================================
 
-  const handleSendMessage = async (message: string) => {
+  const handleSendMessage = async (
+    message: string,
+    image?: { base64: string; mimeType: string }
+  ) => {
     if (!selectedCharacter || !session) return;
     registerInteraction();
     setErrorMessage(null);
+    const trimmedMessage = message.trim();
+    if (!trimmedMessage && !image) return;
     setIsProcessingAction(true);
 
-    const updatedHistory = [...chatHistory, { role: 'user' as const, text: message }];
+    if (image) {
+      const userText = trimmedMessage || '📷 [Sent an Image]';
+      setChatHistory(prev => [
+        ...prev,
+        { role: 'user' as const, text: userText, image: image.base64, imageMimeType: image.mimeType },
+      ]);
+
+      // Record exchange for callback timing
+      try { recordExchange(); } catch (e) { console.warn('Exchange record failed', e); }
+
+      try {
+        const sessionToUse: AIChatSession = aiSession || { model: activeService.model };
+
+        const { response, session: updatedSession, audioData } = await activeService.generateResponse(
+          {
+            type: 'image_text',
+            text: trimmedMessage || "What do you think of this?",
+            imageData: image.base64,
+            mimeType: image.mimeType,
+          },
+          {
+            chatHistory: chatHistory,
+            googleAccessToken: session?.accessToken,
+          },
+          sessionToUse
+        );
+
+        setAiSession(updatedSession);
+        setChatHistory(prev => [...prev, { role: 'model' as const, text: response.text_response }]);
+
+        await conversationHistoryService.appendConversationHistory(
+          [{ role: 'user', text: userText }, { role: 'model', text: response.text_response }],
+          updatedSession?.interactionId || aiSession?.interactionId
+        );
+
+        if (!isMuted && audioData) {
+          enqueueAudio(audioData);
+        }
+
+        if (response.action_id) {
+          playAction(response.action_id);
+        }
+        if (response.open_app) {
+          console.log("🚀 Launching app:", response.open_app);
+          window.location.href = response.open_app;
+        }
+      } catch (error) {
+        console.error('Error sending image:', error);
+        setErrorMessage('Failed to process image.');
+      } finally {
+        setIsProcessingAction(false);
+      }
+      return;
+    }
+
+    const updatedHistory = [...chatHistory, { role: 'user' as const, text: trimmedMessage }];
     setChatHistory(updatedHistory);
 
     // Record exchange for callback timing
@@ -1176,12 +1171,12 @@ const App: React.FC = () => {
     let predictedActionId: string | null = null;
     let talkingActionId: string | null = null;
     if (selectedCharacter.actions) {
-      predictedActionId = predictActionFromMessage(message, selectedCharacter.actions);
+      predictedActionId = predictActionFromMessage(trimmedMessage, selectedCharacter.actions);
     }
     if (predictedActionId) {
       console.log(`⚡ Optimistically playing action: ${predictedActionId}`);
       playAction(predictedActionId, true);
-    } else if (isQuestionMessage(message)) {
+    } else if (isQuestionMessage(trimmedMessage)) {
       talkingActionId = playRandomTalkingAction(true);
     }
 
@@ -1190,7 +1185,7 @@ const App: React.FC = () => {
       // ORCHESTRATOR: AI Call + Background Processing
       // ============================================
       const result = await processUserMessage({
-        userMessage: message,
+        userMessage: trimmedMessage,
         aiService: activeService,
         session: aiSession,
         accessToken: session.accessToken,
@@ -1211,7 +1206,7 @@ const App: React.FC = () => {
 
       const startBackgroundSentiment = () => {
         relationshipService
-          .analyzeMessageSentiment(message, updatedHistory, result.intent)
+          .analyzeMessageSentiment(trimmedMessage, updatedHistory, result.intent)
           .then(event => relationshipService.updateRelationship(event))
           .then(updated => { if (updated) setRelationship(updated); })
           .catch(err => console.error('Sentiment analysis failed:', err));
@@ -1478,7 +1473,6 @@ const App: React.FC = () => {
                   <ChatPanel
                     history={chatHistory}
                     onSendMessage={handleSendMessage}
-                    onSendImage={handleSendImage}
                 onOpenWhiteboard={() => setView('whiteboard')}
                     isSending={isProcessingAction}
                     onUserActivity={markInteraction}
