@@ -1,12 +1,17 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { ChatMessage } from '../types';
+import { ChatMessage, UploadedImage } from '../types';
 import LoadingSpinner from './LoadingSpinner';
 import TypingIndicator from './TypingIndicator';
+import {
+  DEFAULT_MAX_IMAGE_BYTES,
+  buildImageAttachment,
+  getFirstImageFileFromClipboard,
+  type ClipboardItemLike,
+} from '../utils/clipboardImage';
 
 interface ChatPanelProps {
   history: ChatMessage[];
-  onSendMessage: (message: string) => void;
-  onSendImage?: (base64: string, mimeType: string) => void;
+  onSendMessage: (message: string, image?: { base64: string; mimeType: string }) => void;
   onOpenWhiteboard?: () => void;
   onUserActivity?: () => void;
   isSending: boolean;
@@ -15,7 +20,6 @@ interface ChatPanelProps {
 const ChatPanel: React.FC<ChatPanelProps> = ({ 
   history, 
   onSendMessage, 
-  onSendImage,
   onOpenWhiteboard,
   onUserActivity,
   isSending 
@@ -23,6 +27,8 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
   const [input, setInput] = useState('');
   const [isListening, setIsListening] = useState(false);
   const [isEmojiOpen, setIsEmojiOpen] = useState(false);
+  const [pendingImage, setPendingImage] = useState<UploadedImage | null>(null);
+  const [attachmentError, setAttachmentError] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -92,26 +98,41 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (input.trim() && !isSending) {
-      onSendMessage(input.trim());
-      setInput('');
+    const trimmed = input.trim();
+    if ((!trimmed && !pendingImage) || isSending) return;
+    onSendMessage(trimmed, pendingImage ? { base64: pendingImage.base64, mimeType: pendingImage.mimeType } : undefined);
+    setInput('');
+    setPendingImage(null);
+    setAttachmentError(null);
+  };
+
+  const handleImageFile = async (file: File) => {
+    try {
+      const image = await buildImageAttachment(file, { maxBytes: DEFAULT_MAX_IMAGE_BYTES });
+      setPendingImage(image);
+      setAttachmentError(null);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to attach image.';
+      setAttachmentError(message);
     }
   };
 
   const handleImageSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     onUserActivity?.();
     const file = e.target.files?.[0];
-    if (!file || !onSendImage) return;
-  
-    const reader = new FileReader();
-    reader.readAsDataURL(file);
-    reader.onload = () => {
-      const result = reader.result as string;
-      const base64 = result.split(',')[1];
-      onSendImage(base64, file.type);
-    };
-    // Reset input value
+    if (!file) return;
+
+    void handleImageFile(file);
     e.target.value = '';
+  };
+
+  const handlePaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    onUserActivity?.();
+    if (isSending) return;
+    const items = Array.from(e.clipboardData?.items ?? []) as ClipboardItemLike[];
+    const file = getFirstImageFileFromClipboard(items);
+    if (!file) return;
+    void handleImageFile(file);
   };
 
   // --- Microphone Logic ---
@@ -146,6 +167,7 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
   };
 
   const isMicSupported = !!recognitionRef.current || hasRecognition;
+  const canSend = (!!input.trim() || !!pendingImage) && !isSending && !isListening;
   const micLabel = isListening ? "Click to Send" : "Click to Speak";
   const emojiOptions = ['😀','😁','😊','😉','😍','🤔','😅','😭','☹️','😴','🤗','😬','🔥','✨','🎉','💪','👍','👎','🙏','❤️'];
 
@@ -164,7 +186,7 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
               {/* User-sent images */}
               {msg.image && (
                  <img 
-                   src={`data:image/jpeg;base64,${msg.image}`} 
+                   src={`data:${msg.imageMimeType || 'image/jpeg'};base64,${msg.image}`} 
                    alt="Uploaded content" 
                    className="max-w-full rounded-lg mb-2 border border-white/20"
                  />
@@ -190,30 +212,54 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
         {isSending && <TypingIndicator />}
         <div ref={messagesEndRef} />
       </div>
+      {pendingImage && (
+        <div className="mb-3 flex items-center gap-3 rounded-lg border border-gray-700 bg-gray-800/70 p-2">
+          <img
+            src={`data:${pendingImage.mimeType};base64,${pendingImage.base64}`}
+            alt="Pending attachment"
+            className="h-14 w-14 rounded-md object-cover border border-white/10"
+          />
+          <div className="flex-1 text-xs text-gray-300">
+            <div className="font-semibold">Image attached</div>
+            <div className="text-gray-400">{pendingImage.mimeType}</div>
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              setPendingImage(null);
+              setAttachmentError(null);
+            }}
+            className="text-xs text-red-300 hover:text-red-200"
+          >
+            Remove
+          </button>
+        </div>
+      )}
+      {attachmentError && (
+        <div className="mb-2 text-xs text-red-300">{attachmentError}</div>
+      )}
       <form onSubmit={handleSubmit} className="flex-shrink-0 flex items-center gap-2 border-t border-gray-700 pt-4 relative">
         {/* Image Upload Button */}
-        {onSendImage && (
-            <>
-                <input 
-                    type="file" 
-                    accept="image/*" 
-                    className="hidden" 
-                    ref={fileInputRef}
-                    onChange={handleImageSelect}
-                />
-                <button
-                    type="button"
-                    onClick={() => fileInputRef.current?.click()}
-                    disabled={isSending}
-                    className="p-3 rounded-full text-gray-400 hover:text-white hover:bg-gray-700 transition-colors disabled:opacity-50"
-                    title="Send Image"
-                >
-                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                    </svg>
-                </button>
-            </>
-        )}
+        <>
+          <input 
+            type="file" 
+            accept="image/*" 
+            className="hidden" 
+            ref={fileInputRef}
+            onChange={handleImageSelect}
+          />
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={isSending}
+            className="p-3 rounded-full text-gray-400 hover:text-white hover:bg-gray-700 transition-colors disabled:opacity-50"
+            title="Attach Image"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+            </svg>
+          </button>
+        </>
 
         {/* Whiteboard Button */}
         {onOpenWhiteboard && (
@@ -240,13 +286,16 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
             setInput(e.target.value);
             onUserActivity?.();
           }}
+          onPaste={handlePaste}
           onKeyDown={(e) => {
             if (e.key === 'Enter' && !e.shiftKey) {
               e.preventDefault();
-              if (input.trim() && !isSending) {
-                onSendMessage(input.trim());
-                setInput('');
-              }
+              const trimmed = input.trim();
+              if ((!trimmed && !pendingImage) || isSending) return;
+              onSendMessage(trimmed, pendingImage ? { base64: pendingImage.base64, mimeType: pendingImage.mimeType } : undefined);
+              setInput('');
+              setPendingImage(null);
+              setAttachmentError(null);
             }
             // Shift+Enter allows default behavior (new line)
           }}
@@ -321,7 +370,7 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
         )}
         <button
           type="submit"
-          disabled={isSending || !input.trim() || isListening}
+          disabled={!canSend}
           className="bg-indigo-600 rounded-full p-3 text-white hover:bg-indigo-500 disabled:bg-gray-600 disabled:cursor-not-allowed transition-colors"
         >
           {isSending ? (

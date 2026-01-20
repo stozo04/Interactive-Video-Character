@@ -2,6 +2,7 @@ export interface ChatMessage {
   role: 'user' | 'assistant' | 'system' | 'model';
   text: string;
   image?: string; // base64 string for user-sent images
+  imageMimeType?: string; // mime type for user-sent images
   assistantImage?: string; // base64 string for AI-generated images (selfies)
   assistantImageMimeType?: string; // mime type for assistant images
 }
