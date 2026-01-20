@@ -1,0 +1,109 @@
+# .codex/config.toml
+# Repo: gemini-interactive-video-character (Vite + React + TS + Vitest)
+# Principles: readability > cleverness, balanced changes, explicitness
+
+[project]
+name = "gemini-interactive-video-character"
+root = "."
+language_stack = ["typescript", "react", "vite", "vitest"]
+
+[behavior]
+# safe | balanced | bold
+risk = "balanced"
+
+# Communication / workflow preference:
+# Explain -> Create checklist -> Patch following checklist
+explain_first = true
+checklist_before_patch = true
+patch_after_checklist = true
+
+[priorities]
+# Your preference: easy to read/understand > complex/clever
+readability_over_cleverness = true
+prefer_small_composable_functions = true
+
+[style]
+# Your preferences
+prefer_enums_over_magic_strings = true
+prefer_bools_over_magic_strings = true
+prefer_verbose_console_logs = true
+
+# Practical guidance
+avoid_unnecessary_abstractions = true
+keep_types_explicit = true
+
+[commands]
+# From package.json scripts :contentReference[oaicite:2]{index=2}
+dev = "npm run dev"
+build = "npm run build"
+test = "npm run test"
+test_ui = "npm run test:ui"
+test_coverage = "npm run test:coverage"
+
+# Optional (not present in package.json). Leave empty until you add scripts.
+lint = ""
+format = ""
+typecheck = "tsc --noEmit"
+
+[editing]
+# Avoid touching generated / build artifacts / vendor stuff
+deny_patterns = [
+  "**/node_modules/**",
+  "**/dist/**",
+  "**/build/**",
+  "**/.vite/**",
+  "**/.next/**",
+  "**/coverage/**",
+  "**/*.min.*",
+  "**/*.snap",
+  "**/*.lock",
+  "**/package-lock.json",
+  "**/yarn.lock",
+  "**/pnpm-lock.yaml",
+  "supabase/migrations/**"
+]
+
+# Default “likely real code” zones (tweak as your repo structure becomes clear)
+prefer_patterns = [
+  "src/**",
+  "app/**",
+  "apps/**",
+  "packages/**",
+  "supabase/**",
+  "**/*.ts",
+  "**/*.tsx"
+]
+
+[safety]
+# Dependencies: only if you approve
+allow_new_dependencies = "ask"  # ask | false | true
+
+# SQL migrations: allowed to CREATE, never run/execute/apply
+allow_sql_migrations_create = true
+allow_sql_migrations_execute = false
+
+# General “don’t do dangerous stuff without asking”
+allow_security_sensitive_changes = "careful" # careful | false | true
+
+[sql]
+# Guardrail reminder: Codex may write migration files, but should not run them.
+never_run_commands_matching = [
+  "supabase db reset",
+  "supabase db push",
+  "supabase migration up",
+  "psql",
+  "mysql",
+  "prisma migrate deploy",
+  "prisma migrate dev"
+]
+
+[guidelines]
+rules = [
+  "Prefer readability and straightforward code over clever abstractions.",
+  "Replace magic strings with enums/consts; use booleans for binary state.",
+  "When adding logging, make it verbose and informative (include context).",
+  "Follow existing patterns in the repo unless there's a clear reason not to.",
+  "If behavior changes, add/adjust Vitest tests where feasible.",
+  "Do not add dependencies unless explicitly approved by the user.",
+  "You may create SQL migration files, but NEVER execute/apply database changes."
+]
