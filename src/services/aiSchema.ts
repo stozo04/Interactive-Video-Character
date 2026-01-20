@@ -368,7 +368,7 @@ export const FullMessageIntentSchema = z.object({
     milestone: z.enum(['first_vulnerability', 'first_joke', 'first_support', 'first_deep_talk']).nullable(),
     milestoneConfidence: z.number(),
     isHostile: z.boolean(),
-    hostilityReason: z.string().nullable(),
+    hostilityReason: z.string().nullable().optional(),
     isInappropriate: z.boolean().optional(),
     inappropriatenessReason: z.string().nullable().optional()
   }),
