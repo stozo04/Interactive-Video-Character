@@ -29,6 +29,18 @@ export interface GreetingPromptContext {
   dailyLogistics?: DailyLogisticsContext | null;
 }
 
+export interface NonGreetingReturnContext {
+  minutesSinceLastUserMessage: number | null;
+  sessionResumeReason:
+    | "reload"
+    | "navigate"
+    | "back_forward"
+    | "prerender"
+    | "unknown";
+  rapidResumeCount: number;
+  rapidResumeWindowMinutes: number;
+}
+
 /**
  * Shared utility to build the common context parts for greetings
  */
@@ -300,7 +312,8 @@ export function buildNonGreetingPrompt(
   relationship?: RelationshipMetrics | null,
   userName?: string | null,
   kayleyActivity?: string | null,
-  pendingMessage?: PendingMessage | null
+  pendingMessage?: PendingMessage | null,
+  returnContext?: NonGreetingReturnContext | null
 ): string {
   const tier = relationship?.relationshipTier || "acquaintance";
   const warmth = relationship?.warmthScore ?? 0;
@@ -316,8 +329,16 @@ export function buildNonGreetingPrompt(
     ? `\n🌟 YOUR CURRENT CONTEXT: You are currently "${kayleyActivity}".`
     : "";
 
+  const returnContextSection = returnContext
+    ? `\nRETURN CONTEXT:
+- minutes_since_last_user_message: ${returnContext.minutesSinceLastUserMessage ?? "unknown"}
+- session_resume_reason: ${returnContext.sessionResumeReason}
+- rapid_resume_count: ${returnContext.rapidResumeCount}
+- rapid_resume_window_minutes: ${returnContext.rapidResumeWindowMinutes}`
+    : "";
+
   const pendingMessageSection = buildPendingMessageSection(pendingMessage, userName);
-  const context = `CURRENT TIME: ${timeString}${kayleyContext}${pendingMessageSection ? `\n${pendingMessageSection}` : ""}`;
+  const context = `CURRENT TIME: ${timeString}${kayleyContext}${returnContextSection}${pendingMessageSection ? `\n${pendingMessageSection}` : ""}`;
   const jsonGuardrail = `\n\n⚠️ CRITICAL: Your entire response must be ONLY the JSON object. No preamble. Put all conversational text inside "text_response".`;
 
   let prompt = pendingMessage
@@ -335,20 +356,23 @@ The user has already talked to you today, so this IS NOT the first time you're s
 ${context}
 
 RULES:
-- DO NOT say "Good morning/afternoon/evening" or "Hi there" as if it's new.
-- Instead, use phrases like "Back so soon?", "Where were we?", "Hey again!", "Miss me?", or whatever fits your relationship.
-- Keep it under 10 words.
-- Be extremely casual.
+- Do NOT use formal time-of-day or first-time greeting language.
+- Keep it short (one brief line).
+- Use the return context to calibrate tone:
+  - If the gap is very short or resume_reason indicates a reload, avoid reunion/long-absence language.
+  - If there are multiple rapid resumes, you may gently acknowledge the on/off cadence.
+  - If the gap is longer, warmer reunion language is acceptable.
+- Be extremely casual and natural.
 `;
 
   if (tier === "adversarial" || warmth < -10) {
-    prompt += `- Be short, cold, and slightly annoyed they're back.`;
+    prompt += `- Be short, cold, and slightly annoyed.`;
   } else if (tier === "rival") {
-    prompt += `- Be spicy, competitive, and teasing. "Couldn't stay away from the challenge?"`;
+    prompt += `- Be spicy, competitive, and teasing.`;
   } else if (tier === "friend" || tier === "close_friend") {
-    prompt += `- Be warm, playful, and genuinely happy they're back. [cite: 24]`;
+    prompt += `- Be warm, playful, and genuinely happy. [cite: 24]`;
   } else if (tier === "deeply_loving") {
-    prompt += `- Be soft, intimate, and affectionate. "Missed you already."`;
+    prompt += `- Be soft, intimate, and affectionate, but match the return context.`;
   } else {
     prompt += `- Be friendly and casual.`;
   }

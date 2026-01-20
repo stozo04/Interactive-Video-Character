@@ -232,3 +232,26 @@ export const getTodaysInteractionId = async (): Promise<string | null> => {
   }
 };
 
+/**
+ * Get the most recent user message timestamp
+ */
+export const getLastUserMessageTime = async (): Promise<Date | null> => {
+  try {
+    const { data, error } = await supabase
+      .from(CONVERSATION_HISTORY_TABLE)
+      .select("created_at")
+      .eq("message_role", "user")
+      .order("created_at", { ascending: false })
+      .limit(1);
+
+    if (error || !data || data.length === 0) {
+      return null;
+    }
+
+    return new Date((data[0] as any).created_at);
+  } catch (error) {
+    console.error("Error getting last user message time:", error);
+    return null;
+  }
+};
+

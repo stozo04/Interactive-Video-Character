@@ -578,17 +578,24 @@ function parseSuggestionResponse(content: string): SuggestionGenerationResult | 
  *
  * @returns Generated suggestion or null if error/no suggestion
  */
-async function generateStorylineSuggestion(): Promise<PendingStorylineSuggestion | null> {
+async function generateStorylineSuggestion(
+  activeStorylinesOverride?: any[],
+): Promise<PendingStorylineSuggestion | null> {
   try {
     console.log('💭 [StorylineIdle] Generating storyline suggestion via LLM...');
 
     // Fetch context
-    const [kayleyStory, activeStorylines, recentConversation] = await Promise.all([
+    const activeStorylines = activeStorylinesOverride ?? await getActiveStorylines();
+
+    if (activeStorylines.length > 0) {
+      console.log('💭 [StorylineIdle] Active storyline exists, skipping suggestion generation');
+      return null;
+    }
+
+    const [kayleyStory, recentConversation] = await Promise.all([
       getKayleyLifeStory(),
-      getActiveStorylines(),
       getRecentConversationSummary(),
     ]);
-
     // Build prompt
     const prompt = buildSuggestionPrompt(kayleyStory, activeStorylines, recentConversation);
 
@@ -699,7 +706,8 @@ async function checkSuggestionCooldown(): Promise<boolean> {
  * 1. Check if user is absent ≥30 minutes
  * 2. Check if pending suggestion already exists
  * 3. Check if suggestion cooldown active
- * 4. Generate suggestion if all checks pass
+ * 4. Check if any active storyline exists
+ * 5. Generate suggestion if all checks pass
  */
 export async function checkForStorylineSuggestion(): Promise<void> {
   console.log('💭 [StorylineIdle] Running periodic check...');
@@ -748,12 +756,23 @@ export async function checkForStorylineSuggestion(): Promise<void> {
     }
 
     // ============================================
+    // CHECK 4: Active Storyline
+    // ============================================
+
+    const activeStorylines = await getActiveStorylines();
+
+    if (activeStorylines.length > 0) {
+      console.log('💭 [StorylineIdle] Active storyline exists, skipping');
+      return;
+    }
+
+    // ============================================
     // ALL CHECKS PASSED - GENERATE SUGGESTION
     // ============================================
 
     console.log('💭 [StorylineIdle] ✅ All checks passed, generating suggestion...');
 
-    const suggestion = await generateStorylineSuggestion();
+    const suggestion = await generateStorylineSuggestion(activeStorylines);
 
     if (suggestion) {
       console.log(`💭 [StorylineIdle] ✅ Suggestion generated and stored: "${suggestion.theme}"`);

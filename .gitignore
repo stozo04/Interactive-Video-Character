@@ -1,3 +1,14 @@
+# Codex config (keep config committed, ignore local/tool artifacts)
+.codex/*
+!.codex/config.toml
+
+# (Optional) if Codex creates any of these locally, ignore them explicitly
+.codex/cache/
+.codex/tmp/
+.codex/logs/
+.codex/**/*.log
+
+
 # Logs
 logs
 *.log

@@ -50,6 +50,8 @@ import {
   type DailyLogisticsContext,
 } from "./dailyCatchupService";
 import { getKayleyPresenceState } from "./kayleyPresenceService";
+import { getLastUserMessageTime } from "./conversationHistoryService";
+import type { NonGreetingReturnContext } from "./system_prompts/builders/greetingPromptBuilders";
 
 // 1. LOAD BOTH MODELS FROM ENV
 const GEMINI_MODEL = import.meta.env.VITE_GEMINI_MODEL; // The Brain (e.g. gemini-3-flash-preview)
@@ -58,6 +60,9 @@ const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
 // Feature flag for memory tools (can be disabled if issues arise)
 const ENABLE_MEMORY_TOOLS = true;
 const VITE_PROXY_BASE = "/api/google"; // Matches vite.config.ts proxy path
+const NON_GREETING_RETURN_CONTEXT_KEY = "kayley_non_greeting_return_context_v1";
+const RAPID_RESUME_WINDOW_MINUTES = 15;
+const RAPID_RESUME_WINDOW_MS = RAPID_RESUME_WINDOW_MINUTES * 60 * 1000;
 if (!GEMINI_MODEL || !GEMINI_VIDEO_MODEL || !GEMINI_API_KEY) {
   console.error("Missing env vars. Ensure VITE_GEMINI_MODEL is set.");
   // throw new Error("Missing environment variables for Gemini chat service.");
@@ -84,6 +89,86 @@ function isValidTextForTTS(text: string | undefined | null): boolean {
   return true;
 }
 
+type ReturnTrackerState = {
+  lastResumeAtMs: number;
+  rapidResumeCount: number;
+};
+
+function getSessionResumeReason(): NonGreetingReturnContext["sessionResumeReason"] {
+  try {
+    if (typeof performance === "undefined") return "unknown";
+    const entries = performance.getEntriesByType?.("navigation") as
+      | PerformanceNavigationTiming[]
+      | undefined;
+    const navType = entries?.[0]?.type;
+    if (
+      navType === "reload" ||
+      navType === "navigate" ||
+      navType === "back_forward" ||
+      navType === "prerender"
+    ) {
+      return navType;
+    }
+    return "unknown";
+  } catch {
+    return "unknown";
+  }
+}
+
+function readReturnTrackerState(): ReturnTrackerState | null {
+  try {
+    if (typeof localStorage === "undefined") return null;
+    const raw = localStorage.getItem(NON_GREETING_RETURN_CONTEXT_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as ReturnTrackerState;
+    if (
+      typeof parsed?.lastResumeAtMs !== "number" ||
+      typeof parsed?.rapidResumeCount !== "number"
+    ) {
+      return null;
+    }
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function writeReturnTrackerState(state: ReturnTrackerState): void {
+  try {
+    if (typeof localStorage === "undefined") return;
+    localStorage.setItem(
+      NON_GREETING_RETURN_CONTEXT_KEY,
+      JSON.stringify(state),
+    );
+  } catch {
+    // Ignore storage failures
+  }
+}
+
+function updateRapidResumeCount(nowMs: number): number {
+  const previous = readReturnTrackerState();
+  const withinWindow =
+    previous && nowMs - previous.lastResumeAtMs <= RAPID_RESUME_WINDOW_MS;
+  const rapidResumeCount = withinWindow ? previous!.rapidResumeCount + 1 : 1;
+  writeReturnTrackerState({ lastResumeAtMs: nowMs, rapidResumeCount });
+  return rapidResumeCount;
+}
+
+async function buildNonGreetingReturnContext(): Promise<NonGreetingReturnContext> {
+  const lastUserMessageTime = await getLastUserMessageTime();
+  const nowMs = Date.now();
+  const minutesSinceLastUserMessage = lastUserMessageTime
+    ? Math.max(0, Math.round((nowMs - lastUserMessageTime.getTime()) / 60000))
+    : null;
+
+  return {
+    minutesSinceLastUserMessage,
+    sessionResumeReason: getSessionResumeReason(),
+    rapidResumeCount: updateRapidResumeCount(nowMs),
+    rapidResumeWindowMinutes: RAPID_RESUME_WINDOW_MINUTES,
+  };
+}
+
 /**
  * Pre-fetch context data in parallel with intent detection.
  * This is an optimization to avoid waiting for intent before starting context fetch.
@@ -105,7 +190,7 @@ async function prefetchContext(): Promise<{
  * Now uses explicit schema field instead of pattern matching for accurate tracking.
  */
 async function logAlmostMomentIfUsed(
-  aiResponse: AIActionResponse
+  aiResponse: AIActionResponse,
 ): Promise<void> {
   // Check if LLM explicitly reported using an almost moment
   if (!aiResponse.almost_moment_used) return;
@@ -116,14 +201,14 @@ async function logAlmostMomentIfUsed(
     feeling_id,
     stage,
     expression_used,
-    "llm_confirmed_usage"
+    "llm_confirmed_usage",
   );
 
   console.log(
     `[AlmostMoments] Logged: ${stage} - "${expression_used.substring(
       0,
-      50
-    )}..."`
+      50,
+    )}..."`,
   );
 }
 
@@ -154,7 +239,7 @@ async function buildRealCharacterContext(): Promise<string> {
 
       if (parts.length > 0) {
         console.log(
-          `✨ [GeminiService] Using real presence context: ${parts.join(", ")}`
+          `✨ [GeminiService] Using real presence context: ${parts.join(", ")}`,
         );
         return parts.join(", ");
       }
@@ -351,9 +436,8 @@ export class GeminiService implements IAIChatService {
     let upcomingEvents: CalendarEvent[] = [];
     if (googleAccessToken) {
       try {
-        upcomingEvents = await calendarService.getUpcomingEvents(
-          googleAccessToken
-        );
+        upcomingEvents =
+          await calendarService.getUpcomingEvents(googleAccessToken);
       } catch (e) {
         console.warn("[GeminiService] Calendar fetch failed:", e);
       }
@@ -411,18 +495,18 @@ export class GeminiService implements IAIChatService {
    */
   private logConnectionError(context: string = ""): void {
     console.warn(
-      `⚠️ [Gemini Interactions${context}] CORS error detected (expected).`
+      `⚠️ [Gemini Interactions${context}] CORS error detected (expected).`,
     );
     console.warn(
-      "⚠️ [Gemini Interactions] Google blocks browser calls for security."
+      "⚠️ [Gemini Interactions] Google blocks browser calls for security.",
     );
     console.warn("⚠️ [Gemini Interactions] Solutions:");
     console.warn("   1. Set VITE_GEMINI_PROXY_URL to use a server proxy");
     console.warn(
-      "   2. Keep VITE_USE_GEMINI_INTERACTIONS_API=false (use old API)"
+      "   2. Keep VITE_USE_GEMINI_INTERACTIONS_API=false (use old API)",
     );
     console.warn(
-      "⚠️ [Gemini Interactions] Falling back to old Chat API (works reliably from browser)."
+      "⚠️ [Gemini Interactions] Falling back to old Chat API (works reliably from browser).",
     );
   }
 
@@ -475,13 +559,13 @@ export class GeminiService implements IAIChatService {
     interactionConfig: any,
     systemPrompt: string,
     options?: AIChatOptions,
-    maxIterations: number = 3
+    maxIterations: number = 3,
   ): Promise<any> {
     let iterations = 0;
 
     while (interaction.outputs && iterations < maxIterations) {
       const functionCalls = interaction.outputs.filter(
-        (output: any) => output.type === "function_call"
+        (output: any) => output.type === "function_call",
       );
 
       if (functionCalls.length === 0) break;
@@ -489,7 +573,7 @@ export class GeminiService implements IAIChatService {
       iterations++;
       console.log(
         `🔧 [Gemini Interactions] Tool call iteration ${iterations}:`,
-        functionCalls.map((fc: any) => fc.name)
+        functionCalls.map((fc: any) => fc.name),
       );
 
       // Execute all tool calls
@@ -500,12 +584,15 @@ export class GeminiService implements IAIChatService {
 
           console.log(
             `🔧 [Gemini Interactions] Executing tool: ${toolName}`,
-            toolArgs
+            toolArgs,
           );
 
           const toolResult = await executeMemoryTool(toolName, toolArgs, {
             googleAccessToken: options?.googleAccessToken,
-            userMessage: typeof options === 'object' && 'chatHistory' in options ? options.chatHistory?.[options.chatHistory.length - 1]?.text : undefined
+            userMessage:
+              typeof options === "object" && "chatHistory" in options
+                ? options.chatHistory?.[options.chatHistory.length - 1]?.text
+                : undefined,
           });
 
           return {
@@ -514,7 +601,7 @@ export class GeminiService implements IAIChatService {
             call_id: functionCall.id,
             result: toolResult,
           };
-        })
+        }),
       );
 
       // Continue interaction with tool results
@@ -550,18 +637,19 @@ export class GeminiService implements IAIChatService {
         "total_output_tokens:",
         interaction.usage?.total_output_tokens || 0,
         "status:",
-        interaction.status
+        interaction.status,
       );
 
       // Return a fallback response instead of empty object
       return {
-        text_response: "Sorry, I'm having trouble responding right now. Can you try again?",
+        text_response:
+          "Sorry, I'm having trouble responding right now. Can you try again?",
         action_id: null,
       };
     }
 
     const textOutput = interaction.outputs?.find(
-      (output: any) => output.type === "text"
+      (output: any) => output.type === "text",
     );
 
     const responseText = textOutput?.text || "{}";
@@ -581,7 +669,7 @@ export class GeminiService implements IAIChatService {
       } else {
         console.warn(
           "Failed to parse Gemini JSON (tools disabled but got plain text):",
-          responseText
+          responseText,
         );
         return {
           text_response: responseText,
@@ -602,13 +690,13 @@ export class GeminiService implements IAIChatService {
     systemPrompt: string,
     userMessage: UserContent,
     session?: AIChatSession,
-    options?: AIChatOptions
+    options?: AIChatOptions,
   ): Promise<{ response: AIActionResponse; session: AIChatSession }> {
     return await this.callProviderWithInteractions(
       systemPrompt,
       userMessage,
       session,
-      options
+      options,
     );
   }
 
@@ -627,7 +715,7 @@ export class GeminiService implements IAIChatService {
     systemPrompt: string,
     userMessage: UserContent,
     session?: AIChatSession,
-    options?: AIChatOptions
+    options?: AIChatOptions,
   ): Promise<{ response: AIActionResponse; session: AIChatSession }> {
     const ai = getAiClient();
 
@@ -651,11 +739,11 @@ export class GeminiService implements IAIChatService {
 
     if (isFirstMessage) {
       console.log(
-        "🆕 [Gemini Interactions] First message - sending system prompt"
+        "🆕 [Gemini Interactions] First message - sending system prompt",
       );
     } else {
       console.log(
-        "🔄 [Gemini Interactions] Continuing conversation - using previous_interaction_id + system prompt"
+        "🔄 [Gemini Interactions] Continuing conversation - using previous_interaction_id + system prompt",
       );
       // Chain to previous conversation history
       interactionConfig.previous_interaction_id = session.interactionId;
@@ -675,7 +763,7 @@ export class GeminiService implements IAIChatService {
       interactionConfig,
       systemPrompt,
       options,
-      3 // MAX_TOOL_ITERATIONS
+      3, // MAX_TOOL_ITERATIONS
     );
 
     // Parse response
@@ -717,7 +805,7 @@ export class GeminiService implements IAIChatService {
   async generateResponse(
     input: UserContent,
     options: AIChatOptions,
-    session?: AIChatSession
+    session?: AIChatSession,
   ): Promise<{
     response: AIActionResponse;
     session: AIChatSession;
@@ -801,7 +889,7 @@ export class GeminiService implements IAIChatService {
         console.log("🚀 [GeminiService] Started context prefetch in parallel");
       } else {
         console.log(
-          "✅ [GeminiService] Using context from idle pre-fetch cache"
+          "✅ [GeminiService] Using context from idle pre-fetch cache",
         );
       }
 
@@ -810,14 +898,14 @@ export class GeminiService implements IAIChatService {
       if (trimmedMessageForIntent && trimmedMessageForIntent.length > 5) {
         intentPromise = detectFullIntentLLMCached(
           trimmedMessageForIntent,
-          conversationContext
+          conversationContext,
         );
         //console.log("intentPromise initialized");
 
         if (isCommand) {
           // 🚀 FAST PATH: Don't wait for intent - Main LLM handles commands directly
           console.log(
-            "⚡ [GeminiService] Command detected - skipping blocking intent analysis"
+            "⚡ [GeminiService] Command detected - skipping blocking intent analysis",
           );
         } else {
           // 🐢 NORMAL PATH: Wait for intent (needed for empathy/conversation)
@@ -837,16 +925,16 @@ export class GeminiService implements IAIChatService {
               await recordInteractionAsync(
                 preCalculatedIntent.tone,
                 userMessageText,
-                genuineMomentResult as any
+                genuineMomentResult as any,
               );
               console.log(
-                "⚡ [GeminiService] Instant genuine moment reaction triggered!"
+                "⚡ [GeminiService] Instant genuine moment reaction triggered!",
               );
             }
           } catch (e) {
             console.warn(
               "[GeminiService] Pre-calculation of intent failed:",
-              e
+              e,
             );
           }
         }
@@ -865,7 +953,7 @@ export class GeminiService implements IAIChatService {
       // INTERNAL CONTEXT FETCHING
       // ============================================
       const fetchedContext = await this.fetchUserContext(
-        options.googleAccessToken
+        options.googleAccessToken,
       );
       console.log("fetchedContext: ", fetchedContext);
       // ============================================
@@ -873,7 +961,7 @@ export class GeminiService implements IAIChatService {
       // ============================================
       // Count user messages for storyline injection (Phase 4)
       const userMessageCount = (options.chatHistory || []).filter(
-        (msg: any) => msg.role === 'user'
+        (msg: any) => msg.role === "user",
       ).length;
       console.log(`📖 [Storylines] User message count: ${userMessageCount}`);
 
@@ -886,7 +974,7 @@ export class GeminiService implements IAIChatService {
         preCalculatedIntent?.tone,
         preCalculatedIntent,
         prefetchedContext,
-        userMessageCount
+        userMessageCount,
       );
 
       // ============================================
@@ -910,25 +998,25 @@ export class GeminiService implements IAIChatService {
       if (aiResponse.store_self_info) {
         const { category, key, value } = aiResponse.store_self_info;
         console.log(
-          `💾 [GeminiService] AI generated new character fact: ${category}.${key} = "${value}"`
+          `💾 [GeminiService] AI generated new character fact: ${category}.${key} = "${value}"`,
         );
 
         storeCharacterFact(category as any, key, value)
           .then((stored) => {
             if (stored) {
               console.log(
-                `✅ [GeminiService] Character fact saved successfully: ${key}`
+                `✅ [GeminiService] Character fact saved successfully: ${key}`,
               );
             } else {
               console.log(
-                `📋 [GeminiService] Character fact already exists or in profile: ${key}`
+                `📋 [GeminiService] Character fact already exists or in profile: ${key}`,
               );
             }
           })
           .catch((err) => {
             console.warn(
               `⚠️ [GeminiService] Failed to store character fact:`,
-              err
+              err,
             );
           });
       }
@@ -940,7 +1028,7 @@ export class GeminiService implements IAIChatService {
             userMessageText,
             interactionCount,
             conversationContext,
-            preCalculatedIntent
+            preCalculatedIntent,
           );
         } else if (intentPromise) {
           // COMMAND BYPASS PATH: Intent is still resolving
@@ -951,23 +1039,23 @@ export class GeminiService implements IAIChatService {
                   userMessageText,
                   interactionCount,
                   conversationContext,
-                  resolvedIntent
+                  resolvedIntent,
                 );
                 console.log(
-                  "📝 [GeminiService] Background intent analysis completed for command"
+                  "📝 [GeminiService] Background intent analysis completed for command",
                 );
               }
             })
             .catch((err) => {
               console.warn(
                 "[GeminiService] Background intent resolution failed:",
-                err
+                err,
               );
               analyzeUserMessageBackground(
                 userMessageText,
                 interactionCount,
                 conversationContext,
-                undefined
+                undefined,
               );
             });
         }
@@ -979,14 +1067,14 @@ export class GeminiService implements IAIChatService {
           .then((markedIds) => {
             if (markedIds.length > 0) {
               console.log(
-                `💭 [GeminiService] Marked ${markedIds.length} idle thought(s) as shared`
+                `💭 [GeminiService] Marked ${markedIds.length} idle thought(s) as shared`,
               );
             }
           })
           .catch((err) => {
             console.warn(
               "[GeminiService] Failed to detect/mark shared thoughts:",
-              err
+              err,
             );
           });
 
@@ -995,14 +1083,14 @@ export class GeminiService implements IAIChatService {
           .then((markedIds) => {
             if (markedIds.length > 0) {
               console.log(
-                `🎭 [GeminiService] Marked ${markedIds.length} experience(s) as surfaced`
+                `🎭 [GeminiService] Marked ${markedIds.length} experience(s) as surfaced`,
               );
             }
           })
           .catch((err) => {
             console.warn(
               "[GeminiService] Failed to detect surfaced experiences:",
-              err
+              err,
             );
           });
       }
@@ -1070,11 +1158,10 @@ export class GeminiService implements IAIChatService {
       //     audioData,
       //     intent: preCalculatedIntent,
       //   };
-    } 
-    catch (error) {
-       console.error("Gemini Service Error:", error);
-       throw error;
-     }
+    } catch (error) {
+      console.error("Gemini Service Error:", error);
+      throw error;
+    }
   }
 
   // ============================================
@@ -1097,7 +1184,7 @@ export class GeminiService implements IAIChatService {
         calendar?: boolean;
       };
     },
-    session?: AIChatSession
+    session?: AIChatSession,
   ): Promise<{
     response: AIActionResponse;
     session: AIChatSession;
@@ -1119,7 +1206,7 @@ export class GeminiService implements IAIChatService {
     } catch (error) {
       console.warn(
         "[GeminiService] Failed to fetch proactive candidates:",
-        error
+        error,
       );
     }
 
@@ -1158,8 +1245,8 @@ Tone: Caring, curious, not demanding.
 `.trim();
       loopIdToMark = openLoop.id;
 
-    // NOT URGENT: Skip proactive threads and lower-priority loops
-    // These will surface naturally during conversation via the system prompt
+      // NOT URGENT: Skip proactive threads and lower-priority loops
+      // These will surface naturally during conversation via the system prompt
     } else if (activeThread && activeThread.intensity >= 0.9) {
       // Only share thoughts proactively if VERY high intensity (0.9+)
       // This is rare - most thoughts wait for conversation
@@ -1168,7 +1255,7 @@ Tone: Caring, curious, not demanding.
       systemInstruction = buildProactiveThreadPrompt(activeThread);
       threadIdToMark = activeThread.id;
 
-    // CHECK-INS DISABLED OR NOTHING URGENT
+      // CHECK-INS DISABLED OR NOTHING URGENT
     } else {
       // No urgent open loops or threads - check if we should do a gentle check-in
       // This is MUCH more conservative than before
@@ -1176,7 +1263,7 @@ Tone: Caring, curious, not demanding.
       // Check if check-ins are disabled entirely
       if (!options.proactiveSettings?.checkins) {
         console.log(
-          "💤 [GeminiService] No urgent topics and check-ins disabled, skipping idle breaker"
+          "💤 [GeminiService] No urgent topics and check-ins disabled, skipping idle breaker",
         );
         return null;
       }
@@ -1184,11 +1271,11 @@ Tone: Caring, curious, not demanding.
       // Only do generic check-in if user has HIGH PRIORITY tasks pending
       // Otherwise, stay silent and let thoughts surface naturally in conversation
       const fetchedContext = await this.fetchUserContext(
-        options.googleAccessToken
+        options.googleAccessToken,
       );
       const tasksData = fetchedContext.tasks;
       const highPriorityTasks = (tasksData || []).filter(
-        (t) => !t.completed && t.priority === "high"
+        (t) => !t.completed && t.priority === "high",
       );
 
       if (highPriorityTasks.length > 0) {
@@ -1206,7 +1293,7 @@ Keep it very short (1 sentence).
         // Nothing urgent - stay silent
         // Non-urgent thoughts/threads will surface naturally when user talks to us
         console.log(
-          "💤 [GeminiService] No urgent topics to share, staying quiet (thoughts will surface in conversation)"
+          "💤 [GeminiService] No urgent topics to share, staying quiet (thoughts will surface in conversation)",
         );
         return null;
       }
@@ -1217,12 +1304,15 @@ Keep it very short (1 sentence).
     // STEP C: Mark the winner as surfaced/mentioned
     if (threadIdToMark) {
       markThreadMentionedAsync(threadIdToMark).catch((err) =>
-        console.warn("[GeminiService] Failed to mark thread as mentioned:", err)
+        console.warn(
+          "[GeminiService] Failed to mark thread as mentioned:",
+          err,
+        ),
       );
     }
     if (loopIdToMark) {
       markLoopSurfaced(loopIdToMark).catch((err) =>
-        console.warn("[GeminiService] Failed to mark loop as surfaced:", err)
+        console.warn("[GeminiService] Failed to mark loop as surfaced:", err),
       );
     }
 
@@ -1234,7 +1324,7 @@ Keep it very short (1 sentence).
 
     // Fetch context for prompt building
     const fetchedContext = await this.fetchUserContext(
-      options.googleAccessToken
+      options.googleAccessToken,
     );
 
     const fullSystemPrompt = await buildSystemPrompt(
@@ -1246,7 +1336,7 @@ Keep it very short (1 sentence).
       undefined, // toneIntent
       undefined, // fullIntent
       { soulContext: soulResult, characterFacts: factsResult },
-      0 // messageCount (idle breaker, not a user message)
+      0, // messageCount (idle breaker, not a user message)
     );
 
     // Combine the idle breaker instruction with the full system prompt
@@ -1257,7 +1347,7 @@ Keep it very short (1 sentence).
     const { response, session: updatedSession } = await this.callGeminiAPI(
       combinedSystemPrompt,
       { type: "text", text: inputTopic }, // What Kayley is thinking about
-      session
+      session,
     );
 
     // Generate audio for the response
@@ -1268,7 +1358,7 @@ Keep it very short (1 sentence).
     if (!isValidTextForTTS(response.text_response)) {
       console.warn(
         "⚠️ [GeminiService] Skipped idle breaker TTS: text_response was empty or invalid:",
-        response.text_response
+        response.text_response,
       );
     }
 
@@ -1295,7 +1385,7 @@ Keep it very short (1 sentence).
       emailCount?: number;
       isGmailConnected?: boolean;
       isCalendarConnected?: boolean;
-    }
+    },
   ): Promise<{
     greeting: AIActionResponse;
     session: AIChatSession;
@@ -1310,7 +1400,7 @@ Keep it very short (1 sentence).
 
     if (isFirstLoginToday) {
       console.log(
-        "🌅 [GeminiService] First login of the day - including daily logistics in greeting"
+        "🌅 [GeminiService] First login of the day - including daily logistics in greeting",
       );
     }
 
@@ -1323,7 +1413,7 @@ Keep it very short (1 sentence).
       undefined, // toneIntent
       undefined, // fullIntent
       undefined, // prefetchedContext
-      0 // messageCount (greeting, no user messages yet)
+      0, // messageCount (greeting, no user messages yet)
     );
 
     try {
@@ -1346,7 +1436,7 @@ Keep it very short (1 sentence).
         }
       } catch (e) {
         console.log(
-          "🤖 [GeminiService] Could not fetch user facts for greeting"
+          "🤖 [GeminiService] Could not fetch user facts for greeting",
         );
       }
 
@@ -1356,7 +1446,7 @@ Keep it very short (1 sentence).
         topOpenLoop = await getTopLoopToSurface();
         if (topOpenLoop) {
           console.log(
-            `🔄 [GeminiService] Found open loop to surface: "${topOpenLoop.topic}"`
+            `🔄 [GeminiService] Found open loop to surface: "${topOpenLoop.topic}"`,
           );
         }
       } catch (e) {
@@ -1369,12 +1459,12 @@ Keep it very short (1 sentence).
         pendingMessage = await getUndeliveredMessage();
         if (pendingMessage) {
           console.log(
-            `💌 [GeminiService] Found pending ${pendingMessage.trigger} message to deliver`
+            `💌 [GeminiService] Found pending ${pendingMessage.trigger} message to deliver`,
           );
         }
       } catch (e) {
         console.log(
-          "[GeminiService] Could not fetch pending message for greeting"
+          "[GeminiService] Could not fetch pending message for greeting",
         );
       }
 
@@ -1399,14 +1489,14 @@ Keep it very short (1 sentence).
         pendingMessage,
         null, // kayleyActivity
         null, // expectedReturnTime
-        dailyLogistics // NEW: daily logistics for first login
+        dailyLogistics, // NEW: daily logistics for first login
       );
       console.log(
         `🤖 [GeminiService] Greeting tier: ${
           fetchedContext.relationship?.relationshipTier || "new"
         }, interactions: ${
           fetchedContext.relationship?.totalInteractions || 0
-        }${isFirstLoginToday ? " (first login today)" : ""}`
+        }${isFirstLoginToday ? " (first login today)" : ""}`,
       );
 
       // Build interaction config
@@ -1418,7 +1508,7 @@ Keep it very short (1 sentence).
 
       if (session?.interactionId) {
         console.log(
-          `🔗 [GeminiService] Restoring continuity for Greeting: ${session.interactionId}`
+          `🔗 [GeminiService] Restoring continuity for Greeting: ${session.interactionId}`,
         );
         interactionConfig.previous_interaction_id = session.interactionId;
       }
@@ -1435,7 +1525,7 @@ Keep it very short (1 sentence).
         interactionConfig,
         systemPrompt,
         undefined,
-        2
+        2,
       );
 
       // Parse response
@@ -1448,7 +1538,7 @@ Keep it very short (1 sentence).
       if (topOpenLoop) {
         await markLoopSurfaced(topOpenLoop.id);
         console.log(
-          `✅ [GeminiService] Marked loop as surfaced: "${topOpenLoop.topic}"`
+          `✅ [GeminiService] Marked loop as surfaced: "${topOpenLoop.topic}"`,
         );
       }
 
@@ -1456,7 +1546,7 @@ Keep it very short (1 sentence).
       if (pendingMessage) {
         await markMessageDelivered(pendingMessage.id);
         console.log(
-          `✅ [GeminiService] Marked pending ${pendingMessage.trigger} message as delivered`
+          `✅ [GeminiService] Marked pending ${pendingMessage.trigger} message as delivered`,
         );
       }
 
@@ -1464,7 +1554,7 @@ Keep it very short (1 sentence).
       if (isFirstLoginToday) {
         markBriefedToday(characterId);
         console.log(
-          `📅 [GeminiService] Marked daily briefing complete for ${characterId}`
+          `📅 [GeminiService] Marked daily briefing complete for ${characterId}`,
         );
       }
 
@@ -1473,8 +1563,8 @@ Keep it very short (1 sentence).
         (err) =>
           console.warn(
             "[GeminiService] Failed to detect surfaced experiences in greeting:",
-            err
-          )
+            err,
+          ),
       );
 
       return {
@@ -1502,22 +1592,27 @@ Keep it very short (1 sentence).
   }> {
     // Fetch context internally
     const fetchedContext = await this.fetchUserContext();
+    const returnContext = await buildNonGreetingReturnContext();
+    console.log("returnContext: ", returnContext);
 
     let systemPrompt = await buildSystemPrompt(
       fetchedContext.relationship,
       fetchedContext.upcomingEvents,
       fetchedContext.characterContext,
-      fetchedContext.tasks
+      fetchedContext.tasks,
     );
 
     // ============================================
     // INJECT PENDING STORYLINE SUGGESTION (Phase 2)
     // ============================================
-    const { getPendingSuggestion, markSuggestionSurfaced } = await import('./storylineIdleService');
+    const { getPendingSuggestion, markSuggestionSurfaced } =
+      await import("./storylineIdleService");
     const pendingSuggestion = await getPendingSuggestion();
 
     if (pendingSuggestion) {
-      console.log(`💭 [Chat] Found pending storyline suggestion: "${pendingSuggestion.theme}"`);
+      console.log(
+        `💭 [Chat] Found pending storyline suggestion: "${pendingSuggestion.theme}"`,
+      );
 
       // Add to system prompt (PASSIVE style - LLM decides when to mention)
       const suggestionPrompt = `
@@ -1566,12 +1661,12 @@ ${pendingSuggestion.reasoning}
         pendingMessage = await getUndeliveredMessage();
         if (pendingMessage) {
           console.log(
-            `[GeminiService] Found pending ${pendingMessage.trigger} message to deliver`
+            `[GeminiService] Found pending ${pendingMessage.trigger} message to deliver`,
           );
         }
       } catch (e) {
         console.log(
-          "[GeminiService] Could not fetch pending message for non-greeting"
+          "[GeminiService] Could not fetch pending message for non-greeting",
         );
       }
 
@@ -1579,7 +1674,8 @@ ${pendingSuggestion.reasoning}
         fetchedContext.relationship,
         userName,
         fetchedContext.characterContext,
-        pendingMessage
+        pendingMessage,
+        returnContext,
       );
 
       // Build interaction config
@@ -1591,7 +1687,7 @@ ${pendingSuggestion.reasoning}
 
       if (session?.interactionId) {
         console.log(
-          `🔗 [GeminiService] Restoring continuity for Non-Greeting: ${session.interactionId}`
+          `🔗 [GeminiService] Restoring continuity for Non-Greeting: ${session.interactionId}`,
         );
         interactionConfig.previous_interaction_id = session.interactionId;
       }
@@ -1608,7 +1704,7 @@ ${pendingSuggestion.reasoning}
         interactionConfig,
         systemPrompt,
         undefined,
-        2
+        2,
       );
 
       // Parse response
@@ -1622,15 +1718,15 @@ ${pendingSuggestion.reasoning}
         (err) =>
           console.warn(
             "[GeminiService] Failed to detect surfaced experiences in non-greeting:",
-            err
-          )
+            err,
+          ),
       );
 
       // Mark the pending message as delivered
       if (pendingMessage) {
         await markMessageDelivered(pendingMessage.id);
         console.log(
-          `✅ [GeminiService] Marked pending ${pendingMessage.trigger} message as delivered`
+          `✅ [GeminiService] Marked pending ${pendingMessage.trigger} message as delivered`,
         );
       }
 
