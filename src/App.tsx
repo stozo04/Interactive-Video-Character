@@ -783,9 +783,13 @@ const App: React.FC = () => {
       const updatedHistory = [...chatHistory, { role: 'model' as const, text: characterMessage }];
       setChatHistory(updatedHistory);
 
+      // Get the latest interaction ID from DB to avoid creating a UUID fallback
+      const existingInteractionId = await conversationHistoryService.getTodaysInteractionId();
+      const interactionIdToUse = aiSession?.interactionId || existingInteractionId;
+
       await conversationHistoryService.appendConversationHistory(
           [{ role: 'model', text: characterMessage }],
-          aiSession?.interactionId // Pass the current interaction ID
+          interactionIdToUse // Use latest valid interaction ID
         );
         setLastSavedMessageIndex(updatedHistory.length - 1);
 
