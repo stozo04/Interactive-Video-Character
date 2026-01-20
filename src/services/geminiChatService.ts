@@ -754,8 +754,22 @@ export class GeminiService implements IAIChatService {
     interactionConfig.tools = this.buildMemoryTools();
     console.log("🧠 [Gemini Interactions] Memory tools enabled");
 
-    // Create interaction
-    let interaction = await this.createInteraction(interactionConfig);
+    // Create interaction - with fallback for expired turn tokens
+    let interaction;
+    try {
+      interaction = await this.createInteraction(interactionConfig);
+    } catch (error: any) {
+      // If turn token is invalid/expired, retry without continuity
+      if (error.message?.includes("Invalid turn token")) {
+        console.warn(
+          `⚠️ [GeminiService] Turn token expired, creating fresh interaction`,
+        );
+        delete interactionConfig.previous_interaction_id;
+        interaction = await this.createInteraction(interactionConfig);
+      } else {
+        throw error;
+      }
+    }
 
     // Handle tool calling loop (pass history for context)
     const finalInteraction = await this.continueInteractionWithTools(
@@ -1516,8 +1530,22 @@ Keep it very short (1 sentence).
       // Add memory tools
       interactionConfig.tools = this.buildMemoryTools();
 
-      // Create interaction
-      let interaction = await this.createInteraction(interactionConfig);
+      // Create interaction - with fallback for expired turn tokens
+      let interaction;
+      try {
+        interaction = await this.createInteraction(interactionConfig);
+      } catch (error: any) {
+        // If turn token is invalid/expired, retry without continuity
+        if (error.message?.includes("Invalid turn token")) {
+          console.warn(
+            `⚠️ [GeminiService] Turn token expired, creating fresh interaction`,
+          );
+          delete interactionConfig.previous_interaction_id;
+          interaction = await this.createInteraction(interactionConfig);
+        } else {
+          throw error;
+        }
+      }
 
       // Handle tool calls for greeting
       interaction = await this.continueInteractionWithTools(
@@ -1593,7 +1621,6 @@ Keep it very short (1 sentence).
     // Fetch context internally
     const fetchedContext = await this.fetchUserContext();
     const returnContext = await buildNonGreetingReturnContext();
-    console.log("returnContext: ", returnContext);
 
     let systemPrompt = await buildSystemPrompt(
       fetchedContext.relationship,
@@ -1695,8 +1722,22 @@ ${pendingSuggestion.reasoning}
       // Add memory tools
       interactionConfig.tools = this.buildMemoryTools();
 
-      // Create interaction
-      let interaction = await this.createInteraction(interactionConfig);
+      // Create interaction - with fallback for expired turn tokens
+      let interaction;
+      try {
+        interaction = await this.createInteraction(interactionConfig);
+      } catch (error: any) {
+        // If turn token is invalid/expired, retry without continuity
+        if (error.message?.includes("Invalid turn token")) {
+          console.warn(
+            `⚠️ [GeminiService] Turn token expired, creating fresh interaction`,
+          );
+          delete interactionConfig.previous_interaction_id;
+          interaction = await this.createInteraction(interactionConfig);
+        } else {
+          throw error;
+        }
+      }
 
       // Handle tool calls
       interaction = await this.continueInteractionWithTools(

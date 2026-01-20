@@ -358,10 +358,12 @@ ${context}
 RULES:
 - Do NOT use formal time-of-day or first-time greeting language.
 - Keep it short (one brief line).
-- Use the return context to calibrate tone:
-  - If the gap is very short or resume_reason indicates a reload, avoid reunion/long-absence language.
-  - If there are multiple rapid resumes, you may gently acknowledge the on/off cadence.
-  - If the gap is longer, warmer reunion language is acceptable.
+- Use minutes_since_last_user_message to calibrate tone:
+  - Under 1 minute: Treat as technical glitch. "As I was saying..." or "where were we?" or "think we got disconnected" vibes.
+  - 1-5 minutes: Quick return, no reunion language. Just continue naturally.
+  - 5-30 minutes: Casual acknowledgment is fine.
+  - Over 30 minutes: Warmer reunion language is acceptable.
+- If rapid_resume_count > 2, you can be playfully sassy about the on/off pattern.
 - Be extremely casual and natural.
 `;
 
