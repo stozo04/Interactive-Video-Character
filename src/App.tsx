@@ -47,7 +47,6 @@ import { useCharacterManagement } from './hooks/useCharacterManagement';
 import { useAIService } from './contexts/AIServiceContext';
 import { AIChatSession } from './services/aiService';
 import { startCleanupScheduler, stopCleanupScheduler } from './services/loopCleanupService';
-import { startPromiseChecker, stopPromiseChecker } from './services/backgroundJobs';
 import { processStorylineOnStartup } from './services/storylineService';
 import { startStorylineIdleService, stopStorylineIdleService } from './services/storylineIdleService';
 import { isQuestionMessage } from './utils/textUtils';
@@ -302,18 +301,6 @@ const App: React.FC = () => {
     } catch (e) {
       // Ignore if user ID check fails (e.g. env var missing in dev)
       console.log(`❌ [IdleThoughts] Error starting idle thoughts scheduler:`, e);
-    }
-  }, []);
-
-  // Promise Checker: Initialize background job to fulfill future commitments
-  useEffect(() => {
-    try {
-      startPromiseChecker();
-      return () => {
-        stopPromiseChecker();
-      };
-    } catch (e) {
-      console.log(`❌ [Promises] Error starting promise checker:`, e);
     }
   }, []);
 
@@ -1178,7 +1165,7 @@ const App: React.FC = () => {
       predictedActionId = predictActionFromMessage(trimmedMessage, selectedCharacter.actions);
     }
     if (predictedActionId) {
-      console.log(`⚡ Optimistically playing action: ${predictedActionId}`);
+      // console.log(`⚡ Optimistically playing action: ${predictedActionId}`);
       playAction(predictedActionId, true);
     } else if (isQuestionMessage(trimmedMessage)) {
       talkingActionId = playRandomTalkingAction(true);

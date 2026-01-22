@@ -114,14 +114,14 @@ let isRunning = false;
  */
 export function startStorylineIdleService(): void {
   if (isRunning) {
-    console.log("💭 [StorylineIdle] Already running, stopping first...");
+    // console.log("💭 [StorylineIdle] Already running, stopping first...");
     stopStorylineIdleService();
   }
 
-  console.log("💭 [StorylineIdle] Starting idle service...");
-  console.log(
-    `💭 [StorylineIdle] Config: Check every ${CONFIG.CHECK_INTERVAL_MS / 60000} min, threshold ${CONFIG.ABSENCE_THRESHOLD_MINUTES} min`,
-  );
+  //  console.log("💭 [StorylineIdle] Starting idle service...");
+  // console.log(
+  //   `💭 [StorylineIdle] Config: Check every ${CONFIG.CHECK_INTERVAL_MS / 60000} min, threshold ${CONFIG.ABSENCE_THRESHOLD_MINUTES} min`,
+  // );
 
   // Start periodic checks (first check will run after CHECK_INTERVAL_MS)
   schedulerInterval = setInterval(() => {
@@ -131,7 +131,7 @@ export function startStorylineIdleService(): void {
   }, CONFIG.CHECK_INTERVAL_MS);
 
   isRunning = true;
-  console.log("💭 [StorylineIdle] ✅ Started");
+  //  console.log("💭 [StorylineIdle] ✅ Started");
 }
 
 /**
@@ -144,7 +144,7 @@ export function stopStorylineIdleService(): void {
   }
 
   isRunning = false;
-  console.log("💭 [StorylineIdle] Stopped");
+  //  console.log("💭 [StorylineIdle] Stopped");
 }
 
 /**

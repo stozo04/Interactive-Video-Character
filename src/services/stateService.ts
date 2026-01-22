@@ -190,7 +190,7 @@ export async function saveMoodState(state: MoodState): Promise<void> {
  *
  */
 export async function warmContextCache(): Promise<void> {
-  console.log("🔥 [StateService] Warming context cache");
+  // console.log("🔥 [StateService] Warming context cache");
 
   const startTime = performance.now();
 
@@ -203,7 +203,7 @@ export async function warmContextCache(): Promise<void> {
     ]);
 
     const duration = performance.now() - startTime;
-    console.log(`✅ [StateService] Cache warmed in ${duration.toFixed(0)}ms`);
+    // console.log(`✅ [StateService] Cache warmed in ${duration.toFixed(0)}ms`);
   } catch (error) {
     // Non-critical - just log and continue
     console.warn("⚠️ [StateService] Cache warming failed:", error);

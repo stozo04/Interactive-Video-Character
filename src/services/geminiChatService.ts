@@ -213,6 +213,50 @@ async function logAlmostMomentIfUsed(
 }
 
 /**
+ * Handle promise fulfillment when the LLM indicates it's fulfilling a promise.
+ * Marks the promise as fulfilled in the database.
+ */
+async function handlePromiseFulfillment(
+  aiResponse: AIActionResponse,
+): Promise<void> {
+  // Check if LLM is fulfilling a promise
+  if (!aiResponse.fulfilling_promise_id) return;
+
+  const promiseId = aiResponse.fulfilling_promise_id;
+
+  // Extract fulfillment data from the response
+  const fulfillmentData: any = {};
+
+  // If there's a message, store it
+  if (aiResponse.text_response) {
+    fulfillmentData.messageText = aiResponse.text_response;
+  }
+
+  // If there's a selfie action, store the params
+  if (aiResponse.selfie_action) {
+    fulfillmentData.selfieParams = {
+      scene: aiResponse.selfie_action.scene,
+      mood: aiResponse.selfie_action.mood || "happy",
+    };
+  }
+
+  // Import dynamically to avoid circular dependencies
+  const { markPromiseAsFulfilled } = await import("./promiseService");
+
+  const success = await markPromiseAsFulfilled(promiseId, fulfillmentData);
+
+  if (success) {
+    console.log(
+      `[Promises] ✅ Fulfilled promise: ${promiseId}`,
+    );
+  } else {
+    console.warn(
+      `[Promises] ⚠️ Failed to fulfill promise: ${promiseId}`,
+    );
+  }
+}
+
+/**
  * Build character context from REAL presence state (what Kayley actually said she's doing).
  * Falls back to time-appropriate defaults if no presence state exists.
  */
@@ -243,18 +287,6 @@ async function buildRealCharacterContext(): Promise<string> {
         );
         return parts.join(", ");
       }
-    }
-
-    // Fallback: Time-appropriate default (no fake random vibes)
-    const hour = new Date().getUTCHours();
-    if (hour >= 5 && hour < 12) {
-      return "Starting my day, feeling pretty awake";
-    } else if (hour >= 12 && hour < 17) {
-      return "In the middle of my day";
-    } else if (hour >= 17 && hour < 21) {
-      return "Winding down for the evening";
-    } else {
-      return "Up late, feeling a bit tired";
     }
   } catch (error) {
     console.warn("[GeminiService] Failed to fetch presence state:", error);
@@ -371,6 +403,12 @@ function formatInteractionInput(userMessage: UserContent): any[] {
 }
 
 // Phase 1 Optimization: LLM returns action keys, we resolve to UUIDs
+/**
+ * ⚠️ CRITICAL: When adding a new field to AIActionResponseSchema,
+ * you MUST also add it here or it will be silently stripped out!
+ *
+ * See docs/Adding_Fields_To_AIActionResponse.md for details.
+ */
 function normalizeAiResponse(rawJson: any, rawText: string): AIActionResponse {
   let wbAction = rawJson.whiteboard_action || null;
 
@@ -385,6 +423,7 @@ function normalizeAiResponse(rawJson: any, rawText: string): AIActionResponse {
   // Resolve action key to UUID (handles fuzzy matching and fallback)
   const actionId = resolveActionKey(rawJson.action_id);
 
+  // ⚠️ WARNING: Every field in AIActionResponseSchema MUST be listed below!
   return {
     text_response: rawJson.text_response || rawJson.response || rawText,
     action_id: actionId,
@@ -400,6 +439,11 @@ function normalizeAiResponse(rawJson: any, rawText: string): AIActionResponse {
     selfie_action: rawJson.selfie_action || null,
     // Store new character facts
     store_self_info: rawJson.store_self_info || null,
+    // Almost moment tracking
+    almost_moment_used: rawJson.almost_moment_used || null,
+    // Promise fulfillment
+    fulfilling_promise_id: rawJson.fulfilling_promise_id || null,
+    // ⚠️ REMINDER: Did you add your new field above? Check docs/Adding_Fields_To_AIActionResponse.md
   };
 }
 
@@ -458,7 +502,7 @@ export class GeminiService implements IAIChatService {
   private triggerPostResponsePrefetch(): void {
     // delay slightly to avoid competing with UI updates/audio playback starts
     setTimeout(() => {
-      console.log(`🧪 [GeminiService] Triggering post-response pre-fetch`);
+      // console.log(`🧪 [GeminiService] Triggering post-response pre-fetch`);
       prefetchOnIdle().catch((err) => {
         console.warn("⚠️ [GeminiService] Post-response pre-fetch failed:", err);
       });
@@ -630,52 +674,44 @@ export class GeminiService implements IAIChatService {
    * Parse interaction response - extract and parse text output
    */
   private parseInteractionResponse(interaction: any): AIActionResponse {
-    // Check if outputs array exists and has content
-    if (!interaction.outputs || interaction.outputs.length === 0) {
+    // CRITICAL FIX: Ensure we are looking at the interaction object
+    // If the object passed is the wrapper { interaction, executedTools }, drill down
+    const data = interaction.interaction
+      ? interaction.interaction
+      : interaction;
+
+    if (!data.outputs || data.outputs.length === 0) {
       console.error(
         "❌ [Gemini Interactions] No outputs in response!",
-        "total_output_tokens:",
-        interaction.usage?.total_output_tokens || 0,
-        "status:",
-        interaction.status,
+        "Usage:",
+        data.usage,
+        "Status:",
+        data.status,
       );
 
-      // Return a fallback response instead of empty object
       return {
-        text_response:
-          "Sorry, I'm having trouble responding right now. Can you try again?",
+        text_response: "I'm having trouble processing that right now.",
         action_id: null,
       };
     }
 
-    const textOutput = interaction.outputs?.find(
-      (output: any) => output.type === "text",
-    );
-
+    // Find the specific text block (skipping 'thought' blocks)
+    const textOutput = data.outputs.find((o: any) => o.type === "text");
     const responseText = textOutput?.text || "{}";
 
     try {
+      // Your model returns JSON inside a string, we must extract and parse it
       const cleanedText = responseText.replace(/```json\n?|\n?```/g, "").trim();
       const jsonText = extractJsonFromResponse(cleanedText);
       const parsed = JSON.parse(jsonText);
+
       return normalizeAiResponse(parsed, jsonText);
     } catch (e) {
-      // When tools are enabled, plain text is expected
-      if (ENABLE_MEMORY_TOOLS) {
-        return {
-          text_response: responseText,
-          action_id: null,
-        };
-      } else {
-        console.warn(
-          "Failed to parse Gemini JSON (tools disabled but got plain text):",
-          responseText,
-        );
-        return {
-          text_response: responseText,
-          action_id: null,
-        };
-      }
+      console.warn("Parsing fallback triggered for:", responseText);
+      return {
+        text_response: responseText,
+        action_id: null,
+      };
     }
   }
 
@@ -770,7 +806,7 @@ export class GeminiService implements IAIChatService {
         throw error;
       }
     }
-
+    console.log("INERACTIONS:: ", interaction);
     // Handle tool calling loop (pass history for context)
     const finalInteraction = await this.continueInteractionWithTools(
       interaction,
@@ -898,14 +934,14 @@ export class GeminiService implements IAIChatService {
           }>
         | undefined;
 
-      if (!prefetchedContext) {
-        contextPrefetchPromise = prefetchContext();
-        console.log("🚀 [GeminiService] Started context prefetch in parallel");
-      } else {
-        console.log(
-          "✅ [GeminiService] Using context from idle pre-fetch cache",
-        );
-      }
+      // if (!prefetchedContext) {
+      //   contextPrefetchPromise = prefetchContext();
+      //   console.log("🚀 [GeminiService] Started context prefetch in parallel");
+      // } else {
+      //   console.log(
+      //     "✅ [GeminiService] Using context from idle pre-fetch cache",
+      //   );
+      // }
 
       // Start intent detection using CLEAN message (without calendar data)
       const trimmedMessageForIntent = messageForIntent.trim();
@@ -1006,6 +1042,11 @@ export class GeminiService implements IAIChatService {
       console.log("updatedSession: ", updatedSession);
       logAlmostMomentIfUsed(aiResponse).catch((err) => {
         console.warn("[GeminiService] Failed to log almost moment:", err);
+      });
+
+      // Handle promise fulfillment
+      handlePromiseFulfillment(aiResponse).catch((err) => {
+        console.warn("[GeminiService] Failed to handle promise fulfillment:", err);
       });
 
       // Store new character facts if AI generated any
@@ -1595,6 +1636,16 @@ Keep it very short (1 sentence).
           ),
       );
 
+      // Handle promise fulfillment (fire-and-forget)
+      handlePromiseFulfillment(structuredResponse).catch((err) => {
+        console.warn("[GeminiService] Failed to handle promise fulfillment in greeting:", err);
+      });
+
+      // Log almost moment usage (fire-and-forget)
+      logAlmostMomentIfUsed(structuredResponse).catch((err) => {
+        console.warn("[GeminiService] Failed to log almost moment in greeting:", err);
+      });
+
       return {
         greeting: structuredResponse,
         session: {
@@ -1762,6 +1813,16 @@ ${pendingSuggestion.reasoning}
             err,
           ),
       );
+
+      // Handle promise fulfillment (fire-and-forget)
+      handlePromiseFulfillment(structuredResponse).catch((err) => {
+        console.warn("[GeminiService] Failed to handle promise fulfillment in non-greeting:", err);
+      });
+
+      // Log almost moment usage (fire-and-forget)
+      logAlmostMomentIfUsed(structuredResponse).catch((err) => {
+        console.warn("[GeminiService] Failed to log almost moment in non-greeting:", err);
+      });
 
       // Mark the pending message as delivered
       if (pendingMessage) {

@@ -21,6 +21,7 @@ import type { SoulLayerContext } from "../types";
 import { buildComfortableImperfectionPrompt } from "../behavior/comfortableImperfection";
 import { buildMinifiedSemanticIntent } from "../context/messageContext";
 import { buildStyleOutputSection } from "../context/styleOutput";
+import { buildPromisesContext } from "../context/promisesContext";
 import { buildRelationshipTierPrompt } from "./relationshipPromptBuilders";
 import { buildSelfieRulesPrompt } from "./selfiePromptBuilder";
 import { buildBidDetectionPrompt } from "../behavior/bidDetection";
@@ -277,6 +278,21 @@ Right now, you are: "${
     console.log(
       `📖 [Storylines] Skipping prompt injection (message #${messageCount}, only inject on #2)`,
     );
+  }
+
+  // ============================================
+  // PROMISES INTEGRATION
+  // Inject pending promises so Kayley knows what to fulfill
+  // ============================================
+  try {
+    const promisesContext = await buildPromisesContext();
+    if (promisesContext) {
+      prompt += promisesContext;
+      console.log("[Promises] Injected pending promises into system prompt");
+    }
+  } catch (error) {
+    console.warn("[Promises] Failed to inject promises context:", error);
+    // Continue without promises (fail gracefully)
   }
 
   prompt += `

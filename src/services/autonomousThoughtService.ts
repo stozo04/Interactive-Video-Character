@@ -182,7 +182,6 @@ export async function generateAutonomousThought(
       contents: [{ role: "user", parts: [{ text: prompt }] }],
       config: {
         temperature: 0.6,
-        maxOutputTokens: 300,
         responseMimeType: "application/json",
       },
     });

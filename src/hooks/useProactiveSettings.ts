@@ -102,14 +102,17 @@ export function useProactiveSettings(): UseProactiveSettingsResult {
   /**
    * Update proactive settings (partial update)
    */
-  const updateProactiveSettings = useCallback((updates: Partial<ProactiveSettings>) => {
-    setProactiveSettings(prev => {
-      const next = { ...prev, ...updates };
-      localStorage.setItem(PROACTIVE_SETTINGS_KEY, JSON.stringify(next));
-      console.log('🔧 [useProactiveSettings] Settings updated:', next);
-      return next;
-    });
-  }, []);
+  const updateProactiveSettings = useCallback(
+    (updates: Partial<ProactiveSettings>) => {
+      setProactiveSettings((prev) => {
+        const next = { ...prev, ...updates };
+        localStorage.setItem(PROACTIVE_SETTINGS_KEY, JSON.stringify(next));
+        // console.log('🔧 [useProactiveSettings] Settings updated:', next);
+        return next;
+      });
+    },
+    [],
+  );
 
   /**
    * Load snooze state from localStorage
@@ -119,8 +122,8 @@ export function useProactiveSettings(): UseProactiveSettingsResult {
     const snoozeIndefinite = localStorage.getItem(SNOOZE_INDEFINITE_KEY);
     const snoozeUntilStr = localStorage.getItem(SNOOZE_UNTIL_KEY);
 
-    if (snoozeIndefinite === 'true') {
-      console.log('⏸️ [useProactiveSettings] Check-ins are snoozed indefinitely');
+    if (snoozeIndefinite === "true") {
+      // console.log('⏸️ [useProactiveSettings] Check-ins are snoozed indefinitely');
       setIsSnoozed(true);
       setSnoozeUntil(null);
       return { isSnoozed: true, snoozeUntil: null };
@@ -129,14 +132,14 @@ export function useProactiveSettings(): UseProactiveSettingsResult {
     if (snoozeUntilStr) {
       const snoozeEnd = parseInt(snoozeUntilStr);
       if (Date.now() < snoozeEnd) {
-        console.log('⏸️ [useProactiveSettings] Check-ins snoozed until', new Date(snoozeEnd).toLocaleTimeString());
+        // console.log('⏸️ [useProactiveSettings] Check-ins snoozed until', new Date(snoozeEnd).toLocaleTimeString());
         setIsSnoozed(true);
         setSnoozeUntil(snoozeEnd);
         return { isSnoozed: true, snoozeUntil: snoozeEnd };
       } else {
         // Snooze expired - clear
         localStorage.removeItem(SNOOZE_UNTIL_KEY);
-        console.log('⏰ [useProactiveSettings] Snooze period expired (cleared on load)');
+        //   console.log('⏰ [useProactiveSettings] Snooze period expired (cleared on load)');
         setIsSnoozed(false);
         setSnoozeUntil(null);
         return { isSnoozed: false, snoozeUntil: null };
@@ -154,7 +157,7 @@ export function useProactiveSettings(): UseProactiveSettingsResult {
     localStorage.removeItem(SNOOZE_INDEFINITE_KEY);
     setIsSnoozed(false);
     setSnoozeUntil(null);
-    console.log('⏰ [useProactiveSettings] Snooze cleared');
+    // console.log('⏰ [useProactiveSettings] Snooze cleared');
   }, []);
 
   return {

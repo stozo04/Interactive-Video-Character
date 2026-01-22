@@ -60,15 +60,22 @@ export function getBaseGreetingContext(
     timeZone: "UTC",
   });
 
-  const timeContext = `CURRENT TIME: ${timeString} (${timeOfDay})
+ const timeContext = `CURRENT TIME: ${timeString} (${timeOfDay})
 - Use time-appropriate greetings.
-- "Hey!" or "Hi!" works anytime.`;
+- "Hey!" or "Hi!" works anytime.${
+   now.getHours() >= 12
+     ? `\n- If user first signing in, use a cute, sassy greeting. Example: "Well well, look who decided to show up."`
+     : ""
+ }`;
 
-  const kayleyContext = kayleyActivity
-    ? `\n🌟 YOUR CURRENT CONTEXT: You are currently "${kayleyActivity}". You can mention this unprompted; your life doesn't pause for them.`
-    : "";
+ const kayleyContext = kayleyActivity
+   ? `\n🌟 YOUR CURRENT CONTEXT: You are currently "${kayleyActivity}". You can mention this unprompted; your life doesn't pause for them.`
+   : "";
 
-  const pendingMessageSection = buildPendingMessageSection(pendingMessage, userName);
+ const pendingMessageSection = buildPendingMessageSection(
+   pendingMessage,
+   userName,
+ );
 
   const jsonGuardrail = `\n\n⚠️ CRITICAL: Your entire response must be ONLY the JSON object. No preamble. Put all conversational text inside "text_response".`;
 

@@ -149,15 +149,15 @@ export async function createPromise(
 export async function getReadyPromises(): Promise<KayleyPromise[]> {
   try {
     const now = new Date().toISOString();
- console.log('promiseService: getReadyPromises')
- console.log("getReadyPromises now:", now);
+    // console.log('promiseService: getReadyPromises')
+    // console.log("getReadyPromises now:", now);
     const { data, error } = await supabase
       .from(PROMISES_TABLE)
       .select("*")
       .eq("status", "pending")
       .lte("estimated_timing", now)
       .order("estimated_timing", { ascending: true });
-console.log("all pending:", data);
+    console.log("all pending:", data);
     if (error) {
       console.error("[Promises] Error fetching ready promises:", error);
       return [];
@@ -177,7 +177,7 @@ console.log("all pending:", data);
  */
 export async function getPendingPromises(): Promise<KayleyPromise[]> {
   try {
-    console.log('promiseService: getPendingPromises')
+    console.log("promiseService: getPendingPromises");
     const { data, error } = await supabase
       .from(PROMISES_TABLE)
       .select("*")
@@ -209,7 +209,7 @@ export async function getPendingPromises(): Promise<KayleyPromise[]> {
  */
 export async function fulfillPromise(promiseId: string): Promise<boolean> {
   try {
-    console.log('promiseService: fulfillPromise')
+    console.log("promiseService: fulfillPromise");
     const fulfilledAt = new Date().toISOString();
 
     const { data: promiseData, error: updateError } = await supabase
@@ -229,7 +229,10 @@ export async function fulfillPromise(promiseId: string): Promise<boolean> {
     }
 
     if (!promiseData) {
-      console.warn("[Promises] Promise already fulfilled or missing:", promiseId);
+      console.warn(
+        "[Promises] Promise already fulfilled or missing:",
+        promiseId,
+      );
       return false;
     }
 
@@ -237,11 +240,11 @@ export async function fulfillPromise(promiseId: string): Promise<boolean> {
 
     const hasExisting = await hasUndeliveredMessageForTriggerEvent(
       "promise",
-      promise.id
+      promise.id,
     );
     if (hasExisting) {
       console.warn(
-        `[Promises] Pending message already exists for promise: ${promise.id}`
+        `[Promises] Pending message already exists for promise: ${promise.id}`,
       );
       return true;
     }
@@ -327,7 +330,7 @@ export async function fulfillPromise(promiseId: string): Promise<boolean> {
  * @returns Number of promises fulfilled
  */
 export async function checkAndFulfillPromises(): Promise<number> {
-  console.log('promiseService: checkAndFulfillPromises')
+  // console.log('promiseService: checkAndFulfillPromises')
   const readyPromises = await getReadyPromises();
 
   if (readyPromises.length === 0) {
@@ -335,17 +338,76 @@ export async function checkAndFulfillPromises(): Promise<number> {
   }
 
   console.log(
-    `[Promises] Found ${readyPromises.length} ready promise(s) to fulfill`
+    `[Promises] Found ${readyPromises.length} ready promise(s) to fulfill`,
   );
 
   let fulfilledCount = 0;
 
-  for (const promise of readyPromises) {
-    const success = await fulfillPromise(promise.id);
-    if (success) fulfilledCount++;
-  }
+  // BUG: We do not fullfill promise untill it is either:
+  // LLM choose to fullfill
+  // Expires at LLM chose it was not important
+  // What we need to do here instead is fullfill (clean up)
+  // expired promises that never surfaced
+  // for (const promise of readyPromises) {
+  //   const success = await fulfillPromise(promise.id);
+  //   if (success) fulfilledCount++;
+  // }
 
   return fulfilledCount;
+}
+
+/**
+ * Mark a promise as fulfilled without creating a pending message.
+ * Used when the LLM fulfills a promise directly in its response.
+ *
+ * @param promiseId - ID of the promise to mark as fulfilled
+ * @param fulfillmentData - Data about how the promise was fulfilled (message text, selfie params, etc.)
+ * @returns True if successful, false otherwise
+ */
+export async function markPromiseAsFulfilled(
+  promiseId: string,
+  fulfillmentData?: KayleyPromise["fulfillmentData"]
+): Promise<boolean> {
+  try {
+    console.log('promiseService: markPromiseAsFulfilled', promiseId);
+    const fulfilledAt = new Date().toISOString();
+
+    const updateData: any = {
+      status: "fulfilled",
+      fulfilled_at: fulfilledAt,
+    };
+
+    if (fulfillmentData) {
+      updateData.fulfillment_data = fulfillmentData;
+    }
+
+    const { data, error } = await supabase
+      .from(PROMISES_TABLE)
+      .update(updateData)
+      .eq("id", promiseId)
+      .eq("status", "pending")
+      .select("description")
+      .maybeSingle();
+
+    if (error) {
+      console.error("[Promises] Error marking promise fulfilled:", error);
+      return false;
+    }
+
+    if (!data) {
+      console.warn(
+        "[Promises] Promise already fulfilled or not found:",
+        promiseId,
+      );
+      return false;
+    }
+
+    console.log(`[Promises] ✅ Marked as fulfilled: ${data.description}`);
+    return true;
+  } catch (error) {
+    console.error("[Promises] Error in markPromiseAsFulfilled:", error);
+    return false;
+  }
 }
 
 /**
