@@ -32,19 +32,19 @@ export function useGmail({ session, status }: UseGmailOptions) {
 
   // Polling loop
   useEffect(() => {
-    if (!session || status !== 'connected') return;
+    if (!session || status !== "connected") return;
 
     const poll = async () => {
       try {
-        console.log('📬 [useGmail] Polling for new mail...');
+        // console.log('📬 [useGmail] Polling for new mail...');
         await gmailService.pollForNewMail(session.accessToken);
       } catch (err) {
-        console.error('📬 [useGmail] Polling error:', err);
+        console.error("📬 [useGmail] Polling error:", err);
       }
     };
 
     // Initial poll after short delay
-    console.log('📬 [useGmail] Gmail polling loop started (1m interval)');
+    //  console.log('📬 [useGmail] Gmail polling loop started (1m interval)');
     const initialTimer = setTimeout(poll, 2000);
     const intervalId = setInterval(poll, 60000); // 1 minute
 
@@ -58,13 +58,13 @@ export function useGmail({ session, status }: UseGmailOptions) {
   useEffect(() => {
     const handleNewMail = (event: Event) => {
       const customEvent = event as CustomEvent<NewEmailPayload[]>;
-      console.log(`📬 [useGmail] Received ${customEvent.detail.length} new email(s)`);
-      setEmailQueue(prev => [...prev, ...customEvent.detail]);
+      // console.log(`📬 [useGmail] Received ${customEvent.detail.length} new email(s)`);
+      setEmailQueue((prev) => [...prev, ...customEvent.detail]);
     };
 
-    gmailService.addEventListener('new-mail', handleNewMail);
+    gmailService.addEventListener("new-mail", handleNewMail);
     return () => {
-      gmailService.removeEventListener('new-mail', handleNewMail);
+      gmailService.removeEventListener("new-mail", handleNewMail);
     };
   }, []);
 

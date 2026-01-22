@@ -339,9 +339,7 @@ export function saveSession(session: GmailSession): void {
     if (session.accessToken) {
       setConnectedHint(true);
     }
-    if (session.accessToken) {
-      console.log('Session saved for:', session.email);
-    }
+
   } catch (error) {
     console.error('Failed to save session:', error);
     throw new Error('Failed to save authentication session.');

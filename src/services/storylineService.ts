@@ -1535,14 +1535,14 @@ function daysBetweenCST(startDate: Date, endDate: Date): number {
  */
 export async function processStorylineOnStartup(): Promise<void> {
   try {
-    console.log('📖 [Storylines] ========== On-Startup Processing ==========');
+    // console.log("📖 [Storylines] ========== On-Startup Processing ==========");
 
     const now = new Date(); // UTC
     const lastProcessed = await getLastProcessedTimestamp();
 
     if (!lastProcessed) {
       // First run ever - just set timestamp and exit
-      console.log('📖 [Storylines] First run - initializing timestamp');
+      // console.log('📖 [Storylines] First run - initializing timestamp');
       await updateLastProcessedTimestamp(now);
       return;
     }
@@ -1550,10 +1550,10 @@ export async function processStorylineOnStartup(): Promise<void> {
     // Calculate days since last process (in CST)
     const daysSince = daysBetweenCST(lastProcessed, now);
 
-    console.log(`📖 [Storylines] Last processed: ${lastProcessed.toISOString()} (${daysSince} day(s) ago in CST)`);
+    // console.log(`📖 [Storylines] Last processed: ${lastProcessed.toISOString()} (${daysSince} day(s) ago in CST)`);
 
     if (daysSince < 1) {
-      console.log('📖 [Storylines] Already processed today - skipping');
+      console.log("📖 [Storylines] Already processed today - skipping");
       return;
     }
 
@@ -1568,8 +1568,9 @@ export async function processStorylineOnStartup(): Promise<void> {
     // Update last processed timestamp
     await updateLastProcessedTimestamp(now);
 
-    console.log('📖 [Storylines] ========== On-Startup Processing Complete ==========');
-
+    console.log(
+      "📖 [Storylines] ========== On-Startup Processing Complete ==========",
+    );
   } catch (error) {
     console.error('📖 [Storylines] Error in on-startup processing:', error);
   }
@@ -1865,7 +1866,6 @@ export async function generateStorylineUpdate(storyline: LifeStoryline): Promise
       contents: [{ role: 'user', parts: [{ text: prompt }] }],
       config: {
         temperature: 0.7,  // Higher for creative variation
-        maxOutputTokens: 300,
       }
     });
 
@@ -1999,8 +1999,7 @@ async function generateClosureSequence(
         model: GEMINI_MODEL,
         contents: [{ role: 'user', parts: [{ text: prompt }] }],
         config: {
-          temperature: 0.7,
-          maxOutputTokens: 300,
+          temperature: 0.7
         }
       });
 
@@ -2068,8 +2067,7 @@ Respond with ONLY the description (no quotes, no explanation):`;
     model: GEMINI_MODEL,
     contents: [{ role: 'user', parts: [{ text: prompt }] }],
     config: {
-      temperature: 0.7,
-      maxOutputTokens: 100,
+      temperature: 0.7
     }
   });
 
@@ -2098,7 +2096,7 @@ Respond with ONLY the learning (no quotes, no explanation):`;
   const result = await ai.models.generateContent({
     model: GEMINI_MODEL,
     contents: [{ role: 'user', parts: [{ text: prompt }] }],
-    config: { temperature: 0.7, maxOutputTokens: 100 }
+    config: { temperature: 0.7}
   });
 
   return result.text?.trim() || null;

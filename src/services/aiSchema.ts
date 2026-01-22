@@ -3,6 +3,11 @@ import { z } from 'zod';
 
 /**
  * Defines the strict JSON structure we want ANY AI Service (Grok or Gemini) to return.
+ *
+ * ⚠️ CRITICAL: When adding a new field here, you MUST also add it to:
+ *    - normalizeAiResponse() in geminiChatService.ts
+ *    Otherwise the field will be silently stripped out during parsing!
+ *    See docs/Adding_Fields_To_AIActionResponse.md for details.
  */
 export const AIActionResponseSchema = z.object({
   /**
@@ -320,6 +325,21 @@ export const AIActionResponseSchema = z.object({
     .describe(
       "Set this when you use an almost moment - a vulnerable expression where you almost say something deeper but retreat. " +
         "Leave null if you didn't use one in this response."
+    ),
+
+  /**
+   * Set this when you are fulfilling a promise you made earlier.
+   * The promise ID comes from the system prompt's "PENDING PROMISES" section.
+   * Your response message IS the fulfillment (e.g., sending the selfie, sharing the update).
+   */
+  fulfilling_promise_id: z
+    .string()
+    .nullable()
+    .optional()
+    .describe(
+      "The ID of the promise you're fulfilling in this response (from PENDING PROMISES section). " +
+        "Set this when your message fulfills a commitment you made earlier (e.g., 'Here's that selfie from my walk!'). " +
+        "Leave null if you're not fulfilling a promise."
     ),
 });
 

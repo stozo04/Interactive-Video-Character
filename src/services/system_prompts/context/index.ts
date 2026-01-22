@@ -20,3 +20,6 @@ export {
 
 // Phase 5b: Style & Output section
 export { buildStyleOutputSection } from "./styleOutput";
+
+// Promises context
+export { buildPromisesContext } from "./promisesContext";

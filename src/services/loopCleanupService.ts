@@ -374,40 +374,43 @@ export async function runScheduledCleanup(
 ): Promise<FullCleanupResult> {
   const config = { ...CLEANUP_CONFIG, ...options };
   const startTime = Date.now();
-  
+
   console.log(`🧹 [LoopCleanup] Starting scheduled cleanup`);
-  
+
   // Step 1: Expire old loops
-  const expireOldResult = await expireOldLoops({ 
-    maxAgeDays: config.maxLoopAgeDays 
+  const expireOldResult = await expireOldLoops({
+    maxAgeDays: config.maxLoopAgeDays,
   });
-  
+
   // Step 2: Expire duplicates
   const expireDuplicatesResult = await expireDuplicateLoops();
-  
+
   // Step 3: Cap active loops
   const capLoopsResult = await capActiveLoops(config.maxActiveLoops);
-  
-  const totalExpired = 
-    expireOldResult.expiredCount + 
-    expireDuplicatesResult.expiredCount + 
+
+  const totalExpired =
+    expireOldResult.expiredCount +
+    expireDuplicatesResult.expiredCount +
     capLoopsResult.expiredCount;
-  
+
   const durationMs = Date.now() - startTime;
-  
+
   const result: FullCleanupResult = {
-    success: !expireOldResult.error && !expireDuplicatesResult.error && !capLoopsResult.error,
+    success:
+      !expireOldResult.error &&
+      !expireDuplicatesResult.error &&
+      !capLoopsResult.error,
     totalExpired,
     durationMs,
     steps: {
       expireOld: expireOldResult,
       expireDuplicates: expireDuplicatesResult,
-      capLoops: capLoopsResult
-    }
+      capLoops: capLoopsResult,
+    },
   };
-  
-  console.log(`✅ [LoopCleanup] Cleanup complete: expired ${totalExpired} loops in ${durationMs}ms`);
-  
+
+  // console.log(`✅ [LoopCleanup] Cleanup complete: expired ${totalExpired} loops in ${durationMs}ms`);
+
   return result;
 }
 
@@ -523,19 +526,19 @@ export function startCleanupScheduler(
   options: SchedulerOptions = {}
 ): void {
   const intervalMs = options.intervalMs ?? CLEANUP_CONFIG.cleanupIntervalMs;
-  
+
   // Stop existing scheduler if any
   stopCleanupScheduler();
-  
-  console.log(`🕐 [LoopCleanup] Starting scheduler (interval: ${intervalMs / 1000}s)`);
-  
+
+  // console.log(`🕐 [LoopCleanup] Starting scheduler (interval: ${intervalMs / 1000}s)`);
+
   // Run immediately on start if configured
   if (CLEANUP_CONFIG.cleanupOnInit) {
-    runScheduledCleanup().then(result => {
+    runScheduledCleanup().then((result) => {
       options.onComplete?.(result);
     });
   }
-  
+
   // Schedule periodic cleanup
   cleanupInterval = setInterval(async () => {
     const result = await runScheduledCleanup();

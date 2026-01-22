@@ -34,7 +34,7 @@ type ConfigData = Record<string, FolderConfig>;
 function buildRegistry(): ReferenceImageMetadata[] {
   const registry: ReferenceImageMetadata[] = [];
   const config = configData as ConfigData;
-  console.log("[ReferenceImages] Building registry from modules:", Object.keys(imageModules));
+  // console.log("[ReferenceImages] Building registry from modules:", Object.keys(imageModules));
 
   for (const [importPath] of Object.entries(imageModules)) {
     // Convert import path "./curlyHairCasual/image.jpg" to folder "curlyHairCasual" and file "image.jpg"
@@ -117,7 +117,7 @@ export function getAvailableOutfits(): OutfitStyle[] {
 }
 
 // Log discovered images in development
-if (import.meta.env.DEV) {
-  console.log(`[ReferenceImages] Loaded ${REFERENCE_IMAGE_REGISTRY.length} reference images:`,
-    REFERENCE_IMAGE_REGISTRY.map(r => `${r.id} (${r.hairstyle}/${r.outfitStyle})`));
-}
+// if (import.meta.env.DEV) {
+//     console.log(`[ReferenceImages] Loaded ${REFERENCE_IMAGE_REGISTRY.length} reference images:`,
+//     REFERENCE_IMAGE_REGISTRY.map(r => `${r.id} (${r.hairstyle}/${r.outfitStyle})`));
+//}

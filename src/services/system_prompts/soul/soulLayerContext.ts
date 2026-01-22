@@ -79,10 +79,6 @@ export async function getSoulLayerContextAsync(
     // Extract vulnerability state from intimacy (for spontaneity)
     vulnerabilityExchangeActive = fullContext.intimacy_state?.vulnerabilityExchangeActive ?? false;
 
-    if (vulnerabilityExchangeActive) {
-      console.log("💕 [Vulnerability] User recently shared something vulnerable - Kayley will be more sensitive");
-    }
-
     // Process mood using SIMPLIFIED system (energy + warmth instead of 6 knobs)
     if (fullContext.mood_state && fullContext.emotional_momentum) {
       moodKnobs = calculateMoodFromState(

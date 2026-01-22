@@ -38,13 +38,13 @@ export function GoogleAuthProvider({
   const attemptSilentRefresh = useCallback(async (reason: string) => {
     const now = Date.now();
     if (now - lastSilentRefreshAtRef.current < 30000) {
-      console.log(`Silent refresh throttled (${reason})`);
+      //console.log(`Silent refresh throttled (${reason})`);
       return;
     }
     lastSilentRefreshAtRef.current = now;
     const error = await googleAuth.silentRefresh();
     if (error) throw error;
-    console.log(`Silent refresh request sent (${reason})`);
+    // console.log(`Silent refresh request sent (${reason})`);
   }, []);
 
   // Load existing session on mount
@@ -92,7 +92,7 @@ export function GoogleAuthProvider({
 
     // Listen for auth state changes (especially important for Supabase redirects)
     const { data: { subscription } } = googleAuth.supabase.auth.onAuthStateChange(async (event, sbSession) => {
-      console.log('Auth state changed:', event);
+      //  console.log('Auth state changed:', event);
 
       const isSignIn = event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED' || event === 'USER_UPDATED';
 
@@ -115,7 +115,7 @@ export function GoogleAuthProvider({
         // Bridged Update: Preserve current token if Supabase didn't provide one
         setSession(prev => {
           if (!hasProviderToken && prev?.accessToken) {
-            console.log(`dY", Session ${event}: Preserving existing Google token`);
+            // console.log(`dY", Session ${event}: Preserving existing Google token`);
             return {
               ...prev,
               email: sbSession.user.email || prev.email,
