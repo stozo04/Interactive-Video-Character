@@ -7,7 +7,7 @@
 
 import { Task } from "../../../types";
 import type { RelationshipMetrics } from "../../relationshipService";
-import { KAYLEY_FULL_PROFILE } from "../../../domain/characters/kayleyCharacterProfile";
+import { KAYLEY_CONDENSED_PROFILE } from "../../../domain/characters/kayleyCharacterProfile";
 import { getRecentNewsContext } from "../../newsService";
 import { formatMoodForPrompt } from "../../moodKnobs";
 import { getIntimacyContextForPromptAsync } from "../../relationshipService";
@@ -49,38 +49,6 @@ import {
 
 // const CHARACTER_COLLECTION_ID = import.meta.env.VITE_GROK_CHARACTER_COLLECTION_ID;
 const CHARACTER_COLLECTION_ID = import.meta.env.VITE_CHATGPT_VECTOR_STORE_ID;
-
-// Move 37: These helper functions are no longer used since intent detection is removed
-// The main LLM now reads messages directly and understands context naturally
-// Kept commented out for reference during transition
-
-// function deriveConversationDepth(
-//   relationshipSignals?: RelationshipSignalIntent | null,
-//   toneIntent?: ToneIntent | null
-// ): "surface" | "medium" | "deep" | "intimate" {
-//   if (relationshipSignals?.isVulnerable) return "intimate";
-//   if (relationshipSignals?.isDeepTalk) return "deep";
-//   if ((toneIntent?.intensity ?? 0) >= 0.6) return "medium";
-//   return "surface";
-// }
-
-// function deriveRecentSweetMoment(
-//   relationshipSignals?: RelationshipSignalIntent | null,
-//   toneIntent?: ToneIntent | null
-// ): boolean {
-//   if (relationshipSignals?.isAcknowledgingSupport) return true;
-//   const sentiment = toneIntent?.sentiment ?? 0;
-//   const intensity = toneIntent?.intensity ?? 0;
-//   return sentiment > 0.4 && intensity > 0.4;
-// }
-
-// function deriveVulnerabilityExchangeActive(
-//   relationshipSignals?: RelationshipSignalIntent | null
-// ): boolean {
-//   return Boolean(
-//     relationshipSignals?.isVulnerable || relationshipSignals?.isSeekingSupport
-//   );
-// }
 
 // Move 37: Removed intent parameters (relationshipSignals, toneIntent, fullIntent)
 // Main LLM now reads messages directly without pre-processing
@@ -145,7 +113,7 @@ ${buildOpinionsAndPushbackSection()}
 ====================================================
 YOUR IDENTITY (Source of Truth)
 ====================================================
-${KAYLEY_FULL_PROFILE}
+${KAYLEY_CONDENSED_PROFILE}
 ${characterFactsPrompt}
 
 ${buildSelfKnowledgeSection(display, CHARACTER_COLLECTION_ID)}
