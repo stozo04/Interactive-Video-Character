@@ -397,6 +397,11 @@ Return ONLY valid JSON (no markdown, no code blocks):
   "user_mood": "stressed" | "bored" | "calm" | "hyped" | "sad" | "happy" | null
 }`;
 
+
+console.log(
+  "relationshipService - Not calling Gemini and using fallbackSentimentAnalysis",
+);
+return fallbackSentimentAnalysis(message, conversationContext);
     // Use Gemini for sentiment analysis
     if (!GEMINI_API_KEY) {
       console.warn(
