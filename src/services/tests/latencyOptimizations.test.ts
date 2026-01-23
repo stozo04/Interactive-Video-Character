@@ -123,7 +123,11 @@ vi.mock("@google/genai", () => {
   };
 });
 
-import { buildSystemPrompt, getSoulLayerContextAsync } from "../promptUtils";
+import {
+  buildSystemPromptForGreeting,
+  buildSystemPromptForNonGreeting,
+  getSoulLayerContextAsync,
+} from "../promptUtils";
 import * as characterFactsService from "../characterFactsService";
 import * as stateService from "../stateService";
 import * as presenceDirector from "../presenceDirector";
@@ -149,7 +153,7 @@ vi.mock("../stateService", async (importOriginal) => {
         mood_state: {},
         emotional_momentum: {},
         ongoing_threads: [],
-      })
+      }),
     ),
   };
 });
@@ -164,7 +168,7 @@ vi.mock("../presenceDirector", async (importOriginal) => {
         topLoop: null,
         opinions: [],
         promptSection: "Mocked Presence Section",
-      })
+      }),
     ),
   };
 });
@@ -178,7 +182,7 @@ vi.mock("../moodKnobs", async (importOriginal) => {
         energy: 0.3,
         warmth: 0.8,
         genuineMoment: false,
-      })
+      }),
     ),
     calculateMoodFromState: vi.fn(() => ({
       energy: 0.3,
@@ -223,20 +227,20 @@ describe("Latency Optimizations - Phase 1", () => {
         characterFacts: "Prefetched Facts",
       };
 
-      const prompt = await buildSystemPrompt(
+      const prompt = await buildSystemPromptForGreeting(
         undefined, //     relationship?: RelationshipMetrics | null,
         [], //     upcomingEvents: any[] = [],
         undefined, //     characterContext?: string,
         [], //     tasks?: Task[],
         // Move 37: Intent parameters removed
         prefetchedContext,
-        0 //     messageCount: number
+        0, //     messageCount: number
       );
 
       // Verify fetchers were NOT called
       expect(stateService.getFullCharacterContext).not.toHaveBeenCalled();
       expect(
-        characterFactsService.formatCharacterFactsForPrompt
+        characterFactsService.formatCharacterFactsForPrompt,
       ).not.toHaveBeenCalled();
 
       // Verify the prompt content reflects prefetched data
@@ -249,19 +253,19 @@ describe("Latency Optimizations - Phase 1", () => {
 
     it("should fallback to calling fetchers when pre-fetched context is NOT provided", async () => {
       // Move 37: Intent parameters removed
-      const prompt = await buildSystemPrompt(
+      const prompt = await buildSystemPromptForGreeting(
         undefined,
         [],
         undefined,
         [],
         undefined,
-        0
+        0,
       );
 
       // Verify fetchers WERE called
       expect(stateService.getFullCharacterContext).toHaveBeenCalled(); // No longer passes userId
       expect(
-        characterFactsService.formatCharacterFactsForPrompt
+        characterFactsService.formatCharacterFactsForPrompt,
       ).toHaveBeenCalled();
 
       // Verify the prompt content reflects mocked (fallback) data
@@ -275,9 +279,8 @@ describe("Latency Optimizations - Phase 1", () => {
     // But since detectFullIntentLLMCached calls detectFullIntentLLM, we can spy on the latter
 
     it("should skip LLM call for Tier 1 (Very short messages)", async () => {
-      const { detectFullIntentLLM, detectFullIntentLLMCached } = await import(
-        "../intentService"
-      );
+      const { detectFullIntentLLM, detectFullIntentLLMCached } =
+        await import("../intentService");
       const spy = vi.spyOn({ detectFullIntentLLM }, "detectFullIntentLLM");
 
       const shortMsg = "hi"; // Tier 1 (< 3 words)
@@ -289,9 +292,8 @@ describe("Latency Optimizations - Phase 1", () => {
     });
 
     it("should skip LLM call for Tier 2 (Simple message patterns)", async () => {
-      const { detectFullIntentLLM, detectFullIntentLLMCached } = await import(
-        "../intentService"
-      );
+      const { detectFullIntentLLM, detectFullIntentLLMCached } =
+        await import("../intentService");
       const spy = vi.spyOn({ detectFullIntentLLM }, "detectFullIntentLLM");
 
       const simpleMsg = "lol that's funny"; // Tier 2 (Reaction pattern)

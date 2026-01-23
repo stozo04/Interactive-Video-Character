@@ -6,14 +6,14 @@
  * from individual sections.
  *
  * Builders:
- * - systemPromptBuilder.ts    - buildSystemPrompt() - main system prompt
+ * - systemPromptBuilder.ts    - buildSystemPromptForNonGreeting(), buildSystemPromptForGreeting()
  * - greetingBuilder.ts        - buildGreetingPrompt() - relationship-aware greetings
  * - proactiveThreadBuilder.ts - buildProactiveThreadPrompt() - proactive starters
  * - dailyCatchupBuilder.ts    - buildDailyCatchupPrompt() - first-login-of-day greeting context
  */
 
 // Phase 8: System prompt builder (main prompt)
-export { buildSystemPrompt } from "./systemPromptBuilder";
+export { buildSystemPromptForNonGreeting, buildSystemPromptForGreeting } from "./systemPromptBuilder";
 
 // Phase 7: Proactive thread prompt builder
 export { buildProactiveThreadPrompt } from "./proactiveThreadBuilder";

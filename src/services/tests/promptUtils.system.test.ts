@@ -84,7 +84,7 @@ vi.mock('../stateService', () => ({
 }));
 
 // Import after mocks
-import { buildSystemPrompt } from '../promptUtils';
+// import { buildSystemPrompt } from '../promptUtils';
 
 // describe('buildSystemPrompt with Proactive Threads', () => {
 //   const mockCharacter: CharacterProfile = {

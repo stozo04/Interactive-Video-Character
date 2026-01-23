@@ -7,11 +7,12 @@ import {
   AIChatOptions,
 } from "./aiService";
 import {
-  buildSystemPrompt,
+  buildSystemPromptForNonGreeting,
   buildGreetingPrompt,
   buildNonGreetingPrompt,
   buildProactiveThreadPrompt,
   getSoulLayerContextAsync,
+  buildSystemPromptForGreeting,
 } from "./promptUtils";
 import { AIActionResponse, GeminiMemoryToolDeclarations } from "./aiSchema";
 import { generateSpeech } from "./elevenLabsService";
@@ -955,7 +956,7 @@ In your interactionConfig, leaving it at 1.0 is a safe bet for a conversational 
       console.log(`📖 [Storylines] User message count: ${userMessageCount}`);
 
       // Move 37: Intent detection removed - main LLM reads messages directly
-      const systemPrompt = await buildSystemPrompt(
+      const systemPrompt = await buildSystemPromptForNonGreeting(
         fetchedContext.relationship,
         fetchedContext.upcomingEvents,
         fetchedContext.characterContext,
@@ -1286,7 +1287,7 @@ Keep it very short (1 sentence).
       options.googleAccessToken,
     );
 
-    const fullSystemPrompt = await buildSystemPrompt(
+    const fullSystemPrompt = await buildSystemPromptForNonGreeting(
       fetchedContext.relationship,
       fetchedContext.upcomingEvents,
       fetchedContext.characterContext,
@@ -1360,7 +1361,7 @@ Keep it very short (1 sentence).
       );
     }
 
-    const systemPrompt = await buildSystemPrompt(
+    const systemPrompt = await buildSystemPromptForGreeting(
       fetchedContext.relationship,
       fetchedContext.upcomingEvents,
       fetchedContext.characterContext,
@@ -1577,7 +1578,7 @@ Keep it very short (1 sentence).
     const fetchedContext = await this.fetchUserContext();
     const returnContext = await buildNonGreetingReturnContext();
 
-    let systemPrompt = await buildSystemPrompt(
+    let systemPrompt = await buildSystemPromptForNonGreeting(
       fetchedContext.relationship,
       fetchedContext.upcomingEvents,
       fetchedContext.characterContext,
