@@ -54,8 +54,6 @@ import type { NonGreetingReturnContext } from "./system_prompts/builders/greetin
 const GEMINI_MODEL = import.meta.env.VITE_GEMINI_MODEL; // The Brain (e.g. gemini-3-flash-preview)
 const GEMINI_VIDEO_MODEL = import.meta.env.VITE_GEMINI_VIDEO_MODEL;
 const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
-// Feature flag for memory tools (can be disabled if issues arise)
-const ENABLE_MEMORY_TOOLS = true;
 const VITE_PROXY_BASE = "/api/google"; // Matches vite.config.ts proxy path
 const NON_GREETING_RETURN_CONTEXT_KEY = "kayley_non_greeting_return_context_v1";
 const RAPID_RESUME_WINDOW_MINUTES = 15;
@@ -167,22 +165,6 @@ async function buildNonGreetingReturnContext(): Promise<NonGreetingReturnContext
 }
 
 /**
- * Pre-fetch context data in parallel with intent detection.
- * This is an optimization to avoid waiting for intent before starting context fetch.
- */
-async function prefetchContext(): Promise<{
-  soulContext: Awaited<ReturnType<typeof getSoulLayerContextAsync>>;
-  characterFacts: string;
-}> {
-  const [soulContext, characterFacts] = await Promise.all([
-    getSoulLayerContextAsync(),
-    formatCharacterFactsForPrompt(),
-  ]);
-
-  return { soulContext, characterFacts };
-}
-
-/**
  * Log when the LLM uses an almost moment expression.
  * Now uses explicit schema field instead of pattern matching for accurate tracking.
  */
@@ -243,13 +225,9 @@ async function handlePromiseFulfillment(
   const success = await markPromiseAsFulfilled(promiseId, fulfillmentData);
 
   if (success) {
-    console.log(
-      `[Promises] ✅ Fulfilled promise: ${promiseId}`,
-    );
+    console.log(`[Promises] ✅ Fulfilled promise: ${promiseId}`);
   } else {
-    console.warn(
-      `[Promises] ⚠️ Failed to fulfill promise: ${promiseId}`,
-    );
+    console.warn(`[Promises] ⚠️ Failed to fulfill promise: ${promiseId}`);
   }
 }
 
@@ -571,7 +549,10 @@ export class GeminiService implements IAIChatService {
       const proxyUrl = `${VITE_PROXY_BASE}/v1beta/interactions?key=${GEMINI_API_KEY}`;
       const response = await fetch(proxyUrl, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "x-goog-api-key": GEMINI_API_KEY, // Using a header is often safer for API keys through proxies
+        },
         body: JSON.stringify(config),
       });
 
@@ -750,8 +731,10 @@ export class GeminiService implements IAIChatService {
     session?: AIChatSession,
     options?: AIChatOptions,
   ): Promise<{ response: AIActionResponse; session: AIChatSession }> {
-    const ai = getAiClient();
-
+    // const ai = getAiClient();
+    console.log("system prompt!!: ", systemPrompt);
+    console.log("session!!: ", session);
+    console.log("options!!: ", options);
     // Format user message for Interactions API
     const userInput = formatInteractionInput(userMessage);
     const input = [...userInput];
@@ -767,8 +750,50 @@ export class GeminiService implements IAIChatService {
       model: this.model,
       input: input,
       system_instruction: systemPrompt,
-      // safety_settings: safetySettings,
+      store: true, // <-- Important - This enables server-side logging and session continuity
+      generation_config: {
+        // Controls the depth of reasoning (Gemini 3 specific)
+        thinking_level: "medium", // "high", "medium", "low"
+        temperature: 1.0,
+      },
     };
+    /**]
+     * 
+     * Notes:
+     * 
+     * In Large Language Models like Gemini 3, temperature is a parameter that controls the randomness and creativity of the model's output. You can think of it as a "predictability" slider.
+
+Here is how it breaks down technically:
+
+1. How it works
+At a fundamental level, the model doesn't pick one word; it calculates a list of probabilities for the next possible word.
+
+Low Temperature (e.g., 0.1 – 0.3): The model becomes "sharper." It almost always chooses the word with the highest probability. This makes the output consistent, factual, and stable.
+
+High Temperature (e.g., 0.8 – 1.5+): The model becomes "flatter." It starts giving a higher chance to less likely words. This leads to more diverse, creative, and sometimes unexpected (or "hallucinated") responses.
+
+2. The Scale
+0.0: Deterministic. If you ask the same question twice, you will almost always get the exact same answer. Best for coding, data extraction, and factual Q&A.
+
+1.0 (Your current setting): The default "neutral" balance. It provides a good mix of consistency and natural-sounding variety.
+
+2.0: Maximum chaos. The model becomes highly unpredictable and often loses the "thread" of the conversation or starts generating nonsense.
+
+3. Temperature + Thinking (Gemini 3 Specific)
+Since you are using thinking_level: "medium", temperature plays an interesting role:
+
+During the "Thinking" phase: The model explores different reasoning paths. A slightly higher temperature (like your 1.0) allows the model to consider "out of the box" logic during its internal monologue.
+
+The Final Output: If you find that the model is being too "chatty" or ignoring your system instructions after thinking, lowering the temperature to 0.7 can help pin it down to a more logical conclusion.
+
+Recommendation
+For Chat/Companions: Keep it at 1.0. It makes the character feel more "alive" because they won't use the exact same phrasing every time.
+
+For Analysis/Tasks: If you use Gemini to perform specific logic (like your sentiment analysis), lower it to 0.2 to ensure the results are objective and repeatable.
+
+In your interactionConfig, leaving it at 1.0 is a safe bet for a conversational AI, as it prevents the "robotic" feel of lower settings.
+     * 
+     */
 
     if (isFirstMessage) {
       console.log(
@@ -782,10 +807,8 @@ export class GeminiService implements IAIChatService {
       interactionConfig.previous_interaction_id = session.interactionId;
     }
 
-    // Add memory tools if enabled
     // Interactions API requires each function to have type: 'function' directly in tools array
     interactionConfig.tools = this.buildMemoryTools();
-    console.log("🧠 [Gemini Interactions] Memory tools enabled");
 
     // Create interaction - with fallback for expired turn tokens
     let interaction;
@@ -818,6 +841,7 @@ export class GeminiService implements IAIChatService {
 
     // Update session with interaction ID (critical for stateful conversations!)
     console.log("🔗 [Gemini Interactions] RESPONSE DEBUG:");
+    console.log("   - structuredResponse: ", structuredResponse);
     console.log("   - API returned interaction.id:", finalInteraction.id);
     console.log("   - Storing this ID for next message");
 
@@ -959,7 +983,10 @@ export class GeminiService implements IAIChatService {
 
       // Handle promise fulfillment
       handlePromiseFulfillment(aiResponse).catch((err) => {
-        console.warn("[GeminiService] Failed to handle promise fulfillment:", err);
+        console.warn(
+          "[GeminiService] Failed to handle promise fulfillment:",
+          err,
+        );
       });
 
       // Store new character facts if AI generated any
@@ -1509,12 +1536,18 @@ Keep it very short (1 sentence).
 
       // Handle promise fulfillment (fire-and-forget)
       handlePromiseFulfillment(structuredResponse).catch((err) => {
-        console.warn("[GeminiService] Failed to handle promise fulfillment in greeting:", err);
+        console.warn(
+          "[GeminiService] Failed to handle promise fulfillment in greeting:",
+          err,
+        );
       });
 
       // Log almost moment usage (fire-and-forget)
       logAlmostMomentIfUsed(structuredResponse).catch((err) => {
-        console.warn("[GeminiService] Failed to log almost moment in greeting:", err);
+        console.warn(
+          "[GeminiService] Failed to log almost moment in greeting:",
+          err,
+        );
       });
 
       return {
@@ -1687,12 +1720,18 @@ ${pendingSuggestion.reasoning}
 
       // Handle promise fulfillment (fire-and-forget)
       handlePromiseFulfillment(structuredResponse).catch((err) => {
-        console.warn("[GeminiService] Failed to handle promise fulfillment in non-greeting:", err);
+        console.warn(
+          "[GeminiService] Failed to handle promise fulfillment in non-greeting:",
+          err,
+        );
       });
 
       // Log almost moment usage (fire-and-forget)
       logAlmostMomentIfUsed(structuredResponse).catch((err) => {
-        console.warn("[GeminiService] Failed to log almost moment in non-greeting:", err);
+        console.warn(
+          "[GeminiService] Failed to log almost moment in non-greeting:",
+          err,
+        );
       });
 
       // Mark the pending message as delivered
