@@ -319,10 +319,10 @@ describe("relationshipMilestones", () => {
         error: null,
       });
 
+      // Move 37: Intent parameter removed - now uses keyword detection
       const result = await detectMilestoneInMessage(
         "I've never told anyone this, but...",
-        10,
-        { milestone: "first_vulnerability", milestoneConfidence: 0.9 }
+        10
       );
 
       expect(result).not.toBeNull();
@@ -345,10 +345,10 @@ describe("relationshipMilestones", () => {
         error: null,
       });
 
+      // Move 37: Intent parameter removed - now uses keyword detection
       const result = await detectMilestoneInMessage(
         "Hahaha that's so funny, you crack me up!",
-        15,
-        { milestone: "first_joke", milestoneConfidence: 0.9 }
+        15
       );
 
       expect(result?.milestoneType).toBe("first_joke");
@@ -370,10 +370,10 @@ describe("relationshipMilestones", () => {
         error: null,
       });
 
+      // Move 37: Intent parameter removed - now uses keyword detection
       const result = await detectMilestoneInMessage(
         "I need help with something, can you listen?",
-        20,
-        { milestone: "first_support", milestoneConfidence: 0.9 }
+        20
       );
 
       expect(result?.milestoneType).toBe("first_support");

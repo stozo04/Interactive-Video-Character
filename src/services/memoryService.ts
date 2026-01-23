@@ -393,7 +393,7 @@ export const formatFactsForAI = (facts: UserFact[]): string => {
 // Tool Execution Handler
 // ============================================
 
-export type MemoryToolName = 'recall_memory' | 'recall_user_info' | 'store_user_info' | 'task_action' | 'calendar_action' | 'store_character_info' | 'resolve_open_loop' | 'make_promise' | 'create_life_storyline';
+export type MemoryToolName = 'recall_memory' | 'recall_user_info' | 'store_user_info' | 'task_action' | 'calendar_action' | 'store_character_info' | 'resolve_open_loop' | 'make_promise' | 'create_life_storyline' | 'create_open_loop';
 
 /**
  * Optional context passed to tool execution (e.g., access tokens)
@@ -469,6 +469,14 @@ export interface ToolCallArgs {
     userInvolvement?: 'none' | 'aware' | 'supportive' | 'involved' | 'central';
     emotionalTone?: string;
     emotionalIntensity?: number;
+  };
+  create_open_loop: {
+    loopType: 'pending_event' | 'emotional_followup' | 'commitment_check' | 'curiosity_thread';
+    topic: string;
+    suggestedFollowUp: string;
+    timeframe: 'immediate' | 'today' | 'tomorrow' | 'this_week' | 'soon' | 'later';
+    salience: number;
+    eventDateTime?: string;
   };
 }
 
@@ -889,6 +897,76 @@ export const executeMemoryTool = async (
         } catch (error) {
           console.error(`❌ [Memory Tool] Error creating storyline:`, error);
           return `Error creating storyline: ${error instanceof Error ? error.message : 'Unknown error'}`;
+        }
+      }
+
+      case 'create_open_loop': {
+        const { createOpenLoop } = await import('./presenceDirector');
+        const { loopType, topic, suggestedFollowUp, timeframe, salience, eventDateTime } = args as ToolCallArgs['create_open_loop'];
+
+        console.log(`🔄 [Memory Tool] create_open_loop called:`);
+        console.log(`   Loop Type: ${loopType}`);
+        console.log(`   Topic: "${topic}"`);
+        console.log(`   Timeframe: ${timeframe}`);
+        console.log(`   Salience: ${salience}`);
+
+        try {
+          // Convert timeframe to shouldSurfaceAfter date
+          const now = new Date();
+          let shouldSurfaceAfter: Date | undefined;
+
+          switch (timeframe) {
+            case 'immediate':
+              shouldSurfaceAfter = new Date(now.getTime() + 2 * 60 * 1000); // 2 minutes
+              break;
+            case 'today':
+              shouldSurfaceAfter = new Date(now.getTime() + 2 * 60 * 60 * 1000); // 2 hours
+              break;
+            case 'tomorrow':
+              shouldSurfaceAfter = new Date(now.getTime() + 24 * 60 * 60 * 1000); // 1 day
+              break;
+            case 'this_week':
+              shouldSurfaceAfter = new Date(now.getTime() + 48 * 60 * 60 * 1000); // 2 days
+              break;
+            case 'soon':
+              shouldSurfaceAfter = new Date(now.getTime() + 72 * 60 * 60 * 1000); // 3 days
+              break;
+            case 'later':
+              shouldSurfaceAfter = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000); // 1 week
+              break;
+          }
+
+          // Parse eventDateTime if provided
+          let parsedEventDateTime: Date | undefined;
+          if (eventDateTime) {
+            const parsed = new Date(eventDateTime);
+            if (!isNaN(parsed.getTime())) {
+              parsedEventDateTime = parsed;
+            }
+          }
+
+          const loop = await createOpenLoop(
+            loopType,
+            topic,
+            {
+              suggestedFollowup: suggestedFollowUp,
+              shouldSurfaceAfter,
+              salience: salience || 0.5,
+              eventDateTime: parsedEventDateTime,
+              triggerContext: context?.userMessage?.slice(0, 200),
+            }
+          );
+
+          if (loop) {
+            console.log(`✅ [Memory Tool] Open loop created: "${topic}" (${loopType})`);
+            return `✓ Created follow-up reminder about "${topic}" (${timeframe})`;
+          } else {
+            console.log(`⚠️ [Memory Tool] Open loop already exists for topic: "${topic}"`);
+            return `Already tracking "${topic}" - no duplicate created`;
+          }
+        } catch (error) {
+          console.error(`❌ [Memory Tool] Error creating open loop:`, error);
+          return `Error creating reminder: ${error instanceof Error ? error.message : 'Unknown error'}`;
         }
       }
 

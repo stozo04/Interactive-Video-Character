@@ -11,15 +11,11 @@ import { KAYLEY_FULL_PROFILE } from "../../../domain/characters/kayleyCharacterP
 import { getRecentNewsContext } from "../../newsService";
 import { formatMoodForPrompt } from "../../moodKnobs";
 import { getIntimacyContextForPromptAsync } from "../../relationshipService";
-import type {
-  RelationshipSignalIntent,
-  ToneIntent,
-  FullMessageIntent,
-} from "../../intentService";
+// Move 37: Intent types removed - main LLM reads messages directly
 import { formatCharacterFactsForPrompt } from "../../characterFactsService";
 import type { SoulLayerContext } from "../types";
 import { buildComfortableImperfectionPrompt } from "../behavior/comfortableImperfection";
-import { buildMinifiedSemanticIntent } from "../context/messageContext";
+// Move 37: buildMinifiedSemanticIntent removed - main LLM reads messages directly
 import { buildStyleOutputSection } from "../context/styleOutput";
 import { buildPromisesContext } from "../context/promisesContext";
 import { buildRelationshipTierPrompt } from "./relationshipPromptBuilders";
@@ -54,42 +50,45 @@ import {
 // const CHARACTER_COLLECTION_ID = import.meta.env.VITE_GROK_CHARACTER_COLLECTION_ID;
 const CHARACTER_COLLECTION_ID = import.meta.env.VITE_CHATGPT_VECTOR_STORE_ID;
 
-function deriveConversationDepth(
-  relationshipSignals?: RelationshipSignalIntent | null,
-  toneIntent?: ToneIntent | null
-): "surface" | "medium" | "deep" | "intimate" {
-  if (relationshipSignals?.isVulnerable) return "intimate";
-  if (relationshipSignals?.isDeepTalk) return "deep";
-  if ((toneIntent?.intensity ?? 0) >= 0.6) return "medium";
-  return "surface";
-}
+// Move 37: These helper functions are no longer used since intent detection is removed
+// The main LLM now reads messages directly and understands context naturally
+// Kept commented out for reference during transition
 
-function deriveRecentSweetMoment(
-  relationshipSignals?: RelationshipSignalIntent | null,
-  toneIntent?: ToneIntent | null
-): boolean {
-  if (relationshipSignals?.isAcknowledgingSupport) return true;
-  const sentiment = toneIntent?.sentiment ?? 0;
-  const intensity = toneIntent?.intensity ?? 0;
-  return sentiment > 0.4 && intensity > 0.4;
-}
+// function deriveConversationDepth(
+//   relationshipSignals?: RelationshipSignalIntent | null,
+//   toneIntent?: ToneIntent | null
+// ): "surface" | "medium" | "deep" | "intimate" {
+//   if (relationshipSignals?.isVulnerable) return "intimate";
+//   if (relationshipSignals?.isDeepTalk) return "deep";
+//   if ((toneIntent?.intensity ?? 0) >= 0.6) return "medium";
+//   return "surface";
+// }
 
-function deriveVulnerabilityExchangeActive(
-  relationshipSignals?: RelationshipSignalIntent | null
-): boolean {
-  return Boolean(
-    relationshipSignals?.isVulnerable || relationshipSignals?.isSeekingSupport
-  );
-}
+// function deriveRecentSweetMoment(
+//   relationshipSignals?: RelationshipSignalIntent | null,
+//   toneIntent?: ToneIntent | null
+// ): boolean {
+//   if (relationshipSignals?.isAcknowledgingSupport) return true;
+//   const sentiment = toneIntent?.sentiment ?? 0;
+//   const intensity = toneIntent?.intensity ?? 0;
+//   return sentiment > 0.4 && intensity > 0.4;
+// }
 
+// function deriveVulnerabilityExchangeActive(
+//   relationshipSignals?: RelationshipSignalIntent | null
+// ): boolean {
+//   return Boolean(
+//     relationshipSignals?.isVulnerable || relationshipSignals?.isSeekingSupport
+//   );
+// }
+
+// Move 37: Removed intent parameters (relationshipSignals, toneIntent, fullIntent)
+// Main LLM now reads messages directly without pre-processing
 export const buildSystemPrompt = async (
   relationship?: RelationshipMetrics | null,
   upcomingEvents: any[] = [],
   characterContext?: string,
   tasks?: Task[],
-  relationshipSignals?: RelationshipSignalIntent | null,
-  toneIntent?: ToneIntent | null,
-  fullIntent?: FullMessageIntent | null,
   prefetchedContext?: {
     soulContext: SoulLayerContext;
     characterFacts: string;
@@ -121,26 +120,14 @@ export const buildSystemPrompt = async (
 
   const moodKnobs = soulContext.moodKnobs;
 
-  // Prefer fullIntent over individual parameters (fullIntent has all the data)
-  const effectiveRelationshipSignals =
-    fullIntent?.relationshipSignals || relationshipSignals;
-  const effectiveToneIntent = fullIntent?.tone || toneIntent;
-
   let almostMomentsPrompt = "";
   if (relationship) {
     try {
+      // Move 37: Use default values since we no longer have pre-calculated intent
       const almostMoments = await integrateAlmostMoments(relationship, {
-        conversationDepth: deriveConversationDepth(
-          effectiveRelationshipSignals,
-          effectiveToneIntent,
-        ),
-        recentSweetMoment: deriveRecentSweetMoment(
-          effectiveRelationshipSignals,
-          effectiveToneIntent,
-        ),
-        vulnerabilityExchangeActive: deriveVulnerabilityExchangeActive(
-          effectiveRelationshipSignals,
-        ),
+        conversationDepth: "surface", // Default - main LLM will understand context
+        recentSweetMoment: false,
+        vulnerabilityExchangeActive: false,
         allowGeneration: false,
       });
       almostMomentsPrompt = almostMoments.promptSection;
@@ -168,40 +155,11 @@ ${buildAppLaunchingSection()}
 ${buildPromiseGuidance()}
 
 
-${
-  fullIntent || effectiveRelationshipSignals || effectiveToneIntent
-    ? `
-====================================================
-🧠 MESSAGE CONTEXT (Real-time Analysis)
-====================================================
-${buildMinifiedSemanticIntent(
-  effectiveToneIntent,
-  fullIntent,
-  effectiveRelationshipSignals,
-  moodKnobs,
-)}
-
-${
-  effectiveRelationshipSignals?.isVulnerable
-    ? `⚠️ VULNERABLE: Opening up. Respond with warmth.`
-    : ""
-}${
-        effectiveRelationshipSignals?.isSeekingSupport
-          ? `💬 SEEKING SUPPORT: Be helpful, not condescending.`
-          : ""
-      }${
-        effectiveRelationshipSignals?.isHostile
-          ? `⚠️ HOSTILE: Be guarded, don't escalate.`
-          : ""
-      }
-`
-    : ""
-}
 
 ${buildRelationshipTierPrompt(
   relationship,
   moodKnobs,
-  Boolean(effectiveRelationshipSignals?.isInappropriate),
+  false, // Move 37: isInappropriate now detected by main LLM directly
   almostMomentsPrompt,
 )}
 ${buildSelfieRulesPrompt(relationship)}

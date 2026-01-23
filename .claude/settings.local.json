@@ -28,7 +28,9 @@
       "Bash(mv:*)",
       "Bash(npm run test:run:*)",
       "Bash(git diff:*)",
-      "Bash(echo:*)"
+      "Bash(echo:*)",
+      "Bash(./node_modules/.bin/vitest run:*)",
+      "Bash(tee:*)"
     ]
   },
   "enabledPlugins": {
