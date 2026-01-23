@@ -393,7 +393,7 @@ export const formatFactsForAI = (facts: UserFact[]): string => {
 // Tool Execution Handler
 // ============================================
 
-export type MemoryToolName = 'recall_memory' | 'recall_user_info' | 'store_user_info' | 'task_action' | 'calendar_action' | 'store_character_info' | 'resolve_open_loop' | 'make_promise' | 'create_life_storyline' | 'create_open_loop';
+export type MemoryToolName = 'recall_memory' | 'recall_user_info' | 'store_user_info' | 'task_action' | 'calendar_action' | 'store_character_info' | 'resolve_open_loop' | 'make_promise' | 'create_life_storyline' | 'create_open_loop' | 'recall_character_profile';
 
 /**
  * Optional context passed to tool execution (e.g., access tokens)
@@ -477,6 +477,11 @@ export interface ToolCallArgs {
     timeframe: 'immediate' | 'today' | 'tomorrow' | 'this_week' | 'soon' | 'later';
     salience: number;
     eventDateTime?: string;
+  };
+  recall_character_profile: {
+    section: 'background' | 'interests' | 'relationships' | 'challenges' |
+             'quirks' | 'goals' | 'preferences' | 'anecdotes' | 'routines' | 'full';
+    reason?: string;
   };
 }
 
@@ -967,6 +972,24 @@ export const executeMemoryTool = async (
         } catch (error) {
           console.error(`❌ [Memory Tool] Error creating open loop:`, error);
           return `Error creating reminder: ${error instanceof Error ? error.message : 'Unknown error'}`;
+        }
+      }
+
+      case 'recall_character_profile': {
+        const { getProfileSection } = await import('../domain/characters/kayleyProfileSections');
+        const { section, reason } = args as ToolCallArgs['recall_character_profile'];
+
+        console.log(`📋 [Memory Tool] recall_character_profile called:`);
+        console.log(`   Section: ${section}`);
+        if (reason) console.log(`   Reason: ${reason}`);
+
+        try {
+          const profileContent = getProfileSection(section as any);
+          console.log(`✅ [Memory Tool] Retrieved character profile section: ${section} (${profileContent.length} chars)`);
+          return profileContent;
+        } catch (error) {
+          console.error(`❌ [Memory Tool] Error retrieving character profile:`, error);
+          return `Error retrieving character profile: ${error instanceof Error ? error.message : 'Unknown error'}`;
         }
       }
 

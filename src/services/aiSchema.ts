@@ -479,7 +479,8 @@ export type MemoryToolArgs =
   | { tool: 'store_character_info'; args: { category: string; key: string; value: string } }
   | { tool: 'resolve_open_loop'; args: { topic: string; resolution_type: 'resolved' | 'dismissed'; reason?: string } }
   | { tool: 'create_life_storyline'; args: { title: string; category: 'work' | 'personal' | 'family' | 'social' | 'creative'; storylineType: 'project' | 'opportunity' | 'challenge' | 'relationship' | 'goal'; initialAnnouncement: string; stakes: string; userInvolvement?: 'none' | 'aware' | 'supportive' | 'involved' | 'central'; emotionalTone?: string; emotionalIntensity?: number } }
-  | { tool: 'create_open_loop'; args: { loopType: 'pending_event' | 'emotional_followup' | 'commitment_check' | 'curiosity_thread'; topic: string; suggestedFollowUp: string; timeframe: 'immediate' | 'today' | 'tomorrow' | 'this_week' | 'soon' | 'later'; salience: number; eventDateTime?: string } };
+  | { tool: 'create_open_loop'; args: { loopType: 'pending_event' | 'emotional_followup' | 'commitment_check' | 'curiosity_thread'; topic: string; suggestedFollowUp: string; timeframe: 'immediate' | 'today' | 'tomorrow' | 'this_week' | 'soon' | 'later'; salience: number; eventDateTime?: string } }
+  | { tool: 'recall_character_profile'; args: { section: 'background' | 'interests' | 'relationships' | 'challenges' | 'quirks' | 'goals' | 'preferences' | 'anecdotes' | 'routines' | 'full'; reason?: string } };
 
 // ============================================
 // Function Declarations for AI Providers
@@ -876,6 +877,42 @@ export const GeminiMemoryToolDeclarations = [
       },
       required: ["loopType", "topic", "suggestedFollowUp", "timeframe", "salience"]
     }
+  },
+  {
+    name: "recall_character_profile",
+    description:
+      "Retrieve detailed information about your own character (Kayley). " +
+      "WHEN TO USE: User asks about your past, family, specific stories, or you want to reference a specific detail " +
+      "about yourself that isn't in your basic identity. " +
+      "Your essential identity (name, occupation, core personality, communication style) is already in context. " +
+      "Use this for SPECIFIC DETAILS like childhood stories, daily routines, relationship dynamics, etc. " +
+      "WHEN NOT TO USE: Basic conversation, tech discussions, or anything your condensed profile already covers.",
+    parameters: {
+      type: "object",
+      properties: {
+        section: {
+          type: "string",
+          enum: ["background", "interests", "relationships", "challenges", "quirks", "goals", "preferences", "anecdotes", "routines", "full"],
+          description:
+            "Which section to retrieve: " +
+            "'background' (childhood, education, career history), " +
+            "'interests' (hobbies, TV/movies/music), " +
+            "'relationships' (Lena, Ethan, Mom, friends, exes), " +
+            "'challenges' (fears, insecurities, shadow behaviors when not your best self), " +
+            "'quirks' (habits, rituals, tells when masking), " +
+            "'goals' (short-term and long-term aspirations), " +
+            "'preferences' (likes and dislikes: food, weather, etc.), " +
+            "'anecdotes' (memorable stories like the viral oops video, pageant era, coffee shop meet-cute), " +
+            "'routines' (morning, day, evening routines), " +
+            "'full' (everything - use sparingly, very large)"
+        },
+        reason: {
+          type: "string",
+          description: "Brief note on why you need this detail (optional, for logging)"
+        }
+      },
+      required: ["section"]
+    }
   }
 ];
 
@@ -1140,7 +1177,7 @@ export const OpenAIMemoryToolDeclarations = [
  */
 export interface PendingToolCall {
   id: string;
-  name: 'recall_memory' | 'recall_user_info' | 'store_user_info' | 'task_action' | 'calendar_action' | 'store_character_info' | 'resolve_open_loop' | 'make_promise' | 'create_life_storyline' | 'create_open_loop';
+  name: 'recall_memory' | 'recall_user_info' | 'store_user_info' | 'task_action' | 'calendar_action' | 'store_character_info' | 'resolve_open_loop' | 'make_promise' | 'create_life_storyline' | 'create_open_loop' | 'recall_character_profile';
   arguments: Record<string, any>;
 }
 
