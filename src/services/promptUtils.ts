@@ -7,7 +7,7 @@
  * lives in the modular system_prompts folder.
  *
  * Usage:
- *   import { buildSystemPrompt, buildGreetingPrompt } from './promptUtils';
+ *   import { buildSystemPromptForNonGreeting, buildSystemPromptForGreeting, buildGreetingPrompt } from './promptUtils';
  *
  * All exports come from:
  *   src/services/system_prompts/

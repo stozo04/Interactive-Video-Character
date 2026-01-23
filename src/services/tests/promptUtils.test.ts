@@ -93,7 +93,7 @@ import {
   UNCERTAINTY_RESPONSES,
   BRIEF_RESPONSE_EXAMPLES,
   buildComfortableImperfectionPrompt,
-  buildSystemPrompt,
+  buildSystemPromptForGreeting,
 } from "../promptUtils";
 
 describe("Phase 3: Comfortable Imperfection", () => {
@@ -105,7 +105,7 @@ describe("Phase 3: Comfortable Imperfection", () => {
   // ============================================
   // UNCERTAINTY_RESPONSES Tests
   // ============================================
-  
+
   describe("UNCERTAINTY_RESPONSES", () => {
     it("should export an array of uncertainty responses", () => {
       expect(Array.isArray(UNCERTAINTY_RESPONSES)).toBe(true);
@@ -114,11 +114,17 @@ describe("Phase 3: Comfortable Imperfection", () => {
 
     it("should contain the specified uncertainty phrases from implementation plan", () => {
       const responses = [...UNCERTAINTY_RESPONSES];
-      
+
       // Check for key phrases from the implementation plan
-      expect(responses.some(r => r.includes("not sure what to say"))).toBe(true);
-      expect(responses.some(r => r.includes("need to think about that"))).toBe(true);
-      expect(responses.some(r => r.includes("don't have a smart take"))).toBe(true);
+      expect(responses.some((r) => r.includes("not sure what to say"))).toBe(
+        true,
+      );
+      expect(
+        responses.some((r) => r.includes("need to think about that")),
+      ).toBe(true);
+      expect(responses.some((r) => r.includes("don't have a smart take"))).toBe(
+        true,
+      );
     });
 
     it("should have responses that feel human and authentic", () => {
@@ -128,7 +134,7 @@ describe("Phase 3: Comfortable Imperfection", () => {
         expect(response.toLowerCase()).not.toContain("as an ai");
         expect(response.toLowerCase()).not.toContain("i cannot");
         expect(response.toLowerCase()).not.toContain("i am unable to");
-        
+
         // Should be reasonably short (a real human pause, not an essay)
         expect(response.length).toBeLessThan(100);
       }
@@ -138,7 +144,7 @@ describe("Phase 3: Comfortable Imperfection", () => {
   // ============================================
   // BRIEF_RESPONSE_EXAMPLES Tests
   // ============================================
-  
+
   describe("BRIEF_RESPONSE_EXAMPLES", () => {
     it("should export an array of brief response examples", () => {
       expect(Array.isArray(BRIEF_RESPONSE_EXAMPLES)).toBe(true);
@@ -147,9 +153,9 @@ describe("Phase 3: Comfortable Imperfection", () => {
 
     it("should contain the specified brief response from implementation plan", () => {
       const responses = [...BRIEF_RESPONSE_EXAMPLES];
-      
+
       // "That's really cool ✨" is specified in the implementation plan
-      expect(responses.some(r => r.includes("really cool"))).toBe(true);
+      expect(responses.some((r) => r.includes("really cool"))).toBe(true);
     });
 
     it("should have responses that are genuinely brief", () => {
@@ -161,18 +167,18 @@ describe("Phase 3: Comfortable Imperfection", () => {
 
     it("should include variety of brief reactions", () => {
       const responses = [...BRIEF_RESPONSE_EXAMPLES];
-      
+
       // Should have different types of brief responses
-      const hasAffirmation = responses.some(r => 
-        r.includes("Valid") || r.includes("Fair") || r.includes("Same")
+      const hasAffirmation = responses.some(
+        (r) => r.includes("Valid") || r.includes("Fair") || r.includes("Same"),
       );
-      const hasEnthusiasm = responses.some(r => 
-        r.includes("cool") || r.includes("love") || r.includes("Ooh")
+      const hasEnthusiasm = responses.some(
+        (r) => r.includes("cool") || r.includes("love") || r.includes("Ooh"),
       );
-      const hasEmoji = responses.some(r => 
-        r.includes("✨") || r.includes("🤍")
+      const hasEmoji = responses.some(
+        (r) => r.includes("✨") || r.includes("🤍"),
       );
-      
+
       expect(hasAffirmation).toBe(true);
       expect(hasEnthusiasm).toBe(true);
       expect(hasEmoji).toBe(true);
@@ -182,16 +188,16 @@ describe("Phase 3: Comfortable Imperfection", () => {
   // ============================================
   // buildComfortableImperfectionPrompt Tests
   // ============================================
-  
+
   describe("buildComfortableImperfectionPrompt", () => {
     let prompt: string;
-    
+
     beforeEach(() => {
       prompt = buildComfortableImperfectionPrompt();
     });
 
     it("should return a non-empty string", () => {
-      expect(typeof prompt).toBe('string');
+      expect(typeof prompt).toBe("string");
       expect(prompt.length).toBeGreaterThan(0);
     });
 
@@ -201,7 +207,7 @@ describe("Phase 3: Comfortable Imperfection", () => {
 
     it("should include uncertainty guidance", () => {
       expect(prompt).toContain("UNCERTAINTY EXAMPLES");
-      
+
       // Should include the actual uncertainty examples
       for (const response of UNCERTAINTY_RESPONSES) {
         expect(prompt).toContain(response);
@@ -210,7 +216,7 @@ describe("Phase 3: Comfortable Imperfection", () => {
 
     it("should include brevity guidance", () => {
       expect(prompt).toContain("BRIEF RESPONSE EXAMPLES");
-      
+
       // Should include the actual brief examples
       for (const response of BRIEF_RESPONSE_EXAMPLES) {
         expect(prompt).toContain(response);
@@ -236,11 +242,11 @@ describe("Phase 3: Comfortable Imperfection", () => {
   // ============================================
   // Integration with buildSystemPrompt Tests
   // ============================================
-  
+
   describe("buildSystemPrompt - Phase 3 Integration", () => {
     it("should include comfortable imperfection prompt in system prompt", async () => {
-      const systemPrompt = await buildSystemPrompt();
-      
+      const systemPrompt = await buildSystemPromptForGreeting();
+
       // Verify Phase 3 content is present
       expect(systemPrompt).toContain("CONVERSATIONAL IMPERFECTION");
       expect(systemPrompt).toContain("UNCERTAINTY EXAMPLES");
@@ -248,21 +254,29 @@ describe("Phase 3: Comfortable Imperfection", () => {
     });
 
     it("should place comfortable imperfection in the soul layer section", async () => {
-      const systemPrompt = await buildSystemPrompt();
-      
+      const systemPrompt = await buildSystemPromptForGreeting();
+
       // Check that it appears after selective attention and before motivated friction
-      const selectiveAttentionIndex = systemPrompt.indexOf("SELECTIVE ATTENTION");
-      const comfortableImperfectionIndex = systemPrompt.indexOf("CONVERSATIONAL IMPERFECTION");
+      const selectiveAttentionIndex = systemPrompt.indexOf(
+        "SELECTIVE ATTENTION",
+      );
+      const comfortableImperfectionIndex = systemPrompt.indexOf(
+        "CONVERSATIONAL IMPERFECTION",
+      );
       const motivatedFrictionIndex = systemPrompt.indexOf("MOTIVATED FRICTION");
-      
+
       expect(selectiveAttentionIndex).toBeGreaterThan(-1);
-      expect(comfortableImperfectionIndex).toBeGreaterThan(selectiveAttentionIndex);
-      expect(motivatedFrictionIndex).toBeGreaterThan(comfortableImperfectionIndex);
+      expect(comfortableImperfectionIndex).toBeGreaterThan(
+        selectiveAttentionIndex,
+      );
+      expect(motivatedFrictionIndex).toBeGreaterThan(
+        comfortableImperfectionIndex,
+      );
     });
 
     it("should include specific uncertainty responses in system prompt", async () => {
-      const systemPrompt = await buildSystemPrompt();
-      
+      const systemPrompt = await buildSystemPromptForGreeting();
+
       // Check for key phrases from the implementation plan
       expect(systemPrompt).toContain("not sure what to say");
       expect(systemPrompt).toContain("need to think about that");
@@ -270,8 +284,8 @@ describe("Phase 3: Comfortable Imperfection", () => {
     });
 
     it("should include specific brief response examples in system prompt", async () => {
-      const systemPrompt = await buildSystemPrompt();
-      
+      const systemPrompt = await buildSystemPromptForGreeting();
+
       // Check for the "That's really cool ✨" example from implementation plan
       expect(systemPrompt).toContain("That's really cool");
     });
@@ -280,7 +294,7 @@ describe("Phase 3: Comfortable Imperfection", () => {
   // ============================================
   // Edge Cases and Constraints
   // ============================================
-  
+
   describe("Edge Cases", () => {
     it("uncertainty responses should not be too many (quality over quantity)", () => {
       // Don't want to overwhelm the model with 50 examples
@@ -292,9 +306,11 @@ describe("Phase 3: Comfortable Imperfection", () => {
       // Brief means BRIEF - under 25 chars each
       expect(BRIEF_RESPONSE_EXAMPLES.length).toBeLessThanOrEqual(25);
       expect(BRIEF_RESPONSE_EXAMPLES.length).toBeGreaterThanOrEqual(3);
-      
+
       // Average length should be very short
-      const avgLength = BRIEF_RESPONSE_EXAMPLES.reduce((sum, r) => sum + r.length, 0) / BRIEF_RESPONSE_EXAMPLES.length;
+      const avgLength =
+        BRIEF_RESPONSE_EXAMPLES.reduce((sum, r) => sum + r.length, 0) /
+        BRIEF_RESPONSE_EXAMPLES.length;
       expect(avgLength).toBeLessThan(15);
     });
 
@@ -302,7 +318,7 @@ describe("Phase 3: Comfortable Imperfection", () => {
       // Same output every time (no randomness)
       const prompt1 = buildComfortableImperfectionPrompt();
       const prompt2 = buildComfortableImperfectionPrompt();
-      
+
       expect(prompt1).toBe(prompt2);
     });
   });

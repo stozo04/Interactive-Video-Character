@@ -35,7 +35,7 @@ const HAIRSTYLE_TYPES: (HairstyleType | "any")[] = [
 ];
 
 // Build the system prompt dynamically with available options
-function buildSystemPrompt(): string {
+function buildSystemPromptForSelfie(): string {
   const outfitOptions = OUTFIT_STYLES.map((s) => `"${s}"`).join(" | ");
   const hairstyleOptions = HAIRSTYLE_TYPES.map((s) => `"${s}"`).join(" | ");
 
@@ -81,7 +81,7 @@ OUTPUT FORMAT (JSON):
  * Generates a creative image prompt using Gemini Flash
  */
 export async function generateImagePrompt(
-  context: ImagePromptContext
+  context: ImagePromptContext,
 ): Promise<GeneratedImagePrompt> {
   if (!GEMINI_API_KEY) {
     console.warn("[PromptGenerator] No API key, using fallback");
@@ -99,7 +99,7 @@ export async function generateImagePrompt(
     const ai = new GoogleGenAI({ apiKey: GEMINI_API_KEY });
 
     const prompt = `
-SYSTEM: ${buildSystemPrompt()}
+SYSTEM: ${buildSystemPromptForSelfie()}
 
 USER REQUEST: ${context.userRequest}
 EXPLICIT SCENE: ${context.explicitScene || "Not specified"}

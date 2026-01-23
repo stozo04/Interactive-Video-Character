@@ -116,31 +116,31 @@ Object.defineProperty(global, 'sessionStorage', { value: sessionStorageMock });
 
 // Now import the modules after mocks are set up
 import { AIActionResponseSchema } from '../aiSchema';
-import { buildSystemPrompt } from '../promptUtils';
-import * as characterFactsService from '../characterFactsService';
-import type { CharacterProfile } from '../../types';
-import type { RelationshipMetrics } from '../relationshipService';
+import { buildSystemPromptForGreeting } from "../promptUtils";
+import * as characterFactsService from "../characterFactsService";
+import type { CharacterProfile } from "../../types";
+import type { RelationshipMetrics } from "../relationshipService";
 
 // ============================================
 // Test Fixtures
 // ============================================
 
 const mockCharacter: CharacterProfile = {
-  id: 'test-char-id',
+  id: "test-char-id",
   createdAt: Date.now(),
-  name: 'Kayley Adams',
-  displayName: 'Kayley',
+  name: "Kayley Adams",
+  displayName: "Kayley",
   actions: [],
   idleVideoUrls: [],
-  image: { 
-    file: new File([], 'test.png'),
-    base64: '', 
-    mimeType: 'image/png' 
-  }
+  image: {
+    file: new File([], "test.png"),
+    base64: "",
+    mimeType: "image/png",
+  },
 };
 
 const mockRelationship: RelationshipMetrics = {
-  id: 'rel-123',
+  id: "rel-123",
   relationshipScore: 35,
   warmthScore: 10,
   trustScore: 8,
@@ -149,8 +149,8 @@ const mockRelationship: RelationshipMetrics = {
   totalInteractions: 25,
   positiveInteractions: 20,
   negativeInteractions: 3,
-  relationshipTier: 'friend',
-  familiarityStage: 'familiar',
+  relationshipTier: "friend",
+  familiarityStage: "familiar",
   firstInteractionAt: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000),
   lastInteractionAt: new Date(),
   isRuptured: false,
@@ -162,49 +162,58 @@ const mockRelationship: RelationshipMetrics = {
 // Schema Tests
 // ============================================
 
-describe('store_self_info Schema', () => {
-  describe('Valid Payloads', () => {
-    it('should accept a valid store_self_info object', () => {
+describe("store_self_info Schema", () => {
+  describe("Valid Payloads", () => {
+    it("should accept a valid store_self_info object", () => {
       const validResponse = {
-        text_response: "Fun fact: I set off my smoke alarm making toast twice this week 😅",
+        text_response:
+          "Fun fact: I set off my smoke alarm making toast twice this week 😅",
         action_id: null,
         store_self_info: {
-          category: 'experience',
-          key: 'smoke_alarm_incident',
-          value: 'Set off smoke alarm making toast twice in one week'
-        }
+          category: "experience",
+          key: "smoke_alarm_incident",
+          value: "Set off smoke alarm making toast twice in one week",
+        },
       };
 
       const result = AIActionResponseSchema.safeParse(validResponse);
       expect(result.success).toBe(true);
       if (result.success) {
-        expect(result.data.store_self_info).toEqual(validResponse.store_self_info);
+        expect(result.data.store_self_info).toEqual(
+          validResponse.store_self_info,
+        );
       }
     });
 
-    it('should accept null store_self_info', () => {
+    it("should accept null store_self_info", () => {
       const response = {
         text_response: "Hello!",
         action_id: null,
-        store_self_info: null
+        store_self_info: null,
       };
 
       const result = AIActionResponseSchema.safeParse(response);
       expect(result.success).toBe(true);
     });
 
-    it('should accept response without store_self_info (optional)', () => {
+    it("should accept response without store_self_info (optional)", () => {
       const response = {
         text_response: "Hello!",
-        action_id: null
+        action_id: null,
       };
 
       const result = AIActionResponseSchema.safeParse(response);
       expect(result.success).toBe(true);
     });
 
-    it('should accept all valid category types', () => {
-      const categories = ['quirk', 'experience', 'preference', 'relationship', 'detail'] as const;
+    it("should accept all valid category types", () => {
+      const categories = [
+        "quirk",
+        "experience",
+        "preference",
+        "relationship",
+        "detail",
+      ] as const;
 
       for (const category of categories) {
         const response = {
@@ -212,9 +221,9 @@ describe('store_self_info Schema', () => {
           action_id: null,
           store_self_info: {
             category,
-            key: 'test_key',
-            value: 'test value'
-          }
+            key: "test_key",
+            value: "test value",
+          },
         };
 
         const result = AIActionResponseSchema.safeParse(response);
@@ -226,58 +235,58 @@ describe('store_self_info Schema', () => {
     });
   });
 
-  describe('Invalid Payloads', () => {
-    it('should reject invalid category', () => {
+  describe("Invalid Payloads", () => {
+    it("should reject invalid category", () => {
       const response = {
         text_response: "Test",
         action_id: null,
         store_self_info: {
-          category: 'invalid_category',
-          key: 'test',
-          value: 'test'
-        }
+          category: "invalid_category",
+          key: "test",
+          value: "test",
+        },
       };
 
       const result = AIActionResponseSchema.safeParse(response);
       expect(result.success).toBe(false);
     });
 
-    it('should reject missing key', () => {
+    it("should reject missing key", () => {
       const response = {
         text_response: "Test",
         action_id: null,
         store_self_info: {
-          category: 'quirk',
-          value: 'test'
-        }
+          category: "quirk",
+          value: "test",
+        },
       };
 
       const result = AIActionResponseSchema.safeParse(response);
       expect(result.success).toBe(false);
     });
 
-    it('should reject missing value', () => {
+    it("should reject missing value", () => {
       const response = {
         text_response: "Test",
         action_id: null,
         store_self_info: {
-          category: 'quirk',
-          key: 'test'
-        }
+          category: "quirk",
+          key: "test",
+        },
       };
 
       const result = AIActionResponseSchema.safeParse(response);
       expect(result.success).toBe(false);
     });
 
-    it('should reject missing category', () => {
+    it("should reject missing category", () => {
       const response = {
         text_response: "Test",
         action_id: null,
         store_self_info: {
-          key: 'test',
-          value: 'test value'
-        }
+          key: "test",
+          value: "test value",
+        },
       };
 
       const result = AIActionResponseSchema.safeParse(response);
@@ -290,16 +299,16 @@ describe('store_self_info Schema', () => {
 // Prompt Integration Tests
 // ============================================
 
-describe('store_self_info Prompt Instructions', () => {
+describe("store_self_info Prompt Instructions", () => {
   it("should include store_self_info instructions in system prompt", async () => {
-    const prompt = await buildSystemPrompt(mockRelationship);
+    const prompt = await buildSystemPromptForGreeting(mockRelationship);
 
     expect(prompt).toContain("CHECK FOR NEW SELF-FACTS");
     expect(prompt).toContain("store_character_info");
   });
 
   it("should explain all category types", async () => {
-    const prompt = await buildSystemPrompt(mockRelationship);
+    const prompt = await buildSystemPromptForGreeting(mockRelationship);
 
     expect(prompt).toContain("quirk");
     expect(prompt).toContain("experience");
@@ -309,7 +318,7 @@ describe('store_self_info Prompt Instructions', () => {
   });
 
   it("should include usage examples", async () => {
-    const prompt = await buildSystemPrompt(mockRelationship);
+    const prompt = await buildSystemPromptForGreeting(mockRelationship);
 
     // Check for tool signature arguments
     expect(prompt).toContain("category");
@@ -318,13 +327,13 @@ describe('store_self_info Prompt Instructions', () => {
   });
 
   it("should warn not to use for facts already in profile", async () => {
-    const prompt = await buildSystemPrompt(mockRelationship);
+    const prompt = await buildSystemPromptForGreeting(mockRelationship);
 
     expect(prompt).toContain("Only for NEW details");
   });
 
   it("should explain when to use store_self_info", async () => {
-    const prompt = await buildSystemPrompt(mockRelationship);
+    const prompt = await buildSystemPromptForGreeting(mockRelationship);
 
     expect(prompt).toContain("When: You make up a new detail about yourself");
     expect(prompt).toContain("something new about yourself");
