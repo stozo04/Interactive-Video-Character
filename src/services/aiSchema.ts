@@ -478,7 +478,8 @@ export type MemoryToolArgs =
   | { tool: 'store_user_info'; args: StoreUserInfoArgs }
   | { tool: 'store_character_info'; args: { category: string; key: string; value: string } }
   | { tool: 'resolve_open_loop'; args: { topic: string; resolution_type: 'resolved' | 'dismissed'; reason?: string } }
-  | { tool: 'create_life_storyline'; args: { title: string; category: 'work' | 'personal' | 'family' | 'social' | 'creative'; storylineType: 'project' | 'opportunity' | 'challenge' | 'relationship' | 'goal'; initialAnnouncement: string; stakes: string; userInvolvement?: 'none' | 'aware' | 'supportive' | 'involved' | 'central'; emotionalTone?: string; emotionalIntensity?: number } };
+  | { tool: 'create_life_storyline'; args: { title: string; category: 'work' | 'personal' | 'family' | 'social' | 'creative'; storylineType: 'project' | 'opportunity' | 'challenge' | 'relationship' | 'goal'; initialAnnouncement: string; stakes: string; userInvolvement?: 'none' | 'aware' | 'supportive' | 'involved' | 'central'; emotionalTone?: string; emotionalIntensity?: number } }
+  | { tool: 'create_open_loop'; args: { loopType: 'pending_event' | 'emotional_followup' | 'commitment_check' | 'curiosity_thread'; topic: string; suggestedFollowUp: string; timeframe: 'immediate' | 'today' | 'tomorrow' | 'this_week' | 'soon' | 'later'; salience: number; eventDateTime?: string } };
 
 // ============================================
 // Function Declarations for AI Providers
@@ -821,6 +822,60 @@ export const GeminiMemoryToolDeclarations = [
       },
       required: ["title", "category", "storylineType", "initialAnnouncement", "stakes"]
     }
+  },
+  {
+    name: "create_open_loop",
+    description:
+      "Create a follow-up reminder to ask about something later. " +
+      "WHEN TO USE: User mentions something that deserves follow-up: " +
+      "upcoming events ('interview tomorrow'), emotional states ('stressed about presentation'), " +
+      "commitments ('going to start running'), or curiosity threads ('trying a new recipe'). " +
+      "This creates a reminder for YOU to ask about it later - it makes you feel like you genuinely care. " +
+      "WHEN NOT TO USE: Casual mentions, things that don't need follow-up, or completed events.",
+    parameters: {
+      type: "object",
+      properties: {
+        loopType: {
+          type: "string",
+          enum: ["pending_event", "emotional_followup", "commitment_check", "curiosity_thread"],
+          description:
+            "Type of follow-up: " +
+            "pending_event (something scheduled: interview, appointment, trip - ask 'how did it go?'), " +
+            "emotional_followup (they shared feelings - check in on how they're doing), " +
+            "commitment_check (they said they'd do something - ask if they did it), " +
+            "curiosity_thread (interesting topic you want to revisit)"
+        },
+        topic: {
+          type: "string",
+          description: "Short, specific topic (2-5 words): 'job interview', 'doctor appointment', 'starting meditation', 'new recipe attempt'"
+        },
+        suggestedFollowUp: {
+          type: "string",
+          description: "Natural question to ask later: 'How did your interview go?', 'Did you end up trying that recipe?', 'How are you feeling about things now?'"
+        },
+        timeframe: {
+          type: "string",
+          enum: ["immediate", "today", "tomorrow", "this_week", "soon", "later"],
+          description:
+            "When to ask: " +
+            "immediate (within minutes, for in-conversation follow-ups), " +
+            "today (within a few hours), " +
+            "tomorrow (next day), " +
+            "this_week (within 2 days), " +
+            "soon (3 days), " +
+            "later (1 week)"
+        },
+        salience: {
+          type: "number",
+          description: "How important is this follow-up (0-1): 0.3=minor curiosity, 0.5=normal, 0.7=significant, 0.9=critical (health, major life event)"
+        },
+        eventDateTime: {
+          type: "string",
+          description: "If pending_event: ISO datetime when the event occurs (e.g., '2025-01-20T14:00:00'). Helps avoid asking 'how was it?' before it happens."
+        }
+      },
+      required: ["loopType", "topic", "suggestedFollowUp", "timeframe", "salience"]
+    }
   }
 ];
 
@@ -1035,6 +1090,45 @@ export const OpenAIMemoryToolDeclarations = [
       required: ["topic", "resolution_type"]
     }
   },
+  {
+    type: "function" as const,
+    name: "create_open_loop",
+    description:
+      "Create a follow-up reminder to ask about something later. " +
+      "Use when user mentions upcoming events, emotional states, or commitments.",
+    parameters: {
+      type: "object",
+      properties: {
+        loopType: {
+          type: "string",
+          enum: ["pending_event", "emotional_followup", "commitment_check", "curiosity_thread"],
+          description: "Type of follow-up"
+        },
+        topic: {
+          type: "string",
+          description: "Short, specific topic (2-5 words)"
+        },
+        suggestedFollowUp: {
+          type: "string",
+          description: "Natural question to ask later"
+        },
+        timeframe: {
+          type: "string",
+          enum: ["immediate", "today", "tomorrow", "this_week", "soon", "later"],
+          description: "When to ask"
+        },
+        salience: {
+          type: "number",
+          description: "Importance (0-1): 0.3=minor, 0.5=normal, 0.7=significant, 0.9=critical"
+        },
+        eventDateTime: {
+          type: "string",
+          description: "ISO datetime when the event occurs (for pending_event type)"
+        }
+      },
+      required: ["loopType", "topic", "suggestedFollowUp", "timeframe", "salience"]
+    }
+  },
 ];
 
 // ============================================
@@ -1046,7 +1140,7 @@ export const OpenAIMemoryToolDeclarations = [
  */
 export interface PendingToolCall {
   id: string;
-  name: 'recall_memory' | 'recall_user_info' | 'store_user_info' | 'task_action' | 'calendar_action' | 'store_character_info' | 'resolve_open_loop' | 'make_promise' | 'create_life_storyline';
+  name: 'recall_memory' | 'recall_user_info' | 'store_user_info' | 'task_action' | 'calendar_action' | 'store_character_info' | 'resolve_open_loop' | 'make_promise' | 'create_life_storyline' | 'create_open_loop';
   arguments: Record<string, any>;
 }
 

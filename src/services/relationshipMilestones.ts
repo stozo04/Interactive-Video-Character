@@ -264,14 +264,48 @@ export async function markMilestoneReferenced(
 // Milestone Detection Functions
 // ============================================
 
+// Move 37: Keyword patterns for milestone detection (replaces LLM signals)
+const VULNERABILITY_PATTERNS = [
+  /never told anyone/i,
+  /first time i'?ve shared/i,
+  /haven'?t told anyone/i,
+  /this is hard to (say|admit|share)/i,
+  /i'?m scared to (say|tell|admit)/i,
+  /i'?ve been struggling with/i,
+  /i need to get something off my chest/i,
+  /can i be honest with you/i,
+];
+
+const JOKE_PATTERNS = [
+  /haha|lol|lmao|😂|🤣/i,
+  /that'?s (so\s+)?funny/i,
+  /you crack me up/i,
+  /i'?m dying/i,
+];
+
+const SUPPORT_PATTERNS = [
+  /i need (your\s+)?(help|advice)/i,
+  /what (should|do you think) i/i,
+  /i don'?t know what to do/i,
+  /can you help me/i,
+  /i'?m (feeling\s+)?(lost|confused|overwhelmed)/i,
+];
+
+const DEEP_TALK_PATTERNS = [
+  /what do you think about (life|death|meaning|purpose)/i,
+  /do you ever think about/i,
+  /what'?s the point of/i,
+  /i'?ve been (thinking|wondering) about/i,
+  /what does .+ mean to you/i,
+];
+
 /**
  * Analyze a user message for potential milestone moments.
- * Should be called after each user message.
+ * Move 37: Uses keyword patterns instead of LLM signals.
  */
 export async function detectMilestoneInMessage(
   message: string,
-  interactionCount: number,
-  intent?: { milestone: string | null; milestoneConfidence: number }
+  interactionCount: number
 ): Promise<RelationshipMilestone | null> {
   // Check interaction milestones first
   if (interactionCount === 50) {
@@ -294,35 +328,54 @@ export async function detectMilestoneInMessage(
     return null;
   }
 
-  // LLM Detection Strategy (Primary)
-  if (intent?.milestone && intent.milestoneConfidence > 0.7) {
-    const triggerContext = message.slice(0, 200);
+  const triggerContext = message.slice(0, 200);
 
-    switch (intent.milestone) {
-      case "first_vulnerability":
-        return recordMilestone(
-          "first_vulnerability",
-          "First time opening up emotionally",
-          triggerContext
-        );
-      case "first_joke":
-        return recordMilestone(
-          "first_joke",
-          "First shared laugh together",
-          triggerContext
-        );
-      case "first_support":
-        return recordMilestone(
-          "first_support",
-          "First time seeking support or advice",
-          triggerContext
-        );
-      case "first_deep_talk":
-        return recordMilestone(
-          "first_deep_talk",
-          "First deep, meaningful conversation",
-          triggerContext
-        );
+  // Move 37: Keyword-based milestone detection
+  // Check for vulnerability
+  for (const pattern of VULNERABILITY_PATTERNS) {
+    if (pattern.test(message)) {
+      console.log(`🏆 [Milestones] Keyword match: vulnerability - ${pattern}`);
+      return recordMilestone(
+        "first_vulnerability",
+        "First time opening up emotionally",
+        triggerContext
+      );
+    }
+  }
+
+  // Check for first joke
+  for (const pattern of JOKE_PATTERNS) {
+    if (pattern.test(message)) {
+      console.log(`🏆 [Milestones] Keyword match: joke - ${pattern}`);
+      return recordMilestone(
+        "first_joke",
+        "First shared laugh together",
+        triggerContext
+      );
+    }
+  }
+
+  // Check for support seeking
+  for (const pattern of SUPPORT_PATTERNS) {
+    if (pattern.test(message)) {
+      console.log(`🏆 [Milestones] Keyword match: support - ${pattern}`);
+      return recordMilestone(
+        "first_support",
+        "First time seeking support or advice",
+        triggerContext
+      );
+    }
+  }
+
+  // Check for deep talk
+  for (const pattern of DEEP_TALK_PATTERNS) {
+    if (pattern.test(message)) {
+      console.log(`🏆 [Milestones] Keyword match: deep_talk - ${pattern}`);
+      return recordMilestone(
+        "first_deep_talk",
+        "First deep, meaningful conversation",
+        triggerContext
+      );
     }
   }
 

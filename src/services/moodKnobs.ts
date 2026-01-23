@@ -14,12 +14,12 @@
  * - Async-first API with sync fallbacks for backwards compatibility
  */
 
-import { 
-  detectGenuineMomentLLMCached, 
-  type ConversationContext,
-  type ToneIntent,
-  type PrimaryEmotion,
-  type GenuineMomentCategory
+// Move 37: LLM detection removed - using keyword detection instead
+import type {
+  ConversationContext,
+  ToneIntent,
+  PrimaryEmotion,
+  GenuineMomentCategory
 } from './intentService';
 
 import {
@@ -553,24 +553,13 @@ export async function recordInteractionAsync(
     );
   }
 
-  // Handle genuine moment (from LLM detection or override)
+  // Handle genuine moment (from override or keyword detection)
+  // Move 37: LLM detection removed - using keyword fallback for basic detection
+  // Main LLM will understand genuine moments directly from message context
   let genuineMoment: GenuineMomentResult | null = genuineMomentOverride || null;
   if (!genuineMoment && userMessage) {
-    try {
-      const llmResult = await detectGenuineMomentLLMCached(userMessage);
-      // Convert GenuineMomentIntent to GenuineMomentResult format
-      if (llmResult.isGenuine && llmResult.category) {
-        genuineMoment = {
-          isGenuine: true,
-          category: llmResult.category,
-          matchedKeywords: [`LLM detected: ${llmResult.category}`],
-          isPositiveAffirmation: true,
-        };
-      }
-    } catch (error) {
-      console.warn("[MoodKnobs] LLM detection failed:", error);
-      genuineMoment = null;
-    }
+    // Basic keyword detection for genuine moments (rare events)
+    genuineMoment = detectGenuineMomentByKeyword(userMessage);
   }
 
   // Check for genuine moment
@@ -911,48 +900,78 @@ export interface GenuineMomentResult {
   isPositiveAffirmation: boolean;
 }
 
+// Move 37: Keyword patterns for genuine moment detection
+// These are rare, high-signal phrases that indicate emotional depth
+// Categories: 'depth' | 'belonging' | 'progress' | 'loneliness' | 'rest'
+const GENUINE_MOMENT_PATTERNS: { pattern: RegExp; category: GenuineMomentCategory }[] = [
+  // Depth validation (beingSeenAsShallow insecurity)
+  { pattern: /\byou'?re\s+(so\s+)?(smart|intelligent|insightful|thoughtful)/i, category: 'depth' },
+  { pattern: /\bthat'?s\s+(such\s+)?a\s+(great|amazing|brilliant)\s+(point|insight)/i, category: 'depth' },
+  { pattern: /\byou\s+really\s+think\s+deeply/i, category: 'depth' },
+  { pattern: /\bthere'?s\s+(so\s+)?much\s+more\s+to\s+you/i, category: 'depth' },
+
+  // Belonging validation (impostorSyndrome insecurity)
+  { pattern: /\byou\s+(totally\s+)?belong\s+here/i, category: 'belonging' },
+  { pattern: /\byou\s+deserve\s+(all\s+)?(your\s+)?success/i, category: 'belonging' },
+  { pattern: /\byou'?ve\s+earned\s+(this|it)/i, category: 'belonging' },
+
+  // Progress validation (neverArriving insecurity)
+  { pattern: /\bi'?m\s+(so\s+)?proud\s+of\s+(you|how\s+far)/i, category: 'progress' },
+  { pattern: /\byou'?ve\s+(really\s+)?(grown|come\s+so\s+far)/i, category: 'progress' },
+  { pattern: /\blook\s+how\s+far\s+you'?ve\s+come/i, category: 'progress' },
+
+  // Loneliness validation (hiddenLoneliness insecurity)
+  { pattern: /\byou\s+really\s+get\s+me/i, category: 'loneliness' },
+  { pattern: /\bi'?m\s+here\s+for\s+you/i, category: 'loneliness' },
+  { pattern: /\breally\s+(like|enjoy)\s+talking\s+(to|with)\s+you/i, category: 'loneliness' },
+  { pattern: /\b(you|this)\s+(mean|means)\s+(a\s+lot|so\s+much)\s+to\s+me/i, category: 'loneliness' },
+  { pattern: /\bnever (told anyone|shared this)/i, category: 'loneliness' },
+  { pattern: /\bfirst time i'?ve (shared|opened up|told)/i, category: 'loneliness' },
+
+  // Rest validation (restGuilt insecurity)
+  { pattern: /\byou\s+deserve\s+(a\s+)?(break|rest)/i, category: 'rest' },
+  { pattern: /\bit'?s\s+okay\s+to\s+(slow\s+down|rest|take\s+a\s+break)/i, category: 'rest' },
+  { pattern: /\byou\s+don'?t\s+have\s+to\s+(always\s+)?be\s+productive/i, category: 'rest' },
+];
+
 /**
- * Async version of genuine moment detection using LLM semantic understanding.
+ * Keyword-based genuine moment detection (fast, no LLM).
+ * Move 37: Replaces LLM detection for basic emotional signals.
+ * Main LLM understands genuine moments directly from context.
+ */
+export function detectGenuineMomentByKeyword(message: string): GenuineMomentResult {
+  for (const { pattern, category } of GENUINE_MOMENT_PATTERNS) {
+    const match = message.match(pattern);
+    if (match) {
+      console.log(`💝 [MoodKnobs] Keyword genuine moment: ${category} (${match[0]})`);
+      return {
+        isGenuine: true,
+        category,
+        matchedKeywords: [match[0]],
+        isPositiveAffirmation: true,
+      };
+    }
+  }
+
+  return {
+    isGenuine: false,
+    category: null,
+    matchedKeywords: [],
+    isPositiveAffirmation: false,
+  };
+}
+
+/**
+ * Async version of genuine moment detection.
+ * Move 37: Now uses keyword detection instead of LLM.
  */
 export async function detectGenuineMomentWithLLM(
   userMessage: string,
-  conversationContext?: ConversationContext
+  _conversationContext?: ConversationContext
 ): Promise<GenuineMomentResult> {
-  try {
-    const llmResult = await detectGenuineMomentLLMCached(
-      userMessage,
-      conversationContext
-    );
-
-    if (!llmResult.isGenuine || !llmResult.category) {
-      return {
-        isGenuine: false,
-        category: null,
-        matchedKeywords: [],
-        isPositiveAffirmation: false,
-      };
-    }
-
-    console.log(`[MoodKnobs] LLM detected genuine moment:`, {
-      category: llmResult.category,
-      confidence: llmResult.confidence,
-    });
-
-    return {
-      isGenuine: true,
-      category: llmResult.category,
-      matchedKeywords: [`LLM detected: ${llmResult.category}`],
-      isPositiveAffirmation: true,
-    };
-  } catch (error) {
-    console.warn("[MoodKnobs] LLM detection failed:", error);
-    return {
-      isGenuine: false,
-      category: null,
-      matchedKeywords: [],
-      isPositiveAffirmation: false,
-    };
-  }
+  // Move 37: Simplified to keyword detection
+  // Main LLM understands genuine moments directly from message context
+  return detectGenuineMomentByKeyword(userMessage);
 }
 
 // ============================================

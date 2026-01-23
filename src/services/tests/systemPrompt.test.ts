@@ -706,10 +706,8 @@ describe("System Prompt - Core Structure", () => {
           mockRelationship,
           undefined, // upcomingEvents
           undefined, // characterContext
-          undefined, // tasks
-          undefined, // relationshipSignals
-          undefined, // toneIntent
-          undefined // fullIntent
+          undefined // tasks
+          // Move 37: Intent parameters removed
         );
 
         // Should not contain problematic undefined patterns from template interpolation

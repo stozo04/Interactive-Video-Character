@@ -12,9 +12,9 @@
  */
 
 // Phase 3 + Phase 4: Message context helpers
+// Move 37: buildMinifiedSemanticIntent removed - main LLM reads messages directly
 export {
   getSemanticBucket,
-  buildMinifiedSemanticIntent,
   buildCompactRelationshipContext,
 } from "./messageContext";
 

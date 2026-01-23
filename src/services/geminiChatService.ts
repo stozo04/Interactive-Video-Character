@@ -25,11 +25,8 @@ import {
 } from "./idleLife";
 import { formatCharacterFactsForPrompt } from "./characterFactsService";
 import { analyzeUserMessageBackground } from "./messageAnalyzer";
-import {
-  detectFullIntentLLMCached,
-  isFunctionalCommand,
-  type FullMessageIntent,
-} from "./intentService";
+// Move 37: Intent detection removed - main LLM reads messages directly
+// detectFullIntentLLMCached and FullMessageIntent no longer needed here
 import { recordInteractionAsync } from "./moodKnobs";
 import {
   getOngoingThreadsAsync,
@@ -860,7 +857,6 @@ export class GeminiService implements IAIChatService {
     response: AIActionResponse;
     session: AIChatSession;
     audioData?: string;
-    intent?: FullMessageIntent;
   }> {
     try {
       // Extract user message text for analysis
@@ -898,18 +894,10 @@ export class GeminiService implements IAIChatService {
       console.log("conversationContext: ", conversationContext);
 
       // ============================================
-      // COMMAND BYPASS: Fast Path for Utility Commands
+      // CONTEXT PREFETCH (Move 37: Intent detection removed)
       // ============================================
-      const trimmedMessage = userMessageText?.trim() || "";
-      const isCommand = trimmedMessage && isFunctionalCommand(trimmedMessage);
-      //  console.log("isCommand: ", isCommand);
-
-      let intentPromise: Promise<FullMessageIntent> | undefined;
-      let preCalculatedIntent: FullMessageIntent | undefined;
-
-      // ============================================
-      // OPTIMIZATION: Parallel Intent + Context Fetch
-      // ============================================
+      // Trust the main LLM to understand messages directly.
+      // The create_open_loop tool lets Kayley decide what to remember.
 
       // 🚀 CHECK GLOBAL PREFETCH CACHE FIRST (Idle optimization)
       const cachedContext = getPrefetchedContext();
@@ -925,79 +913,6 @@ export class GeminiService implements IAIChatService {
             characterFacts: cachedContext.characterFacts,
           }
         : undefined;
-
-      // Start context prefetch if not cached
-      let contextPrefetchPromise:
-        | Promise<{
-            soulContext: Awaited<ReturnType<typeof getSoulLayerContextAsync>>;
-            characterFacts: string;
-          }>
-        | undefined;
-
-      // if (!prefetchedContext) {
-      //   contextPrefetchPromise = prefetchContext();
-      //   console.log("🚀 [GeminiService] Started context prefetch in parallel");
-      // } else {
-      //   console.log(
-      //     "✅ [GeminiService] Using context from idle pre-fetch cache",
-      //   );
-      // }
-
-      // Start intent detection using CLEAN message (without calendar data)
-      const trimmedMessageForIntent = messageForIntent.trim();
-      if (trimmedMessageForIntent && trimmedMessageForIntent.length > 5) {
-        intentPromise = detectFullIntentLLMCached(
-          trimmedMessageForIntent,
-          conversationContext,
-        );
-        //console.log("intentPromise initialized");
-
-        if (isCommand) {
-          // 🚀 FAST PATH: Don't wait for intent - Main LLM handles commands directly
-          console.log(
-            "⚡ [GeminiService] Command detected - skipping blocking intent analysis",
-          );
-        } else {
-          // 🐢 NORMAL PATH: Wait for intent (needed for empathy/conversation)
-          try {
-            preCalculatedIntent = await intentPromise;
-            console.log("preCalculatedIntent: ", preCalculatedIntent);
-
-            if (preCalculatedIntent?.genuineMoment?.isGenuine) {
-              // CRITICAL: Instant mood shift!
-              const genuineMomentResult = {
-                isGenuine: true,
-                category: preCalculatedIntent.genuineMoment.category,
-                matchedKeywords: ["LLM Instant Detection"],
-                isPositiveAffirmation: true,
-              };
-
-              await recordInteractionAsync(
-                preCalculatedIntent.tone,
-                userMessageText,
-                genuineMomentResult as any,
-              );
-              console.log(
-                "⚡ [GeminiService] Instant genuine moment reaction triggered!",
-              );
-            }
-          } catch (e) {
-            console.warn(
-              "[GeminiService] Pre-calculation of intent failed:",
-              e,
-            );
-          }
-        }
-      }
-
-      // Wait for prefetched context
-      if (contextPrefetchPromise) {
-        try {
-          prefetchedContext = await contextPrefetchPromise;
-        } catch (e) {
-          console.warn("[GeminiService] Context prefetch failed:", e);
-        }
-      }
 
       // ============================================
       // INTERNAL CONTEXT FETCHING
@@ -1015,14 +930,12 @@ export class GeminiService implements IAIChatService {
       ).length;
       console.log(`📖 [Storylines] User message count: ${userMessageCount}`);
 
+      // Move 37: Intent detection removed - main LLM reads messages directly
       const systemPrompt = await buildSystemPrompt(
         fetchedContext.relationship,
         fetchedContext.upcomingEvents,
         fetchedContext.characterContext,
         fetchedContext.tasks,
-        preCalculatedIntent?.relationshipSignals,
-        preCalculatedIntent?.tone,
-        preCalculatedIntent,
         prefetchedContext,
         userMessageCount,
       );
@@ -1076,44 +989,9 @@ export class GeminiService implements IAIChatService {
           });
       }
 
-      // Background message analysis
+      // Background message analysis (Move 37: simplified - uses keyword detection)
       if (userMessageText) {
-        if (preCalculatedIntent) {
-          analyzeUserMessageBackground(
-            userMessageText,
-            interactionCount,
-            conversationContext,
-            preCalculatedIntent,
-          );
-        } else if (intentPromise) {
-          // COMMAND BYPASS PATH: Intent is still resolving
-          intentPromise
-            .then((resolvedIntent) => {
-              if (resolvedIntent) {
-                analyzeUserMessageBackground(
-                  userMessageText,
-                  interactionCount,
-                  conversationContext,
-                  resolvedIntent,
-                );
-                console.log(
-                  "📝 [GeminiService] Background intent analysis completed for command",
-                );
-              }
-            })
-            .catch((err) => {
-              console.warn(
-                "[GeminiService] Background intent resolution failed:",
-                err,
-              );
-              analyzeUserMessageBackground(
-                userMessageText,
-                interactionCount,
-                conversationContext,
-                undefined,
-              );
-            });
-        }
+        analyzeUserMessageBackground(userMessageText, interactionCount);
       }
 
       // Detect and mark shared idle thoughts
@@ -1161,7 +1039,6 @@ export class GeminiService implements IAIChatService {
         return {
           response: aiResponse,
           session: updatedSession,
-          intent: preCalculatedIntent,
         };
       }
 
@@ -1387,9 +1264,6 @@ Keep it very short (1 sentence).
       fetchedContext.upcomingEvents,
       fetchedContext.characterContext,
       fetchedContext.tasks,
-      undefined, // relationshipSignals
-      undefined, // toneIntent
-      undefined, // fullIntent
       { soulContext: soulResult, characterFacts: factsResult },
       0, // messageCount (idle breaker, not a user message)
     );
@@ -1464,9 +1338,6 @@ Keep it very short (1 sentence).
       fetchedContext.upcomingEvents,
       fetchedContext.characterContext,
       fetchedContext.tasks,
-      undefined, // relationshipSignals
-      undefined, // toneIntent
-      undefined, // fullIntent
       undefined, // prefetchedContext
       0, // messageCount (greeting, no user messages yet)
     );
