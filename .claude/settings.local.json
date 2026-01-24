@@ -30,7 +30,14 @@
       "Bash(git diff:*)",
       "Bash(echo:*)",
       "Bash(./node_modules/.bin/vitest run:*)",
-      "Bash(tee:*)"
+      "Bash(tee:*)",
+      "mcp__ide__getDiagnostics",
+      "Bash(powershell -Command \"npx vitest run src/services/tests/systemPrompt.test.ts 2>&1 | Select-Object -Last 100\")",
+      "Bash(powershell -Command \"npx vitest run src/services/tests/latencyOptimizations.test.ts 2>&1 | Select-Object -Last 30\")",
+      "Bash(powershell -Command \"npx vitest run src/services/tests/latencyOptimizations.test.ts 2>&1 | Select-Object -Last 15\")",
+      "Bash(powershell -Command \"npx vitest run src/services/tests/systemPrompt.test.ts 2>&1 | Select-Object -Last 20\")",
+      "Bash(powershell -Command \"npx vitest run src/services/tests/systemPrompt.test.ts 2>&1 | Select-Object -Last 40\")",
+      "Bash(powershell -Command \"npx vitest run src/services/tests/systemPrompt.test.ts 2>&1 | Select-Object -Last 30\")"
     ]
   },
   "enabledPlugins": {

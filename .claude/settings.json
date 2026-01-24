@@ -1,13 +1,49 @@
 {
   "permissions": {
     "allow": [
-      "Bash(npm run lint)",
-      "Bash(npm run test:*)",
-      "Read(~/.zshrc)",
-      "Edit(*.md)",
-      "Edit(**/*.md)",
-      "Edit(.claude/agents/*.md)",
-      "Edit(docs/*.md)"
+      "Bash(npx vitest run *)",
+      "Bash(npm run *)",
+      "Bash(powershell *)",
+      "Bash(npm test:*)",
+      "Bash(npx tsc:*)",
+      "Bash(cat:*)",
+      "Bash(node:*)",
+      "Bash(npm run build:*)",
+      "Bash(test:*)",
+      "Bash(npx vitest:*)",
+      "Bash(grep:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(find:*)",
+      "Bash(wc:*)",
+      "Bash(git stash:*)",
+      "Bash(git mv:*)",
+      "Bash(git rm:*)",
+      "Bash(perl -i -pe:*)",
+      "Bash(while read file)",
+      "Bash(do grep -l '\"\"test-user\"\"\\\\|\"\"user-123\"\"\\\\|userId' \"$file\")",
+      "Bash(done)",
+      "Bash(mkdir:*)",
+      "Bash(rm:*)",
+      "Bash(git -C \"C:\\\\Users\\\\gates\\\\Personal\\\\Interactive-Video-Character\" log --oneline --max-count=20)",
+      "Bash(ls:*)",
+      "Bash(git grep:*)",
+      "Bash(mv:*)",
+      "Bash(npm run test:run:*)",
+      "Bash(git diff:*)",
+      "Bash(echo:*)",
+      "Bash(./node_modules/.bin/vitest run:*)",
+      "Bash(tee:*)",
+      "mcp__ide__getDiagnostics",
+      "Bash(powershell -Command \"npx vitest run src/services/tests/systemPrompt.test.ts 2>&1 | Select-Object -Last 100\")",
+      "Bash(powershell -Command \"npx vitest run src/services/tests/latencyOptimizations.test.ts 2>&1 | Select-Object -Last 30\")",
+      "Bash(powershell -Command \"npx vitest run src/services/tests/latencyOptimizations.test.ts 2>&1 | Select-Object -Last 15\")",
+      "Bash(powershell -Command \"npx vitest run src/services/tests/systemPrompt.test.ts 2>&1 | Select-Object -Last 20\")",
+      "Bash(powershell -Command \"npx vitest run src/services/tests/systemPrompt.test.ts 2>&1 | Select-Object -Last 40\")",
+      "Bash(powershell -Command \"npx vitest run src/services/tests/systemPrompt.test.ts 2>&1 | Select-Object -Last 30\")"
     ]
+  },
+  "enabledPlugins": {
+    "claude-hud@claude-hud": true
   }
 }
