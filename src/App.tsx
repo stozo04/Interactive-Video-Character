@@ -29,6 +29,7 @@ import { SettingsPanel } from './components/SettingsPanel';
 import { LoginPage } from './components/LoginPage';
 import { TaskPanel } from './components/TaskPanel';
 import { WhiteboardView } from './components/WhiteboardView';
+import AdminDashboardView from './components/AdminDashboardView';
 import { WhiteboardAction } from './services/whiteboardModes';
 import { handleWhiteboardCapture as handleWhiteboardCaptureHandler } from './handlers/whiteboardHandler';
 import { processSelfieAction, processTaskAction } from './handlers/messageActions';
@@ -57,7 +58,7 @@ import { shuffleArray } from './utils/arrayUtils';
 // ============================================================================
 const ACTION_VIDEO_BUCKET = 'character-action-videos';
 
-type View = 'loading' | 'selectCharacter' | 'createCharacter' | 'chat' | 'manageCharacter' | 'whiteboard';
+type View = 'loading' | 'selectCharacter' | 'createCharacter' | 'chat' | 'manageCharacter' | 'whiteboard' | 'admin';
 
 interface DisplayCharacter {
   profile: CharacterProfile;
@@ -1357,6 +1358,7 @@ const App: React.FC = () => {
             <SettingsPanel 
             proactiveSettings={proactiveSettings}
             onProactiveSettingsChange={updateProactiveSettings}
+              onAdminDashboard={() => setView('admin')}
           />
         </div>
       </header>
@@ -1480,6 +1482,12 @@ const App: React.FC = () => {
             disabled={isProcessingAction}
           />
         )}
+
+          {view === 'admin' && (
+            <AdminDashboardView
+              onBack={() => setView('chat')}
+            />
+          )}
       </main>
       
       {/* Task Panel - Available in chat view */}
