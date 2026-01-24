@@ -1411,6 +1411,73 @@ export const detectAndStoreUserInfo = async (
 };
 
 // ============================================
+// Important Date Facts (for Greeting Prompt)
+// ============================================
+
+/**
+ * Date-related fact keys that should be queried for greeting context.
+ * These are stored in user_facts with various categories but have date-related keys.
+ */
+const DATE_RELATED_KEYS = [
+  'birthday',
+  'anniversary',
+  'important_date',
+  'wedding_anniversary',
+  'work_anniversary',
+];
+
+/**
+ * Date-related categories that may contain date facts.
+ * These are categories where the fact_value is a date.
+ */
+const DATE_RELATED_CATEGORIES = [
+  'birthday',
+  'anniversary',
+  'important_date',
+];
+
+export interface ImportantDateFact {
+  id: string;
+  fact_key: string;
+  fact_value: string; // The date string (e.g., "July 1st", "07-01", "2024-07-01")
+  category: string;
+  created_at: string;
+}
+
+/**
+ * Get all date-related facts from user_facts for greeting context.
+ * Queries both by fact_key (e.g., "birthday") and by category (e.g., "birthday").
+ *
+ * @returns Array of date-related facts
+ */
+export const getImportantDateFacts = async (): Promise<ImportantDateFact[]> => {
+  try {
+    console.log(`📅 [Memory] Getting important date facts for greeting`);
+
+    // Query for facts with date-related keys OR date-related categories
+    const { data, error } = await supabase
+      .from(USER_FACTS_TABLE)
+      .select('id, fact_key, fact_value, category, created_at')
+      .or(
+        `fact_key.in.(${DATE_RELATED_KEYS.join(',')}),category.in.(${DATE_RELATED_CATEGORIES.join(',')})`
+      )
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      console.error('Failed to get important date facts:', error);
+      return [];
+    }
+
+    console.log(`📅 [Memory] Found ${data?.length || 0} date-related facts`);
+    return (data as ImportantDateFact[]) || [];
+
+  } catch (error) {
+    console.error('Error getting important date facts:', error);
+    return [];
+  }
+};
+
+// ============================================
 // Export singleton-like object for convenience
 // ============================================
 export const memoryService = {
@@ -1424,7 +1491,8 @@ export const memoryService = {
   formatFactValueForDisplay,
   executeMemoryTool,
   detectAndStoreUserInfo, // @deprecated - use processDetectedFacts instead
-  processDetectedFacts
+  processDetectedFacts,
+  getImportantDateFacts,
 };
 
 export default memoryService;

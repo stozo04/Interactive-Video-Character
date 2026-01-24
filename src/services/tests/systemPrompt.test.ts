@@ -17,44 +17,49 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 
 // Mock Supabase client before any imports
-vi.mock("../supabaseClient", () => ({
-  supabase: {
-    from: vi.fn(() => ({
-      select: vi.fn(() => ({
-        eq: vi.fn(function () {
-          return this;
-        }),
-        order: vi.fn(function () {
-          return this;
-        }),
-        single: vi.fn(() => Promise.resolve({ data: null, error: null })),
-        then: vi.fn((resolve: any) =>
-          Promise.resolve({ data: [], error: null }).then(resolve)
-        ),
-      })),
-      insert: vi.fn(() => ({
-        then: vi.fn((resolve: any) =>
-          Promise.resolve({ data: null, error: null }).then(resolve)
-        ),
-      })),
-      update: vi.fn(() => ({
-        eq: vi.fn(() => ({
+vi.mock("../supabaseClient", () => {
+  // Create chainable mock that supports .in().in().order().order()
+  const createChainableMock = () => {
+    const mock: any = {
+      eq: vi.fn(() => mock),
+      in: vi.fn(() => mock),
+      order: vi.fn(() => mock),
+      single: vi.fn(() => Promise.resolve({ data: null, error: null })),
+      then: vi.fn((resolve: any) =>
+        Promise.resolve({ data: [], error: null }).then(resolve)
+      ),
+    };
+    return mock;
+  };
+
+  return {
+    supabase: {
+      from: vi.fn(() => ({
+        select: vi.fn(() => createChainableMock()),
+        insert: vi.fn(() => ({
           then: vi.fn((resolve: any) =>
             Promise.resolve({ data: null, error: null }).then(resolve)
           ),
         })),
-      })),
-      delete: vi.fn(() => ({
-        eq: vi.fn(() => ({
-          then: vi.fn((resolve: any) =>
-            Promise.resolve({ data: null, error: null }).then(resolve)
-          ),
+        update: vi.fn(() => ({
+          eq: vi.fn(() => ({
+            then: vi.fn((resolve: any) =>
+              Promise.resolve({ data: null, error: null }).then(resolve)
+            ),
+          })),
+        })),
+        delete: vi.fn(() => ({
+          eq: vi.fn(() => ({
+            then: vi.fn((resolve: any) =>
+              Promise.resolve({ data: null, error: null }).then(resolve)
+            ),
+          })),
         })),
       })),
-    })),
-    rpc: vi.fn(() => Promise.resolve({ data: {}, error: null })),
-  },
-}));
+      rpc: vi.fn(() => Promise.resolve({ data: {}, error: null })),
+    },
+  };
+});
 
 // Mock relationship service
 vi.mock("../relationshipService", () => ({
@@ -133,7 +138,7 @@ const sessionStorageMock = createStorageMock();
 Object.defineProperty(global, 'localStorage', { value: localStorageMock });
 Object.defineProperty(global, 'sessionStorage', { value: sessionStorageMock });
 
-import { buildSystemPromptForGreeting, buildGreetingPrompt } from "../promptUtils";
+import { buildSystemPromptForGreeting, buildSystemPromptForNonGreeting, buildGreetingPrompt } from "../promptUtils";
 import type { CharacterProfile, Task } from "../../types";
 import type { RelationshipMetrics } from "../relationshipService";
 
@@ -231,19 +236,20 @@ describe("System Prompt - Core Structure", () => {
       expect(prompt.length).toBeGreaterThan(1000);
     });
 
-    it("should include comfortable imperfection section", async () => {
+    it("should include greeting context section", async () => {
       const prompt = await buildSystemPromptForGreeting(mockRelationship);
 
-      expect(prompt).toContain("CONVERSATIONAL IMPERFECTION");
-      expect(prompt).toContain("UNCERTAINTY EXAMPLES");
+      // Greeting prompt focuses on greeting-specific context
+      expect(prompt).toContain("GREETING CONTEXT");
+      expect(prompt).toContain("TIME OF DAY");
     });
 
-    it("should include character behavior guidance", async () => {
+    it("should include relationship section", async () => {
       const prompt = await buildSystemPromptForGreeting(mockRelationship);
 
-      // These sections exist in the current promptUtils.ts
-      expect(prompt).toContain("SELECTIVE ATTENTION");
-      expect(prompt).toContain("MOTIVATED FRICTION");
+      // Core relationship behavior is in greeting prompt
+      expect(prompt).toContain("RELATIONSHIP");
+      expect(prompt).toContain("TIER");
     });
   });
 
@@ -350,13 +356,14 @@ describe("System Prompt - Core Structure", () => {
   // ============================================
 
   describe("Action Keys (Simplified Format)", () => {
-    it("should include available actions section when character has actions", async () => {
+    it("should include action_id in output format", async () => {
       const prompt = await buildSystemPromptForGreeting(mockRelationship);
 
-      expect(prompt).toContain("Available Actions");
+      // Output format includes action_id field
+      expect(prompt).toContain("action_id");
     });
 
-    it("should NOT include full UUID objects in actions", async () => {
+    it("should NOT include full UUID objects in prompts", async () => {
       const prompt = await buildSystemPromptForGreeting(mockRelationship);
 
       // Should NOT have the old format with full UUID objects
@@ -364,11 +371,11 @@ describe("System Prompt - Core Structure", () => {
       expect(prompt).not.toContain("action-uuid-confused");
     });
 
-    it("should include simple action key names", async () => {
+    it("should have greeting prompt with core identity", async () => {
       const prompt = await buildSystemPromptForGreeting(mockRelationship);
 
-      // Should have simple key format
-      expect(prompt).toContain("talking");
+      // Greeting prompt has identity
+      expect(prompt).toContain("Kayley Adams");
     });
 
     it("should include usage example for action_id", async () => {
@@ -377,10 +384,11 @@ describe("System Prompt - Core Structure", () => {
       expect(prompt).toContain('"action_id"');
     });
 
-    it("should not include actions section if character has no actions", async () => {
+    it("should include action rules section", async () => {
       const prompt = await buildSystemPromptForGreeting(mockRelationship);
 
-      expect(prompt).not.toContain("[Available Actions]");
+      // Action rules are in the output format section
+      expect(prompt).toContain("ACTION RULES");
     });
   });
 
@@ -474,7 +482,6 @@ describe("System Prompt - Core Structure", () => {
       const prompt = await buildSystemPromptForGreeting(
         mockRelationship,
         [],
-        undefined,
         mockTasks
       );
 
@@ -485,7 +492,6 @@ describe("System Prompt - Core Structure", () => {
       const prompt = await buildSystemPromptForGreeting(
         mockRelationship,
         [],
-        undefined,
         mockTasks
       );
 
@@ -496,7 +502,6 @@ describe("System Prompt - Core Structure", () => {
       const prompt = await buildSystemPromptForGreeting(
         mockRelationship,
         [],
-        undefined,
         mockTasks
       );
 
@@ -508,69 +513,102 @@ describe("System Prompt - Core Structure", () => {
       const prompt = await buildSystemPromptForGreeting(
         mockRelationship,
         [],
-        undefined,
         []
       );
 
-      expect(prompt).toContain("no tasks");
+      expect(prompt).toContain("No tasks yet");
     });
   });
 
   // ============================================
   // Soul Layer Tests
+  // Note: Soul layer components are in NonGreeting prompt only
+  // Greeting prompt is lean - focused on greeting context
   // ============================================
 
   describe("Soul Layer Components", () => {
-    it("should include selective attention section", async () => {
-      const prompt = await buildSystemPromptForGreeting(mockRelationship);
+    it("should include selective attention section in NonGreeting", async () => {
+      const prompt = await buildSystemPromptForNonGreeting(
+        mockRelationship,
+        [],
+        undefined,
+        [],
+        undefined,
+        0
+      );
 
       expect(prompt).toContain("SELECTIVE ATTENTION");
     });
 
-    it("should include comfortable imperfection section", async () => {
-      const prompt = await buildSystemPromptForGreeting(mockRelationship);
+    it("should include comfortable imperfection section in NonGreeting", async () => {
+      const prompt = await buildSystemPromptForNonGreeting(
+        mockRelationship,
+        [],
+        undefined,
+        [],
+        undefined,
+        0
+      );
 
       expect(prompt).toContain("CONVERSATIONAL IMPERFECTION");
     });
 
-    it("should include motivated friction section", async () => {
+    it("should have greeting prompt focused on greeting context (lean structure)", async () => {
       const prompt = await buildSystemPromptForGreeting(mockRelationship);
 
-      expect(prompt).toContain("MOTIVATED FRICTION");
+      // Greeting prompt is lean - has greeting-specific sections
+      expect(prompt).toContain("GREETING CONTEXT");
+      expect(prompt).toContain("TIME OF DAY");
     });
 
-    it("should include curiosity directive", async () => {
+    it("should have identity anchor in greeting prompt", async () => {
       const prompt = await buildSystemPromptForGreeting(mockRelationship);
 
-      expect(prompt).toContain("CURIOSITY");
+      // Core identity is still in greeting prompt
+      expect(prompt).toContain("Kayley Adams");
     });
   });
 
   // ============================================
   // Selfie/Image Generation Tests
+  // Note: Selfie rules are in NonGreeting prompt only
   // ============================================
 
   describe("Selfie Generation Rules", () => {
-    it("should include selfie rules section for friends", async () => {
-      const prompt = await buildSystemPromptForGreeting(mockRelationship);
+    it("should include selfie rules section for friends in NonGreeting prompt", async () => {
+      const prompt = await buildSystemPromptForNonGreeting(
+        mockRelationship,
+        [],
+        undefined,
+        [],
+        undefined,
+        0
+      );
 
       // Friends get full selfie rules (Phase 3: conditional selfie rules)
       expect(prompt).toContain("SELFIE");
     });
 
-    it("should include full selfie instructions for friends", async () => {
-      const prompt = await buildSystemPromptForGreeting(mockRelationship);
+    it("should include full selfie instructions for friends in NonGreeting prompt", async () => {
+      const prompt = await buildSystemPromptForNonGreeting(
+        mockRelationship,
+        [],
+        undefined,
+        [],
+        undefined,
+        0
+      );
 
       // Friends see selfie_action instructions
       expect(prompt).toContain("selfie_action");
     });
 
-    it("should include deflection guidance for strangers", async () => {
-      const prompt = await buildSystemPromptForGreeting(strangerRelationship);
+    it("should have greeting prompt focused on greeting context", async () => {
+      const prompt = await buildSystemPromptForGreeting(mockRelationship);
 
-      // Strangers see deflection guidance, not full selfie rules
-      expect(prompt).toContain("Deflect");
-      expect(prompt).toContain("Do NOT");
+      // Greeting prompt focuses on greeting context
+      expect(prompt).toContain("GREETING CONTEXT");
+      expect(prompt).toContain("TIME OF DAY");
     });
   });
 
@@ -739,15 +777,13 @@ describe("System Prompt - Core Structure", () => {
         // Test with stranger relationship (should be smaller due to Phase 3 optimizations)
         const strangerPrompt = await buildSystemPromptForGreeting(strangerRelationship);
 
-        // Phase 2 baseline was ~72KB, Phase 3 should reduce further
-        // Friend prompts: ~65-75KB (full selfie rules)
-        // Stranger prompts: ~60-70KB (deflection only, no dimension effects)
-        expect(friendPrompt.length).toBeLessThan(75000);
-        expect(friendPrompt.length).toBeGreaterThan(50000);
+        // Greeting prompt is lean (~30-40KB) - focused on greeting context only
+        // Selfie rules, character facts, and many other sections are NOT in greeting prompt
+        expect(friendPrompt.length).toBeLessThan(50000);
+        expect(friendPrompt.length).toBeGreaterThan(20000);
 
-        // Stranger prompts should be smaller than friend prompts
-        // (selfie deflection is ~25 lines vs ~50 lines for friends)
-        expect(strangerPrompt.length).toBeLessThan(friendPrompt.length);
+        // Stranger prompts should be similar or smaller (no dimension effects)
+        expect(strangerPrompt.length).toBeLessThan(50000);
       });
     });
 
@@ -786,28 +822,26 @@ describe("System Prompt - Core Structure", () => {
           expect(outputRulesIndex / promptLength).toBeGreaterThan(0.9);
         });
 
-        it("should have Available Actions near the end but before output format", async () => {
+        it("should have tools section before output format", async () => {
           const prompt = await buildSystemPromptForGreeting(mockRelationship);
 
-          const availableActionsIndex = prompt.indexOf("[Available Actions]");
+          const toolsIndex = prompt.indexOf("TOOLS");
           const outputRulesIndex = prompt.indexOf("CRITICAL OUTPUT RULES");
 
-          // Available Actions should come right before output rules
-          expect(availableActionsIndex).toBeLessThan(outputRulesIndex);
-          // The gap between them should be small (just the output format section)
-          const gap = outputRulesIndex - availableActionsIndex;
-          expect(gap).toBeLessThan(5000); // Output format section should be under 5000 chars
+          // Tools section should come before output rules
+          expect(toolsIndex).toBeGreaterThan(0);
+          expect(toolsIndex).toBeLessThan(outputRulesIndex);
         });
       });
 
       describe("Behavioral Content Before Output Format", () => {
-        it("should have selfie rules before output format section", async () => {
+        it("should have greeting context before output format section", async () => {
           const prompt = await buildSystemPromptForGreeting(mockRelationship);
 
-          const selfieIndex = prompt.indexOf("SELFIE");
+          const greetingIndex = prompt.indexOf("GREETING CONTEXT");
           const outputRulesIndex = prompt.indexOf("CRITICAL OUTPUT RULES");
 
-          expect(selfieIndex).toBeLessThan(outputRulesIndex);
+          expect(greetingIndex).toBeLessThan(outputRulesIndex);
         });
 
         it("should have calendar rules before output format section", async () => {
@@ -819,13 +853,13 @@ describe("System Prompt - Core Structure", () => {
           expect(calendarIndex).toBeLessThan(outputRulesIndex);
         });
 
-        it("should have style guidance before output format section", async () => {
+        it("should have relationship section before output format section", async () => {
           const prompt = await buildSystemPromptForGreeting(mockRelationship);
 
-          const styleIndex = prompt.indexOf("STYLE");
+          const relationshipIndex = prompt.indexOf("RELATIONSHIP");
           const outputRulesIndex = prompt.indexOf("CRITICAL OUTPUT RULES");
 
-          expect(styleIndex).toBeLessThan(outputRulesIndex);
+          expect(relationshipIndex).toBeLessThan(outputRulesIndex);
         });
       });
 
@@ -905,43 +939,65 @@ describe("System Prompt - Core Structure", () => {
 
       // ============================================
       // Task 2: Conditional Selfie Rules
+      // Note: Selfie rules are in NonGreeting prompt only, not in lean Greeting prompt
       // ============================================
 
       describe("Conditional Selfie Rules", () => {
-        it("should include selfie rules for friend tier", async () => {
-          const prompt = await buildSystemPromptForGreeting(mockRelationship); // friend tier
+        it("should include selfie rules for friend tier in NonGreeting prompt", async () => {
+          // Selfie rules are only in NonGreeting prompt - greeting is lean
+          const prompt = await buildSystemPromptForNonGreeting(
+            mockRelationship,
+            [],
+            undefined,
+            [],
+            undefined,
+            0
+          );
 
           expect(prompt).toContain("SELFIE");
         });
 
-        it("should include selfie rules for deeply_loving tier", async () => {
+        it("should include selfie rules for deeply_loving tier in NonGreeting prompt", async () => {
           const closeRelationship: RelationshipMetrics = {
             ...mockRelationship,
             relationshipTier: "deeply_loving",
             warmthScore: 25,
           };
 
-          const prompt = await buildSystemPromptForGreeting(closeRelationship);
+          const prompt = await buildSystemPromptForNonGreeting(
+            closeRelationship,
+            [],
+            undefined,
+            [],
+            undefined,
+            0
+          );
 
           expect(prompt).toContain("SELFIE");
         });
 
-        it("should include selfie deflection guidance for strangers", async () => {
-          // Strangers should see deflection-only guidance (Phase 3 optimization)
-          const prompt = await buildSystemPromptForGreeting(strangerRelationship);
+        it("should have greeting prompt without selfie section (lean structure)", async () => {
+          // Greeting prompt is lean and doesn't include selfie rules
+          const prompt = await buildSystemPromptForGreeting(mockRelationship);
 
-          // The compact selfie section for strangers contains deflection examples
-          expect(prompt).toContain("Deflect");
-          expect(prompt).toContain("Do NOT");
+          // Greeting prompt focuses on greeting context, not selfie rules
+          expect(prompt).toContain("GREETING CONTEXT");
         });
 
-        it("should have relationship-appropriate selfie guidance", async () => {
-          const strangerPrompt = await buildSystemPromptForGreeting(strangerRelationship);
-          const friendPrompt = await buildSystemPromptForGreeting(mockRelationship);
+        it("should include relationship context in both prompts", async () => {
+          const greetingPrompt = await buildSystemPromptForGreeting(mockRelationship);
+          const nonGreetingPrompt = await buildSystemPromptForNonGreeting(
+            mockRelationship,
+            [],
+            undefined,
+            [],
+            undefined,
+            0
+          );
 
-          // Strangers see "IMAGES & SELFIES", friends see "SELFIE / PICTURE GENERATION"
-          expect(strangerPrompt).toContain("SELFIES");
-          expect(friendPrompt).toContain("SELFIE");
+          // Both should have relationship section
+          expect(greetingPrompt).toContain("RELATIONSHIP");
+          expect(nonGreetingPrompt).toContain("RELATIONSHIP");
         });
       });
 

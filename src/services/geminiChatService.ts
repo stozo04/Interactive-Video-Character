@@ -13,10 +13,11 @@ import {
   buildProactiveThreadPrompt,
   getSoulLayerContextAsync,
   buildSystemPromptForGreeting,
+  type GreetingContext,
 } from "./promptUtils";
 import { AIActionResponse, GeminiMemoryToolDeclarations } from "./aiSchema";
 import { generateSpeech } from "./elevenLabsService";
-import { executeMemoryTool, MemoryToolName } from "./memoryService";
+import { executeMemoryTool, MemoryToolName, getImportantDateFacts } from "./memoryService";
 import { getTopLoopToSurface, markLoopSurfaced } from "./presenceDirector";
 import { resolveActionKey } from "../utils/actionKeyMapper";
 import {
@@ -1348,9 +1349,6 @@ Keep it very short (1 sentence).
     session: AIChatSession;
     audioData?: string;
   }> {
-    // Fetch context internally
-    const fetchedContext = await this.fetchUserContext();
-
     // Check if this is the first login of the day
     const characterId = options?.characterId || "default";
     const isFirstLoginToday = !hasBeenBriefedToday(characterId);
@@ -1361,13 +1359,50 @@ Keep it very short (1 sentence).
       );
     }
 
+    // ============================================
+    // PARALLEL FETCH FOR GREETING CONTEXT
+    // ============================================
+    // Fetch all data in parallel for performance
+    const [
+      fetchedContext,
+      lastInteractionTime,
+      importantDateFacts,
+    ] = await Promise.all([
+      this.fetchUserContext(),
+      getLastUserMessageTime().catch((err) => {
+        console.warn("[GeminiService] Failed to fetch last interaction:", err);
+        return null;
+      }),
+      getImportantDateFacts().catch((err) => {
+        console.warn("[GeminiService] Failed to fetch important dates:", err);
+        return [];
+      }),
+    ]);
+
+    // Build greeting context from parallel-fetched data
+    const greetingContext = {
+      lastInteractionDateUtc: lastInteractionTime,
+      importantDateFacts: importantDateFacts.map((f) => ({
+        id: f.id,
+        fact_key: f.fact_key,
+        fact_value: f.fact_value,
+        category: f.category || "date",
+        created_at: f.created_at,
+      })),
+      // Past calendar events would need to be fetched separately
+      // For now, we can filter upcomingEvents client-side if needed
+      pastCalendarEvents: [],
+      kayleyLifeUpdates: [], // TODO: fetch from storyline service if needed
+    };
+
+    // Filter tasks to incomplete only for greeting prompt
+    const incompleteTasks = (fetchedContext.tasks || []).filter((t) => !t.completed);
+
     const systemPrompt = await buildSystemPromptForGreeting(
       fetchedContext.relationship,
       fetchedContext.upcomingEvents,
-      fetchedContext.characterContext,
-      fetchedContext.tasks,
-      undefined, // prefetchedContext
-      0, // messageCount (greeting, no user messages yet)
+      incompleteTasks,
+      greetingContext,
     );
 
     try {

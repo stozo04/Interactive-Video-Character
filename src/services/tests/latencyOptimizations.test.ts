@@ -2,42 +2,47 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 // Mock Supabase client before any imports
-vi.mock("../supabaseClient", () => ({
-  supabase: {
-    from: vi.fn(() => ({
-      select: vi.fn(() => ({
-        eq: vi.fn(function () {
-          return this;
-        }),
-        order: vi.fn(function () {
-          return this;
-        }),
-        single: vi.fn(() => Promise.resolve({ data: null, error: null })),
-        then: vi.fn((resolve: any) =>
-          Promise.resolve({ data: [], error: null }).then(resolve)
-        ),
-      })),
-      insert: vi.fn(() => ({
-        then: vi.fn((resolve: any) =>
-          Promise.resolve({ data: null, error: null }).then(resolve)
-        ),
-      })),
-      upsert: vi.fn(() => ({
-        then: vi.fn((resolve: any) =>
-          Promise.resolve({ data: null, error: null }).then(resolve)
-        ),
-      })),
-      update: vi.fn(() => ({
-        eq: vi.fn(() => ({
+vi.mock("../supabaseClient", () => {
+  // Create chainable mock that supports .in().in().order().order()
+  const createChainableMock = () => {
+    const mock: any = {
+      eq: vi.fn(() => mock),
+      in: vi.fn(() => mock),
+      order: vi.fn(() => mock),
+      single: vi.fn(() => Promise.resolve({ data: null, error: null })),
+      then: vi.fn((resolve: any) =>
+        Promise.resolve({ data: [], error: null }).then(resolve)
+      ),
+    };
+    return mock;
+  };
+
+  return {
+    supabase: {
+      from: vi.fn(() => ({
+        select: vi.fn(() => createChainableMock()),
+        insert: vi.fn(() => ({
           then: vi.fn((resolve: any) =>
             Promise.resolve({ data: null, error: null }).then(resolve)
           ),
         })),
+        upsert: vi.fn(() => ({
+          then: vi.fn((resolve: any) =>
+            Promise.resolve({ data: null, error: null }).then(resolve)
+          ),
+        })),
+        update: vi.fn(() => ({
+          eq: vi.fn(() => ({
+            then: vi.fn((resolve: any) =>
+              Promise.resolve({ data: null, error: null }).then(resolve)
+            ),
+          })),
+        })),
       })),
-    })),
-    rpc: vi.fn(() => Promise.resolve({ data: {}, error: null })),
-  },
-}));
+      rpc: vi.fn(() => Promise.resolve({ data: {}, error: null })),
+    },
+  };
+});
 
 // Mock relationship service
 vi.mock("../relationshipService", () => ({
@@ -227,12 +232,12 @@ describe("Latency Optimizations - Phase 1", () => {
         characterFacts: "Prefetched Facts",
       };
 
-      const prompt = await buildSystemPromptForGreeting(
+      // Use NonGreeting prompt - greeting prompt no longer supports prefetching
+      const prompt = await buildSystemPromptForNonGreeting(
         undefined, //     relationship?: RelationshipMetrics | null,
         [], //     upcomingEvents: any[] = [],
         undefined, //     characterContext?: string,
         [], //     tasks?: Task[],
-        // Move 37: Intent parameters removed
         prefetchedContext,
         0, //     messageCount: number
       );
@@ -244,16 +249,13 @@ describe("Latency Optimizations - Phase 1", () => {
       ).not.toHaveBeenCalled();
 
       // Verify the prompt content reflects prefetched data
+      // Note: threads are no longer included in prompt, only characterFacts
       expect(prompt).toContain("Prefetched Facts");
-      expect(prompt).toContain("Prefetched Threads");
-
-      // Patience level is part of Motivated Friction section
-      expect(prompt).toContain("quick");
     });
 
     it("should fallback to calling fetchers when pre-fetched context is NOT provided", async () => {
-      // Move 37: Intent parameters removed
-      const prompt = await buildSystemPromptForGreeting(
+      // Use NonGreeting prompt - greeting prompt no longer supports prefetching
+      const prompt = await buildSystemPromptForNonGreeting(
         undefined,
         [],
         undefined,
@@ -269,8 +271,8 @@ describe("Latency Optimizations - Phase 1", () => {
       ).toHaveBeenCalled();
 
       // Verify the prompt content reflects mocked (fallback) data
+      // Note: threads are no longer included in prompt, only characterFacts
       expect(prompt).toContain("Mocked Facts");
-      expect(prompt).toContain("Mocked Threads");
     });
   });
 
