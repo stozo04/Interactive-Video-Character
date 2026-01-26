@@ -22,9 +22,6 @@ export {
 // Phase 7: Proactive thread prompt builder
 export { buildProactiveThreadPrompt } from "./proactiveThreadBuilder";
 
-// Phase 7: Greeting prompt builder
-export { buildGreetingPrompt, buildNonGreetingPrompt } from "./greetingBuilder";
-
 // Daily catch-up builder (first-login context)
 export {
   buildDailyCatchupPrompt,
@@ -38,3 +35,5 @@ export {
 
 // Selfie action builder
 export { buildSelfieRulesPrompt, getSelfieRulesConfig } from "./selfiePromptBuilder";
+
+export { buildNonGreetingPrompt, buildGreetingPrompt } from "./greetingPromptBuilders";

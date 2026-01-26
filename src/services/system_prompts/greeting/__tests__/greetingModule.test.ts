@@ -461,10 +461,10 @@ describe("importantDates", () => {
 
   describe("processImportantDates", () => {
     const mockDateFacts = [
-      { id: "1", fact_text: "July 1st", category: "birthday" },
-      { id: "2", fact_text: "July 4th", category: "anniversary" },
-      { id: "3", fact_text: "June 28th", category: "birthday" },
-      { id: "4", fact_text: "December 25th", category: "birthday" },
+      { key: "July 1st", value: "birthday" },
+      { key: "July 4th", value: "anniversary" },
+      { key: "June 28th", value: "birthday" },
+      { key: "December 25th", value: "birthday" },
     ];
 
     it("should identify today's dates", () => {
@@ -475,13 +475,20 @@ describe("importantDates", () => {
 
     it("should identify upcoming dates within 7 days", () => {
       const context = processImportantDates(mockDateFacts, null);
-      expect(context.upcomingDates.some(d => d.date === "July 4th")).toBe(true);
+      expect(context.upcomingDates.some((d) => d.date === "July 4th")).toBe(
+        true,
+      );
     });
 
     it("should identify passed dates since last interaction", () => {
       // Last interaction was June 25th, June 28th birthday should be passed
-      const context = processImportantDates(mockDateFacts, "2025-06-25T14:00:00.000Z");
-      expect(context.passedDates.some(d => d.date === "June 28th")).toBe(true);
+      const context = processImportantDates(
+        mockDateFacts,
+        "2025-06-25T14:00:00.000Z",
+      );
+      expect(context.passedDates.some((d) => d.date === "June 28th")).toBe(
+        true,
+      );
     });
 
     it("should return empty arrays for no date facts", () => {
@@ -492,9 +499,7 @@ describe("importantDates", () => {
     });
 
     it("should skip unparseable dates", () => {
-      const invalidFacts = [
-        { id: "1", fact_text: "some random text", category: "birthday" },
-      ];
+      const invalidFacts = [{ key: "some random text", value: "birthday" }];
       const context = processImportantDates(invalidFacts, null);
       expect(context.todayDates).toEqual([]);
       expect(context.upcomingDates).toEqual([]);

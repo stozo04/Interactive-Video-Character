@@ -91,10 +91,8 @@ vi.mock("../supabaseClient", () => {
 
 // Import the service after mocking
 import {
-  saveConversationHistory,
   loadConversationHistory,
   appendConversationHistory,
-  clearConversationHistory,
   getTodaysMessageCount,
   loadTodaysConversationHistory,
   getTodaysInteractionId,
@@ -151,41 +149,7 @@ describe("conversationHistoryService", () => {
   });
 
   // --- saveConversationHistory TESTS ---
-  describe("saveConversationHistory", () => {
-    it("should batch insert messages when saving history", async () => {
-      // Set the result that the mocked .insert().then() should return
-      mocks.insert.mockReturnValueOnce({ error: null });
 
-      await saveConversationHistory(MESSAGES);
-
-      expect(mocks.from).toHaveBeenCalledWith("conversation_history");
-      expect(mocks.insert).toHaveBeenCalledTimes(1);
-      const insertedRows = mocks.insert.mock.calls[0][0];
-      expect(insertedRows.length).toBe(2);
-      expect(insertedRows[0].message_text).toBe("Hello there");
-      expect(insertedRows[1].message_role).toBe("model");
-    });
-
-    it("should return immediately and not call insert if messages array is empty", async () => {
-      await saveConversationHistory([]);
-
-      expect(mocks.insert).not.toHaveBeenCalled();
-    });
-
-    it("should log error but not throw if database insert fails", async () => {
-      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-      // We set the resolved value *before* the service calls insert()
-      mocks.insert.mockReturnValueOnce({ error: new Error("DB Error") });
-
-      await expect(saveConversationHistory(MESSAGES)).resolves.toBeUndefined();
-      
-      expect(consoleErrorSpy).toHaveBeenCalledWith(
-        "Error saving conversation history:",
-        expect.any(Error)
-      );
-      consoleErrorSpy.mockRestore();
-    });
-  });
 
   // --- loadConversationHistory TESTS ---
   describe("loadConversationHistory", () => {
@@ -269,26 +233,6 @@ describe("conversationHistoryService", () => {
   });
 
   // --- clearConversationHistory TESTS ---
-  describe("clearConversationHistory", () => {
-    it("should delete all history for the user-character pair", async () => {
-      supabase.setNextResolvedValue({ data: null, error: null });
-
-      await clearConversationHistory();
-
-      expect(mocks.from).toHaveBeenCalledWith("conversation_history");
-      expect(mocks.delete).toHaveBeenCalledTimes(1);
-      // expect(mocks.eq).toHaveBeenCalledWith("character_id", CHARACTER_ID); // Removed
-
-    });
-
-    it("should throw error if database delete fails", async () => {
-      const error = { message: "Delete failed" };
-      supabase.setNextResolvedValue({ data: null, error });
-
-      // We expect the function to re-throw the error
-      await expect(clearConversationHistory()).rejects.toThrow();
-    });
-  });
 
   // --- TIMEZONE FIX TESTS (Bug: stale-interaction-id-on-session-restore) ---
   describe("Timezone handling for 'today' queries", () => {

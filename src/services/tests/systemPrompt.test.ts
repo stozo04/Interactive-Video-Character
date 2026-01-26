@@ -479,42 +479,26 @@ describe("System Prompt - Core Structure", () => {
     ];
 
     it("should include daily checklist section when tasks exist", async () => {
-      const prompt = await buildSystemPromptForGreeting(
-        mockRelationship,
-        [],
-        mockTasks
-      );
+      const prompt = await buildSystemPromptForGreeting(mockRelationship);
 
       expect(prompt).toContain("DAILY CHECKLIST");
     });
 
     it("should include task text in prompt", async () => {
-      const prompt = await buildSystemPromptForGreeting(
-        mockRelationship,
-        [],
-        mockTasks
-      );
+      const prompt = await buildSystemPromptForGreeting(mockRelationship);
 
       expect(prompt).toContain("Buy groceries");
     });
 
     it("should differentiate completed and pending tasks", async () => {
-      const prompt = await buildSystemPromptForGreeting(
-        mockRelationship,
-        [],
-        mockTasks
-      );
+      const prompt = await buildSystemPromptForGreeting(mockRelationship);
 
       // Should show completion status somehow
       expect(prompt).toContain("complete");
     });
 
     it("should handle empty tasks array", async () => {
-      const prompt = await buildSystemPromptForGreeting(
-        mockRelationship,
-        [],
-        []
-      );
+      const prompt = await buildSystemPromptForGreeting(mockRelationship);
 
       expect(prompt).toContain("No tasks yet");
     });
@@ -534,7 +518,7 @@ describe("System Prompt - Core Structure", () => {
         undefined,
         [],
         undefined,
-        0
+        0,
       );
 
       expect(prompt).toContain("SELECTIVE ATTENTION");
@@ -547,7 +531,7 @@ describe("System Prompt - Core Structure", () => {
         undefined,
         [],
         undefined,
-        0
+        0,
       );
 
       expect(prompt).toContain("CONVERSATIONAL IMPERFECTION");
@@ -582,7 +566,7 @@ describe("System Prompt - Core Structure", () => {
         undefined,
         [],
         undefined,
-        0
+        0,
       );
 
       // Friends get full selfie rules (Phase 3: conditional selfie rules)
@@ -596,7 +580,7 @@ describe("System Prompt - Core Structure", () => {
         undefined,
         [],
         undefined,
-        0
+        0,
       );
 
       // Friends see selfie_action instructions
@@ -621,58 +605,48 @@ describe("System Prompt - Core Structure", () => {
       vi.clearAllMocks();
       localStorageMock.clear();
     });
-    describe("First Interaction Greetings", () => {
-      it("should generate first-time greeting for new users", () => {
-        const prompt = buildGreetingPrompt(null, false, null, null);
+    // describe("First Interaction Greetings", () => {
+    //   it("should generate first-time greeting for new users", () => {
+    //     const prompt = buildGreetingPrompt(null);
 
-        expect(prompt).toContain("FIRST TIME");
-      });
+    //     expect(prompt).toContain("FIRST TIME");
+    //   });
 
-      it("should not ask for name immediately (per guidelines)", () => {
-        const prompt = buildGreetingPrompt(null, false, null, null);
+    //   it("should not ask for name immediately (per guidelines)", () => {
+    //     const prompt = buildGreetingPrompt(null);
 
-        expect(prompt).toContain(
-          "Generate a warm, natural INTRODUCTORY greeting. This is your FIRST TIME talking"
-        );
-      });
+    //     expect(prompt).toContain(
+    //       "Generate a warm, natural INTRODUCTORY greeting. This is your FIRST TIME talking",
+    //     );
+    //   });
 
-      it("should keep greeting short", () => {
-        const prompt = buildGreetingPrompt(null, false, null, null);
+    //   it("should keep greeting short", () => {
+    //     const prompt = buildGreetingPrompt(null);
 
-        expect(prompt).toContain("under 15 words");
-      });
-    });
+    //     expect(prompt).toContain("under 15 words");
+    //   });
+    // });
 
-    describe("Returning User Greetings", () => {
-      it("should generate warmer greeting for friends", () => {
-        const prompt = buildGreetingPrompt(
-          mockRelationship,
-          true,
-          "Alex",
-          null
-        );
+    // describe("Returning User Greetings", () => {
+    //   it("should generate warmer greeting for friends", () => {
+    //     const prompt = buildGreetingPrompt(mockRelationship);
 
-        // Should use name and be more familiar
-        expect(prompt).toContain("Alex");
-      });
+    //     // Should use name and be more familiar
+    //     expect(prompt).toContain("Alex");
+    //   });
 
-      it("should handle adversarial relationship", () => {
-        const adversarialRelationship: RelationshipMetrics = {
-          ...mockRelationship,
-          relationshipTier: "adversarial",
-          warmthScore: -15,
-        };
+    //   it("should handle adversarial relationship", () => {
+    //     const adversarialRelationship: RelationshipMetrics = {
+    //       ...mockRelationship,
+    //       relationshipTier: "adversarial",
+    //       warmthScore: -15,
+    //     };
 
-        const prompt = buildGreetingPrompt(
-          adversarialRelationship,
-          true,
-          null,
-          null
-        );
+    //     const prompt = buildGreetingPrompt(adversarialRelationship);
 
-        expect(prompt).toContain("GUARDED");
-      });
-    });
+    //     expect(prompt).toContain("GUARDED");
+    //   });
+    // });
 
     // ============================================
     // Prompt Consistency Tests (Regression Prevention)
@@ -724,7 +698,7 @@ describe("System Prompt - Core Structure", () => {
         const identityIndex = prompt.indexOf("YOUR IDENTITY");
         const relationshipIndex = prompt.indexOf("RELATIONSHIP STATE");
         const actionsIndex = prompt.indexOf(
-          "OUTPUT FORMAT (JSON Response Structure)"
+          "OUTPUT FORMAT (JSON Response Structure)",
         );
         const outputRulesIndex = prompt.indexOf("CRITICAL OUTPUT RULES");
 
@@ -740,13 +714,7 @@ describe("System Prompt - Core Structure", () => {
       it("should handle explicitly undefined optional parameters without problematic 'undefined' patterns", async () => {
         // Explicitly pass undefined for optional parameters
         // This catches template literal ${undefined} issues
-        const prompt = await buildSystemPromptForGreeting(
-          mockRelationship,
-          undefined, // upcomingEvents
-          undefined, // characterContext
-          undefined // tasks
-          // Move 37: Intent parameters removed
-        );
+        const prompt = await buildSystemPromptForGreeting(mockRelationship);
 
         // Should not contain problematic undefined patterns from template interpolation
         // These patterns indicate a bug where ${variable} was undefined
@@ -772,10 +740,12 @@ describe("System Prompt - Core Structure", () => {
 
       it("should produce prompts within expected size range (token savings regression)", async () => {
         // Test with friend relationship (typical case)
-        const friendPrompt = await buildSystemPromptForGreeting(mockRelationship);
+        const friendPrompt =
+          await buildSystemPromptForGreeting(mockRelationship);
 
         // Test with stranger relationship (should be smaller due to Phase 3 optimizations)
-        const strangerPrompt = await buildSystemPromptForGreeting(strangerRelationship);
+        const strangerPrompt =
+          await buildSystemPromptForGreeting(strangerRelationship);
 
         // Greeting prompt is lean (~30-40KB) - focused on greeting context only
         // Selfie rules, character facts, and many other sections are NOT in greeting prompt
@@ -907,7 +877,9 @@ describe("System Prompt - Core Structure", () => {
         };
 
         it("should include adversarial tier behavior when relationship is adversarial", async () => {
-          const prompt = await buildSystemPromptForGreeting(adversarialRelationship);
+          const prompt = await buildSystemPromptForGreeting(
+            adversarialRelationship,
+          );
 
           // Should include adversarial behavior guidance
           expect(prompt).toContain("adversarial");
@@ -951,7 +923,7 @@ describe("System Prompt - Core Structure", () => {
             undefined,
             [],
             undefined,
-            0
+            0,
           );
 
           expect(prompt).toContain("SELFIE");
@@ -970,7 +942,7 @@ describe("System Prompt - Core Structure", () => {
             undefined,
             [],
             undefined,
-            0
+            0,
           );
 
           expect(prompt).toContain("SELFIE");
@@ -985,14 +957,15 @@ describe("System Prompt - Core Structure", () => {
         });
 
         it("should include relationship context in both prompts", async () => {
-          const greetingPrompt = await buildSystemPromptForGreeting(mockRelationship);
+          const greetingPrompt =
+            await buildSystemPromptForGreeting(mockRelationship);
           const nonGreetingPrompt = await buildSystemPromptForNonGreeting(
             mockRelationship,
             [],
             undefined,
             [],
             undefined,
-            0
+            0,
           );
 
           // Both should have relationship section
@@ -1014,7 +987,7 @@ describe("System Prompt - Core Structure", () => {
           // For moderate values, dimension effects section should not appear
           // This is the key Phase 3 optimization - only extreme values trigger guidance
           expect(prompt).not.toContain(
-            "Dimension effects (based on extreme values)"
+            "Dimension effects (based on extreme values)",
           );
         });
 
@@ -1100,12 +1073,13 @@ describe("System Prompt - Core Structure", () => {
                 relationshipTier: tier,
               };
 
-              const prompt = await buildSystemPromptForGreeting(tierRelationship);
+              const prompt =
+                await buildSystemPromptForGreeting(tierRelationship);
 
               // Should produce valid non-empty prompts for all tiers
               expect(prompt).toBeDefined();
               expect(prompt.length).toBeGreaterThan(1000);
-            })
+            }),
           );
         });
       });

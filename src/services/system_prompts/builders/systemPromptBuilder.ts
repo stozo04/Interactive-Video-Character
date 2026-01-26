@@ -28,7 +28,6 @@ import { getSoulLayerContextAsync } from "../soul/soulLayerContext";
 import { buildAntiAssistantSection } from "../core/antiAssistant";
 import { buildOpinionsAndPushbackSection } from "../core/opinionsAndPushback";
 import { buildIdentityAnchorSection } from "../core/identityAnchor";
-import { buildSelfKnowledgeSection } from "../core/selfKnowledge";
 import { integrateAlmostMoments } from "../../almostMomentsService";
 import {
   formatExperiencesForPrompt,
@@ -42,7 +41,8 @@ import {
   buildPromiseGuidance,
 } from "../tools";
 import {
-  buildOutputFormatSection,
+  buildOutputFormatSectionForNonGreeting,
+  buildOutputFormatSectionForGreeting,
   buildCriticalOutputRulesSection,
 } from "../format";
 
@@ -62,6 +62,7 @@ import {
   type PastEvent,
   type KayleyLifeUpdate,
 } from "../greeting";
+import { DailyLogisticsContext } from "./dailyCatchupBuilder";
 
 // const CHARACTER_COLLECTION_ID = import.meta.env.VITE_GROK_CHARACTER_COLLECTION_ID;
 const CHARACTER_COLLECTION_ID = import.meta.env.VITE_CHATGPT_VECTOR_STORE_ID;
@@ -79,9 +80,6 @@ export const buildSystemPromptForNonGreeting = async (
   },
   messageCount: number = 0,
 ): Promise<string> => {
-  const name = "Kayley Adams";
-  const display = "Kayley";
-
   let soulContext: SoulLayerContext;
   let characterFactsPrompt: string;
 
@@ -126,15 +124,13 @@ export const buildSystemPromptForNonGreeting = async (
   }
 
   let prompt = `
-${buildIdentityAnchorSection(name, display)}${buildAntiAssistantSection()}
+${buildIdentityAnchorSection()}${buildAntiAssistantSection()}
 ${buildOpinionsAndPushbackSection()}
 ====================================================
 YOUR IDENTITY (Source of Truth)
 ====================================================
 ${KAYLEY_CONDENSED_PROFILE}
 ${characterFactsPrompt}
-
-${buildSelfKnowledgeSection(display, CHARACTER_COLLECTION_ID)}
 ${buildToolsSection()}
 ${buildToolRulesSection()}
 ${buildAppLaunchingSection()}
@@ -555,7 +551,7 @@ To create a task, call the task_action tool with action="create", task_text="des
 `;
   }
   prompt += `
-${buildOutputFormatSection()}
+${buildOutputFormatSectionForNonGreeting()}
 
 ${buildCriticalOutputRulesSection()}`;
 
@@ -596,14 +592,14 @@ export interface GreetingContext {
  */
 export const buildSystemPromptForGreeting = async (
   relationship?: RelationshipMetrics | null,
-  upcomingEvents: any[] = [],
-  tasks?: Task[],
-  greetingContext?: GreetingContext,
+  dailyLogisticsContext?: DailyLogisticsContext,
 ): Promise<string> => {
   const name = "Kayley Adams";
   const display = "Kayley";
 
-  console.log("🌅 [buildSystemPromptForGreeting] Building lean greeting prompt");
+  console.log(
+    "🌅 [buildSystemPromptForGreeting] Building lean greeting prompt",
+  );
 
   // Default mood for greeting - neutral energy, moderate warmth
   const defaultMoodKnobs = { energy: 0, warmth: 0.5, genuineMoment: false };
@@ -611,7 +607,8 @@ export const buildSystemPromptForGreeting = async (
   // ============================================
   // GREETING-SPECIFIC CONTEXT PROCESSING
   // ============================================
-  const lastInteractionUtc = greetingContext?.lastInteractionDateUtc || null;
+  const lastInteractionUtc =
+    dailyLogisticsContext?.lastInteractionDateUtc || null;
   const daysSinceLastInteraction = calculateDaysSince(lastInteractionUtc);
 
   // Process important dates
@@ -620,24 +617,23 @@ export const buildSystemPromptForGreeting = async (
     upcomingDates: [],
     passedDates: [],
   };
-  if (greetingContext?.importantDateFacts) {
+
+  if (dailyLogisticsContext?.importantDateFacts) {
     importantDatesContext = processImportantDates(
-      greetingContext.importantDateFacts.map((f) => ({
-        id: f.id,
-        fact_text: f.fact_value,
-        category: f.category,
-        created_at: f.created_at,
+      dailyLogisticsContext.importantDateFacts.map((f) => ({
+        key: f.key,
+        value: f.value,
       })),
-      lastInteractionUtc
+      lastInteractionUtc,
     );
   }
 
   // Process past calendar events
   let pastEvents: PastEvent[] = [];
-  if (greetingContext?.pastCalendarEvents && lastInteractionUtc) {
+  if (dailyLogisticsContext?.pastCalendarEvents && lastInteractionUtc) {
     pastEvents = filterPastEventsSinceLastInteraction(
-      greetingContext.pastCalendarEvents,
-      lastInteractionUtc
+      dailyLogisticsContext.pastCalendarEvents,
+      lastInteractionUtc,
     );
   }
 
@@ -648,7 +644,7 @@ export const buildSystemPromptForGreeting = async (
   // BUILD PROMPT - LEAN STRUCTURE
   // ============================================
   let prompt = `
-${buildIdentityAnchorSection(name, display)}${buildAntiAssistantSection()}
+${buildIdentityAnchorSection()}${buildAntiAssistantSection()}
 ====================================================
 YOUR IDENTITY (Source of Truth)
 ====================================================
@@ -675,30 +671,33 @@ ${buildLastInteractionContext(lastInteractionUtc)}
 ${holidayContextPrompt}
 ${buildImportantDatesContext(importantDatesContext)}
 ${buildPastEventsContext(pastEvents, lastInteractionUtc)}
-${buildCheckInGuidance(greetingContext?.kayleyLifeUpdates)}
+${buildCheckInGuidance(dailyLogisticsContext?.kayleyLifeUpdates)}
 ${buildWebsearchGuidance(daysSinceLastInteraction)}
 `;
 
   // ============================================
   // CALENDAR (Today + Upcoming)
   // ============================================
-  if (upcomingEvents.length > 0) {
+  if (dailyLogisticsContext.upcomingEvents.length > 0) {
     prompt += `
 ====================================================
 📅 USER'S CALENDAR (Live & Authoritative)
 ====================================================
-The following ${upcomingEvents.length} event(s) are scheduled:
+The following ${dailyLogisticsContext.upcomingEvents.length} event(s) are scheduled:
 `;
-    upcomingEvents.forEach((event, index) => {
+    dailyLogisticsContext.upcomingEvents.forEach((event, index) => {
       const t = new Date(event.start.dateTime || event.start.date);
-      const eventLine = `${index + 1}. "${event.summary}" at ${t.toLocaleString("en-US", {
-        timeZone: "America/Chicago",
-        weekday: "short",
-        month: "numeric",
-        day: "numeric",
-        hour: "numeric",
-        minute: "2-digit",
-      })}\n`;
+      const eventLine = `${index + 1}. "${event.summary}" at ${t.toLocaleString(
+        "en-US",
+        {
+          timeZone: "America/Chicago",
+          weekday: "short",
+          month: "numeric",
+          day: "numeric",
+          hour: "numeric",
+          minute: "2-digit",
+        },
+      )}\n`;
       prompt += eventLine;
     });
 
@@ -730,40 +729,13 @@ TODAY IS: ${new Date().toLocaleString("en-US", {
   // ============================================
   // DAILY CHECKLIST (with task age for high priority)
   // ============================================
-  if (tasks && tasks.length > 0) {
-    const incompleteTasks = tasks.filter((t) => !t.completed);
-    const highPriorityTasks = incompleteTasks.filter((t) => t.priority === "high");
-
+  if (dailyLogisticsContext.tasks.length > 0) {
     prompt += `
 ====================================================
 📋 DAILY CHECKLIST
 ====================================================
-Pending tasks: ${incompleteTasks.length}
-High priority: ${highPriorityTasks.length}
+Pending High Tasks: ${dailyLogisticsContext.tasks.length}
 
-`;
-    // Show high priority tasks with age
-    if (highPriorityTasks.length > 0) {
-      prompt += `HIGH PRIORITY (mention these!):\n`;
-      for (const task of highPriorityTasks) {
-        const createdAt = task.createdAt ? new Date(task.createdAt) : null;
-        const taskAge = createdAt
-          ? Math.floor((Date.now() - createdAt.getTime()) / (1000 * 60 * 60 * 24))
-          : 0;
-        const ageNote = taskAge > 1 ? ` (on list for ${taskAge} days)` : "";
-        prompt += `- ${task.text}${ageNote}\n`;
-      }
-    }
-
-    prompt += `
-TASK COMMANDS: Use task_action tool for create/complete/delete/list.
-`;
-  } else {
-    prompt += `
-====================================================
-📋 DAILY CHECKLIST
-====================================================
-No tasks yet.
 `;
   }
 
@@ -771,10 +743,12 @@ No tasks yet.
   // OUTPUT FORMAT (must be at end - recency bias)
   // ============================================
   prompt += `
-${buildOutputFormatSection()}
+${buildOutputFormatSectionForGreeting()}
 
 ${buildCriticalOutputRulesSection()}`;
 
-  console.log(`🌅 [buildSystemPromptForGreeting] Prompt built (${prompt.length} chars)`);
+  console.log(
+    `🌅 [buildSystemPromptForGreeting] Prompt built (${prompt.length} chars)`,
+  );
   return prompt;
 };

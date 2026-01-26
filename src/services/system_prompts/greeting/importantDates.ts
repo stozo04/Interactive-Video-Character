@@ -9,6 +9,7 @@
  * Dates are stored in user_facts with format: "YYYY-MM-DD" or "MM-DD" or "Month Day"
  */
 
+import { ImportantDateFacts } from "../builders/dailyCatchupBuilder";
 import { getTodayCst, utcToCst } from "./timezoneUtils";
 
 export interface ImportantDate {
@@ -35,7 +36,7 @@ export interface ImportantDatesContext {
  * Supports formats: "MM-DD", "YYYY-MM-DD", "Month Day" (e.g., "July 1st")
  */
 export function parseMonthDay(
-  dateStr: string
+  dateStr: string,
 ): { month: number; day: number } | null {
   // Try MM-DD format
   const mmddMatch = dateStr.match(/^(\d{1,2})-(\d{1,2})$/);
@@ -57,8 +58,18 @@ export function parseMonthDay(
 
   // Try "Month Day" format (e.g., "July 1st", "July 1")
   const monthNames: Record<string, number> = {
-    january: 1, february: 2, march: 3, april: 4, may: 5, june: 6,
-    july: 7, august: 8, september: 9, october: 10, november: 11, december: 12,
+    january: 1,
+    february: 2,
+    march: 3,
+    april: 4,
+    may: 5,
+    june: 6,
+    july: 7,
+    august: 8,
+    september: 9,
+    october: 10,
+    november: 11,
+    december: 12,
   };
   const monthDayMatch = dateStr.toLowerCase().match(/^(\w+)\s+(\d{1,2})/);
   if (monthDayMatch && monthNames[monthDayMatch[1]]) {
@@ -75,13 +86,8 @@ export function parseMonthDay(
  * Process a list of date facts from user_facts and categorize them
  */
 export function processImportantDates(
-  dateFacts: Array<{
-    id: string;
-    fact_text: string;
-    category: string;
-    created_at?: string;
-  }>,
-  lastInteractionDateUtc?: Date | string | null
+  dateFacts: ImportantDateFacts[],
+  lastInteractionDateUtc: Date | string,
 ): ImportantDatesContext {
   const { year, month: currentMonth, day: currentDay } = getTodayCst();
   const today = new Date(year, currentMonth - 1, currentDay);
@@ -97,7 +103,8 @@ export function processImportantDates(
   };
 
   for (const fact of dateFacts) {
-    const parsed = parseMonthDay(fact.fact_text);
+    console.log("FACT: ", fact);
+    const parsed = parseMonthDay(fact.key);
     if (!parsed) continue;
 
     const { month, day } = parsed;
@@ -112,27 +119,28 @@ export function processImportantDates(
     }
     const daysUntil = isToday
       ? 0
-      : Math.ceil((targetDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+      : Math.ceil(
+          (targetDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24),
+        );
 
     // Check if it passed since last interaction
     let isPassed = false;
     let daysSincePassed: number | undefined;
-
+    console.log("lastInteraction: ", lastInteraction);
     if (lastInteraction) {
       const thisYearOccurrence = new Date(year, month - 1, day);
       if (thisYearOccurrence < today && thisYearOccurrence > lastInteraction) {
         isPassed = true;
         daysSincePassed = Math.floor(
-          (today.getTime() - thisYearOccurrence.getTime()) / (1000 * 60 * 60 * 24)
+          (today.getTime() - thisYearOccurrence.getTime()) /
+            (1000 * 60 * 60 * 24),
         );
       }
     }
 
-    const importantDate: ImportantDate = {
-      id: fact.id,
-      label: `${fact.category}: ${fact.fact_text}`,
-      category: fact.category,
-      date: fact.fact_text,
+    const importantDate: any = {
+      label: `${fact.key}: ${fact.value}`,
+      date: fact.value,
       parsedMonth: month,
       parsedDay: day,
       daysUntil,
@@ -140,6 +148,8 @@ export function processImportantDates(
       isPassed,
       daysSincePassed,
     };
+
+    console.log("importantDate: ", importantDate);
 
     if (isToday) {
       result.todayDates.push(importantDate);
@@ -152,8 +162,10 @@ export function processImportantDates(
 
   // Sort by days
   result.upcomingDates.sort((a, b) => a.daysUntil - b.daysUntil);
-  result.passedDates.sort((a, b) => (a.daysSincePassed || 0) - (b.daysSincePassed || 0));
-
+  result.passedDates.sort(
+    (a, b) => (a.daysSincePassed || 0) - (b.daysSincePassed || 0),
+  );
+  console.log("result: ", result);
   return result;
 }
 

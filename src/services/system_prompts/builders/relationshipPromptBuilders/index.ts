@@ -1,12 +1,7 @@
-import { getAcquaintanceRelationshipPrompt } from "./acquaintanceRelationshipPrompt";
-import { getAdversarialRelationshipPrompt } from "./adversarialRelationshipPrompt";
-import { getCloseFriendRelationshipPrompt } from "./closeFriendRelationshipPrompt";
-import { getDeeplyLovingRelationshipPrompt } from "./deeplyLovingRelationshipPrompt";
-import { getFriendRelationshipPrompt } from "./friendRelationshipPrompt";
-import { getNeutralNegativeRelationshipPrompt } from "./neutralNegativeRelationshipPrompt";
 import { buildCompactRelationshipContext } from "../../context/messageContext";
 import { buildDynamicDimensionEffects } from "../../relationship/dimensionEffects";
 import type { RelationshipMetrics, KayleyMood } from "../../types";
+import { getAcquaintanceRelationshipPrompt, getAdversarialRelationshipPrompt, getCloseFriendRelationshipPrompt, getDeeplyLovingRelationshipPrompt, getFriendRelationshipPrompt, getNeutralNegativeRelationshipPrompt } from "./relationshipPromptBuilder";
 
 /**
  * Main entry point for relationship context building.
@@ -24,25 +19,25 @@ export function buildRelationshipTierPrompt(
   switch (tier) {
     case "adversarial":
     case "rival":
-      tierBehavior = getAdversarialRelationshipPrompt(relationship, moodKnobs, isInappropriate);
+      tierBehavior = getAdversarialRelationshipPrompt();
       break;
     case "neutral_negative":
-      tierBehavior = getNeutralNegativeRelationshipPrompt(relationship, moodKnobs, isInappropriate);
+      tierBehavior = getNeutralNegativeRelationshipPrompt();
       break;
     case "acquaintance":
-      tierBehavior = getAcquaintanceRelationshipPrompt(relationship, moodKnobs, isInappropriate);
+      tierBehavior = getAcquaintanceRelationshipPrompt();
       break;
     case "friend":
-      tierBehavior = getFriendRelationshipPrompt(relationship, moodKnobs, isInappropriate);
+      tierBehavior = getFriendRelationshipPrompt();
       break;
     case "close_friend":
-      tierBehavior = getCloseFriendRelationshipPrompt(relationship, moodKnobs, isInappropriate);
+      tierBehavior = getCloseFriendRelationshipPrompt();
       break;
     case "deeply_loving":
-      tierBehavior = getDeeplyLovingRelationshipPrompt(relationship, moodKnobs, isInappropriate);
+      tierBehavior = getDeeplyLovingRelationshipPrompt();
       break;
     default:
-      tierBehavior = getAcquaintanceRelationshipPrompt(relationship, moodKnobs, isInappropriate);
+      tierBehavior = getAcquaintanceRelationshipPrompt();
   }
 
   const compactContext = buildCompactRelationshipContext(relationship);

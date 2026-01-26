@@ -6,6 +6,7 @@
  */
 
 export {
-  buildOutputFormatSection,
+  buildOutputFormatSectionForNonGreeting,
+  buildOutputFormatSectionForGreeting,
   buildCriticalOutputRulesSection,
 } from "./outputFormat";

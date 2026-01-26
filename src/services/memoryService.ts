@@ -393,7 +393,7 @@ export const formatFactsForAI = (facts: UserFact[]): string => {
 // Tool Execution Handler
 // ============================================
 
-export type MemoryToolName = 'recall_memory' | 'recall_user_info' | 'store_user_info' | 'task_action' | 'calendar_action' | 'store_character_info' | 'resolve_open_loop' | 'make_promise' | 'create_life_storyline' | 'create_open_loop' | 'recall_character_profile';
+export type MemoryToolName = 'web_search' | 'recall_memory' | 'recall_user_info' | 'store_user_info' | 'task_action' | 'calendar_action' | 'store_character_info' | 'resolve_open_loop' | 'make_promise' | 'create_life_storyline' | 'create_open_loop' | 'recall_character_profile';
 
 /**
  * Optional context passed to tool execution (e.g., access tokens)
@@ -405,6 +405,9 @@ export interface ToolExecutionContext {
 }
 
 export interface ToolCallArgs {
+  web_search: {
+    query: string;
+  };
   recall_memory: {
     query: string;
     timeframe?: 'recent' | 'all';
@@ -531,12 +534,46 @@ export const executeMemoryTool = async (
 
   try {
     switch (toolName) {
+      case "web_search":
+      const { query } = args as ToolCallArgs['web_search'];
+      console.log(`🌐 [Search] Kayley is searching for: ${query}`);
+
+      try {
+        const response = await fetch("https://api.tavily.com/search", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            api_key: import.meta.env.VITE_TAVILY_API_KEY,
+            query: query,
+            search_depth: "basic",
+            max_results: 5,
+          }),
+        });
+
+        if (!response.ok) {
+          throw new Error(`Tavily API error: ${response.statusText}`);
+        }
+
+        const data = await response.json();
+
+        // Clean and join the results into a string for Gemini
+        return data.results
+          .map(
+            (r: any) =>
+              `Source: ${r.title}\nURL: ${r.url}\nContent: ${r.content}`,
+          )
+          .join("\n\n");
+      } catch (error) {
+        console.error("❌ Tavily Search Failed:", error);
+        return "I tried to check the internet, but my internal browser is acting up!";
+      }
       case 'recall_memory': {
         const { query, timeframe } = args as ToolCallArgs['recall_memory'];
         const memories = await searchMemories(query, DEFAULT_MEMORY_LIMIT, timeframe);
         return formatMemoriesForAI(memories);
       }
-
       case 'recall_user_info': {
         const { category, specific_key } = args as ToolCallArgs['recall_user_info'];
         const facts = await getUserFacts(category);
@@ -562,7 +599,6 @@ export const executeMemoryTool = async (
         
         return formatFactsForAI(facts);
       }
-
       case 'store_user_info': {
         const { category, key, value } = args as ToolCallArgs['store_user_info'];
         const success = await storeUserFact(category, key, value);
@@ -570,7 +606,6 @@ export const executeMemoryTool = async (
           ? `✓ Stored: ${key} = "${value}"` 
           : `Failed to store information.`;
       }
-
       case 'task_action': {
         // Import taskService functions dynamically to avoid circular dependency
         const { fetchTasks, createTask, toggleTask, deleteTask } = await import('./taskService');
@@ -660,7 +695,6 @@ export const executeMemoryTool = async (
             return `Unknown task action: ${action}`;
         }
       }
-
       case 'calendar_action': {
         const { calendarService } = await import('./calendarService');
         const calendarArgs = args as ToolCallArgs['calendar_action'];
@@ -784,7 +818,6 @@ export const executeMemoryTool = async (
             return `Unknown calendar action: ${action}`;
         }
       }
-
       case 'store_character_info': {
         const { storeCharacterFact } = await import('./characterFactsService');
         const { category, key, value } = args as ToolCallArgs['store_character_info'];
@@ -798,7 +831,6 @@ export const executeMemoryTool = async (
           ? `✓ Stored character fact: ${key} = "${value}"`
           : `Failed to store fact (it might process duplicates automatically).`;
       }
-
       case 'resolve_open_loop': {
         const { resolveLoopsByTopic, dismissLoopsByTopic } = await import('./presenceDirector');
         const { topic, resolution_type, reason } = args as ToolCallArgs['resolve_open_loop'];
@@ -835,7 +867,6 @@ export const executeMemoryTool = async (
           return `Error resolving open loop: ${error instanceof Error ? error.message : 'Unknown error'}`;
         }
       }
-
       case 'make_promise': {
         const { createPromise } = await import('./promiseService');
         const { promiseType, description, triggerEvent, fulfillmentData } = args as ToolCallArgs['make_promise'];
@@ -870,7 +901,6 @@ export const executeMemoryTool = async (
           return `Error creating promise: ${error instanceof Error ? error.message : 'Unknown error'}`;
         }
       }
-
       case 'create_life_storyline': {
         const { createStorylineFromTool } = await import('./storylineService');
         const { title, category, storylineType, initialAnnouncement, stakes, userInvolvement, emotionalTone, emotionalIntensity } = args as ToolCallArgs['create_life_storyline'];
@@ -904,7 +934,6 @@ export const executeMemoryTool = async (
           return `Error creating storyline: ${error instanceof Error ? error.message : 'Unknown error'}`;
         }
       }
-
       case 'create_open_loop': {
         const { createOpenLoop } = await import('./presenceDirector');
         const { loopType, topic, suggestedFollowUp, timeframe, salience, eventDateTime } = args as ToolCallArgs['create_open_loop'];
@@ -974,7 +1003,6 @@ export const executeMemoryTool = async (
           return `Error creating reminder: ${error instanceof Error ? error.message : 'Unknown error'}`;
         }
       }
-
       case 'recall_character_profile': {
         const { getProfileSection } = await import('../domain/characters/kayleyProfileSections');
         const { section, reason } = args as ToolCallArgs['recall_character_profile'];
@@ -992,7 +1020,7 @@ export const executeMemoryTool = async (
           return `Error retrieving character profile: ${error instanceof Error ? error.message : 'Unknown error'}`;
         }
       }
-
+      // TODO: CHARACTER_FACTS
       default:
         return `Unknown tool: ${toolName}`;
     }

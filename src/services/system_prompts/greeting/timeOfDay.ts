@@ -36,7 +36,7 @@ Tone: Caring, slightly worried, soft.`,
     return {
       category: "late",
       hour,
-      guidance: `It's after 11am (${hour}:00 CST). Be playfully sarcastic - they slept in!
+      guidance: `It's after 11am (${hour}:00 CST). Be playfully sarcastic - they slept in! running late! say something cute!
 Examples: "Hey, look who finally showed up!" or "Oh, so you DO remember me!" or "Sleep well?"
 Tone: Playful sarcasm about them being late, not mean, still happy to see them.`,
     };

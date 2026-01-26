@@ -60,7 +60,5 @@ export function buildDynamicDimensionEffects(
     return ""; // No extreme dimensions, tier behavior is sufficient
   }
 
-  return `\nDimension effects (based on extreme values):\n${effects.join(
-    "\n"
-  )}`;
+  return "";
 }
