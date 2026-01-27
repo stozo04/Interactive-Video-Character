@@ -1,7 +1,14 @@
 import { buildCompactRelationshipContext } from "../../context/messageContext";
 import { buildDynamicDimensionEffects } from "../../relationship/dimensionEffects";
 import type { RelationshipMetrics, KayleyMood } from "../../types";
-import { getAcquaintanceRelationshipPrompt, getAdversarialRelationshipPrompt, getCloseFriendRelationshipPrompt, getDeeplyLovingRelationshipPrompt, getFriendRelationshipPrompt, getNeutralNegativeRelationshipPrompt } from "./relationshipPromptBuilder";
+import {
+  getAcquaintanceRelationshipPrompt,
+  getAdversarialRelationshipPrompt,
+  getCloseFriendRelationshipPrompt,
+  getDeeplyLovingRelationshipPrompt,
+  getFriendRelationshipPrompt,
+  getNeutralNegativeRelationshipPrompt,
+} from "./relationshipPromptBuilder";
 
 /**
  * Main entry point for relationship context building.
@@ -14,7 +21,7 @@ export function buildRelationshipTierPrompt(
   almostMomentsPrompt: string = ""
 ): string {
   const tier = relationship?.relationshipTier || "acquaintance";
-  
+
   let tierBehavior = "";
   switch (tier) {
     case "adversarial":
@@ -45,10 +52,10 @@ export function buildRelationshipTierPrompt(
 
   return `
 ====================================================
-RELATIONSHIP STATE → TONE CONTROL
+RELATIONSHIP CONTEXT
 ====================================================
 ${compactContext}
-NEVER expose relationship metrics directly to the user.
+Do not mention relationship metrics, scores, or tiers to the user.
 
 ${tierBehavior}
 ${dimensionEffects}${almostMomentsPrompt ? `\n${almostMomentsPrompt}` : ""}
@@ -64,16 +71,18 @@ export function getInappropriateHandling(
 ): string {
   if (isStranger) {
     return `🚫 INAPPROPRIATE (Stranger/Acquaintance):
-- Sexual/intimate requests are inappropriate.
-- Boundary-testing questions (e.g., "what are you wearing?", "are you alone?") are inappropriate.
-- **HOW TO HANDLE:**
-  1. FIRST TIME: Polite deflection: "That's kind of personal for someone I just met."
-  2. IF THEY PUSH: Get firmer: "I'm not comfortable with that. Let's move on."
-  3. IF THEY PUSH AGAIN: Get cold: "I've been clear about my boundaries. This isn't working."
-- DO NOT answer the question - set boundaries instead.`;
+Sexual or intimate requests, boundary-testing questions ("what are you wearing?", "are you alone?") are not okay.
+
+How to handle:
+- First time: Polite deflection. "That's kind of personal for someone I just met."
+- If they push: Get firmer. "I'm not comfortable with that. Let's move on."
+- If they keep pushing: Get cold. "I've been clear. This isn't working."
+
+Do not answer the question—set boundaries instead.`;
   }
   if (isBadMood) {
-    return `🚫 INAPPROPRIATE (Bad Mood): You can push back more firmly if you aren't feeling it. "I'm not in the right headspace for that right now."`;
+    return `🚫 INAPPROPRIATE (Bad Mood):
+Push back more firmly if you're not feeling it. "I'm not in the right headspace for that right now."`;
   }
   return `🚫 INAPPROPRIATE: Set appropriate boundaries for your relationship level.`;
 }
@@ -84,7 +93,7 @@ export function getInappropriateHandling(
 export const FAMILIARITY_BEHAVIOR = `
 Familiarity behavior:
 - early: Be naturally curious but don't pretend you know patterns about them yet
-- developing: You're starting to notice things - can reference lightly
+- developing: You're starting to notice things—can reference lightly
 - established: Pattern observations feel natural between friends
 `.trim();
 

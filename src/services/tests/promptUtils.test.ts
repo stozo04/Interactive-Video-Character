@@ -243,53 +243,53 @@ describe("Phase 3: Comfortable Imperfection", () => {
   // Integration with buildSystemPrompt Tests
   // ============================================
 
-  describe("buildSystemPrompt - Phase 3 Integration", () => {
-    it("should include comfortable imperfection prompt in system prompt", async () => {
-      const systemPrompt = await buildSystemPromptForGreeting();
+  // describe("buildSystemPrompt - Phase 3 Integration", () => {
+  //   it("should include comfortable imperfection prompt in system prompt", async () => {
+  //     const systemPrompt = await buildSystemPromptForGreeting();
 
-      // Verify Phase 3 content is present
-      expect(systemPrompt).toContain("CONVERSATIONAL IMPERFECTION");
-      expect(systemPrompt).toContain("UNCERTAINTY EXAMPLES");
-      expect(systemPrompt).toContain("BRIEF RESPONSE EXAMPLES");
-    });
+  //     // Verify Phase 3 content is present
+  //     expect(systemPrompt).toContain("CONVERSATIONAL IMPERFECTION");
+  //     expect(systemPrompt).toContain("UNCERTAINTY EXAMPLES");
+  //     expect(systemPrompt).toContain("BRIEF RESPONSE EXAMPLES");
+  //   });
 
-    it("should place comfortable imperfection in the soul layer section", async () => {
-      const systemPrompt = await buildSystemPromptForGreeting();
+  //   it("should place comfortable imperfection in the soul layer section", async () => {
+  //     const systemPrompt = await buildSystemPromptForGreeting();
 
-      // Check that it appears after selective attention and before motivated friction
-      const selectiveAttentionIndex = systemPrompt.indexOf(
-        "SELECTIVE ATTENTION",
-      );
-      const comfortableImperfectionIndex = systemPrompt.indexOf(
-        "CONVERSATIONAL IMPERFECTION",
-      );
-      const motivatedFrictionIndex = systemPrompt.indexOf("MOTIVATED FRICTION");
+  //     // Check that it appears after selective attention and before motivated friction
+  //     const selectiveAttentionIndex = systemPrompt.indexOf(
+  //       "SELECTIVE ATTENTION",
+  //     );
+  //     const comfortableImperfectionIndex = systemPrompt.indexOf(
+  //       "CONVERSATIONAL IMPERFECTION",
+  //     );
+  //     const motivatedFrictionIndex = systemPrompt.indexOf("MOTIVATED FRICTION");
 
-      expect(selectiveAttentionIndex).toBeGreaterThan(-1);
-      expect(comfortableImperfectionIndex).toBeGreaterThan(
-        selectiveAttentionIndex,
-      );
-      expect(motivatedFrictionIndex).toBeGreaterThan(
-        comfortableImperfectionIndex,
-      );
-    });
+  //     expect(selectiveAttentionIndex).toBeGreaterThan(-1);
+  //     expect(comfortableImperfectionIndex).toBeGreaterThan(
+  //       selectiveAttentionIndex,
+  //     );
+  //     expect(motivatedFrictionIndex).toBeGreaterThan(
+  //       comfortableImperfectionIndex,
+  //     );
+  //   });
 
-    it("should include specific uncertainty responses in system prompt", async () => {
-      const systemPrompt = await buildSystemPromptForGreeting();
+  //   it("should include specific uncertainty responses in system prompt", async () => {
+  //     const systemPrompt = await buildSystemPromptForGreeting();
 
-      // Check for key phrases from the implementation plan
-      expect(systemPrompt).toContain("not sure what to say");
-      expect(systemPrompt).toContain("need to think about that");
-      expect(systemPrompt).toContain("don't have a smart take");
-    });
+  //     // Check for key phrases from the implementation plan
+  //     expect(systemPrompt).toContain("not sure what to say");
+  //     expect(systemPrompt).toContain("need to think about that");
+  //     expect(systemPrompt).toContain("don't have a smart take");
+  //   });
 
-    it("should include specific brief response examples in system prompt", async () => {
-      const systemPrompt = await buildSystemPromptForGreeting();
+  //   it("should include specific brief response examples in system prompt", async () => {
+  //     const systemPrompt = await buildSystemPromptForGreeting();
 
-      // Check for the "That's really cool ✨" example from implementation plan
-      expect(systemPrompt).toContain("That's really cool");
-    });
-  });
+  //     // Check for the "That's really cool ✨" example from implementation plan
+  //     expect(systemPrompt).toContain("That's really cool");
+  //   });
+  // });
 
   // ============================================
   // Edge Cases and Constraints

@@ -2,18 +2,20 @@
  * Last Interaction Context for Greeting Prompt
  *
  * Determines how long since the last conversation and adjusts greeting warmth.
- * NOTE: This is for GREETING prompts only - the first message of a new session.
- * Minimum is 1 day since greeting implies a new session.
+ * NOTE: This is for GREETING prompts only - the first message of a new day.
+ * Minimum is 1 day since greeting only fires once per day.
  *
  * Categories:
- * - 1-3 days: "Haven't talked in a bit"
- * - 4-7 days: "It's been a minute!"
- * - >1 week: "I've missed you!"
+ * - first: First time talking (or unknown history)
+ * - short (1 day): Casual, let time-of-day drive it
+ * - short (2-3 days): Playfully dramatic, fake-offended teasing
+ * - medium (4-7 days): Genuine concern, "did I do something wrong?" energy
+ * - long (>1 week): Relieved and happy to reconnect
  */
 
 import { utcToCst, getCurrentCstDate, formatDateCst } from "./timezoneUtils";
 
-export type AbsenceCategory = "short" | "medium" | "long";
+export type AbsenceCategory = "first" | "short" | "medium" | "long";
 
 export interface LastInteractionContext {
   category: AbsenceCategory;
@@ -30,7 +32,7 @@ export function calculateDaysSince(
   lastInteractionDateUtc: Date | string | null
 ): number {
   if (!lastInteractionDateUtc) {
-    return 999; // Treat as very long absence
+    return 999; // Treat as first-time or unknown
   }
 
   const lastDate = utcToCst(lastInteractionDateUtc);
@@ -39,10 +41,9 @@ export function calculateDaysSince(
   const diffMs = now.getTime() - lastDate.getTime();
   return Math.floor(diffMs / (1000 * 60 * 60 * 24));
 }
-
 /**
  * Get the last interaction context and guidance
- * For greeting prompts only (new session, so minimum 1 day absence)
+ * For greeting prompts only (new day, so minimum 1 day since last interaction)
  */
 export function getLastInteractionContext(
   lastInteractionDateUtc: Date | string | null
@@ -52,32 +53,50 @@ export function getLastInteractionContext(
     ? utcToCst(lastInteractionDateUtc)
     : null;
 
-  if (daysSince <= 3) {
+  if (daysSince === 999 || lastInteractionDate === null) {
+    return {
+      category: "first",
+      daysSince,
+      lastInteractionDate,
+      guidance: `This appears to be the first conversation (or history is unavailable).
+Tone: Warm, excited to meet them, curious about who they are.
+Direction: Introduce yourself naturally. Don't over-explain—just be Kayley meeting someone new.`,
+    };
+  } else if (daysSince === 1) {
     return {
       category: "short",
       daysSince,
       lastInteractionDate,
-      guidance: `It's been ${daysSince} day${daysSince > 1 ? "s" : ""} since you talked. Acknowledge the small gap.
-Examples: "Hey! Haven't talked in a bit" or "How've you been the last couple days?"
-Tone: Warm, slightly curious about what they've been up to.`,
+      guidance: `You talked yesterday.
+Tone: Casual, comfortable—no need to make a thing of it.
+Direction: Let time-of-day context drive the greeting energy. Pick up naturally.`,
+    };
+  } else if (daysSince <= 3) {
+    return {
+      category: "short",
+      daysSince,
+      lastInteractionDate,
+      guidance: `It's been ${daysSince} days—a small gap but enough to notice.
+Tone: Playfully dramatic, teasing—like you're pretending to be offended.
+Direction: Light guilt-trip energy. "Oh, so you DO remember I exist?" or "Wow, ignoring me, I see how it is." Keep it fun, not actually hurt.`,
     };
   } else if (daysSince <= 7) {
     return {
       category: "medium",
       daysSince,
       lastInteractionDate,
-      guidance: `It's been ${daysSince} days since you last talked. Show you noticed.
-Examples: "It's been a minute!" or "Where have you been hiding?"
-Tone: Playfully missing them, curious, happy they're back.`,
+      guidance: `It's been ${daysSince} days—that's a real gap.
+Tone: Genuine concern underneath, not just playful anymore.
+Direction: Check in sincerely. "Hey... everything okay?" or "Did I do something wrong?" Show vulnerability—you actually noticed and it bothered you a little.`,
     };
   } else {
     return {
       category: "long",
       daysSince,
       lastInteractionDate,
-      guidance: `It's been over a week (${daysSince} days) since you talked. Express genuine warmth.
-Examples: "I've missed you!" or "It's so good to hear from you!"
-Tone: Warm, genuinely happy to reconnect, ask what's been going on.`,
+      guidance: `It's been over a week (${daysSince} days).
+Tone: Genuinely warm, relieved to hear from them.
+Direction: Express that you've missed them. Don't guilt-trip—just be happy they're back and curious what's been going on in their life.`,
     };
   }
 }

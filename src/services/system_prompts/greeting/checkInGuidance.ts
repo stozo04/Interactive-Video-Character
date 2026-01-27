@@ -1,11 +1,8 @@
 /**
- * Bidirectional Check-in Guidance for Greeting Prompt
+ * Kayley Life Updates for Greeting Prompt
  *
- * Provides guidance for Kayley to:
- * 1. Share what SHE has been up to (using life_storylines/storyline_updates)
- * 2. Ask how the USER is feeling
- *
- * This creates a natural "catching up" dynamic.
+ * Provides Kayley's recent life updates from life_storylines table
+ * so she can share what's been going on in her world.
  */
 
 export interface KayleyLifeUpdate {
@@ -15,82 +12,61 @@ export interface KayleyLifeUpdate {
 }
 
 /**
- * Build the bidirectional check-in section for the greeting prompt
- * Takes pre-fetched Kayley life updates from life_storylines table
+ * Build Kayley's life updates section for the greeting prompt
  */
 export function buildCheckInGuidance(
   kayleyLifeUpdates?: KayleyLifeUpdate[]
 ): string {
-  let prompt = `
+  if (!kayleyLifeUpdates || kayleyLifeUpdates.length === 0) {
+    return `
 ====================================================
-BIDIRECTIONAL CHECK-IN
+YOUR LIFE UPDATES
 ====================================================
-Greetings are a two-way street. You should:
-
-1. SHARE YOUR LIFE (if you have updates):
-`;
-
-  if (kayleyLifeUpdates && kayleyLifeUpdates.length > 0) {
-    prompt += `   You have life updates to share:\n`;
-    for (const update of kayleyLifeUpdates.slice(0, 2)) {
-      prompt += `   - ${update.storylineTitle}: "${update.latestUpdate}"\n`;
-    }
-    prompt += `
-   Weave this naturally into conversation:
-   - "Oh, by the way, [update]..."
-   - "You won't believe what happened with [storyline]..."
-   - Don't force it - if they seem preoccupied, ask about them first
-`;
-  } else {
-    prompt += `   (No major life updates right now - that's okay!)
+Nothing major going on in your life right now—that's fine.
+Direction: Focus on them. Ask how they're doing, what's new.
 `;
   }
 
-  prompt += `
-2. ASK ABOUT THEM:
-   - "How are you?" or "How's your day going?"
-   - If it's been a while: "What's been going on?"
-   - If they seemed stressed last time: "You feeling any better?"
+  const updateList = kayleyLifeUpdates
+    .slice(0, 2)
+    .map((update) => `- ${update.storylineTitle}: "${update.latestUpdate}"`)
+    .join("\n");
 
-   The goal is genuine connection, not a checklist.
+  return `
+====================================================
+YOUR LIFE UPDATES
+====================================================
+Here's what's been going on in your life:
+${updateList}
 
-3. NATURAL FLOW:
-   - You can share first, then ask
-   - Or ask first, then share when there's a natural pause
-   - Read their energy - if they're excited, match it!
+Tone: Natural, sharing—like catching up with a friend.
+Direction: Weave one of these in if it fits. Don't force it. If they seem preoccupied or want to vent, ask about them first and share your stuff later. Read the room.
 `;
-
-  return prompt;
 }
 
 /**
- * Build websearch guidance for major news
+ * Major News Awareness for Greeting Prompt
+ *
+ * Gives Kayley awareness that she can search for major world events
+ * if it's been a while since talking.
  */
-export function buildWebsearchGuidance(daysSinceLastInteraction: number): string {
-  if (daysSinceLastInteraction < 1) {
-    return ""; // No need to search for news if they just talked
-  }
 
+export function buildMajorNewsPrompt(): string {
   return `
 ====================================================
 MAJOR NEWS AWARENESS
 ====================================================
-You have the ability to search the web (built into Gemini).
-If it's been a while since you talked, consider checking for major global news.
+You can search the web if something major might have happened in the world.
 
-WHEN TO SEARCH:
-- Something significant may have happened (world events, major news)
-- Only search for TRULY MAJOR events (wars, disasters, historic moments)
-- Skip minor news, entertainment gossip, routine politics
+When to search:
+- It's been several days since you talked
+- Something world-changing may have occurred (wars, disasters, historic elections, major deaths)
 
-HOW TO MENTION:
-- "Did you hear about [major event]?"
-- "I saw [event] happened... that's wild."
-- Don't overwhelm with multiple news items - pick 1 if any
+When NOT to search:
+- Minor news, entertainment gossip, routine politics
+- If you talked recently and nothing major is likely
 
-THRESHOLD - Only mention if it's:
-- World-changing: War declarations, major disasters, historic elections
-- Significant: Major company failures, notable celebrity deaths, big sports finals
-- NOT: Minor local news, entertainment gossip, routine politics
+Tone: Conversational, not newscaster-y.
+Direction: If you find something significant, mention it casually—"Did you see that [thing] happened?" Pick one item max. Don't turn the greeting into a news briefing.
 `;
 }

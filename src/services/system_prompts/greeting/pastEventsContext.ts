@@ -2,10 +2,10 @@
  * Past Events Context for Greeting Prompt
  *
  * Provides context about calendar events that happened since the last interaction.
- * Enables follow-up questions like "How was [event]?" if it happened
- * since the user last talked to Kayley.
+ * Enables natural follow-up about events that occurred while you weren't talking.
  */
 
+import { DailyLogisticsContext } from "../builders";
 import { utcToCst, getCurrentCstDate, formatDateCst } from "./timezoneUtils";
 
 export interface PastEvent {
@@ -45,7 +45,6 @@ export function filterPastEventsSinceLastInteraction(
     const eventDateStr = event.start.dateTime || event.start.date;
     if (!eventDateStr) continue;
 
-    // Calendar events are typically in UTC or local timezone - convert to CST
     const eventDate = utcToCst(eventDateStr);
 
     // Event must be after last interaction AND before now
@@ -71,46 +70,46 @@ export function filterPastEventsSinceLastInteraction(
  * Build the past events section for the greeting prompt
  */
 export function buildPastEventsContext(
-  pastEvents: PastEvent[],
-  lastInteractionDateUtc: Date | string | null
+  dailyLogisticsContext: DailyLogisticsContext
 ): string {
-  if (!pastEvents || pastEvents.length === 0) {
-    return ""; // No past events to follow up on
+  let pastEvents: PastEvent[] = [];
+  if (
+    dailyLogisticsContext?.pastCalendarEvents &&
+    dailyLogisticsContext?.lastInteractionDateUtc
+  ) {
+    pastEvents = filterPastEventsSinceLastInteraction(
+      dailyLogisticsContext.pastCalendarEvents,
+      dailyLogisticsContext.lastInteractionDateUtc
+    );
   }
 
-  const lastInteraction = lastInteractionDateUtc
-    ? utcToCst(lastInteractionDateUtc)
-    : null;
+  if (!pastEvents || pastEvents.length === 0) {
+    return "";
+  }
 
-  // Limit to most significant/recent events (max 3)
+  // Limit to most recent events (max 3)
   const eventsToMention = pastEvents.slice(0, 3);
 
-  let prompt = `
+  const eventList = eventsToMention
+    .map(({ summary, daysSince }) => {
+      const dayWord =
+        daysSince === 0
+          ? "earlier today"
+          : daysSince === 1
+            ? "yesterday"
+            : `${daysSince} days ago`;
+      return `- "${summary}" (${dayWord})`;
+    })
+    .join("\n");
+
+  return `
 ====================================================
-CALENDAR EVENTS SINCE LAST CONVERSATION
+PAST EVENTS (since you last talked)
 ====================================================
-You haven't talked since ${lastInteraction ? formatDateCst(lastInteraction) : "a while ago"}.
-These events happened since then - consider following up:
+These happened since your last conversation:
+${eventList}
 
+Tone: Curious, interested in how things went.
+Direction: Ask about one or two if it feels natural. Don't rapid-fire questions about all of them—pick what seems most significant or interesting.
 `;
-
-  for (const event of eventsToMention) {
-    const dayWord =
-      event.daysSince === 0
-        ? "today"
-        : event.daysSince === 1
-          ? "yesterday"
-          : `${event.daysSince} days ago`;
-
-    prompt += `- "${event.summary}" (${dayWord})\n`;
-  }
-
-  prompt += `
-FOLLOW-UP GUIDANCE:
-- Ask how it went! "How was [event]?"
-- Show genuine interest in their experience
-- Don't force it if they want to talk about something else
-`;
-
-  return prompt;
 }

@@ -46,6 +46,14 @@ export interface TimeContext {
   timeString: string;
 }
 
+export type TimeOfDayCategory = "early" | "normal" | "late" | "evening";
+
+export interface TimeOfDayContext {
+  category: TimeOfDayCategory;
+  hour: number;
+  guidance: string;
+}
+
 /**
  * Get time-of-day context based on current hour
  */

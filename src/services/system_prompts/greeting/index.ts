@@ -63,6 +63,6 @@ export {
 // Check-in Guidance (bidirectional + websearch)
 export {
   buildCheckInGuidance,
-  buildWebsearchGuidance,
+  buildMajorNewsPrompt,
   type KayleyLifeUpdate,
 } from "./checkInGuidance";

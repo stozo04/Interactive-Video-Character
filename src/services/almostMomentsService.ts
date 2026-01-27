@@ -72,7 +72,7 @@ export interface AlmostExpression {
   followUp: string;
 }
 
-interface AlmostMomentIntegration {
+export interface AlmostMomentIntegration {
   promptSection: string;
   shouldTrigger: boolean;
   suggestedExpression: string | null;

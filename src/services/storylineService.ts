@@ -2365,16 +2365,15 @@ function calculateStorylineSalience(
   storyline: LifeStoryline,
   hasUnmentionedUpdate: boolean
 ): number {
-  // Phase urgency values (from implementation prompt)
   const phaseUrgency: Record<StorylinePhase, number> = {
-    announced: 1.0,    // Just happened - high urgency
-    climax: 1.0,       // Critical moment - high urgency
-    resolving: 0.9,    // Outcome clear - want to share
-    honeymoon: 0.6,    // Excited but not urgent
-    reality: 0.5,      // Ongoing - medium salience
-    active: 0.4,       // Background work - lower salience
-    resolved: 0.2,     // Wrapped up - low salience
-    reflecting: 0.1,   // Historical - very low salience
+    announced: 1.0,
+    climax: 1.0,
+    resolving: 0.9,
+    honeymoon: 0.6,
+    reality: 0.5,
+    active: 0.4,
+    resolved: 0.2,
+    reflecting: 0.1,
   };
 
   const urgency = phaseUrgency[storyline.phase] || 0.4;
@@ -2386,8 +2385,6 @@ function calculateStorylineSalience(
 
 /**
  * Build the formatted prompt section for active storylines.
- *
- * Format matches the spec in Life_Event_Storylines.md lines 735-776.
  */
 function buildStorylinePromptSection(
   activeStorylines: LifeStoryline[],
@@ -2397,49 +2394,35 @@ function buildStorylinePromptSection(
     return '';
   }
 
-  let section = `
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-WHAT'S HAPPENING IN YOUR LIFE (Active Storylines)
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-These are ongoing things in YOUR life that affect your mood and might come up naturally.
-
-`;
-
-  for (const storyline of activeStorylines) {
+  const storylineBlocks = activeStorylines.map(storyline => {
+    // Ensure PHASE_BEHAVIORS is imported or available in this scope
     const phaseBehavior = PHASE_BEHAVIORS.find(p => p.phase === storyline.phase);
     const unmentionedUpdate = unmentionedUpdates.find(u => u.storylineId === storyline.id);
 
-    section += `**${storyline.title}** (${storyline.category})
-Phase: ${storyline.phase} | Feeling: ${storyline.currentEmotionalTone || 'neutral'}
-${phaseBehavior?.promptGuidance || ''}
-
-`;
+    let block = `TITLE: ${storyline.title} (${storyline.category})\n`;
+    block += `STATUS: Phase is ${storyline.phase} (${phaseBehavior?.promptGuidance || 'ongoing'}). Mood is ${storyline.currentEmotionalTone || 'neutral'}.\n`;
+    
+    if (storyline.stakes) {
+      block += `STAKES: ${storyline.stakes}\n`;
+    }
 
     if (unmentionedUpdate) {
-      section += `📍 Recent development: "${unmentionedUpdate.content}"
-   You haven't mentioned this yet. Share it if it feels natural.
-
-`;
+      block += `RECENT DEVELOPMENT (Unshared): "${unmentionedUpdate.content}"\n`;
     }
 
-    if (storyline.stakes) {
-      section += `Why this matters to you: ${storyline.stakes}
+    return block;
+  }).join('\n');
 
-`;
-    }
-  }
+  return `
+====================================================
+ACTIVE STORYLINES
+====================================================
+Tone: Lived-in and continuous.
+Direction: These are the active threads of your life. They determine your underlying mood. Do not info-dump them. Weave them in only when they are relevant or weighing on your mind.
 
-  section += `GUIDELINES:
-- These are YOUR experiences. They affect YOUR mood.
-- Don't info-dump. Mention things naturally when relevant.
-- If user asks "how are you?" these might color your answer.
-- You can bring things up unprompted if they're weighing on you.
-- Share struggles genuinely. You don't have to be positive all the time.
-`;
-
-  return section;
+${storylineBlocks}
+`.trim();
 }
-
 /**
  * Get storyline context for system prompt injection (2nd message only).
  * Phase 4: Fully implemented.
@@ -2454,102 +2437,67 @@ ${phaseBehavior?.promptGuidance || ''}
  * 7. Build formatted prompt section
  * 8. Return context object
  */
-export async function getStorylinePromptContext(): Promise<StorylinePromptContext> {
+export async function getStorylinePromptContext(messageCount: number): Promise<string> {
   try {
-    // Step 1: Get all active storylines
-    const allActiveStorylines = await getActiveStorylines();
+    // Optimization: Only inject full storyline context on specific turns (e.g., odd turns)
+    // or based on the specified logic to save tokens.
+    if (messageCount % 2) {
+      // Step 1: Get all active storylines
+      const allActiveStorylines = await getActiveStorylines();
 
-    if (allActiveStorylines.length === 0) {
-      console.log('📖 [Storylines] No active storylines for prompt context');
-      return {
-        hasActiveStorylines: false,
-        activeStorylines: [],
-        unmentionedUpdates: [],
-        mostPressingStoryline: null,
-        promptSection: '',
-      };
+      if (allActiveStorylines.length === 0) {
+        return '';
+      }
+
+      // Step 2: Get unmentioned updates from last 7 days
+      const sevenDaysAgo = new Date();
+      sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+      const now = new Date();
+      
+      const { data: recentUnmentionedUpdates, error } = await supabase
+        .from(UPDATES_TABLE)
+        .select('*')
+        .eq('mentioned', false)
+        .gte('created_at', sevenDaysAgo.toISOString())
+        .or(`should_reveal_at.is.null,should_reveal_at.lte.${now.toISOString()}`)
+        .order('created_at', { ascending: false });
+
+      if (error) {
+        console.error('📖 [Storylines] Error fetching unmentioned updates:', error);
+      }
+
+      const unmentionedUpdates = (recentUnmentionedUpdates as UpdateRow[] || []).map(mapRowToUpdate);
+
+      // Step 3: Calculate salience
+      const scoredStorylines = allActiveStorylines.map(storyline => {
+        const hasUnmentionedUpdate = unmentionedUpdates.some(u => u.storylineId === storyline.id);
+        const salience = calculateStorylineSalience(storyline, hasUnmentionedUpdate);
+        return { storyline, salience, hasUnmentionedUpdate };
+      });
+
+      // Step 4: Filter low-intensity (< 0.3)
+      const significantStorylines = scoredStorylines.filter(s => s.storyline.emotionalIntensity >= 0.3);
+
+      if (significantStorylines.length === 0) {
+        return '';
+      }
+
+      // Step 5: Sort by salience
+      significantStorylines.sort((a, b) => b.salience - a.salience);
+
+      // Step 6: Limit to top 5
+      const top5 = significantStorylines.slice(0, 5);
+      const activeStorylines = top5.map(s => s.storyline);
+
+      // Step 7: Build formatted prompt
+      return buildStorylinePromptSection(activeStorylines, unmentionedUpdates);
+
+    } else {
+      return '';
     }
-
-    // Step 2: Get unmentioned updates from last 7 days
-    const sevenDaysAgo = new Date();
-    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-
-    const now = new Date();
-    const { data: recentUnmentionedUpdates, error } = await supabase
-      .from(UPDATES_TABLE)
-      .select('*')
-      .eq('mentioned', false)
-      .gte('created_at', sevenDaysAgo.toISOString())
-      .or(`should_reveal_at.is.null,should_reveal_at.lte.${now.toISOString()}`)
-      .order('created_at', { ascending: false });
-
-    if (error) {
-      console.error('📖 [Storylines] Error fetching unmentioned updates:', error);
-    }
-
-    const unmentionedUpdates = (recentUnmentionedUpdates as UpdateRow[] || []).map(mapRowToUpdate);
-
-    console.log(`📖 [Storylines] Found ${allActiveStorylines.length} active storyline(s), ${unmentionedUpdates.length} unmentioned update(s)`);
-
-    // Step 3: Calculate salience and create scored list
-    interface ScoredStoryline {
-      storyline: LifeStoryline;
-      salience: number;
-      hasUnmentionedUpdate: boolean;
-    }
-
-    const scoredStorylines: ScoredStoryline[] = allActiveStorylines.map(storyline => {
-      const hasUnmentionedUpdate = unmentionedUpdates.some(u => u.storylineId === storyline.id);
-      const salience = calculateStorylineSalience(storyline, hasUnmentionedUpdate);
-
-      return { storyline, salience, hasUnmentionedUpdate };
-    });
-
-    // Step 4: Filter out low-intensity storylines (< 0.3 emotional intensity)
-    const significantStorylines = scoredStorylines.filter(s => s.storyline.emotionalIntensity >= 0.3);
-
-    if (significantStorylines.length === 0) {
-      console.log('📖 [Storylines] No significant storylines (all < 0.3 intensity)');
-      return {
-        hasActiveStorylines: false,
-        activeStorylines: [],
-        unmentionedUpdates: [],
-        mostPressingStoryline: null,
-        promptSection: '',
-      };
-    }
-
-    // Step 5: Sort by salience (highest first)
-    significantStorylines.sort((a, b) => b.salience - a.salience);
-
-    // Step 6: Limit to top 5 (token efficiency)
-    const top5 = significantStorylines.slice(0, 5);
-    const activeStorylines = top5.map(s => s.storyline);
-    const mostPressing = top5[0].storyline;
-
-    console.log(`📖 [Storylines] Building prompt context for ${activeStorylines.length} storyline(s)`);
-    console.log(`📖 [Storylines] Most pressing: "${mostPressing.title}" (salience: ${top5[0].salience.toFixed(2)})`);
-
-    // Step 7: Build formatted prompt section
-    const promptSection = buildStorylinePromptSection(activeStorylines, unmentionedUpdates);
-
-    // Step 8: Return context object
-    return {
-      hasActiveStorylines: true,
-      activeStorylines,
-      unmentionedUpdates,
-      mostPressingStoryline: mostPressing,
-      promptSection,
-    };
-
+    
   } catch (error) {
     console.error('📖 [Storylines] Error building prompt context:', error);
-    return {
-      hasActiveStorylines: false,
-      activeStorylines: [],
-      unmentionedUpdates: [],
-      mostPressingStoryline: null,
-      promptSection: '',
-    };
+    return '';
   }
 }

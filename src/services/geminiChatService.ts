@@ -477,7 +477,7 @@ export class GeminiService implements IAIChatService {
     interactionConfig: any,
     systemPrompt: string,
     options?: AIChatOptions,
-    maxIterations: number = 3,
+    maxIterations: number = 10,
   ): Promise<any> {
     let iterations = 0;
 
@@ -732,7 +732,7 @@ In your interactionConfig, leaving it at 1.0 is a safe bet for a conversational 
       options,
       3, // MAX_TOOL_ITERATIONS
     );
-
+    console.log("FINAL INTERACTIONS: ", finalInteraction)
     // Parse response
     const structuredResponse = this.parseInteractionResponse(finalInteraction);
 
@@ -934,9 +934,9 @@ In your interactionConfig, leaving it at 1.0 is a safe bet for a conversational 
 
     // Build greeting context from parallel-fetched data
     let greetingContext: DailyLogisticsContext | null = null;
-    let chatHistory = await loadConversationHistory();
+    // let chatHistory = await loadConversationHistory();
     greetingContext = {
-      chatHistory: chatHistory,
+      chatHistory: [],
       lastInteractionDateUtc: fetchedContext.relationship.lastInteractionAt,
       importantDateFacts: importantDateFacts.map((f) => ({
         key: f.fact_key,
@@ -952,11 +952,10 @@ In your interactionConfig, leaving it at 1.0 is a safe bet for a conversational 
 
     console.log("greetingContext: ", greetingContext);
     const systemPrompt = await buildSystemPromptForGreeting(
-      fetchedContext.relationship,
       greetingContext,
     );
     console.log("systemPrompt: ", systemPrompt);
-    const greetingPrompt = buildGreetingPrompt(fetchedContext.relationship, greetingContext, null);
+    const greetingPrompt = buildGreetingPrompt(fetchedContext.relationship);
     console.log("greetingPrompt: ", greetingPrompt);
     // Build interaction config
     const interactionConfig: any = {

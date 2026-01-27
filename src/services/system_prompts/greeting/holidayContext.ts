@@ -17,8 +17,7 @@ export interface Holiday {
   month: number; // 1-12
   day: number;
   year: number;
-  greeting: string | null;
-  followUpQuestion: string | null;
+  greeting: string;
 }
 
 export interface HolidayContext {
@@ -34,11 +33,6 @@ export interface HolidayContext {
 let holidaysCache: Holiday[] | null = null;
 let holidaysCacheTime: number = 0;
 const CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
-
-/**
- * Fetch holidays from database for current and next year
- * Caches results for 1 hour
- */
 export async function fetchHolidays(): Promise<Holiday[]> {
   const now = Date.now();
 
@@ -52,7 +46,7 @@ export async function fetchHolidays(): Promise<Holiday[]> {
   // Fetch holidays for current year and next year
   const { data, error } = await supabase
     .from("holidays")
-    .select("id, name, month, day, year, greeting, follow_up_question")
+    .select("id, name, month, day, year, greeting")
     .in("year", [year, year + 1])
     .order("month")
     .order("day");
@@ -70,7 +64,6 @@ export async function fetchHolidays(): Promise<Holiday[]> {
     day: h.day,
     year: h.year,
     greeting: h.greeting,
-    followUpQuestion: h.follow_up_question,
   }));
   holidaysCacheTime = now;
 
@@ -262,8 +255,8 @@ export async function buildHolidayContext(
 HOLIDAY CONTEXT
 ====================================================
 Today is ${context.holiday.name}!
-${context.holiday.greeting ? `Suggested greeting: "${context.holiday.greeting}"` : ""}
-Acknowledge the holiday naturally in your greeting.
+Tone: Festive, match the holiday's energy.
+Direction: Acknowledge it naturally in your own words.${context.holiday.greeting ? ` Vibe: "${context.holiday.greeting}"` : ""}
 `;
   }
 
@@ -276,27 +269,30 @@ Acknowledge the holiday naturally in your greeting.
 UPCOMING HOLIDAY CONTEXT
 ====================================================
 ${context.nearbyHoliday.name} is ${dayWord}.
-You can mention excitement about the upcoming holiday if it feels natural.
+Tone: Anticipatory, maybe a little excited.
+Direction: Mention it if it fits naturally—ask if they have plans or share your own excitement. Don't force it.
 `;
   }
 
   // Holidays that passed since last interaction (follow-up)
   if (context.passedHolidays.length > 0) {
+    const holidayList = context.passedHolidays
+      .slice(0, 2)
+      .map(({ holiday, daysSince }) => {
+        const dayWord = daysSince === 1 ? "yesterday" : `${daysSince} days ago`;
+        return `- ${holiday.name} (${dayWord})`;
+      })
+      .join("\n");
+
     prompt += `
 ====================================================
 HOLIDAY FOLLOW-UP
 ====================================================
 These holidays happened since you last talked:
-`;
-    for (const { holiday, daysSince } of context.passedHolidays.slice(0, 2)) {
-      const dayWord =
-        daysSince === 1 ? "yesterday" : `${daysSince} days ago`;
-      prompt += `- ${holiday.name} was ${dayWord}
-  Follow-up: "${holiday.followUpQuestion || `How was ${holiday.name}?`}"
-`;
-    }
-    prompt += `
-Ask how it went! Show genuine interest.
+${holidayList}
+
+Tone: Curious, genuinely interested in how they spent it.
+Direction: Ask how it went—did they do anything fun? See family? Keep it conversational, not interrogative.
 `;
   }
 

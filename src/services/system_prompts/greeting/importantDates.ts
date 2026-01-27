@@ -6,10 +6,12 @@
  * - Upcoming: Birthday/anniversary in the next 7 days
  * - Passed: Birthday/anniversary passed since last interaction (follow-up)
  *
- * Dates are stored in user_facts with format: "YYYY-MM-DD" or "MM-DD" or "Month Day"
+ * Dates are stored in user_facts with:
+ * - key: date string (e.g., "07-01", "2026-07-01", "July 1st")
+ * - value: description (e.g., "Steven's Birthday", "Wedding Anniversary")
  */
 
-import { ImportantDateFacts } from "../builders/dailyCatchupBuilder";
+import { DailyLogisticsContext, ImportantDateFacts } from "../builders/dailyCatchupBuilder";
 import { getTodayCst, utcToCst } from "./timezoneUtils";
 
 export interface ImportantDate {
@@ -173,12 +175,30 @@ export function processImportantDates(
  * Build the important dates section for the greeting prompt
  */
 export function buildImportantDatesContext(
-  context: ImportantDatesContext
+  dailyLogisticsContext: DailyLogisticsContext
 ): string {
-  const { todayDates, upcomingDates, passedDates } = context;
+  let importantDatesContext: ImportantDatesContext = {
+    todayDates: [],
+    upcomingDates: [],
+    passedDates: [],
+  };
 
-  if (todayDates.length === 0 && upcomingDates.length === 0 && passedDates.length === 0) {
-    return ""; // No important dates to mention
+  if (dailyLogisticsContext?.importantDateFacts) {
+    importantDatesContext = processImportantDates(
+      dailyLogisticsContext.importantDateFacts.map((f) => ({
+        key: f.key,
+        value: f.value,
+      })),
+      dailyLogisticsContext?.lastInteractionDateUtc
+    );
+  }
+
+  if (
+    importantDatesContext.todayDates.length === 0 &&
+    importantDatesContext.upcomingDates.length === 0 &&
+    importantDatesContext.passedDates.length === 0
+  ) {
+    return "";
   }
 
   let prompt = `
@@ -188,35 +208,57 @@ IMPORTANT DATES CONTEXT
 `;
 
   // Today is special
-  if (todayDates.length > 0) {
-    prompt += `TODAY IS SPECIAL:\n`;
-    for (const date of todayDates) {
-      prompt += `- Today is their ${date.category}! (${date.date})\n`;
-    }
-    prompt += `\nAcknowledge this warmly! This is a big deal.\n\n`;
+  if (importantDatesContext.todayDates.length > 0) {
+    const dateList = importantDatesContext.todayDates
+      .map((date) => `- ${date.label}`)
+      .join("\n");
+
+    prompt += `TODAY IS SPECIAL:
+${dateList}
+
+Tone: Warm, celebratory—this matters to them.
+Direction: Acknowledge it genuinely. Make them feel seen.
+
+`;
   }
 
   // Passed dates (follow-up)
-  if (passedDates.length > 0) {
-    prompt += `MISSED IMPORTANT DATES (follow up!):\n`;
-    for (const date of passedDates.slice(0, 2)) {
-      const dayWord =
-        date.daysSincePassed === 1 ? "yesterday" : `${date.daysSincePassed} days ago`;
-      prompt += `- Their ${date.category} was ${dayWord}! (${date.date})\n`;
-      prompt += `  Follow-up: "How was your ${date.category.toLowerCase()}?"\n`;
-    }
-    prompt += `\nYou missed it! Ask how it went - show you care.\n\n`;
+  if (importantDatesContext.passedDates.length > 0) {
+    const dateList = importantDatesContext.passedDates
+      .slice(0, 2)
+      .map(({ label, daysSincePassed }) => {
+        const dayWord =
+          daysSincePassed === 1 ? "yesterday" : `${daysSincePassed} days ago`;
+        return `- ${label} was ${dayWord}`;
+      })
+      .join("\n");
+
+    prompt += `SINCE YOU LAST TALKED:
+${dateList}
+
+Tone: Curious, caring—you want to hear how it went.
+Direction: Ask about it naturally. Show genuine interest, not just checking a box.
+
+`;
   }
 
   // Upcoming
-  if (upcomingDates.length > 0) {
-    prompt += `UPCOMING:\n`;
-    for (const date of upcomingDates.slice(0, 2)) {
-      const dayWord =
-        date.daysUntil === 1 ? "tomorrow" : `in ${date.daysUntil} days`;
-      prompt += `- Their ${date.category} is ${dayWord} (${date.date})\n`;
-    }
-    prompt += `\nYou can mention these if it feels natural.\n`;
+  if (importantDatesContext.upcomingDates.length > 0) {
+    const dateList = importantDatesContext.upcomingDates
+      .slice(0, 2)
+      .map(({ label, daysUntil }) => {
+        const dayWord = daysUntil === 1 ? "tomorrow" : `in ${daysUntil} days`;
+        return `- ${label} is ${dayWord}`;
+      })
+      .join("\n");
+
+    prompt += `UPCOMING:
+${dateList}
+
+Tone: Anticipatory, sweet.
+Direction: Mention if it fits naturally—ask about plans or express excitement for them. Don't force it.
+
+`;
   }
 
   return prompt;

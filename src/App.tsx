@@ -12,7 +12,6 @@ import AuthWarningBanner from './components/AuthWarningBanner';
 import * as conversationHistoryService from './services/conversationHistoryService';
 import * as relationshipService from './services/relationshipService';
 import type { RelationshipMetrics } from './services/relationshipService';
-import { recordExchange } from './services/callbackDirector';
 import { gmailService, type NewEmailPayload } from './services/gmailService';
 import { calendarService } from './services/calendarService';
 import { buildActionKeyMap } from './utils/actionKeyMapper';
@@ -52,6 +51,8 @@ import { startStorylineIdleService, stopStorylineIdleService } from './services/
 import { isQuestionMessage } from './utils/textUtils';
 import { shuffleArray } from './utils/arrayUtils';
 import { getAccessToken } from './services/googleAuth';
+import { hasBeenBriefedToday, markBriefedToday } from './services/dailyCatchupService';
+import { StorageKey } from './utils/enums';
 
 // ============================================================================
 // CONSTANTS & TYPES
@@ -826,8 +827,7 @@ const App: React.FC = () => {
 
 
     // Load tasks (handled by useTasks hook)
-    // TODO: Ask AI why we added this and if it is still needed? (Must search many files to understand)
-    const currentTasks = await loadTasks();
+     const currentTasks = await loadTasks();
     
     // Load snooze state (handled by useProactiveSettings hook)
     loadSnoozeState();
@@ -855,13 +855,8 @@ const App: React.FC = () => {
       const relationshipData = await relationshipService.getRelationship();
       setRelationship(relationshipData);
       
-      try {
         // 1. Check if any conversation occurred today (DB source of truth)
         const messageCount = await conversationHistoryService.getTodaysMessageCount();
-        // 2. Check if this is the first login of the day (Local state for briefing delay)
-        const today = new Date().toDateString();
-        const lastBriefingDate = localStorage.getItem(`last_briefing_${character.id}`);
-        const isFirstLoginToday = lastBriefingDate !== today;
         const googleAccessToken = await getAccessToken()
         // Start with fresh session
         const session: AIChatSession = { model: activeService.model };
@@ -907,13 +902,16 @@ const App: React.FC = () => {
         };
         
 
-        if (isFirstLoginToday) {
-          "[App] First login today - generating greeting with daily logistics";
+        if (!hasBeenBriefedToday()) {
+          console.log("[App] First login today - generating greeting with daily logistics");
           console.log('googleAccessToken: ', googleAccessToken)
           const { greeting, session: updatedSession } = await activeService.generateGreeting(googleAccessToken.accessToken);
           setAiSession(updatedSession);
-
+        // Important: set localStorage so we do not need to query database
+          markBriefedToday()
+          console.log("Has Been Briefed : ", hasBeenBriefedToday())
           const initialHistory = [{ role: 'model' as const, text: greeting.text_response }];
+          
           setChatHistory(initialHistory);
           await handleStartupSelfie(greeting.selfie_action, initialHistory);
           await conversationHistoryService.appendConversationHistory(
@@ -924,6 +922,8 @@ const App: React.FC = () => {
           if (greeting.action_id && newActionUrls[greeting.action_id]) {
             setTimeout(() => playAction(greeting.action_id!), 100);
           }
+          
+          
         } else {
           // CONVERSATION OCCURRED TODAY: Reload all exchanges and generate informal "welcome back"
           console.log(`🧠 [App] Chat detected today (${messageCount} messages) - reloading history and generating non-greeting`);
@@ -958,11 +958,7 @@ const App: React.FC = () => {
         // Reset the last saved index since we're starting fresh
         setLastSavedMessageIndex(-1);
 
-      } catch (error) {
-        console.error('Error generating greeting:', error);
-        // On error, just start with empty chat
-        setChatHistory([]);
-      }
+    
       setView('chat');
     } catch (error) {
       setErrorMessage('Failed to load character data.');
@@ -1090,9 +1086,6 @@ const App: React.FC = () => {
         { role: 'user' as const, text: userText, image: image.base64, imageMimeType: image.mimeType },
       ]);
 
-      // Record exchange for callback timing
-      try { recordExchange(); } catch (e) { console.warn('Exchange record failed', e); }
-
       try {
         const sessionToUse: AIChatSession = aiSession || { model: activeService.model };
           console.log("SENDING MESSAGE")
@@ -1140,9 +1133,6 @@ const App: React.FC = () => {
 
     const updatedHistory = [...chatHistory, { role: 'user' as const, text: trimmedMessage }];
     setChatHistory(updatedHistory);
-
-    // Record exchange for callback timing
-    try { recordExchange(); } catch (e) { console.warn('Exchange record failed', e); }
 
     // Optimistic action prediction (UI responsiveness)
     let predictedActionId: string | null = null;

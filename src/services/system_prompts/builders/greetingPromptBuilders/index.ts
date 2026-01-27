@@ -7,6 +7,7 @@ import {
   buildDailyLogisticsSection,
   type DailyLogisticsContext,
 } from "../dailyCatchupBuilder";
+import { buildRelationshipTierPrompt } from "../relationshipPromptBuilders";
 
 
 export interface GreetingPromptContext {
@@ -226,58 +227,36 @@ EXAMPLES:
 /**
  * Build a relationship-aware greeting prompt.
  */
-export function buildGreetingPrompt(
-  relationship: RelationshipMetrics,
-  dailyLogistics: DailyLogisticsContext,
-  kayleyActivity?: string | null
-): string {
-const now = new Date();
-const hour = now.getHours(); // LOCAL hours
+export function buildGreetingPrompt(relationship: RelationshipMetrics): string {
+  // Default mood for greeting - neutral energy, moderate warmth
+  const defaultMoodKnobs = { energy: 0, warmth: 0.5, genuineMoment: false };
+  return `This is your first conversation today. 
+  ${buildRelationshipTierPrompt(
+    relationship,
+    defaultMoodKnobs,
+    false,
+    "", // No almost moments in greeting
+  )}`
+  
+    // ---- Conversation history formatting ----
+    
+  // const formattedHistory =  dailyLogistics.chatHistory
+  //         .map((m, idx) => {
+  //           const role = m.role.toUpperCase();
+  //           const text = (m.text ?? "").trim();
+  //           const userImageTag = m.image ? ` [user_image:${m.imageMimeType ?? "unknown"}]` : "";
+  //           const assistantImageTag = m.assistantImage
+  //             ? ` [assistant_image:${m.assistantImageMimeType ?? "unknown"}]`
+  //             : "";
 
-const timeOfDay =
-  hour < 12 ? "morning" :
-  hour < 17 ? "afternoon" :
-  hour < 21 ? "evening" :
-  "night";
+  //           // Keep it readable and consistent for the model
+  //           return `${idx + 1}. ${role}: ${text}${userImageTag}${assistantImageTag}`;
+  //         })
+  //         .join("\n");
 
-const timeString = now.toLocaleTimeString("en-US", {
-  hour: "numeric",
-  minute: "2-digit",
-  hour12: true, // local timezone by default
-});
-  let greeting = `CURRENT TIME: ${timeString} (${timeOfDay})
-- Use time-appropriate greetings.
-- "Hey!" or "Hi!" works anytime.${
-    now.getHours() >= 12
-      ? `\n- If user first signing in, use a cute, sassy greeting. Example: "Well well, look who decided to show up."`
-      : ""
-  }`;
+  // formattedHistory += `\n\nCONVERSATION HISTORY (ascending order):\n${formattedHistory}`;
 
-  greeting += `\n${buildDailyLogisticsSection(dailyLogistics)}`;
-
-  // ---- Conversation history formatting ----
-  const chatHistory = dailyLogistics.chatHistory ?? [];
-
-  const formattedHistory =
-    chatHistory.length === 0
-      ? "(no prior messages)"
-      : chatHistory
-          .map((m, idx) => {
-            const role = m.role.toUpperCase();
-            const text = (m.text ?? "").trim();
-            const userImageTag = m.image ? ` [user_image:${m.imageMimeType ?? "unknown"}]` : "";
-            const assistantImageTag = m.assistantImage
-              ? ` [assistant_image:${m.assistantImageMimeType ?? "unknown"}]`
-              : "";
-
-            // Keep it readable and consistent for the model
-            return `${idx + 1}. ${role}: ${text}${userImageTag}${assistantImageTag}`;
-          })
-          .join("\n");
-
-  greeting += `\n\nCONVERSATION HISTORY (ascending order):\n${formattedHistory}`;
-
-  return greeting;
+  // return formattedHistory;
 }
 
 

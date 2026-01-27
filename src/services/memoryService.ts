@@ -440,7 +440,7 @@ export interface ToolCallArgs {
     timeMax?: string;
   };
   store_character_info: {
-    category: 'quirk' | 'relationship' | 'experience' | 'preference' | 'detail' | 'other';
+    category: 'quirk' | 'relationship' | 'experience' | 'preference' | 'detail' |'other';
     key: string;
     value: string;
   };

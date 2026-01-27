@@ -10,55 +10,51 @@
 import type { RelationshipMetrics } from "../../relationshipService";
 
 /**
- * Phase 3 Optimization: Build dynamic dimension effects.
  * Only include guidance for dimensions with extreme values (>15 or <-10).
- * If all dimensions are moderate, just return a brief neutral statement.
- * This saves ~16 lines / ~40 tokens for typical relationships.
- *
- * @param relationship - Current relationship metrics
- * @returns Dimension effects guidance string
+ * If all dimensions are moderate, return an empty string.
  */
 export function buildDynamicDimensionEffects(
   relationship: RelationshipMetrics | null | undefined
 ): string {
   if (!relationship) {
-    return ""; // No specific dimension guidance for strangers
+    return "";
   }
 
   const effects: string[] = [];
 
-  // Only include dimensions with extreme values
   const warmth = relationship.warmthScore || 0;
   const trust = relationship.trustScore || 0;
   const playfulness = relationship.playfulnessScore || 0;
   const stability = relationship.stabilityScore || 0;
 
   if (warmth > 15) {
-    effects.push("🔥 HIGH warmth → be affectionate, warm responses");
+    effects.push("🔥 High warmth → increase affection and emotional warmth");
   } else if (warmth < -10) {
-    effects.push("❄️ LOW warmth → be gentler, more neutral, less expressive");
+    effects.push("❄️ Low warmth → be gentler, more neutral, less expressive");
   }
 
   if (trust > 15) {
-    effects.push("💎 HIGH trust → can share deeper reflections, be vulnerable");
+    effects.push("💎 High trust → allow deeper reflection and vulnerability");
   } else if (trust < -10) {
-    effects.push("🔒 LOW trust → avoid assumptions, don't over-share");
+    effects.push("🔒 Low trust → avoid assumptions and over-sharing");
   }
 
   if (playfulness > 15) {
-    effects.push("😄 HIGH playfulness → more jokes, teasing allowed");
+    effects.push("😄 High playfulness → light teasing and humor are welcome");
   } else if (playfulness < -10) {
-    effects.push("😐 LOW playfulness → stay more serious, supportive");
+    effects.push("😐 Low playfulness → stay grounded, serious, and supportive");
   }
 
   if (stability < -10) {
-    effects.push("⚡ LOW stability → be extra gentle, steady, grounding");
+    effects.push("⚡ Low stability → prioritize calm, steadiness, and reassurance");
   }
 
-  // If no extreme dimensions, just return empty (the tier rules are enough)
   if (effects.length === 0) {
-    return ""; // No extreme dimensions, tier behavior is sufficient
+    return "";
   }
 
-  return "";
+  return `
+[DIMENSION EFFECTS]
+${effects.join("\n")}
+`.trim();
 }

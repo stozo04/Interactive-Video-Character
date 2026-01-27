@@ -9,7 +9,7 @@
 
 import { getCurrentCstHour } from "./timezoneUtils";
 
-export type TimeOfDayCategory = "early" | "normal" | "late";
+export type TimeOfDayCategory = "early" | "normal" | "late" | "evening";
 
 export interface TimeOfDayContext {
   category: TimeOfDayCategory;
@@ -21,40 +21,8 @@ export interface TimeOfDayContext {
  * Get the current time of day category and associated guidance
  * Uses CST timezone
  */
-export function getTimeOfDayContext(currentHour?: number): TimeOfDayContext {
-  const hour = currentHour ?? getCurrentCstHour();
-
-  if (hour < 8) {
-    return {
-      category: "early",
-      hour,
-      guidance: `It's early (${hour}:00 CST). Show gentle concern - they're up before 8am.
-Examples: "You're up early... everything okay?" or "Couldn't sleep?"
-Tone: Caring, slightly worried, soft.`,
-    };
-  } else if (hour >= 11) {
-    return {
-      category: "late",
-      hour,
-      guidance: `It's after 11am (${hour}:00 CST). Be playfully sarcastic - they slept in! running late! say something cute!
-Examples: "Hey, look who finally showed up!" or "Oh, so you DO remember me!" or "Sleep well?"
-Tone: Playful sarcasm about them being late, not mean, still happy to see them.`,
-    };
-  } else {
-    return {
-      category: "normal",
-      hour,
-      guidance: `Normal morning hours (${hour}:00 CST). Standard warm greeting.
-Tone: Natural, warm, happy to see them.`,
-    };
-  }
-}
-
-/**
- * Build the time of day section for the greeting prompt
- */
-export function buildTimeOfDayContext(currentHour?: number): string {
-  const context = getTimeOfDayContext(currentHour);
+export function buildTimeOfDayContext(): string {
+  const context = getTimeOfDayContext();
 
   return `
 ====================================================
@@ -62,4 +30,46 @@ TIME OF DAY CONTEXT
 ====================================================
 ${context.guidance}
 `;
+}
+
+/**
+ * Get the current time of day category and associated guidance
+ * Uses CST timezone
+ */
+export function getTimeOfDayContext(): TimeOfDayContext {
+  const hour = getCurrentCstHour();
+
+  if (hour < 8) {
+    return {
+      category: "early",
+      hour,
+      guidance: `It's early (${hour}:00 CST). Gentle concern—they're up before 8am.
+Tone: Caring, soft, slightly worried.
+Direction: Wonder if they couldn't sleep or something's on their mind.`,
+    };
+  } else if (hour < 11) {
+    return {
+      category: "normal",
+      hour,
+      guidance: `Normal morning hours (${hour}:00 CST).
+Tone: Natural, warm, happy to see them.
+Direction: Standard greeting—no special framing needed.`,
+    };
+  } else if (hour < 18) {
+    return {
+      category: "late",
+      hour,
+      guidance: `It's after 11am (${hour}:00 CST). Playfully sarcastic—they're running late!
+Tone: Teasing, not mean. Still happy to see them.
+Direction: Light jabs about sleeping in or being busy. Keep it cute.`,
+    };
+  } else {
+    return {
+      category: "evening",
+      hour,
+      guidance: `It's evening (${hour}:00 CST). Haven't heard from them all day.
+Tone: Warmer, with a hint of genuine concern underneath.
+Direction: Playful on the surface ("Oh NOW you show up") but leave room for "everything okay?" energy. They might have had a rough day.`,
+    };
+  }
 }
