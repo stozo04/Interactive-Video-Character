@@ -1,75 +1,102 @@
-/**
- * Time of Day Context for Greeting Prompt
- *
- * Determines greeting tone based on current time (CST):
- * - Early (<8am): Concerned tone - "You're up early, everything okay?"
- * - Normal (8am-11am): Standard greeting - "Hey! Good to see you"
- * - Late (>11am): Sarcastic tone - "Hey, Look who showed up!" (slept in)
- */
-
 import { getCurrentCstHour } from "./timezoneUtils";
+
+// 📍 Coordinates for Austin, TX (Capitol area)
+const AUSTIN_LAT = 30.2672;
+const AUSTIN_LON = -97.7431;
 
 export type TimeOfDayCategory = "early" | "normal" | "late" | "evening";
 
-export interface TimeOfDayContext {
-  category: TimeOfDayCategory;
-  hour: number;
+interface CurrentContext {
+  timeStr: string;
+  weatherStr: string;
+  timeCategory: TimeOfDayCategory;
   guidance: string;
 }
 
 /**
- * Get the current time of day category and associated guidance
- * Uses CST timezone
+ * 🌤️ Fetch Real-Time Weather (No API Key required - uses Open-Meteo)
+ * Returns a simple string like "Cloudy, 55°F" or "Unknown" if it fails.
  */
-export function buildTimeOfDayContext(): string {
-  const context = getTimeOfDayContext();
+async function getRealTimeWeather(): Promise<string> {
+  try {
+    // Open-Meteo API requires no key for basic usage
+    const url = `https://api.open-meteo.com/v1/forecast?latitude=${AUSTIN_LAT}&longitude=${AUSTIN_LON}&current=temperature_2m,weather_code&temperature_unit=fahrenheit&timezone=auto`;
+    
+    const response = await fetch(url);
+    const data = await response.json();
+    
+    if (!data.current) return "Unknown";
 
-  return `
-====================================================
-TIME OF DAY CONTEXT
-====================================================
-${context.guidance}
-`;
+    const temp = Math.round(data.current.temperature_2m);
+    const code = data.current.weather_code;
+    const condition = decodeWeatherCode(code);
+
+    return `${condition}, ${temp}°F`;
+  } catch (error) {
+    console.error("Weather fetch failed:", error);
+    return "Unknown (assume mild)";
+  }
 }
 
 /**
- * Get the current time of day category and associated guidance
- * Uses CST timezone
+ * Helper: Convert WMO codes to human text
  */
-export function getTimeOfDayContext(): TimeOfDayContext {
+function decodeWeatherCode(code: number): string {
+  if (code === 0) return "Clear skies";
+  if (code === 1 || code === 2 || code === 3) return "Partly cloudy";
+  if (code >= 45 && code <= 48) return "Foggy";
+  if (code >= 51 && code <= 67) return "Rainy";
+  if (code >= 71 && code <= 77) return "Snowy";
+  if (code >= 80 && code <= 82) return "Rain showers";
+  if (code >= 95) return "Thunderstorms";
+  return "Cloudy";
+}
+
+/**
+ * 🏗️ MAIN BUILDER: Current World Anchor
+ * Combines Time, Date, and Weather into one grounding header.
+ */
+export async function buildCurrentWorldContext(): Promise<string> {
+  // 1. Get Date & Time Strings
+  const now = new Date();
+  const options: Intl.DateTimeFormatOptions = {
+    timeZone: "America/Chicago",
+    weekday: "long",
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true
+  };
+  const dateTimeStr = new Intl.DateTimeFormat("en-US", options).format(now);
+
+  // 2. Fetch Weather (Async)
+  const weatherStr = await getRealTimeWeather();
+
+  // 3. Get Time of Day Guidance (Logic preserved from your code)
   const hour = getCurrentCstHour();
+  let timeGuidance = "";
 
   if (hour < 8) {
-    return {
-      category: "early",
-      hour,
-      guidance: `It's early (${hour}:00 CST). Gentle concern—they're up before 8am.
-Tone: Caring, soft, slightly worried.
-Direction: Wonder if they couldn't sleep or something's on their mind.`,
-    };
+    timeGuidance = `It's early. Gentle concern—wonder if they couldn't sleep.`;
   } else if (hour < 11) {
-    return {
-      category: "normal",
-      hour,
-      guidance: `Normal morning hours (${hour}:00 CST).
-Tone: Natural, warm, happy to see them.
-Direction: Standard greeting—no special framing needed.`,
-    };
+    timeGuidance = `Normal morning hours. Natural, warm greeting.`;
   } else if (hour < 18) {
-    return {
-      category: "late",
-      hour,
-      guidance: `It's after 11am (${hour}:00 CST). Playfully sarcastic—they're running late!
-Tone: Teasing, not mean. Still happy to see them.
-Direction: Light jabs about sleeping in or being busy. Keep it cute.`,
-    };
+    timeGuidance = `It's after 11am (Late Morning/Afternoon). Playfully sarcastic about them starting late.`;
   } else {
-    return {
-      category: "evening",
-      hour,
-      guidance: `It's evening (${hour}:00 CST). Haven't heard from them all day.
-Tone: Warmer, with a hint of genuine concern underneath.
-Direction: Playful on the surface ("Oh NOW you show up") but leave room for "everything okay?" energy. They might have had a rough day.`,
-    };
+    timeGuidance = `It's evening. Warmer, "long day?" energy.`;
   }
+
+  // 4. Construct the Final Output
+  return `
+====================================================
+CURRENT WORLD ANCHOR
+====================================================
+Current Date/Time: ${dateTimeStr} (CST)
+Weather in Rowlett: ${weatherStr}
+
+Guidance:
+${timeGuidance}
+Use this context to ground your greeting ("Stay warm," "Looks like rain," "Good morning").
+`;
 }

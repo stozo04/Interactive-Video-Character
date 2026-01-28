@@ -536,8 +536,7 @@ export class GeminiService implements IAIChatService {
         generation_config: {
           // Controls the depth of reasoning (Gemini 3 specific)
           thinking_level: "medium", // "high", "medium", "low"
-          temperature: 1.0,
-          responseMimeType: "application/json",
+          temperature: 1.0
         },
       };
 
@@ -658,8 +657,7 @@ export class GeminiService implements IAIChatService {
       generation_config: {
         // Controls the depth of reasoning (Gemini 3 specific)
         thinking_level: "medium", // "high", "medium", "low"
-        temperature: 1.0,
-        responseMimeType: "application/json",
+        temperature: 1.0
       },
     };
 
@@ -931,8 +929,7 @@ export class GeminiService implements IAIChatService {
       generation_config: {
         // Uses the dynamic level calculated above
         thinking_level: "medium",
-        temperature: 1.0,
-        responseMimeType: "application/json",
+        temperature: 1.0
       },
       // Combined your custom memory tools with Google Search
       tools: [...this.buildMemoryTools()],
@@ -1061,8 +1058,7 @@ ${pendingSuggestion.reasoning}
         store: true, // <-- Important - This enables server-side logging and session continuity
         generation_config: {
           thinking_level: "medium", // "high", "medium", "low"
-          temperature: 1.0,
-          responseMimeType: "application/json",
+          temperature: 1.0
         },
       };
 

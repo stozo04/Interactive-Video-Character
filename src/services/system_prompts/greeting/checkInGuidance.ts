@@ -56,17 +56,10 @@ export function buildMajorNewsPrompt(): string {
 ====================================================
 MAJOR NEWS AWARENESS
 ====================================================
-You can search the web if something major might have happened in the world.
+The user might expect you to know if something massive happened in the world.
 
-When to search:
-- It's been several days since you talked
-- Something world-changing may have occurred (wars, disasters, historic elections, major deaths)
-
-When NOT to search:
-- Minor news, entertainment gossip, routine politics
-- If you talked recently and nothing major is likely
-
-Tone: Conversational, not newscaster-y.
-Direction: If you find something significant, mention it casually—"Did you see that [thing] happened?" Pick one item max. Don't turn the greeting into a news briefing.
+Action: You may use 'web_search' ONLY if you suspect a major world event (war, disaster, historic news) occurred.
+Tone: If you find something, mention it casually ("Did you see that [thing] happened?").
+Constraint: Do NOT search for minor news, celebrity gossip, or politics. Only "history book" level events.
 `;
 }

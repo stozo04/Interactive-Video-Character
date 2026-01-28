@@ -29,7 +29,7 @@ export interface LastInteractionContext {
  * Converts UTC database date to CST for comparison
  */
 export function calculateDaysSince(
-  lastInteractionDateUtc: Date | string | null
+  lastInteractionDateUtc: Date | string | null,
 ): number {
   if (!lastInteractionDateUtc) {
     return 999; // Treat as first-time or unknown
@@ -46,7 +46,7 @@ export function calculateDaysSince(
  * For greeting prompts only (new day, so minimum 1 day since last interaction)
  */
 export function getLastInteractionContext(
-  lastInteractionDateUtc: Date | string | null
+  lastInteractionDateUtc: Date | string | null,
 ): LastInteractionContext {
   const daysSince = calculateDaysSince(lastInteractionDateUtc);
   const lastInteractionDate = lastInteractionDateUtc
@@ -62,14 +62,43 @@ export function getLastInteractionContext(
 Tone: Warm, excited to meet them, curious about who they are.
 Direction: Introduce yourself naturally. Don't over-explain—just be Kayley meeting someone new.`,
     };
+  }
+  // 2. THE "ZERO DAY" NUANCE (Less than 24 hours)
+  else if (daysSince === 0) {
+    const now = getCurrentCstDate();
+    // Check if the calendar day is different (e.g. Yesterday 11pm vs Today 8am)
+    const isDifferentCalendarDay =
+      lastInteractionDate.getDate() !== now.getDate();
+
+    if (isDifferentCalendarDay) {
+      // SCENARIO: Overnight (Talked last night, now it's today)
+      return {
+        category: "short",
+        daysSince,
+        lastInteractionDate,
+        guidance: `You talked late yesterday/last night (less than 24h ago, but it's a new day).
+Tone: Fresh start, "Good morning" energy (if AM).
+Direction: Acknowledge the new day. "Hope you slept well" or "Ready for today?"`,
+      };
+    } else {
+      // SCENARIO: Same Day (Talked earlier today)
+      return {
+        category: "short",
+        daysSince,
+        lastInteractionDate,
+        guidance: `You already talked earlier today.
+Tone: Very casual, continuous.
+Direction: "Hey again," "Forget something?" or just jump straight into the topic. Do NOT do a formal greeting.`,
+      };
+    }
   } else if (daysSince === 1) {
     return {
       category: "short",
       daysSince,
       lastInteractionDate,
-      guidance: `You talked yesterday.
-Tone: Casual, comfortable—no need to make a thing of it.
-Direction: Let time-of-day context drive the greeting energy. Pick up naturally.`,
+      guidance: `You talked yesterday (over 24h ago).
+Tone: Casual.
+Direction: Pick up naturally.`,
     };
   } else if (daysSince <= 3) {
     return {
@@ -81,6 +110,7 @@ Tone: Playfully dramatic, teasing—like you're pretending to be offended.
 Direction: Light guilt-trip energy. "Oh, so you DO remember I exist?" or "Wow, ignoring me, I see how it is." Keep it fun, not actually hurt.`,
     };
   } else if (daysSince <= 7) {
+    // ... rest remains the same
     return {
       category: "medium",
       daysSince,
@@ -105,7 +135,7 @@ Direction: Express that you've missed them. Don't guilt-trip—just be happy the
  * Build the last interaction section for the greeting prompt
  */
 export function buildLastInteractionContext(
-  lastInteractionDateUtc: Date | string | null
+  lastInteractionDateUtc: Date | string | null,
 ): string {
   const context = getLastInteractionContext(lastInteractionDateUtc);
 

@@ -6,8 +6,5 @@
  */
 
 export {
-  buildToolsSection,
-  buildToolRulesSection,
-  buildAppLaunchingSection,
-  buildPromiseGuidance,
+  buildToolStrategySection
 } from "./toolsAndCapabilities";

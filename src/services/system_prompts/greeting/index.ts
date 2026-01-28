@@ -17,10 +17,8 @@ export {
 
 // Time of Day
 export {
-  buildTimeOfDayContext,
-  getTimeOfDayContext,
+  buildCurrentWorldContext,
   type TimeOfDayCategory,
-  type TimeOfDayContext,
 } from "./timeOfDay";
 
 // Holiday Awareness (database-backed)

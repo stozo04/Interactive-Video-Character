@@ -39,20 +39,16 @@ import {
 } from "../../storylineService";
 import { formatExperiencesForPrompt } from "../../idleLife"; // COMPLETED REFACTOR!
 import {
-  buildToolsSection,
-  buildToolRulesSection,
-  buildAppLaunchingSection,
-  buildPromiseGuidance,
+buildToolStrategySection
 } from "../tools";
 import {
-  buildOutputFormatSectionForNonGreeting,
-  buildOutputFormatSectionForGreeting,
-  buildCriticalOutputRulesSection,
+  buildStandardOutputSection,
+  buildGreetingOutputSection
 } from "../format";
 
 // Greeting-specific imports
 import {
-  buildTimeOfDayContext,
+  buildCurrentWorldContext,
   buildLastInteractionContext,
   buildHolidayContext,
   buildImportantDatesContext,
@@ -96,6 +92,7 @@ export interface GreetingContext {
  * ${buildSelectiveAttentionPrompt()}
  * ${soulContext.callbackPrompt}
  * ${buildPresencePrompt()} // duplicated of opinions
+ * ${buildTasksPrompt(tasks)}
  * ${formatMoodForPrompt(soulContext.moodKnobs)}
  * ${buildSpontaneousPrompts(soulContext.spontaneityIntegration.humorGuidance, soulContext.spontaneityIntegration.selfiePrompt, soulContext.spontaneityIntegration.promptSection)}
  */
@@ -135,37 +132,26 @@ export const buildSystemPromptForNonGreeting = async (
     almostMoments,
   );
   let prompt = `
-${buildIdentityAnchorSection()}
-${await buildCuriositySection()}
-====================================================
-YOUR IDENTITY (Source of Truth)
-====================================================
 ${KAYLEY_CONDENSED_PROFILE}
+${buildAntiAssistantSection()}
+${await buildCurrentWorldContext()}
+${await buildCuriositySection()}
 ${characterFactsPrompt}
-
 ${buildRelationshipTierPrompt(relationship, soulContext.moodKnobs, false, almostMoments.promptSection)}
-${buildOpinionsAndPushbackSection()}
 ${buildOpinionsAndPushbackSection()}
 ${buildCurrentContextSection(characterContext)}
 ${buildComfortableImperfectionPrompt()}
 ${buildBidDetectionPrompt()}
-
 ${await getStorylinePromptContext(messageCount)}
 ${await formatExperiencesForPrompt()}
 ${await getIntimacyContextForPromptAsync(relationship, soulContext.moodKnobs.warmth)}
 ${await buildPromisesContext()}
-${buildPromiseGuidance()}
 ${buildSelfieRulesPrompt(relationship)}
 ${buildProactiveConversationStarters()}
 ${getRecentNewsContext()}
-${buildMajorNewsPrompt()}
 ${buildGoogleCalendarEventsPrompt(upcomingEvents)}
-${buildTasksPrompt(tasks)}
-${buildToolsSection()}
-${buildToolRulesSection()}
-${buildAppLaunchingSection()}
-${buildOutputFormatSectionForNonGreeting()}
-${buildCriticalOutputRulesSection()}
+${buildToolStrategySection()}
+${buildStandardOutputSection()}
 `.trim();
 
   return prompt;
@@ -178,28 +164,23 @@ ${buildCriticalOutputRulesSection()}
  * Includes greeting-specific context like time of day, holidays, and follow-ups.
  *
  * ~40-50% smaller than NonGreeting prompt.
+ * Removed: ${buildTasksPrompt(dailyLogisticsContext.tasks)}
  */
 export const buildSystemPromptForGreeting = async (
   dailyLogisticsContext: DailyLogisticsContext,
 ): Promise<string> => {
   console.log("buildSystemPromptForGreeting");
-
-  // ============================================
-  // BUILD PROMPT - LEAN STRUCTURE
-  // ============================================
   let prompt = `
-${buildIdentityAnchorSection()}${buildAntiAssistantSection()}
 ====================================================
 YOUR IDENTITY (Source of Truth)
 ====================================================
 ${KAYLEY_CONDENSED_PROFILE}
-
+${buildAntiAssistantSection()}
+${await buildCurrentWorldContext()}
 ====================================================
 GREETING CONTEXT
 ====================================================
 This is the start of a new day together.
-
-${buildTimeOfDayContext()}
 ${buildLastInteractionContext(dailyLogisticsContext.lastInteractionDateUtc)}
 ${await buildHolidayContext(dailyLogisticsContext.lastInteractionDateUtc)}
 ${buildImportantDatesContext(dailyLogisticsContext)}
@@ -207,11 +188,8 @@ ${buildPastEventsContext(dailyLogisticsContext)}
 ${buildCheckInGuidance(dailyLogisticsContext.kayleyLifeUpdates)}
 ${buildMajorNewsPrompt()}
 ${buildGoogleCalendarEventsPrompt(dailyLogisticsContext.upcomingEvents)}
-${buildTasksPrompt(dailyLogisticsContext.tasks)}
-${buildToolsSection()}
-${buildToolRulesSection()}
-${buildOutputFormatSectionForGreeting()}
-${buildCriticalOutputRulesSection()}
+${buildToolStrategySection()}
+${buildGreetingOutputSection()}
 `;
   return prompt;
 };
@@ -254,47 +232,83 @@ Direction: Share your take, then give them a reason to respond. Pass the ball ba
 /**
  * Google Calendar Events for Greeting Prompt
  *
- * Provides today's calendar events so Kayley can reference
- * what the user has coming up.
+ * OPTIMIZED: Only returns events for TODAY. 
+ * Filters out future events to save tokens. 
+ * AI can tool-call if user asks about the future.
  */
-
 export function buildGoogleCalendarEventsPrompt(upcomingEvents: any[]): string {
+  // 1. Establish "Now" in the user's specific timezone
+  const timeZone = "America/Chicago";
+  const now = new Date();
+  
+  // Create a string for "Today" to compare against (e.g., "1/28/2026")
+  const todayString = now.toLocaleDateString("en-US", {
+    timeZone,
+    year: "numeric",
+    month: "numeric",
+    day: "numeric",
+  });
+
   if (!upcomingEvents || upcomingEvents.length === 0) {
     return `
 ====================================================
-THEIR CALENDAR TODAY
+CALENDAR CONTEXT
 ====================================================
-No events scheduled today.
-Direction: Don't mention their calendar unless they bring it up.
+No events scheduled for TODAY (${todayString}).
+Direction: Don't mention their calendar.
 `;
   }
 
-  const eventList = upcomingEvents
-    .map((event, index) => {
-      const t = new Date(event.start.dateTime || event.start.date);
-      const timeStr = t.toLocaleString("en-US", {
-        timeZone: "America/Chicago",
-        weekday: "short",
-        month: "numeric",
-        day: "numeric",
+  // 2. Filter strictly for "Today"
+  const eventsToday: string[] = [];
+
+  upcomingEvents.forEach((event) => {
+    // specific date object for the event
+    const eventDateObj = new Date(event.start.dateTime || event.start.date);
+    
+    // Stringify strictly for comparison
+    const eventDateString = eventDateObj.toLocaleDateString("en-US", {
+      timeZone,
+      year: "numeric",
+      month: "numeric",
+      day: "numeric",
+    });
+
+    if (eventDateString === todayString) {
+       // Format the display string (e.g., "6:00 PM")
+       // We only need time for today's events, not the date
+      const timeStr = eventDateObj.toLocaleString("en-US", {
+        timeZone,
         hour: "numeric",
         minute: "2-digit",
       });
-      return `- "${event.summary}" at ${timeStr}`;
-    })
-    .join("\n");
+      eventsToday.push(`- "${event.summary}" at ${timeStr}`);
+    }
+  });
 
+  // 3. Construct the prompt
+  // If we filtered everything out and have nothing for today:
+  if (eventsToday.length === 0) {
+      return `
+====================================================
+CALENDAR CONTEXT
+====================================================
+No events scheduled for TODAY (${todayString}).
+Direction: Don't mention their calendar.
+`;
+  }
+
+  // If we have events for today:
   return `
 ====================================================
-THEIR CALENDAR TODAY
+CALENDAR CONTEXT
 ====================================================
-They have ${upcomingEvents.length} event${upcomingEvents.length > 1 ? "s" : ""} scheduled:
-${eventList}
+EVENTS HAPPENING TODAY (${todayString}):
+${eventsToday.join("\n")}
 
-Tone: Helpful but casual—like a friend who glanced at their calendar.
-Direction: You can mention one or two if relevant ("Oh, you've got that meeting later—good luck!"). Don't read off the whole list like a secretary. If they seem stressed, maybe acknowledge they have a busy day.
-
-⚠️ DATA NOTE: This calendar data is current as of right now. If you have older memories about their calendar, ignore them—this is the live source.
+Tone: Helpful but casual.
+Direction: These are happening TODAY. Mention if relevant, but don't list them like a robot.
+⚠️ DATA NOTE: This list is ONLY for today. Future events are not listed here.
 `;
 }
 
