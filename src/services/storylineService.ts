@@ -858,23 +858,7 @@ const UPDATES_TABLE = "storyline_updates";
  */
 export async function createStoryline(input: CreateStorylineInput): Promise<LifeStoryline | null> {
   try {
-    const { data: existingActive, error: activeError } = await supabase
-      .from(STORYLINES_TABLE)
-      .select("id")
-      .is("outcome", null)
-      .limit(1);
-
-    if (activeError) {
-      console.error("[Storylines] Error checking for active storylines:", activeError);
-      return null;
-    }
-
-    if (existingActive && existingActive.length > 0) {
-      console.warn("[Storylines] Active storyline exists - blocking new storyline creation");
-      return null;
-    }
-
-    const { data, error } = await supabase
+     const { data, error } = await supabase
       .from(STORYLINES_TABLE)
       .insert({
         title: input.title,

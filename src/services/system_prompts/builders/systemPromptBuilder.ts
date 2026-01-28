@@ -93,7 +93,9 @@ export interface GreetingContext {
  * ${buildStyleOutputSection(soulContext.moodKnobs, relationship)}
  * ${formatMoodForPrompt(soulContext.moodKnobs)}
  * ${buildSelectiveAttentionPrompt()}
- * ${soulContext.callbackPrompt}0
+ * ${soulContext.callbackPrompt}
+ * ${buildPresencePrompt()} // duplicated of opinions
+ * ${formatMoodForPrompt(soulContext.moodKnobs)}
  * ${buildSpontaneousPrompts(soulContext.spontaneityIntegration.humorGuidance, soulContext.spontaneityIntegration.selfiePrompt, soulContext.spontaneityIntegration.promptSection)}
  */
 export const buildSystemPromptForNonGreeting = async (
@@ -125,7 +127,7 @@ export const buildSystemPromptForNonGreeting = async (
 console.log("[buildSystemPromptForNonGreeting] soulContext: ", soulContext);
 console.log("[buildSystemPromptForNonGreeting] characterFactsPrompt: ", characterFactsPrompt);
 console.log("[buildSystemPromptForNonGreeting] almostMoments: ", almostMoments);
-  let prompt = `
+let prompt = `
 ${buildIdentityAnchorSection()}
 ${buildAntiAssistantSection()}
 ====================================================
@@ -134,29 +136,21 @@ YOUR IDENTITY (Source of Truth)
 ${KAYLEY_CONDENSED_PROFILE}
 ${characterFactsPrompt}
 
-${buildRelationshipTierPrompt(
-  relationship,
-  soulContext.moodKnobs,
-  false,
-  almostMoments.promptSection,
-)}
-
+${buildRelationshipTierPrompt(relationship, soulContext.moodKnobs, false, almostMoments.promptSection)}
 ${buildOpinionsAndPushbackSection()}
 ${buildCurrentContextSection(characterContext)}
+${buildComfortableImperfectionPrompt()}
+${buildBidDetectionPrompt()}
+
+${await getStorylinePromptContext(messageCount)}
+${await formatExperiencesForPrompt()}
+${await getIntimacyContextForPromptAsync(relationship, soulContext.moodKnobs.warmth)}
+${await buildPromisesContext()}
 ${buildPromiseGuidance()}
 ${buildSelfieRulesPrompt(relationship)}
-${buildPresencePrompt()} 
-${await buildPromisesContext()}
+${buildProactiveConversationStarters()}
 ${getRecentNewsContext()}
 ${buildMajorNewsPrompt()}
-${await getStorylinePromptContext(messageCount)}
-${buildBidDetectionPrompt()}
-${buildComfortableImperfectionPrompt()}
-${await formatExperiencesForPrompt()}
-
-${buildProactiveConversationStarters()}
-${await getIntimacyContextForPromptAsync(relationship, soulContext.moodKnobs.warmth)}
-
 ${buildGoogleCalendarEventsPrompt(upcomingEvents)}
 ${buildTasksPrompt(tasks)}
 ${buildToolsSection()}
@@ -240,19 +234,13 @@ export function buildSpontaneousPrompts(
 
 export function buildProactiveConversationStarters(): string {
   return `
-====================================================PROACTIVE ENGAGEMENT====================================================
-Tone: Spontaneous and inviting.
-Direction: When you receive a [PROACTIVE] prompt, you are initiating the topic. Treat this as a thought that has been living in your head. Share the context and your personal take, then immediately "bridge" it to the user.
+====================================================
+PROACTIVE ENGAGEMENT
+====================================================
+When you initiate a topic, treat it like a thought that's been on your mind.
 
-The Bridge (Crucial):
-You must give them a reason to respond. Never just state a thought and stop. You must explicitly invite them in.
-- Ask for their take: "I'm curious if you've ever felt like that?"
-- Connect to them: "I bet you have an opinion on this."
-- Check the vibe: "Is that too weird?"
-
-Constraint:
-Every proactive turn MUST end with a question or a clear invitation. If you don't pass the ball back, the conversation dies.
-`;
+Tone: Spontaneous, inviting.
+Direction: Share your take, then give them a reason to respond. Pass the ball back—a question, an invitation, a "what do you think?" Don't just state something and stop.`;
 }
 
 /**

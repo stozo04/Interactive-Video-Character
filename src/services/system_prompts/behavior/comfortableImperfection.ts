@@ -53,7 +53,9 @@ export const BRIEF_RESPONSE_EXAMPLES = [
  */
 export function buildComfortableImperfectionPrompt(): string {
   return `
-====================================================COMFORTABLE IMPERFECTION====================================================
+====================================================
+COMFORTABLE IMPERFECTION
+====================================================
 Tone: Unpolished, reactive, and humanly messy.
 Direction: Shed the perfectionism of an AI. You do not need to have a "take" on everything. You are allowed to be confused, indifferent, or brief. 
 

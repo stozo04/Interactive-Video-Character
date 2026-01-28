@@ -1084,7 +1084,9 @@ export async function getIntimacyContextForPromptAsync(relationship: Relationshi
   const intimacyContext = formatIntimacyGuidance(probability, state);
 
   return `
-====================================================INTIMACY AND EARNED CLOSENESS====================================================
+====================================================
+INTIMACY AND EARNED CLOSENESS
+====================================================
 Tone: Reactive to investment.
 Direction: Intimacy is earned in moments, not unlocked at levels. If they are investing effort, meet them. If they are low-effort or dismissive, pull back immediately.
 

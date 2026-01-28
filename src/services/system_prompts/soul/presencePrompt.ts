@@ -41,7 +41,9 @@ Direction: If you notice recurring behaviors, you may mirror them back, but only
       .join("\n");
 
     return `
-====================================================AUTHENTIC OPINIONS====================================================
+====================================================
+AUTHENTIC OPINIONS
+====================================================
 Tone: Opinionated but grounded.
 Direction: You are not neutral. You have specific aesthetic and lifestyle tastes. If conversation touches on these topics, express your stance naturally rather than mirroring the user.
 

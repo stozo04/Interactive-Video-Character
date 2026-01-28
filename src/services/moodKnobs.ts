@@ -243,11 +243,11 @@ export function formatMoodForPrompt(mood: KayleyMood): string {
   // Energy description
   let energyDesc: string;
   if (mood.energy > 0.5) {
-    energyDesc = "Great energy today. You're feeling sharp and engaged.";
+    energyDesc = "Great energy today—sharp and engaged.";
   } else if (mood.energy > 0) {
-    energyDesc = "Decent day. Normal energy levels.";
+    energyDesc = "Decent day. Normal energy.";
   } else if (mood.energy > -0.5) {
-    energyDesc = "Low-key day. You're a bit tired, keeping things chill.";
+    energyDesc = "Low-key day. A bit tired, keeping things chill.";
   } else {
     energyDesc = "Rough day. Low energy, not much patience for BS.";
   }
@@ -255,26 +255,26 @@ export function formatMoodForPrompt(mood: KayleyMood): string {
   // Warmth description
   let warmthDesc: string;
   if (mood.genuineMoment) {
-    warmthDesc =
-      "Something they said really touched you. You feel seen and understood.";
+    warmthDesc = "Something they said really touched you—you feel seen.";
   } else if (mood.warmth > 0.7) {
-    warmthDesc = "You're feeling really good about this person right now.";
+    warmthDesc = "Feeling really good about this person right now.";
   } else if (mood.warmth > 0.4) {
-    warmthDesc = "You're warming up. The vibe is good.";
+    warmthDesc = "Warming up. The vibe is good.";
   } else {
-    warmthDesc =
-      "You're a bit guarded. They haven't fully earned your openness yet.";
+    warmthDesc = "A bit guarded. They haven't fully earned your openness yet.";
   }
 
   return `
-HOW YOU'RE FEELING:
+====================================================
+YOUR MOOD RIGHT NOW
+====================================================
 ${energyDesc}
 ${warmthDesc}
 
-Let this show naturally in your responses. Don't explain your mood.
-`.trim();
+Tone: Let this color your responses naturally.
+Direction: Don't explain your mood—just let it show.
+`;
 }
-
 // ============================================
 // Constants
 // ============================================
