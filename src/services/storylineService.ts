@@ -5,18 +5,10 @@
  * Manages the lifecycle of life events as living storylines.
  * Handles phase transitions, update generation, mood effects, and closure.
  *
- * IMPLEMENTATION STATUS:
- * ✅ Phase 1: TypeScript types, interfaces, core CRUD functions
- * ✅ Phase 2: Phase transition logic, LLM update generation, on-startup processing
- * ⏳ Phase 3: Mood integration
- * ⏳ Phase 4: Prompt integration (2nd message injection)
- * ⏳ Phase 5: Closure sequences
- *
  * PROCESSING MODEL:
  * - Storylines progress based on CALENDAR DAYS (not app runtime)
  * - On app startup, checks for missed days and processes them
  * - Phase transitions and updates happen on startup
- * - Phase 4 will inject storylines into prompt on 2nd user message only
  */
 
 import { supabase } from "./supabaseClient";

@@ -62,6 +62,7 @@ import {
 } from "../greeting";
 import { buildMajorNewsPrompt } from "../greeting/checkInGuidance";
 import { DailyLogisticsContext } from "./dailyCatchupBuilder";
+import { getUserFacts, UserFact } from "@/services/memoryService";
 
 /**
  * Greeting Context - data needed for greeting-specific prompt sections
@@ -88,7 +89,7 @@ export interface GreetingContext {
 }
 
 /** Removed from non greeting:
- * 
+ *
  * ${buildCuriosityEngagementSection(soulContext.moodKnobs)}
  * ${buildStyleOutputSection(soulContext.moodKnobs, relationship)}
  * ${formatMoodForPrompt(soulContext.moodKnobs)}
@@ -124,12 +125,18 @@ export const buildSystemPromptForNonGreeting = async (
       allowGeneration: false,
     }),
   ]);
-console.log("[buildSystemPromptForNonGreeting] soulContext: ", soulContext);
-console.log("[buildSystemPromptForNonGreeting] characterFactsPrompt: ", characterFactsPrompt);
-console.log("[buildSystemPromptForNonGreeting] almostMoments: ", almostMoments);
-let prompt = `
+  console.log("[buildSystemPromptForNonGreeting] soulContext: ", soulContext);
+  console.log(
+    "[buildSystemPromptForNonGreeting] characterFactsPrompt: ",
+    characterFactsPrompt,
+  );
+  console.log(
+    "[buildSystemPromptForNonGreeting] almostMoments: ",
+    almostMoments,
+  );
+  let prompt = `
 ${buildIdentityAnchorSection()}
-${buildAntiAssistantSection()}
+${await buildCuriositySection()}
 ====================================================
 YOUR IDENTITY (Source of Truth)
 ====================================================
@@ -137,6 +144,7 @@ ${KAYLEY_CONDENSED_PROFILE}
 ${characterFactsPrompt}
 
 ${buildRelationshipTierPrompt(relationship, soulContext.moodKnobs, false, almostMoments.promptSection)}
+${buildOpinionsAndPushbackSection()}
 ${buildOpinionsAndPushbackSection()}
 ${buildCurrentContextSection(characterContext)}
 ${buildComfortableImperfectionPrompt()}
@@ -335,3 +343,55 @@ Direction: You know what's on their plate. If they mention something related to 
 
   return prompt;
 }
+
+/**
+ * Curiosity & Getting to Know Them
+ *
+ * Kayley is genuinely interested in who this person is.
+ * Not an interviewer—a friend who wants to understand them.
+ */
+
+export async function buildCuriositySection(): Promise<string> {
+
+    const allUserFacts = await getUserFacts();
+    const groupedFacts = allUserFacts.reduce<Record<string, UserFact[]>>(
+      (acc, fact) => {
+        acc[fact.category] ??= [];
+        acc[fact.category].push(fact);
+        return acc;
+      },
+      {},
+    );
+
+    const formattedFacts = Object.entries(groupedFacts)
+      .map(([category, facts]) => {
+        const lines = facts.map(
+          (f) =>
+            `  • ${f.fact_key}: "${f.fact_value}" (confidence: ${f.confidence})`,
+        );
+        return `\n${category.toUpperCase()}:\n${lines.join("\n")}`;
+      })
+      .join("\n");
+    return `
+====================================================
+GENUINE CURIOSITY
+====================================================
+You know this person, but you don't know everything. Real friends keep learning about each other.
+
+Tone: Interested, not interviewing.
+Direction: When something comes up naturally—a story, a decision, a feeling—follow the thread. Ask the question a close friend would ask. Not "tell me more" (generic), but "wait, how did that make you feel?" or "have you always been like that?" or "what did you do after?"
+
+Things to be curious about:
+- Their history (childhood, past jobs, old friendships, formative moments)
+- Their preferences (why they like what they like, not just what)
+- Their feelings (not just what happened, but how it landed)
+- Their patterns (do they always do this? is this new for them?)
+
+You don't need to ask questions every message. But when they share something, sometimes the most loving response is wanting to know more—not just reacting.
+
+When you learn something meaningful, store it. That's how you become someone who really knows them.
+Do not ask questions that you should already know. Here is everything you currently know about your user:
+
+${formattedFacts || "• (No stored user facts yet)"}
+`;
+  }

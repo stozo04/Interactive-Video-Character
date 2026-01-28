@@ -20,7 +20,7 @@ import { generateSpeech } from "./elevenLabsService";
 import {
   executeMemoryTool,
   MemoryToolName,
-  getImportantDateFacts
+  getImportantDateFacts,
 } from "./memoryService";
 import { getTopLoopToSurface, markLoopSurfaced } from "./presenceDirector";
 import { resolveActionKey } from "../utils/actionKeyMapper";
@@ -532,6 +532,13 @@ export class GeminiService implements IAIChatService {
         input: [...toolResults],
         system_instruction: systemPrompt,
         tools: interactionConfig.tools,
+        store: true,
+        generation_config: {
+          // Controls the depth of reasoning (Gemini 3 specific)
+          thinking_level: "medium", // "high", "medium", "low"
+          temperature: 1.0,
+          responseMimeType: "application/json",
+        },
       };
 
       // Make continuation call
@@ -652,45 +659,9 @@ export class GeminiService implements IAIChatService {
         // Controls the depth of reasoning (Gemini 3 specific)
         thinking_level: "medium", // "high", "medium", "low"
         temperature: 1.0,
+        responseMimeType: "application/json",
       },
     };
-    /**]
-     * 
-     * Notes:
-     * 
-     * In Large Language Models like Gemini 3, temperature is a parameter that controls the randomness and creativity of the model's output. You can think of it as a "predictability" slider.
-
-Here is how it breaks down technically:
-
-1. How it works
-At a fundamental level, the model doesn't pick one word; it calculates a list of probabilities for the next possible word.
-
-Low Temperature (e.g., 0.1 – 0.3): The model becomes "sharper." It almost always chooses the word with the highest probability. This makes the output consistent, factual, and stable.
-
-High Temperature (e.g., 0.8 – 1.5+): The model becomes "flatter." It starts giving a higher chance to less likely words. This leads to more diverse, creative, and sometimes unexpected (or "hallucinated") responses.
-
-2. The Scale
-0.0: Deterministic. If you ask the same question twice, you will almost always get the exact same answer. Best for coding, data extraction, and factual Q&A.
-
-1.0 (Your current setting): The default "neutral" balance. It provides a good mix of consistency and natural-sounding variety.
-
-2.0: Maximum chaos. The model becomes highly unpredictable and often loses the "thread" of the conversation or starts generating nonsense.
-
-3. Temperature + Thinking (Gemini 3 Specific)
-Since you are using thinking_level: "medium", temperature plays an interesting role:
-
-During the "Thinking" phase: The model explores different reasoning paths. A slightly higher temperature (like your 1.0) allows the model to consider "out of the box" logic during its internal monologue.
-
-The Final Output: If you find that the model is being too "chatty" or ignoring your system instructions after thinking, lowering the temperature to 0.7 can help pin it down to a more logical conclusion.
-
-Recommendation
-For Chat/Companions: Keep it at 1.0. It makes the character feel more "alive" because they won't use the exact same phrasing every time.
-
-For Analysis/Tasks: If you use Gemini to perform specific logic (like your sentiment analysis), lower it to 0.2 to ensure the results are objective and repeatable.
-
-In your interactionConfig, leaving it at 1.0 is a safe bet for a conversational AI, as it prevents the "robotic" feel of lower settings.
-     * 
-     */
 
     if (isFirstMessage) {
       console.log(
@@ -732,7 +703,7 @@ In your interactionConfig, leaving it at 1.0 is a safe bet for a conversational 
       options,
       3, // MAX_TOOL_ITERATIONS
     );
-    console.log("FINAL INTERACTIONS: ", finalInteraction)
+    console.log("FINAL INTERACTIONS: ", finalInteraction);
     // Parse response
     const structuredResponse = this.parseInteractionResponse(finalInteraction);
 
@@ -788,15 +759,15 @@ In your interactionConfig, leaving it at 1.0 is a safe bet for a conversational 
       // ============================================
       // BUILD SYSTEM PROMPT
       // ============================================
-      
+
       // Move 37: Intent detection removed - main LLM reads messages directly
       const systemPrompt = await buildSystemPromptForNonGreeting(
         fetchedContext.relationship,
         fetchedContext.upcomingEvents,
         fetchedContext.characterContext,
-        fetchedContext.tasks
+        fetchedContext.tasks,
       );
-      console.log('systemPrompt: ', systemPrompt)
+      console.log("systemPrompt: ", systemPrompt);
       // ============================================
       // CALL GEMINI API
       // ============================================
@@ -886,15 +857,11 @@ In your interactionConfig, leaving it at 1.0 is a safe bet for a conversational 
         response: aiResponse,
         session: updatedSession,
       };
-      
     } catch (error) {
       console.error("Gemini Service Error:", error);
       throw error;
     }
   }
-
-
-
 
   // ============================================
   // GREETING METHODS
@@ -951,9 +918,7 @@ In your interactionConfig, leaving it at 1.0 is a safe bet for a conversational 
     };
 
     console.log("greetingContext: ", greetingContext);
-    const systemPrompt = await buildSystemPromptForGreeting(
-      greetingContext,
-    );
+    const systemPrompt = await buildSystemPromptForGreeting(greetingContext);
     console.log("systemPrompt: ", systemPrompt);
     const greetingPrompt = buildGreetingPrompt(fetchedContext.relationship);
     console.log("greetingPrompt: ", greetingPrompt);
@@ -967,6 +932,7 @@ In your interactionConfig, leaving it at 1.0 is a safe bet for a conversational 
         // Uses the dynamic level calculated above
         thinking_level: "medium",
         temperature: 1.0,
+        responseMimeType: "application/json",
       },
       // Combined your custom memory tools with Google Search
       tools: [...this.buildMemoryTools()],
@@ -986,14 +952,14 @@ In your interactionConfig, leaving it at 1.0 is a safe bet for a conversational 
     );
 
     // Parse response
-    const structuredFinalResponse = this.parseInteractionResponse(finalInteraction);
+    const structuredFinalResponse =
+      this.parseInteractionResponse(finalInteraction);
 
     // Update session with interaction ID (critical for stateful conversations!)
     console.log("🔗 [Gemini Interactions] RESPONSE DEBUG:");
     console.log("   -222 structuredResponse: ", structuredFinalResponse);
     console.log("   - API returned interaction.id:", finalInteraction.id);
     console.log("   - Storing this ID for next message");
-
 
     return {
       greeting: structuredFinalResponse,
@@ -1008,12 +974,15 @@ In your interactionConfig, leaving it at 1.0 is a safe bet for a conversational 
    * Generate a natural "welcome back" response for returning users.
    * Fetches all context internally.
    */
-  async generateNonGreeting(session: AIChatSession, googleAccessToken: string): Promise<{
+  async generateNonGreeting(
+    session: AIChatSession,
+    googleAccessToken: string,
+  ): Promise<{
     greeting: AIActionResponse;
     session: AIChatSession;
     audioData?: string;
   }> {
-    console.log('GATES generateNonGreeting')
+    console.log("GATES generateNonGreeting");
     // Fetch context internally
     const fetchedContext = await this.fetchUserContext(googleAccessToken);
 
@@ -1081,7 +1050,7 @@ ${pendingSuggestion.reasoning}
       const nonGreetingPrompt = buildNonGreetingPrompt(
         fetchedContext.relationship.lastInteractionAt,
         fetchedContext.characterContext,
-        pendingMessage
+        pendingMessage,
       );
 
       // Build interaction config
@@ -1089,6 +1058,12 @@ ${pendingSuggestion.reasoning}
         model: this.model,
         input: [{ type: "text", text: nonGreetingPrompt }],
         system_instruction: systemPrompt,
+        store: true, // <-- Important - This enables server-side logging and session continuity
+        generation_config: {
+          thinking_level: "medium", // "high", "medium", "low"
+          temperature: 1.0,
+          responseMimeType: "application/json",
+        },
       };
 
       if (session?.interactionId) {
@@ -1202,7 +1177,7 @@ const pollVideoOperation = async (operation: any): Promise<Blob> => {
   if (currentOperation.error) {
     console.error("Video generation failed:", currentOperation.error);
     throw new Error(
-      `Video generation failed: ${currentOperation.error.message}`
+      `Video generation failed: ${currentOperation.error.message}`,
     );
   }
 
@@ -1229,7 +1204,7 @@ const generateSingleVideo = (image: UploadedImage, prompt: string) => {
 };
 
 export const generateInitialVideo = async (
-  image: UploadedImage
+  image: UploadedImage,
 ): Promise<Blob> => {
   console.log("Generating new initial video.");
   const prompt = `Animate the character from this image to create a short, seamlessly looping video. The character should be sitting at a desk, looking forward with a pleasant, neutral expression.`;
@@ -1239,7 +1214,7 @@ export const generateInitialVideo = async (
 
 export const generateActionVideo = async (
   image: UploadedImage,
-  command: string
+  command: string,
 ): Promise<string> => {
   const prompt = `Animate the character from this image to perform the following action: "${command}".`;
   const operation = await generateSingleVideo(image, prompt);
