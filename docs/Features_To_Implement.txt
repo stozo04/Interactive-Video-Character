@@ -20,6 +20,10 @@ I want to implement:
       
 - Remove all current Idle Thinking logic
 - Add Video creation
+- Provactive images
+- Fix duplication of User and Character Facts. Find a way to "update" anything that say current
+ for example: current_project_gift
+
 - Confirm with LLM to see if I need to always pass in Calendar and Tasks else figure a way to only send on change
 - Remove unused env variables
 What is Missing? (Add these)

@@ -1,5 +1,7 @@
 // src/services/imageGeneration/types.ts
 
+
+
 export type HairstyleType =
   | 'curly'           // Natural voluminous curls (2B/2C waves)
   | 'straight'        // Blown out or naturally straight
@@ -18,7 +20,24 @@ export type OutfitStyle =
   | 'casual'          // Everyday wear (t-shirt, jeans, sweater)
   | 'dressed_up'      // Formal/nice (dress, blouse, jewelry)
   | 'athletic'        // Gym/activewear
-  | 'cozy';           // Loungewear, pajamas
+  | 'cozy'         // Loungewear, pajamas
+  | "date_night"
+  | "sleepwear"
+  | "swimwear"
+  | "lingerie";
+
+  export type SeductionLevel =
+  | "innocent"
+  | "playful"
+  | "flirty"
+  | "provocative"
+  | "dangerously_elegant";
+
+export type SkinExposure =
+  | "minimal"
+  | "suggestive"
+  | "revealing"
+  | "implied_only";
 
 export type SeasonContext =
   | 'winter'          // Dec, Jan, Feb
@@ -26,9 +45,11 @@ export type SeasonContext =
   | 'summer'          // Jun, Jul, Aug
   | 'fall';           // Sep, Oct, Nov
 
+  
 export interface ReferenceImageMetadata {
   id: string; // Unique identifier
   fileName: string; // e.g., "curlyHairCasual/curly_hair_casual.jpg"
+  url: string; // Supabase key for Grok Image
   hairstyle: HairstyleType; // Derived from folder name
   outfitStyle: OutfitStyle; // Derived from folder name
 }
@@ -148,6 +169,16 @@ export interface GeneratedImagePrompt {
   // Hairstyle guidance for reference selection
   hairstyleGuidance: {
     preference: HairstyleType | "any";
+    reason?: string;
+  };
+
+  seductionLevelGuidance: {
+    preference: SeductionLevel;
+    reason?: string;
+  };
+
+  skinExposuresGuidance: {
+    preference: SkinExposure;
     reason?: string;
   };
 
