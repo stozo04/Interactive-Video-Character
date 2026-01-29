@@ -23,7 +23,6 @@ import {
   getImportantDateFacts,
 } from "./memoryService";
 import { getTopLoopToSurface, markLoopSurfaced } from "./presenceDirector";
-import { resolveActionKey } from "../utils/actionKeyMapper";
 import {
   getUndeliveredMessage,
   markMessageDelivered,
@@ -292,13 +291,9 @@ function normalizeAiResponse(rawJson: any, rawText: string): AIActionResponse {
     };
   }
 
-  // Resolve action key to UUID (handles fuzzy matching and fallback)
-  const actionId = resolveActionKey(rawJson.action_id);
-
   // ⚠️ WARNING: Every field in AIActionResponseSchema MUST be listed below!
   return {
     text_response: rawJson.text_response || rawJson.response || rawText,
-    action_id: actionId,
     user_transcription: rawJson.user_transcription || null,
     // NOTE: task_action is now a function tool, not part of JSON response
     open_app: rawJson.open_app || null,
@@ -309,6 +304,8 @@ function normalizeAiResponse(rawJson: any, rawText: string): AIActionResponse {
     game_move: rawJson.game_move, // 0 is valid, so check undefined
     // Selfie/image generation action
     selfie_action: rawJson.selfie_action || null,
+    // Video generation action
+    video_action: rawJson.video_action || null,
     // Store new character facts
     store_self_info: rawJson.store_self_info || null,
     // Almost moment tracking
@@ -572,7 +569,6 @@ export class GeminiService implements IAIChatService {
 
       return {
         text_response: "I'm having trouble processing that right now.",
-        action_id: null,
       };
     }
 
@@ -591,7 +587,6 @@ export class GeminiService implements IAIChatService {
       console.warn("Parsing fallback triggered for:", responseText);
       return {
         text_response: responseText,
-        action_id: null,
       };
     }
   }

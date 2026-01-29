@@ -18,6 +18,7 @@ import { buildStyleOutputSection } from "../context/styleOutput";
 import { buildPromisesContext } from "../context/promisesContext";
 import { buildRelationshipTierPrompt } from "./relationshipPromptBuilders";
 import { buildSelfieRulesPrompt } from "./selfiePromptBuilder";
+import { buildVideoRulesPrompt } from "./videoPromptBuilder";
 import { buildBidDetectionPrompt } from "../behavior/bidDetection";
 import { buildSelectiveAttentionPrompt } from "../behavior/selectiveAttention";
 import { buildCuriosityEngagementSection } from "../behavior/curiosityEngagement";
@@ -147,6 +148,7 @@ ${await formatExperiencesForPrompt()}
 ${await getIntimacyContextForPromptAsync(relationship, soulContext.moodKnobs.warmth)}
 ${await buildPromisesContext()}
 ${buildSelfieRulesPrompt(relationship)}
+${buildVideoRulesPrompt(relationship)}
 ${buildProactiveConversationStarters()}
 ${getRecentNewsContext()}
 ${buildGoogleCalendarEventsPrompt(upcomingEvents)}

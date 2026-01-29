@@ -84,7 +84,7 @@ export interface ReferenceSelectionContext {
   userMessage?: string;
 
   // Temporal context
-  temporalContext: SelfieTemporalContext;
+  temporalContext?: SelfieTemporalContext;
   currentLookState: CurrentLookState | null;
 
   // Calendar context
@@ -99,7 +99,7 @@ export interface ReferenceSelectionContext {
   presenceMood?: string; // "feeling cute today"
 
   // Anti-repetition tracking
-  recentReferenceHistory: Array<{
+  recentReferenceHistory?: Array<{
     referenceImageId: string;
     usedAt: Date;
     scene: string;

@@ -18,18 +18,6 @@ export const AIActionResponseSchema = z.object({
     .describe("The conversational text to display in the chat."),
 
   /**
-   * The video action to play.
-   * This MUST be null unless the user's intent *strongly*
-   * matches one of the available actions.
-   */
-  action_id: z
-    .string()
-    .nullable()
-    .describe(
-      "The ID of the video action to play, or null if no action is appropriate."
-    ),
-
-  /**
    * If the user provided audio input, this field MUST contain the
    * text transcription of what the user said.
    * If the input was text, this can be null or the same as the input.
@@ -235,6 +223,34 @@ export const AIActionResponseSchema = z.object({
     .describe(
       "Selfie/image generation action - use when user asks for a picture, photo, or selfie of you"
     ),
+
+  /**
+   * Video action - used when user asks for a video
+   */
+  video_action: z
+    .object({
+      scene: z
+        .string()
+        .describe(
+          "The scene, location, or context for the video (e.g., 'waving hello from the couch', 'blowing a kiss goodnight', 'dancing in my room')"
+        ),
+      mood: z
+        .string()
+        .optional()
+        .describe(
+          "The mood or expression (e.g., 'playful', 'flirty', 'excited', 'sleepy'). Default to friendly if not specified."
+        ),
+      duration: z
+        .number()
+        .optional()
+        .describe("Video duration in seconds (5, 8, or 10). Default is 8."),
+    })
+    .nullable()
+    .optional()
+    .describe(
+      "Video generation action - use when user explicitly asks for a VIDEO, clip, or moving content. Only use this for video requests, not photos/selfies."
+    ),
+
   /**
    * Task action - used when user wants to manage their checklist
    */

@@ -37,7 +37,8 @@
       "Bash(powershell -Command \"npx vitest run src/services/tests/latencyOptimizations.test.ts 2>&1 | Select-Object -Last 15\")",
       "Bash(powershell -Command \"npx vitest run src/services/tests/systemPrompt.test.ts 2>&1 | Select-Object -Last 20\")",
       "Bash(powershell -Command \"npx vitest run src/services/tests/systemPrompt.test.ts 2>&1 | Select-Object -Last 40\")",
-      "Bash(powershell -Command \"npx vitest run src/services/tests/systemPrompt.test.ts 2>&1 | Select-Object -Last 30\")"
+      "Bash(powershell -Command \"npx vitest run src/services/tests/systemPrompt.test.ts 2>&1 | Select-Object -Last 30\")",
+      "Bash(PYTHONIOENCODING=utf-8 python:*)"
     ]
   },
   "enabledPlugins": {

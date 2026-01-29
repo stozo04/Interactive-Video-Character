@@ -479,9 +479,8 @@ const App: React.FC = () => {
         updatedSession.interactionId
       );
 
-      // 5. Play Audio/Action
+      // 5. Play Audio
       if (!isMuted && audioData) enqueueAudio(audioData);
-      if (response.action_id) playAction(response.action_id);
       if (response.open_app) {
         console.log("Launching app:", response.open_app);
          window.location.href = response.open_app;
@@ -919,11 +918,6 @@ const App: React.FC = () => {
             updatedSession.interactionId
           );
 
-          if (greeting.action_id && newActionUrls[greeting.action_id]) {
-            setTimeout(() => playAction(greeting.action_id!), 100);
-          }
-          
-          
         } else {
           // CONVERSATION OCCURRED TODAY: Reload all exchanges and generate informal "welcome back"
           console.log(`🧠 [App] Chat detected today (${messageCount} messages) - reloading history and generating non-greeting`);
@@ -950,9 +944,6 @@ const App: React.FC = () => {
             updatedSession.interactionId || session.interactionId // Restore interactionId here
           );
 
-          if (backMessage.action_id && newActionUrls[backMessage.action_id]) {
-            setTimeout(() => playAction(backMessage.action_id!), 100);
-          }
         }
 
         // Reset the last saved index since we're starting fresh
@@ -1115,9 +1106,9 @@ const App: React.FC = () => {
           enqueueAudio(audioData);
         }
 
-        if (response.action_id) {
-          playAction(response.action_id);
-        }
+        // if (response.action_id) {
+        //   playAction(response.action_id);
+        // }
         if (response.open_app) {
           console.log("🚀 Launching app:", response.open_app);
           window.location.href = response.open_app;
@@ -1211,6 +1202,21 @@ const App: React.FC = () => {
         }
         // Gates: Disable Audio
         // if (!isMuted) { const audio = await generateSpeech(selfieMsg); if (audio) media.enqueueAudio(audio); }
+        startBackgroundSentiment();
+        maybePlayResponseAction(result.actionToPlay);
+        return;
+      }
+
+      // VIDEO ACTIONS (Generate companion video)
+      if (result.videoUrl || result.videoError) {
+        if (result.chatMessages.length > 0) setChatHistory(prev => [...prev, ...result.chatMessages]);
+        if (result.audioToPlay) media.enqueueAudio(result.audioToPlay);
+        const videoMsg = result.videoMessageText || (result.videoUrl ? "Here's a little video for you!" : "I couldn't make that video right now, sorry!");
+        if (result.videoUrl) {
+          setChatHistory(prev => [...prev, { role: 'model', text: videoMsg, assistantVideoUrl: result.videoUrl }]);
+        } else {
+          setChatHistory(prev => [...prev, { role: 'model', text: videoMsg }]);
+        }
         startBackgroundSentiment();
         maybePlayResponseAction(result.actionToPlay);
         return;

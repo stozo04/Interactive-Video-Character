@@ -51,26 +51,76 @@ export default defineConfig(({ mode }) => {
                   try {
                     const { imageBase64, scene } = JSON.parse(body);
                     const buffer = Buffer.from(imageBase64, 'base64');
-                    
+
                     // Create a safe filename
                     const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
                     const safeScene = scene ? scene.substring(0, 30).replace(/[^a-z0-9]/gi, '_').toLowerCase() : 'selfie';
                     const filename = `selfie_${timestamp}_${safeScene}.jpg`;
                     const filePath = path.join(process.cwd(), 'selfies', filename);
-                    
+
                     if (!fs.existsSync(path.join(process.cwd(), 'selfies'))) {
                       fs.mkdirSync(path.join(process.cwd(), 'selfies'), { recursive: true });
                     }
-                    
+
                     fs.writeFileSync(filePath, buffer);
                     console.log(`💾 [Vite] Saved selfie: ${filename}`);
-                    
+
                     res.statusCode = 200;
                     res.end(JSON.stringify({ success: true, filename }));
                   } catch (error) {
                     console.error('❌ [Vite] Error saving selfie:', error);
                     res.statusCode = 500;
                     res.end(JSON.stringify({ success: false, error: 'Failed to save selfie' }));
+                  }
+                });
+              } else {
+                next();
+              }
+            });
+          }
+        },
+        {
+          name: 'save-video-plugin',
+          configureServer(server) {
+            server.middlewares.use(async (req, res, next) => {
+              if (req.url === '/api/save-video' && req.method === 'POST') {
+                let body = '';
+                req.on('data', chunk => {
+                  body += chunk.toString();
+                });
+                req.on('end', async () => {
+                  try {
+                    const { videoUrl, scene } = JSON.parse(body);
+
+                    // Download video from URL
+                    console.log(`🎬 [Vite] Downloading video from: ${videoUrl}`);
+                    const response = await fetch(videoUrl);
+                    if (!response.ok) {
+                      throw new Error(`Failed to download video: ${response.status}`);
+                    }
+                    const arrayBuffer = await response.arrayBuffer();
+                    const buffer = Buffer.from(arrayBuffer);
+
+                    // Create a safe filename
+                    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+                    const safeScene = scene ? scene.substring(0, 30).replace(/[^a-z0-9]/gi, '_').toLowerCase() : 'video';
+                    const filename = `video_${timestamp}_${safeScene}.mp4`;
+                    const videosDir = path.join(process.cwd(), 'videos');
+                    const filePath = path.join(videosDir, filename);
+
+                    if (!fs.existsSync(videosDir)) {
+                      fs.mkdirSync(videosDir, { recursive: true });
+                    }
+
+                    fs.writeFileSync(filePath, buffer);
+                    console.log(`💾 [Vite] Saved video: ${filename} (${(buffer.length / 1024 / 1024).toFixed(2)} MB)`);
+
+                    res.statusCode = 200;
+                    res.end(JSON.stringify({ success: true, filename }));
+                  } catch (error) {
+                    console.error('❌ [Vite] Error saving video:', error);
+                    res.statusCode = 500;
+                    res.end(JSON.stringify({ success: false, error: 'Failed to save video' }));
                   }
                 });
               } else {
