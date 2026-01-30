@@ -16,16 +16,13 @@ I want to implement:
        How does a cooldown work? If there is a 33% chance of the following and 
        idle kicks off lets say 5 minutes of inactivity this can generate a lot
        of browsing requests / life_storyline / tons of questions. so we need 
-       some way of saying ok this has been called x amount today.. skipping
+       some way of saying ok this has been called x amount today.. skipping       
       
 - Remove all current Idle Thinking logic
-- Add Video creation
-- Provactive images
-- Fix duplication of User and Character Facts. Find a way to "update" anything that say current
- for example: current_project_gift
 
-- Confirm with LLM to see if I need to always pass in Calendar and Tasks else figure a way to only send on change
-- Remove unused env variables
+
+
+
 What is Missing? (Add these)
 A. "Emotional Carryover" (The Missing Link) You have Last Interaction Date, but you don't have Last Interaction Vibe.
 

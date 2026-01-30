@@ -601,6 +601,10 @@ export const executeMemoryTool = async (
       }
       case 'store_user_info': {
         const { category, key, value } = args as ToolCallArgs['store_user_info'];
+        if (isCurrentFactKey(key)) {
+          console.log(`⏭️ [Memory] Skipping current_* fact (transient): ${category}.${key}`);
+          return `Skipped transient fact: ${key}`;
+        }
         const success = await storeUserFact(category, key, value);
         return success 
           ? `✓ Stored: ${key} = "${value}"` 
@@ -1078,6 +1082,10 @@ const ADDITIVE_KEY_PATTERNS = [
   /^dislikes$/       // dislikes list
 ];
 
+function isCurrentFactKey(key: string): boolean {
+  return key.trim().toLowerCase().startsWith('current_');
+}
+
 /**
  * Determines the storage behavior for a fact key.
  */
@@ -1156,6 +1164,11 @@ export const processDetectedFacts = async (
     const storedFacts: LLMDetectedFact[] = [];
 
     for (const fact of detectedFacts) {
+      if (isCurrentFactKey(fact.key)) {
+        console.log(`⏭️ [Memory] Skipping current_* fact (transient): ${fact.category}.${fact.key}`);
+        continue;
+      }
+
       const factKey = `${fact.category}:${fact.key}`;
       const existingFact = existingFactsMap.get(factKey);
       const storageType = getFactStorageType(fact.key);

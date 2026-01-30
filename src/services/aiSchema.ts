@@ -629,7 +629,8 @@ export const GeminiMemoryToolDeclarations = [
     description:
       "Save PERSONAL FACTS about the user (name, job, preferences, family, current life projects). " +
       "Use 'context' for things like 'working on a startup' or 'training for a marathon'. " +
-      "NEVER use for tasks, to-dos, or checklist items - use task_action instead.",
+      "NEVER use for tasks, to-dos, or checklist items - use task_action instead. " +
+      "Never store transient current_* keys (e.g., current_feeling).",
     parameters: {
       type: "object",
       properties: {
