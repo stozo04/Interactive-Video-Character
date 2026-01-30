@@ -13,10 +13,6 @@
  * - outputFormat.ts      - JSON output format (CRITICAL - at END of prompt)
  */
 
-// Phase 5: Core prompt sections
 export { buildAntiAssistantSection } from "./antiAssistant";
 export { buildOpinionsAndPushbackSection } from "./opinionsAndPushback";
 export { buildIdentityAnchorSection } from "./identityAnchor";
-
-// Phase 5b: Self-knowledge rules
-export { buildSelfKnowledgeSection } from "./selfKnowledge";

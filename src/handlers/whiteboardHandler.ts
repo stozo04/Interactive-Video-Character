@@ -167,19 +167,19 @@ export async function handleWhiteboardCapture(
       sessionToUse
     );
 
-    wbLog('⏱️ [Whiteboard] generateResponse done', {
-      dtMs: Math.round(wbNow() - tGem0),
-      hasAudio: false,
-      hasActionId: !!response?.action_id,
-    });
+    // wbLog('⏱️ [Whiteboard] generateResponse done', {
+    //   dtMs: Math.round(wbNow() - tGem0),
+    //   hasAudio: false,
+    //   hasActionId: !!response?.action_id,
+    // });
 
-    // Update AI session
-    setAiSession(updatedSession);
+    // // Update AI session
+    // setAiSession(updatedSession);
 
-    // Play action if specified
-    if (response.action_id) {
-      playAction(response.action_id);
-    }
+    // // Play action if specified
+    // if (response.action_id) {
+    //   playAction(response.action_id);
+    // }
 
     // Parse whiteboard action from response
     const tParse0 = wbNow();

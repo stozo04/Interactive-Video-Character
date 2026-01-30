@@ -12,7 +12,6 @@ import AuthWarningBanner from './components/AuthWarningBanner';
 import * as conversationHistoryService from './services/conversationHistoryService';
 import * as relationshipService from './services/relationshipService';
 import type { RelationshipMetrics } from './services/relationshipService';
-import { recordExchange } from './services/callbackDirector';
 import { gmailService, type NewEmailPayload } from './services/gmailService';
 import { calendarService } from './services/calendarService';
 import { buildActionKeyMap } from './utils/actionKeyMapper';
@@ -52,6 +51,9 @@ import { processStorylineOnStartup } from './services/storylineService';
 import { startStorylineIdleService, stopStorylineIdleService } from './services/storylineIdleService';
 import { isQuestionMessage } from './utils/textUtils';
 import { shuffleArray } from './utils/arrayUtils';
+import { getAccessToken } from './services/googleAuth';
+import { hasBeenBriefedToday, markBriefedToday } from './services/dailyCatchupService';
+import { StorageKey } from './utils/enums';
 
 // ============================================================================
 // CONSTANTS & TYPES
@@ -478,9 +480,8 @@ const App: React.FC = () => {
         updatedSession.interactionId
       );
 
-      // 5. Play Audio/Action
+      // 5. Play Audio
       if (!isMuted && audioData) enqueueAudio(audioData);
-      if (response.action_id) playAction(response.action_id);
       if (response.open_app) {
         console.log("Launching app:", response.open_app);
          window.location.href = response.open_app;
@@ -553,56 +554,56 @@ const App: React.FC = () => {
     }
 
     // Business Logic: Delegate to BaseAIService (the Brain)
-    if (!activeService.triggerIdleBreaker) {
-      console.warn('[IdleBreaker] Service does not support triggerIdleBreaker');
-      return;
-    }
+    // if (!activeService.triggerIdleBreaker) {
+    //   console.warn('[IdleBreaker] Service does not support triggerIdleBreaker');
+    //   return;
+    // }
 
     try {
       setIsProcessingAction(true);
 
-      const result = await activeService.triggerIdleBreaker(
-        {
-          chatHistory,
-          googleAccessToken: session?.accessToken,
-          proactiveSettings,
-        },
-        aiSession || { model: activeService.model }
-      );
+      // const result = await activeService.triggerIdleBreaker(
+      //   {
+      //     chatHistory,
+      //     googleAccessToken: session?.accessToken,
+      //     proactiveSettings,
+      //   },
+      //   aiSession || { model: activeService.model }
+      // );
 
-      if (!result) {
-        // Service decided to skip (e.g., no news when news-only mode)
-        console.log("💤 [IdleBreaker] Service returned null, skipping");
-        return;
-      }
+      // if (!result) {
+      //   // Service decided to skip (e.g., no news when news-only mode)
+      //   console.log("💤 [IdleBreaker] Service returned null, skipping");
+      //   return;
+      // }
 
-      const { response, session: updatedSession, audioData } = result;
+     // const { response, session: updatedSession, audioData } = result;
 
-      setAiSession(updatedSession);
+      // setAiSession(updatedSession);
 
-      // UI Layer: Update chat history (no user bubble)
-      setChatHistory(prev => [
-        ...prev, 
-        { role: 'model', text: response.text_response }
-      ]);
+      // // UI Layer: Update chat history (no user bubble)
+      // setChatHistory(prev => [
+      //   ...prev, 
+      //   { role: 'model', text: response.text_response }
+      // ]);
       
       // Save to DB
-      await conversationHistoryService.appendConversationHistory(
-        [{ role: 'model', text: response.text_response }],
-        updatedSession.interactionId
-      );
+      // await conversationHistoryService.appendConversationHistory(
+      //   [{ role: 'model', text: response.text_response }],
+      //   updatedSession.interactionId
+      // );
 
-      // UI Layer: Play Audio/Action
-      if (!isMuted && audioData) {
-        // Convert string URL to ArrayBuffer if needed, or use directly
-        // Gates: Disable Audio 
-        // enqueueAudio(audioData as any); // audioData is already a string URL from generateSpeech
-      }
-      if (response.action_id) playAction(response.action_id);
-      if (response.open_app) {
-        console.log("Launching app:", response.open_app);
-        window.location.href = response.open_app;
-      }
+      // // UI Layer: Play Audio/Action
+      // if (!isMuted && audioData) {
+      //   // Convert string URL to ArrayBuffer if needed, or use directly
+      //   // Gates: Disable Audio 
+      //   // enqueueAudio(audioData as any); // audioData is already a string URL from generateSpeech
+      // }
+      // if (response.action_id) playAction(response.action_id);
+      // if (response.open_app) {
+      //   console.log("Launching app:", response.open_app);
+      //   window.location.href = response.open_app;
+      // }
 
     } catch (error) {
       console.error('[IdleBreaker] Error:', error);
@@ -826,8 +827,7 @@ const App: React.FC = () => {
 
 
     // Load tasks (handled by useTasks hook)
-    // TODO: Ask AI why we added this and if it is still needed? (Must search many files to understand)
-    const currentTasks = await loadTasks();
+     const currentTasks = await loadTasks();
     
     // Load snooze state (handled by useProactiveSettings hook)
     loadSnoozeState();
@@ -855,27 +855,11 @@ const App: React.FC = () => {
       const relationshipData = await relationshipService.getRelationship();
       setRelationship(relationshipData);
       
-      try {
         // 1. Check if any conversation occurred today (DB source of truth)
         const messageCount = await conversationHistoryService.getTodaysMessageCount();
-        const hasHadConversationToday = messageCount > 0;
-
-        // 2. Check if this is the first login of the day (Local state for briefing delay)
-        const today = new Date().toDateString();
-        const lastBriefingDate = localStorage.getItem(`last_briefing_${character.id}`);
-        const isFirstLoginToday = lastBriefingDate !== today;
-
+        const googleAccessToken = await getAccessToken()
         // Start with fresh session
         const session: AIChatSession = { model: activeService.model };
-
-        // USER REQUIREMENT: Store the conversationId that google gemini gives per day
-        // Try to restore today's Gemini interaction ID for continuity
-        const existingInteractionId = await conversationHistoryService.getTodaysInteractionId();
-        if (existingInteractionId) {
-          console.log(`🔗 [App] Restoring today's interaction ID: ${existingInteractionId}`);
-          session.interactionId = existingInteractionId;
-        }
-
         const handleStartupSelfie = async (
           selfieAction: { scene?: string; mood?: string; outfit?: string } | null | undefined,
           baseHistory: ChatMessage[]
@@ -916,42 +900,38 @@ const App: React.FC = () => {
             console.error('Selfie generation failed on startup:', selfieResult.error);
           }
         };
+        
 
-        if (!hasHadConversationToday) {
-          // No conversation today: Generate greeting
-          // The greeting service will automatically include daily logistics if it's the first login
-          console.log(isFirstLoginToday
-            ? '🌅 [App] First login today - generating greeting with daily logistics'
-            : '🤖 [App] Returning to session (no prior chat today) - generating greeting');
-
-          const { greeting, session: updatedSession } = await activeService.generateGreeting(
-            session,
-            {
-              characterId: character.id,
-              emailCount: emailQueue.length,
-              isGmailConnected,
-              isCalendarConnected: !!session,
-            }
-          );
+        if (!hasBeenBriefedToday()) {
+          console.log("[App] First login today - generating greeting with daily logistics");
+          console.log('googleAccessToken: ', googleAccessToken)
+          const { greeting, session: updatedSession } = await activeService.generateGreeting(googleAccessToken.accessToken);
           setAiSession(updatedSession);
-
+        // Important: set localStorage so we do not need to query database
+          markBriefedToday()
+          console.log("Has Been Briefed : ", hasBeenBriefedToday())
           const initialHistory = [{ role: 'model' as const, text: greeting.text_response }];
+          
           setChatHistory(initialHistory);
           await handleStartupSelfie(greeting.selfie_action, initialHistory);
+          await conversationHistoryService.appendConversationHistory(
+            [{ role: 'model', text: greeting.text_response }],
+            updatedSession.interactionId
+          );
 
-          if (greeting.action_id && newActionUrls[greeting.action_id]) {
-            setTimeout(() => playAction(greeting.action_id!), 100);
-          }
         } else {
           // CONVERSATION OCCURRED TODAY: Reload all exchanges and generate informal "welcome back"
           console.log(`🧠 [App] Chat detected today (${messageCount} messages) - reloading history and generating non-greeting`);
+          const existingInteractionId = await conversationHistoryService.getTodaysInteractionId();
+          if (existingInteractionId) {
+            console.log(`🔗 [App] Restoring today's interaction ID: ${existingInteractionId}`);
+            session.interactionId = existingInteractionId;
+          }
 
           const todayHistory = await conversationHistoryService.loadTodaysConversationHistory();
           setChatHistory(todayHistory);
 
-          const { greeting: backMessage, session: updatedSession } = await activeService.generateNonGreeting(
-            session
-          );
+          const { greeting: backMessage, session: updatedSession } = await activeService.generateNonGreeting(session, googleAccessToken.accessToken);
           setAiSession(updatedSession);
 
           // Append the "welcome back" message to the restored history
@@ -965,19 +945,12 @@ const App: React.FC = () => {
             updatedSession.interactionId || session.interactionId // Restore interactionId here
           );
 
-          if (backMessage.action_id && newActionUrls[backMessage.action_id]) {
-            setTimeout(() => playAction(backMessage.action_id!), 100);
-          }
         }
 
         // Reset the last saved index since we're starting fresh
         setLastSavedMessageIndex(-1);
 
-      } catch (error) {
-        console.error('Error generating greeting:', error);
-        // On error, just start with empty chat
-        setChatHistory([]);
-      }
+    
       setView('chat');
     } catch (error) {
       setErrorMessage('Failed to load character data.');
@@ -1105,12 +1078,9 @@ const App: React.FC = () => {
         { role: 'user' as const, text: userText, image: image.base64, imageMimeType: image.mimeType },
       ]);
 
-      // Record exchange for callback timing
-      try { recordExchange(); } catch (e) { console.warn('Exchange record failed', e); }
-
       try {
         const sessionToUse: AIChatSession = aiSession || { model: activeService.model };
-
+          console.log("SENDING MESSAGE")
         const { response, session: updatedSession, audioData } = await activeService.generateResponse(
           {
             type: 'image_text',
@@ -1137,9 +1107,9 @@ const App: React.FC = () => {
           enqueueAudio(audioData);
         }
 
-        if (response.action_id) {
-          playAction(response.action_id);
-        }
+        // if (response.action_id) {
+        //   playAction(response.action_id);
+        // }
         if (response.open_app) {
           console.log("🚀 Launching app:", response.open_app);
           window.location.href = response.open_app;
@@ -1155,9 +1125,6 @@ const App: React.FC = () => {
 
     const updatedHistory = [...chatHistory, { role: 'user' as const, text: trimmedMessage }];
     setChatHistory(updatedHistory);
-
-    // Record exchange for callback timing
-    try { recordExchange(); } catch (e) { console.warn('Exchange record failed', e); }
 
     // Optimistic action prediction (UI responsiveness)
     let predictedActionId: string | null = null;
@@ -1236,6 +1203,21 @@ const App: React.FC = () => {
         }
         // Gates: Disable Audio
         // if (!isMuted) { const audio = await generateSpeech(selfieMsg); if (audio) media.enqueueAudio(audio); }
+        startBackgroundSentiment();
+        maybePlayResponseAction(result.actionToPlay);
+        return;
+      }
+
+      // VIDEO ACTIONS (Generate companion video)
+      if (result.videoUrl || result.videoError) {
+        if (result.chatMessages.length > 0) setChatHistory(prev => [...prev, ...result.chatMessages]);
+        if (result.audioToPlay) media.enqueueAudio(result.audioToPlay);
+        const videoMsg = result.videoMessageText || (result.videoUrl ? "Here's a little video for you!" : "I couldn't make that video right now, sorry!");
+        if (result.videoUrl) {
+          setChatHistory(prev => [...prev, { role: 'model', text: videoMsg, assistantVideoUrl: result.videoUrl }]);
+        } else {
+          setChatHistory(prev => [...prev, { role: 'model', text: videoMsg }]);
+        }
         startBackgroundSentiment();
         maybePlayResponseAction(result.actionToPlay);
         return;

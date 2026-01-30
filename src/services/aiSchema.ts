@@ -18,18 +18,6 @@ export const AIActionResponseSchema = z.object({
     .describe("The conversational text to display in the chat."),
 
   /**
-   * The video action to play.
-   * This MUST be null unless the user's intent *strongly*
-   * matches one of the available actions.
-   */
-  action_id: z
-    .string()
-    .nullable()
-    .describe(
-      "The ID of the video action to play, or null if no action is appropriate."
-    ),
-
-  /**
    * If the user provided audio input, this field MUST contain the
    * text transcription of what the user said.
    * If the input was text, this can be null or the same as the input.
@@ -235,6 +223,34 @@ export const AIActionResponseSchema = z.object({
     .describe(
       "Selfie/image generation action - use when user asks for a picture, photo, or selfie of you"
     ),
+
+  /**
+   * Video action - used when user asks for a video
+   */
+  video_action: z
+    .object({
+      scene: z
+        .string()
+        .describe(
+          "The scene, location, or context for the video (e.g., 'waving hello from the couch', 'blowing a kiss goodnight', 'dancing in my room')"
+        ),
+      mood: z
+        .string()
+        .optional()
+        .describe(
+          "The mood or expression (e.g., 'playful', 'flirty', 'excited', 'sleepy'). Default to friendly if not specified."
+        ),
+      duration: z
+        .number()
+        .optional()
+        .describe("Video duration in seconds (5, 8, or 10). Default is 8."),
+    })
+    .nullable()
+    .optional()
+    .describe(
+      "Video generation action - use when user explicitly asks for a VIDEO, clip, or moving content. Only use this for video requests, not photos/selfies."
+    ),
+
   /**
    * Task action - used when user wants to manage their checklist
    */
@@ -473,14 +489,83 @@ export type StoreUserInfoArgs = z.infer<typeof StoreUserInfoSchema>;
 
 // Union type for all memory tool arguments
 export type MemoryToolArgs =
-  | { tool: 'recall_memory'; args: RecallMemoryArgs }
-  | { tool: 'recall_user_info'; args: RecallUserInfoArgs }
-  | { tool: 'store_user_info'; args: StoreUserInfoArgs }
-  | { tool: 'store_character_info'; args: { category: string; key: string; value: string } }
-  | { tool: 'resolve_open_loop'; args: { topic: string; resolution_type: 'resolved' | 'dismissed'; reason?: string } }
-  | { tool: 'create_life_storyline'; args: { title: string; category: 'work' | 'personal' | 'family' | 'social' | 'creative'; storylineType: 'project' | 'opportunity' | 'challenge' | 'relationship' | 'goal'; initialAnnouncement: string; stakes: string; userInvolvement?: 'none' | 'aware' | 'supportive' | 'involved' | 'central'; emotionalTone?: string; emotionalIntensity?: number } }
-  | { tool: 'create_open_loop'; args: { loopType: 'pending_event' | 'emotional_followup' | 'commitment_check' | 'curiosity_thread'; topic: string; suggestedFollowUp: string; timeframe: 'immediate' | 'today' | 'tomorrow' | 'this_week' | 'soon' | 'later'; salience: number; eventDateTime?: string } }
-  | { tool: 'recall_character_profile'; args: { section: 'background' | 'interests' | 'relationships' | 'challenges' | 'quirks' | 'goals' | 'preferences' | 'anecdotes' | 'routines' | 'full'; reason?: string } };
+  | { tool: "recall_memory"; args: RecallMemoryArgs }
+  | { tool: "web_search"; args: { query: string } }
+  | { tool: "recall_user_info"; args: RecallUserInfoArgs }
+  | { tool: "store_user_info"; args: StoreUserInfoArgs }
+  | {
+      tool: "store_character_info";
+      args: { category: string; key: string; value: string };
+    }
+  | {
+      tool: "resolve_open_loop";
+      args: {
+        topic: string;
+        resolution_type: "resolved" | "dismissed";
+        reason?: string;
+      };
+    }
+  | {
+      tool: "create_life_storyline";
+      args: {
+        title: string;
+        category: "work" | "personal" | "family" | "social" | "creative";
+        storylineType:
+          | "project"
+          | "opportunity"
+          | "challenge"
+          | "relationship"
+          | "goal";
+        initialAnnouncement: string;
+        stakes: string;
+        userInvolvement?:
+          | "none"
+          | "aware"
+          | "supportive"
+          | "involved"
+          | "central";
+        emotionalTone?: string;
+        emotionalIntensity?: number;
+      };
+    }
+  | {
+      tool: "create_open_loop";
+      args: {
+        loopType:
+          | "pending_event"
+          | "emotional_followup"
+          | "commitment_check"
+          | "curiosity_thread";
+        topic: string;
+        suggestedFollowUp: string;
+        timeframe:
+          | "immediate"
+          | "today"
+          | "tomorrow"
+          | "this_week"
+          | "soon"
+          | "later";
+        salience: number;
+        eventDateTime?: string;
+      };
+    }
+  | {
+      tool: "recall_character_profile";
+      args: {
+        section:
+          | "background"
+          | "interests"
+          | "relationships"
+          | "challenges"
+          | "quirks"
+          | "goals"
+          | "preferences"
+          | "anecdotes"
+          | "routines"
+          | "full";
+        reason?: string;
+      };
+    };
 
 // ============================================
 // Function Declarations for AI Providers
@@ -493,7 +578,7 @@ export type MemoryToolArgs =
 export const GeminiMemoryToolDeclarations = [
   {
     name: "recall_memory",
-    description: 
+    description:
       "Search past conversations with the user to find relevant context. " +
       "Use this when you need to remember something discussed before, " +
       "or when the user references a past topic. Examples: 'Do you remember when...', " +
@@ -503,20 +588,22 @@ export const GeminiMemoryToolDeclarations = [
       properties: {
         query: {
           type: "string",
-          description: "Natural language search query (e.g., 'their name', 'their job', 'their pet')"
+          description:
+            "Natural language search query (e.g., 'their name', 'their job', 'their pet')",
         },
         timeframe: {
           type: "string",
           enum: ["recent", "all"],
-          description: "Search scope: 'recent' (last 7 days) or 'all' (entire history)"
-        }
+          description:
+            "Search scope: 'recent' (last 7 days) or 'all' (entire history)",
+        },
       },
-      required: ["query"]
-    }
+      required: ["query"],
+    },
   },
   {
     name: "recall_user_info",
-    description: 
+    description:
       "Retrieve stored facts about the user. " +
       "Use this to personalize responses, greet the user by name, " +
       "or reference known preferences. Categories: identity (name, job), " +
@@ -527,19 +614,19 @@ export const GeminiMemoryToolDeclarations = [
         category: {
           type: "string",
           enum: ["identity", "preference", "relationship", "context", "all"],
-          description: "Category of information to retrieve"
+          description: "Category of information to retrieve",
         },
         specific_key: {
           type: "string",
-          description: "Specific fact key if known (e.g., 'name', 'job')"
-        }
+          description: "Specific fact key if known (e.g., 'name', 'job')",
+        },
       },
-      required: ["category"]
-    }
+      required: ["category"],
+    },
   },
   {
     name: "store_user_info",
-    description: 
+    description:
       "Save PERSONAL FACTS about the user (name, job, preferences, family, current life projects). " +
       "Use 'context' for things like 'working on a startup' or 'training for a marathon'. " +
       "NEVER use for tasks, to-dos, or checklist items - use task_action instead.",
@@ -549,19 +636,20 @@ export const GeminiMemoryToolDeclarations = [
         category: {
           type: "string",
           enum: ["identity", "preference", "relationship", "context"],
-          description: "Category of the fact. Use 'context' for life projects (NOT tasks!)"
+          description:
+            "Category of the fact. Use 'context' for life projects (NOT tasks!)",
         },
         key: {
           type: "string",
-          description: "Fact type (e.g., 'name', 'favorite_food')"
+          description: "Fact type (e.g., 'name', 'favorite_food')",
         },
         value: {
           type: "string",
-          description: "The value to store"
-        }
+          description: "The value to store",
+        },
       },
-      required: ["category", "key", "value"]
-    }
+      required: ["category", "key", "value"],
+    },
   },
   {
     name: "store_character_info",
@@ -576,24 +664,33 @@ export const GeminiMemoryToolDeclarations = [
       properties: {
         category: {
           type: "string",
-          enum: ["quirk", "relationship", "experience", "preference", "detail", "other"],
-          description: "Category of the fact regarding yourself"
+          enum: [
+            "quirk",
+            "relationship",
+            "experience",
+            "preference",
+            "detail",
+            "other",
+          ],
+          description: "Category of the fact regarding yourself",
         },
         key: {
           type: "string",
-          description: "Fact key (e.g., 'plant_name', 'laptop_name', 'morning_ritual', 'favorite_color')"
+          description:
+            "Fact key (e.g., 'plant_name', 'laptop_name', 'morning_ritual', 'favorite_color')",
         },
         value: {
           type: "string",
-          description: "The value to store (e.g., 'Fernando the cactus', 'matcha lattes')"
-        }
+          description:
+            "The value to store (e.g., 'Fernando the cactus', 'matcha lattes')",
+        },
       },
-      required: ["category", "key", "value"]
-    }
+      required: ["category", "key", "value"],
+    },
   },
   {
     name: "task_action",
-    description: 
+    description:
       "Manage the user's daily checklist/tasks. " +
       "Use 'create' to add a new task, 'complete' to mark a task done, " +
       "'delete' to remove a task, 'list' to show all tasks. " +
@@ -604,24 +701,25 @@ export const GeminiMemoryToolDeclarations = [
         action: {
           type: "string",
           enum: ["create", "complete", "delete", "list"],
-          description: "The task action to perform"
+          description: "The task action to perform",
         },
         task_text: {
           type: "string",
-          description: "For create: the task description. For complete/delete: partial text to match the task."
+          description:
+            "For create: the task description. For complete/delete: partial text to match the task.",
         },
         priority: {
           type: "string",
           enum: ["low", "medium", "high"],
-          description: "Priority level for new tasks (default: low)"
-        }
+          description: "Priority level for new tasks (default: low)",
+        },
       },
-      required: ["action"]
-    }
+      required: ["action"],
+    },
   },
   {
     name: "calendar_action",
-    description: 
+    description:
       "Create, delete, or list Google Calendar events. " +
       "Use 'create' to add a new event (requires summary, start time, end time). " +
       "Use 'delete' to remove an event by ID. " +
@@ -633,52 +731,54 @@ export const GeminiMemoryToolDeclarations = [
         action: {
           type: "string",
           enum: ["create", "delete", "list"],
-          description: "The calendar action to perform"
+          description: "The calendar action to perform",
         },
         summary: {
           type: "string",
-          description: "For create: the event title/summary"
+          description: "For create: the event title/summary",
         },
         start: {
           type: "string",
-          description: "For create: ISO datetime for event start (e.g., '2025-12-16T14:00:00')"
+          description:
+            "For create: ISO datetime for event start (e.g., '2025-12-16T14:00:00')",
         },
         end: {
           type: "string",
-          description: "For create: ISO datetime for event end (e.g., '2025-12-16T15:00:00')"
+          description:
+            "For create: ISO datetime for event end (e.g., '2025-12-16T15:00:00')",
         },
         timeZone: {
           type: "string",
-          description: "Timezone for the event (default: 'America/Chicago')"
+          description: "Timezone for the event (default: 'America/Chicago')",
         },
         event_id: {
           type: "string",
-          description: "For delete: the event ID from the calendar list"
+          description: "For delete: the event ID from the calendar list",
         },
         event_ids: {
           type: "array",
           items: { type: "string" },
-          description: "For delete multiple: array of event IDs"
+          description: "For delete multiple: array of event IDs",
         },
         delete_all: {
           type: "boolean",
-          description: "For delete: set to true to delete ALL events"
+          description: "For delete: set to true to delete ALL events",
         },
         days: {
           type: "number",
-          description: "For list: number of days to look ahead (default: 7)"
+          description: "For list: number of days to look ahead (default: 7)",
         },
         timeMin: {
           type: "string",
-          description: "For list: ISO start time filter"
+          description: "For list: ISO start time filter",
         },
         timeMax: {
           type: "string",
-          description: "For list: ISO end time filter"
-        }
+          description: "For list: ISO end time filter",
+        },
       },
-      required: ["action"]
-    }
+      required: ["action"],
+    },
   },
   {
     name: "resolve_open_loop",
@@ -693,24 +793,27 @@ export const GeminiMemoryToolDeclarations = [
       properties: {
         topic: {
           type: "string",
-          description: "The topic being resolved (e.g., 'job interview', 'doctor appointment', 'lost photos'). Use keywords that match what was stored."
+          description:
+            "The topic being resolved (e.g., 'job interview', 'doctor appointment', 'lost photos'). Use keywords that match what was stored.",
         },
         resolution_type: {
           type: "string",
           enum: ["resolved", "dismissed"],
-          description: "'resolved' = user answered/addressed the topic. 'dismissed' = user doesn't want to discuss or topic is no longer relevant."
+          description:
+            "'resolved' = user answered/addressed the topic. 'dismissed' = user doesn't want to discuss or topic is no longer relevant.",
         },
         reason: {
           type: "string",
-          description: "Brief reason for the resolution (e.g., 'user said interview went well', 'user changed subject')"
-        }
+          description:
+            "Brief reason for the resolution (e.g., 'user said interview went well', 'user changed subject')",
+        },
       },
-      required: ["topic", "resolution_type"]
-    }
+      required: ["topic", "resolution_type"],
+    },
   },
   {
     name: "make_promise",
-    description: 
+    description:
       "Create a promise to do something later. Use this when you commit to sending something or doing something in the FUTURE (not right now). " +
       "Examples: 'I'll send you a selfie when I go on my walk', 'I'll let you know how it goes', 'I'll check in on you later'.",
     parameters: {
@@ -718,45 +821,58 @@ export const GeminiMemoryToolDeclarations = [
       properties: {
         promiseType: {
           type: "string",
-          enum: ["send_selfie", "share_update", "follow_up", "send_content", "reminder", "send_voice_note"],
-          description: "Type of promise you're making"
+          enum: [
+            "send_selfie",
+            "share_update",
+            "follow_up",
+            "send_content",
+            "reminder",
+            "send_voice_note",
+          ],
+          description: "Type of promise you're making",
         },
         description: {
           type: "string",
-          description: "What you're promising to do (human-readable, e.g., 'Send selfie from hot girl walk')"
+          description:
+            "What you're promising to do (human-readable, e.g., 'Send selfie from hot girl walk')",
         },
         triggerEvent: {
           type: "string",
-          description: "When this should happen (e.g., 'when I go on my walk', 'after my meeting')"
+          description:
+            "When this should happen (e.g., 'when I go on my walk', 'after my meeting')",
         },
         fulfillmentData: {
           type: "object",
-          description: "Optional data for fulfillment (selfie params, message text)",
+          description:
+            "Optional data for fulfillment (selfie params, message text)",
           properties: {
-            messageText: { type: "string", description: "The message to send when fulfilled" },
+            messageText: {
+              type: "string",
+              description: "The message to send when fulfilled",
+            },
             selfieParams: {
               type: "object",
               properties: {
                 scene: { type: "string" },
                 mood: { type: "string" },
-                location: { type: "string" }
-              }
-            }
-          }
-        }
+                location: { type: "string" },
+              },
+            },
+          },
+        },
       },
-      required: ["promiseType", "description", "triggerEvent"]
-    }
+      required: ["promiseType", "description", "triggerEvent"],
+    },
   },
   {
     name: "create_life_storyline",
     description:
       "Create a new life storyline to track an ongoing life event or situation. " +
-      "WHEN TO USE: You (Kayley) are announcing a new life event (\"I'm starting guitar lessons\"), " +
+      'WHEN TO USE: You (Kayley) are announcing a new life event ("I\'m starting guitar lessons"), ' +
       "or user mentions a significant event they want you to track. " +
       "A situation will unfold over days/weeks (not single-moment events). " +
-      "WHEN NOT TO USE: Casual mentions (\"I might take a class\"), completed events (\"I went to a concert yesterday\"), " +
-      "trivial activities (\"I need to do laundry\"). " +
+      'WHEN NOT TO USE: Casual mentions ("I might take a class"), completed events ("I went to a concert yesterday"), ' +
+      'trivial activities ("I need to do laundry"). ' +
       "PERSONALITY CHECK: The storyline MUST align with your character. " +
       "Example: You would NEVER get a tattoo (not your style). You WOULD learn guitar (creative, fits your interests). " +
       "CONSTRAINTS: Only ONE active storyline allowed currently (Phase 1). " +
@@ -767,7 +883,8 @@ export const GeminiMemoryToolDeclarations = [
       properties: {
         title: {
           type: "string",
-          description: "Short title (3-8 words): 'Learning guitar', 'Auditioning for theater', 'Planning NYC trip'"
+          description:
+            "Short title (3-8 words): 'Learning guitar', 'Auditioning for theater', 'Planning NYC trip'",
         },
         category: {
           type: "string",
@@ -778,7 +895,7 @@ export const GeminiMemoryToolDeclarations = [
             "personal (self-improvement, health, solo hobbies), " +
             "family (family relationships, family events), " +
             "social (friends, social activities, community), " +
-            "creative (music, art, writing, performance)"
+            "creative (music, art, writing, performance)",
         },
         storylineType: {
           type: "string",
@@ -789,15 +906,17 @@ export const GeminiMemoryToolDeclarations = [
             "opportunity (potential positive outcome), " +
             "challenge (difficult situation), " +
             "relationship (relationship development), " +
-            "goal (achievement target)"
+            "goal (achievement target)",
         },
         initialAnnouncement: {
           type: "string",
-          description: "The message you just said announcing this (or user's announcement). Used for context tracking."
+          description:
+            "The message you just said announcing this (or user's announcement). Used for context tracking.",
         },
         stakes: {
           type: "string",
-          description: "Why this matters to you (1-2 sentences): 'I've wanted to learn music for years', 'This could be my big break'"
+          description:
+            "Why this matters to you (1-2 sentences): 'I've wanted to learn music for years', 'This could be my big break'",
         },
         userInvolvement: {
           type: "string",
@@ -808,21 +927,29 @@ export const GeminiMemoryToolDeclarations = [
             "aware (you told them, they know about it), " +
             "supportive (they're encouraging you), " +
             "involved (they're actively helping you), " +
-            "central (this is THEIR storyline, not yours, e.g., 'User got a new job')"
+            "central (this is THEIR storyline, not yours, e.g., 'User got a new job')",
         },
         emotionalTone: {
           type: "string",
-          description: "Current emotion about this: 'excited', 'anxious', 'hopeful', 'nervous', 'determined', 'conflicted', etc."
+          description:
+            "Current emotion about this: 'excited', 'anxious', 'hopeful', 'nervous', 'determined', 'conflicted', etc.",
         },
         emotionalIntensity: {
           type: "number",
-          description: "0-1 scale, how intensely you feel about this (0.3=mild, 0.5=moderate, 0.7=strong, 0.9=consuming)",
+          description:
+            "0-1 scale, how intensely you feel about this (0.3=mild, 0.5=moderate, 0.7=strong, 0.9=consuming)",
           minimum: 0,
-          maximum: 1
-        }
+          maximum: 1,
+        },
       },
-      required: ["title", "category", "storylineType", "initialAnnouncement", "stakes"]
-    }
+      required: [
+        "title",
+        "category",
+        "storylineType",
+        "initialAnnouncement",
+        "stakes",
+      ],
+    },
   },
   {
     name: "create_open_loop",
@@ -838,25 +965,39 @@ export const GeminiMemoryToolDeclarations = [
       properties: {
         loopType: {
           type: "string",
-          enum: ["pending_event", "emotional_followup", "commitment_check", "curiosity_thread"],
+          enum: [
+            "pending_event",
+            "emotional_followup",
+            "commitment_check",
+            "curiosity_thread",
+          ],
           description:
             "Type of follow-up: " +
             "pending_event (something scheduled: interview, appointment, trip - ask 'how did it go?'), " +
             "emotional_followup (they shared feelings - check in on how they're doing), " +
             "commitment_check (they said they'd do something - ask if they did it), " +
-            "curiosity_thread (interesting topic you want to revisit)"
+            "curiosity_thread (interesting topic you want to revisit)",
         },
         topic: {
           type: "string",
-          description: "Short, specific topic (2-5 words): 'job interview', 'doctor appointment', 'starting meditation', 'new recipe attempt'"
+          description:
+            "Short, specific topic (2-5 words): 'job interview', 'doctor appointment', 'starting meditation', 'new recipe attempt'",
         },
         suggestedFollowUp: {
           type: "string",
-          description: "Natural question to ask later: 'How did your interview go?', 'Did you end up trying that recipe?', 'How are you feeling about things now?'"
+          description:
+            "Natural question to ask later: 'How did your interview go?', 'Did you end up trying that recipe?', 'How are you feeling about things now?'",
         },
         timeframe: {
           type: "string",
-          enum: ["immediate", "today", "tomorrow", "this_week", "soon", "later"],
+          enum: [
+            "immediate",
+            "today",
+            "tomorrow",
+            "this_week",
+            "soon",
+            "later",
+          ],
           description:
             "When to ask: " +
             "immediate (within minutes, for in-conversation follow-ups), " +
@@ -864,19 +1005,27 @@ export const GeminiMemoryToolDeclarations = [
             "tomorrow (next day), " +
             "this_week (within 2 days), " +
             "soon (3 days), " +
-            "later (1 week)"
+            "later (1 week)",
         },
         salience: {
           type: "number",
-          description: "How important is this follow-up (0-1): 0.3=minor curiosity, 0.5=normal, 0.7=significant, 0.9=critical (health, major life event)"
+          description:
+            "How important is this follow-up (0-1): 0.3=minor curiosity, 0.5=normal, 0.7=significant, 0.9=critical (health, major life event)",
         },
         eventDateTime: {
           type: "string",
-          description: "If pending_event: ISO datetime when the event occurs (e.g., '2025-01-20T14:00:00'). Helps avoid asking 'how was it?' before it happens."
-        }
+          description:
+            "If pending_event: ISO datetime when the event occurs (e.g., '2025-01-20T14:00:00'). Helps avoid asking 'how was it?' before it happens.",
+        },
       },
-      required: ["loopType", "topic", "suggestedFollowUp", "timeframe", "salience"]
-    }
+      required: [
+        "loopType",
+        "topic",
+        "suggestedFollowUp",
+        "timeframe",
+        "salience",
+      ],
+    },
   },
   {
     name: "recall_character_profile",
@@ -892,7 +1041,18 @@ export const GeminiMemoryToolDeclarations = [
       properties: {
         section: {
           type: "string",
-          enum: ["background", "interests", "relationships", "challenges", "quirks", "goals", "preferences", "anecdotes", "routines", "full"],
+          enum: [
+            "background",
+            "interests",
+            "relationships",
+            "challenges",
+            "quirks",
+            "goals",
+            "preferences",
+            "anecdotes",
+            "routines",
+            "full",
+          ],
           description:
             "Which section to retrieve: " +
             "'background' (childhood, education, career history), " +
@@ -904,267 +1064,34 @@ export const GeminiMemoryToolDeclarations = [
             "'preferences' (likes and dislikes: food, weather, etc.), " +
             "'anecdotes' (memorable stories like the viral oops video, pageant era, coffee shop meet-cute), " +
             "'routines' (morning, day, evening routines), " +
-            "'full' (everything - use sparingly, very large)"
+            "'full' (everything - use sparingly, very large)",
         },
         reason: {
           type: "string",
-          description: "Brief note on why you need this detail (optional, for logging)"
-        }
+          description:
+            "Brief note on why you need this detail (optional, for logging)",
+        },
       },
-      required: ["section"]
-    }
-  }
-];
-
-/**
- * OpenAI/ChatGPT function declarations format.
- * Used in the tools configuration for OpenAI Responses API.
- * Note: The Responses API uses a flatter format than Chat Completions API.
- */
-export const OpenAIMemoryToolDeclarations = [
+      required: ["section"],
+    },
+  },
   {
-    type: "function" as const,
-    name: "recall_memory",
-    description: 
-      "Search past conversations with the user to find relevant context. " +
-      "Use this when you need to remember something discussed before, " +
-      "or when the user references a past topic.",
+    name: "web_search",
+    description:
+      "Search the internet for real-time news, current events, or specific facts you don't have in your memory. " +
+      "Use this for tech news, celebrity gossip, weather, or checking facts. " +
+      "As Kayley, you use this to stay 'in the loop.'",
     parameters: {
       type: "object",
       properties: {
         query: {
           type: "string",
-          description: "Natural language search query"
+          description:
+            "The search query (e.g., 'latest AI news? Austin or Dallas Texas Events?', 'is Taylor Swift on tour?')",
         },
-        timeframe: {
-          type: "string",
-          enum: ["recent", "all"],
-          description: "Search scope: 'recent' or 'all'"
-        }
       },
-      required: ["query"]
-    }
-  },
-  {
-    type: "function" as const,
-    name: "recall_user_info",
-    description: 
-      "Retrieve stored facts about the user to personalize responses.",
-    parameters: {
-      type: "object",
-      properties: {
-        category: {
-          type: "string",
-          enum: ["identity", "preference", "relationship", "context", "all"],
-          description: "Category of information to retrieve"
-        },
-        specific_key: {
-          type: "string",
-          description: "Specific fact key if known"
-        }
-      },
-      required: ["category"]
-    }
-  },
-  {
-    type: "function" as const,
-    name: "store_user_info",
-    description: 
-      "Save PERSONAL FACTS only (name, job, preferences, life projects). Context is for things like 'building an app'. NEVER for tasks - use task_action instead.",
-    parameters: {
-      type: "object",
-      properties: {
-        category: {
-          type: "string",
-          enum: ["identity", "preference", "relationship", "context"],
-          description: "Category of the fact. Use 'context' for life projects (NOT tasks!)"
-        },
-        key: {
-          type: "string",
-          description: "Fact type (e.g., 'name', 'favorite_food')"
-        },
-        value: {
-          type: "string",
-          description: "The value to store"
-        }
-      },
-      required: ["category", "key", "value"]
-    }
-  },
-  {
-    type: "function" as const,
-    name: "task_action",
-    description: 
-      "Manage the user's daily checklist/tasks. " +
-      "Use 'create' to add a new task, 'complete' to mark a task done, " +
-      "'delete' to remove a task, 'list' to show all tasks.",
-    parameters: {
-      type: "object",
-      properties: {
-        action: {
-          type: "string",
-          enum: ["create", "complete", "delete", "list"],
-          description: "The task action to perform"
-        },
-        task_text: {
-          type: "string",
-          description: "For create: the task description. For complete/delete: partial text to match the task."
-        },
-        priority: {
-          type: "string",
-          enum: ["low", "medium", "high"],
-          description: "Priority level for new tasks (default: low)"
-        }
-      },
-      required: ["action"]
-    }
-  },
-  {
-    type: "function" as const,
-    name: "calendar_action",
-    description: 
-      "Create, delete, or list Google Calendar events. " +
-      "Use 'create' to add a new event (requires summary, start time, end time). " +
-      "Use 'delete' to remove an event by ID. " +
-      "Use 'list' to fetch upcoming events (can specify 'days' for lookahead).",
-    parameters: {
-      type: "object",
-      properties: {
-        action: {
-          type: "string",
-          enum: ["create", "delete", "list"],
-          description: "The calendar action to perform"
-        },
-        summary: {
-          type: "string",
-          description: "For create: the event title/summary"
-        },
-        start: {
-          type: "string",
-          description: "For create: ISO datetime for event start (e.g., '2025-12-16T14:00:00')"
-        },
-        end: {
-          type: "string",
-          description: "For create: ISO datetime for event end (e.g., '2025-12-16T15:00:00')"
-        },
-        timeZone: {
-          type: "string",
-          description: "Timezone for the event (default: 'America/Chicago')"
-        },
-        event_id: {
-          type: "string",
-          description: "For delete: the event ID from the calendar list"
-        },
-        event_ids: {
-          type: "array",
-          items: { type: "string" },
-          description: "For delete multiple: array of event IDs"
-        },
-        delete_all: {
-          type: "boolean",
-          description: "For delete: set to true to delete ALL events"
-        },
-        days: {
-          type: "number",
-          description: "For list: number of days to look ahead (default: 7)"
-        }
-      },
-      required: ["action"]
-    }
-  },
-  {
-    type: "function" as const,
-    name: "store_character_info",
-    description:
-      "Save NEW facts about yourself (Kayley) that emerge in conversation. " +
-      "Use this when you make up a new detail about your life (plant name, item names, new hobby, preferences, etc.). " +
-      "Categories: quirk (habits, personality), experience (new stories), preference (new likes/dislikes), " +
-      "relationship (new people in your life), detail (specific facts like named objects). " +
-      "Only for details NOT in your core character profile!",
-    parameters: {
-      type: "object",
-      properties: {
-        category: {
-          type: "string",
-          enum: ["quirk", "relationship", "experience", "preference", "detail", "other"],
-          description: "Category of the fact regarding yourself"
-        },
-        key: {
-          type: "string",
-          description: "Fact key (e.g., 'plant_name', 'laptop_name', 'morning_ritual', 'favorite_color')"
-        },
-        value: {
-          type: "string",
-          description: "The value to store (e.g., 'Fernando the cactus', 'matcha lattes')"
-        }
-      },
-      required: ["category", "key", "value"]
-    }
-  },
-  {
-    type: "function" as const,
-    name: "resolve_open_loop",
-    description:
-      "Mark an open loop as resolved (user answered) or dismissed (user doesn't want to discuss). " +
-      "Use this IMMEDIATELY when the user addresses something you asked about earlier.",
-    parameters: {
-      type: "object",
-      properties: {
-        topic: {
-          type: "string",
-          description: "The topic being resolved (e.g., 'job interview', 'doctor appointment', 'lost photos')"
-        },
-        resolution_type: {
-          type: "string",
-          enum: ["resolved", "dismissed"],
-          description: "'resolved' = user answered. 'dismissed' = user doesn't want to discuss."
-        },
-        reason: {
-          type: "string",
-          description: "Brief reason for the resolution"
-        }
-      },
-      required: ["topic", "resolution_type"]
-    }
-  },
-  {
-    type: "function" as const,
-    name: "create_open_loop",
-    description:
-      "Create a follow-up reminder to ask about something later. " +
-      "Use when user mentions upcoming events, emotional states, or commitments.",
-    parameters: {
-      type: "object",
-      properties: {
-        loopType: {
-          type: "string",
-          enum: ["pending_event", "emotional_followup", "commitment_check", "curiosity_thread"],
-          description: "Type of follow-up"
-        },
-        topic: {
-          type: "string",
-          description: "Short, specific topic (2-5 words)"
-        },
-        suggestedFollowUp: {
-          type: "string",
-          description: "Natural question to ask later"
-        },
-        timeframe: {
-          type: "string",
-          enum: ["immediate", "today", "tomorrow", "this_week", "soon", "later"],
-          description: "When to ask"
-        },
-        salience: {
-          type: "number",
-          description: "Importance (0-1): 0.3=minor, 0.5=normal, 0.7=significant, 0.9=critical"
-        },
-        eventDateTime: {
-          type: "string",
-          description: "ISO datetime when the event occurs (for pending_event type)"
-        }
-      },
-      required: ["loopType", "topic", "suggestedFollowUp", "timeframe", "salience"]
-    }
+      required: ["query"],
+    },
   },
 ];
 
@@ -1177,7 +1104,19 @@ export const OpenAIMemoryToolDeclarations = [
  */
 export interface PendingToolCall {
   id: string;
-  name: 'recall_memory' | 'recall_user_info' | 'store_user_info' | 'task_action' | 'calendar_action' | 'store_character_info' | 'resolve_open_loop' | 'make_promise' | 'create_life_storyline' | 'create_open_loop' | 'recall_character_profile';
+  name:
+    | "recall_memory"
+    | "recall_user_info"
+    | "store_user_info"
+    | "task_action"
+    | "calendar_action"
+    | "store_character_info"
+    | "resolve_open_loop"
+    | "make_promise"
+    | "create_life_storyline"
+    | "create_open_loop"
+    | "recall_character_profile"
+    | "web_search";
   arguments: Record<string, any>;
 }
 

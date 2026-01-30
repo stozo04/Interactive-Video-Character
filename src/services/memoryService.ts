@@ -393,7 +393,7 @@ export const formatFactsForAI = (facts: UserFact[]): string => {
 // Tool Execution Handler
 // ============================================
 
-export type MemoryToolName = 'recall_memory' | 'recall_user_info' | 'store_user_info' | 'task_action' | 'calendar_action' | 'store_character_info' | 'resolve_open_loop' | 'make_promise' | 'create_life_storyline' | 'create_open_loop' | 'recall_character_profile';
+export type MemoryToolName = 'web_search' | 'recall_memory' | 'recall_user_info' | 'store_user_info' | 'task_action' | 'calendar_action' | 'store_character_info' | 'resolve_open_loop' | 'make_promise' | 'create_life_storyline' | 'create_open_loop' | 'recall_character_profile';
 
 /**
  * Optional context passed to tool execution (e.g., access tokens)
@@ -405,6 +405,9 @@ export interface ToolExecutionContext {
 }
 
 export interface ToolCallArgs {
+  web_search: {
+    query: string;
+  };
   recall_memory: {
     query: string;
     timeframe?: 'recent' | 'all';
@@ -437,7 +440,7 @@ export interface ToolCallArgs {
     timeMax?: string;
   };
   store_character_info: {
-    category: 'quirk' | 'relationship' | 'experience' | 'preference' | 'detail' | 'other';
+    category: 'quirk' | 'relationship' | 'experience' | 'preference' | 'detail' |'other';
     key: string;
     value: string;
   };
@@ -531,12 +534,46 @@ export const executeMemoryTool = async (
 
   try {
     switch (toolName) {
+      case "web_search":
+      const { query } = args as ToolCallArgs['web_search'];
+      console.log(`🌐 [Search] Kayley is searching for: ${query}`);
+
+      try {
+        const response = await fetch("https://api.tavily.com/search", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            api_key: import.meta.env.VITE_TAVILY_API_KEY,
+            query: query,
+            search_depth: "basic",
+            max_results: 5,
+          }),
+        });
+
+        if (!response.ok) {
+          throw new Error(`Tavily API error: ${response.statusText}`);
+        }
+
+        const data = await response.json();
+
+        // Clean and join the results into a string for Gemini
+        return data.results
+          .map(
+            (r: any) =>
+              `Source: ${r.title}\nURL: ${r.url}\nContent: ${r.content}`,
+          )
+          .join("\n\n");
+      } catch (error) {
+        console.error("❌ Tavily Search Failed:", error);
+        return "I tried to check the internet, but my internal browser is acting up!";
+      }
       case 'recall_memory': {
         const { query, timeframe } = args as ToolCallArgs['recall_memory'];
         const memories = await searchMemories(query, DEFAULT_MEMORY_LIMIT, timeframe);
         return formatMemoriesForAI(memories);
       }
-
       case 'recall_user_info': {
         const { category, specific_key } = args as ToolCallArgs['recall_user_info'];
         const facts = await getUserFacts(category);
@@ -562,7 +599,6 @@ export const executeMemoryTool = async (
         
         return formatFactsForAI(facts);
       }
-
       case 'store_user_info': {
         const { category, key, value } = args as ToolCallArgs['store_user_info'];
         const success = await storeUserFact(category, key, value);
@@ -570,7 +606,6 @@ export const executeMemoryTool = async (
           ? `✓ Stored: ${key} = "${value}"` 
           : `Failed to store information.`;
       }
-
       case 'task_action': {
         // Import taskService functions dynamically to avoid circular dependency
         const { fetchTasks, createTask, toggleTask, deleteTask } = await import('./taskService');
@@ -660,7 +695,6 @@ export const executeMemoryTool = async (
             return `Unknown task action: ${action}`;
         }
       }
-
       case 'calendar_action': {
         const { calendarService } = await import('./calendarService');
         const calendarArgs = args as ToolCallArgs['calendar_action'];
@@ -784,7 +818,6 @@ export const executeMemoryTool = async (
             return `Unknown calendar action: ${action}`;
         }
       }
-
       case 'store_character_info': {
         const { storeCharacterFact } = await import('./characterFactsService');
         const { category, key, value } = args as ToolCallArgs['store_character_info'];
@@ -798,7 +831,6 @@ export const executeMemoryTool = async (
           ? `✓ Stored character fact: ${key} = "${value}"`
           : `Failed to store fact (it might process duplicates automatically).`;
       }
-
       case 'resolve_open_loop': {
         const { resolveLoopsByTopic, dismissLoopsByTopic } = await import('./presenceDirector');
         const { topic, resolution_type, reason } = args as ToolCallArgs['resolve_open_loop'];
@@ -835,7 +867,6 @@ export const executeMemoryTool = async (
           return `Error resolving open loop: ${error instanceof Error ? error.message : 'Unknown error'}`;
         }
       }
-
       case 'make_promise': {
         const { createPromise } = await import('./promiseService');
         const { promiseType, description, triggerEvent, fulfillmentData } = args as ToolCallArgs['make_promise'];
@@ -870,7 +901,6 @@ export const executeMemoryTool = async (
           return `Error creating promise: ${error instanceof Error ? error.message : 'Unknown error'}`;
         }
       }
-
       case 'create_life_storyline': {
         const { createStorylineFromTool } = await import('./storylineService');
         const { title, category, storylineType, initialAnnouncement, stakes, userInvolvement, emotionalTone, emotionalIntensity } = args as ToolCallArgs['create_life_storyline'];
@@ -904,7 +934,6 @@ export const executeMemoryTool = async (
           return `Error creating storyline: ${error instanceof Error ? error.message : 'Unknown error'}`;
         }
       }
-
       case 'create_open_loop': {
         const { createOpenLoop } = await import('./presenceDirector');
         const { loopType, topic, suggestedFollowUp, timeframe, salience, eventDateTime } = args as ToolCallArgs['create_open_loop'];
@@ -974,7 +1003,6 @@ export const executeMemoryTool = async (
           return `Error creating reminder: ${error instanceof Error ? error.message : 'Unknown error'}`;
         }
       }
-
       case 'recall_character_profile': {
         const { getProfileSection } = await import('../domain/characters/kayleyProfileSections');
         const { section, reason } = args as ToolCallArgs['recall_character_profile'];
@@ -992,7 +1020,7 @@ export const executeMemoryTool = async (
           return `Error retrieving character profile: ${error instanceof Error ? error.message : 'Unknown error'}`;
         }
       }
-
+      // TODO: CHARACTER_FACTS
       default:
         return `Unknown tool: ${toolName}`;
     }
@@ -1411,6 +1439,73 @@ export const detectAndStoreUserInfo = async (
 };
 
 // ============================================
+// Important Date Facts (for Greeting Prompt)
+// ============================================
+
+/**
+ * Date-related fact keys that should be queried for greeting context.
+ * These are stored in user_facts with various categories but have date-related keys.
+ */
+const DATE_RELATED_KEYS = [
+  'birthday',
+  'anniversary',
+  'important_date',
+  'wedding_anniversary',
+  'work_anniversary',
+];
+
+/**
+ * Date-related categories that may contain date facts.
+ * These are categories where the fact_value is a date.
+ */
+const DATE_RELATED_CATEGORIES = [
+  'birthday',
+  'anniversary',
+  'important_date',
+];
+
+export interface ImportantDateFact {
+  id: string;
+  fact_key: string;
+  fact_value: string; // The date string (e.g., "July 1st", "07-01", "2024-07-01")
+  category: string;
+  created_at: string;
+}
+
+/**
+ * Get all date-related facts from user_facts for greeting context.
+ * Queries both by fact_key (e.g., "birthday") and by category (e.g., "birthday").
+ *
+ * @returns Array of date-related facts
+ */
+export const getImportantDateFacts = async (): Promise<ImportantDateFact[]> => {
+  try {
+    console.log(`📅 [Memory] Getting important date facts for greeting`);
+
+    // Query for facts with date-related keys OR date-related categories
+    const { data, error } = await supabase
+      .from(USER_FACTS_TABLE)
+      .select('id, fact_key, fact_value, category, created_at')
+      .or(
+        `fact_key.in.(${DATE_RELATED_KEYS.join(',')}),category.in.(${DATE_RELATED_CATEGORIES.join(',')})`
+      )
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      console.error('Failed to get important date facts:', error);
+      return [];
+    }
+
+    console.log(`📅 [Memory] Found ${data?.length || 0} date-related facts`);
+    return (data as ImportantDateFact[]) || [];
+
+  } catch (error) {
+    console.error('Error getting important date facts:', error);
+    return [];
+  }
+};
+
+// ============================================
 // Export singleton-like object for convenience
 // ============================================
 export const memoryService = {
@@ -1424,7 +1519,8 @@ export const memoryService = {
   formatFactValueForDisplay,
   executeMemoryTool,
   detectAndStoreUserInfo, // @deprecated - use processDetectedFacts instead
-  processDetectedFacts
+  processDetectedFacts,
+  getImportantDateFacts,
 };
 
 export default memoryService;

@@ -63,3 +63,11 @@ export {
   type SelfieActionContext,
   type SelfieActionResult,
 } from './selfieActions';
+
+// Video actions
+export {
+  processVideoAction,
+  type VideoAction,
+  type VideoActionContext,
+  type VideoActionResult,
+} from './videoActions';

@@ -157,23 +157,20 @@ export function getRecentNewsContext(): string {
   const stories = getLastSharedStories();
   if (!stories || stories.length === 0) return '';
   
-  const newsItems = stories.map((story, i) => {
-    const hostname = story.url ? new URL(story.url).hostname : 'Hacker News';
-    return `${i + 1}. "${story.title}"
-   Source: ${hostname}
-   URL: ${story.url || `https://news.ycombinator.com/item?id=${story.id}`}
-   HN Discussion: https://news.ycombinator.com/item?id=${story.id}`;
-  }).join('\n\n');
+  const newsItems = stories.map((story) => {
+    const hostname = story.url ? new URL(story.url).hostname.replace('www.', '') : 'Hacker News';
+    return `• "${story.title}" (${hostname})\n  Link: ${story.url || 'N/A'}\n  Discussion: https://news.ycombinator.com/item?id=${story.id}`;
+  }).join('\n');
   
   return `
 ====================================================
-RECENTLY SHARED NEWS (for follow-up questions)
+RECENTLY SHARED CONTEXT
 ====================================================
-These are the tech stories I recently shared. If the user asks about them, I can share links or more details:
+Tone: Helpful but casual.
+Direction: You recently brought up these stories. If the conversation circles back to them or the user asks for a source, you have the "receipts" ready. Drop the links naturally without being robotic about it.
 
+Your Recent Shares:
 ${newsItems}
-
-If user asks for a link, share the URL directly. If they want the discussion, share the HN Discussion link.
 `;
 }
 

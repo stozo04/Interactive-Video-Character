@@ -9,7 +9,8 @@ import {
 } from "./types";
 import {
   REFERENCE_IMAGE_REGISTRY,
-  getReferenceImageContent,
+  getReferenceImageContentForGemini,
+  getReferenceImageContentForGrok,
 } from "../../utils/referenceImages";
 import { shouldUnlockCurrentLook } from "./temporalDetection";
 
@@ -67,7 +68,7 @@ function detectExplicitHairstyleRequest(context: ReferenceSelectionContext): {
   return { requested: false, hairstyle: null, source: "" };
 }
 
-export function selectReferenceImage(context: ReferenceSelectionContext): {
+export function selectReferenceImageForGemini(context: ReferenceSelectionContext): {
   referenceId: string;
   base64Content: string;
   reasoning: string[];
@@ -77,7 +78,7 @@ export function selectReferenceImage(context: ReferenceSelectionContext): {
   // DEBUG: Force a specific reference image for testing
   if (DEBUG_FORCE_REFERENCE) {
     console.log("🔧 [DEBUG] Forcing reference:", DEBUG_FORCE_REFERENCE);
-    const content = getReferenceImageContent(DEBUG_FORCE_REFERENCE);
+    const content = getReferenceImageContentForGemini(DEBUG_FORCE_REFERENCE);
     if (content) {
       reasoning.push("🔧 DEBUG: Forced reference " + DEBUG_FORCE_REFERENCE);
       return {
@@ -112,7 +113,7 @@ export function selectReferenceImage(context: ReferenceSelectionContext): {
   console.log("useLocked: ", useLocked);
   if (useLocked && context.currentLookState) {
     reasoning.push("Using locked look: " + context.currentLookState.hairstyle);
-    const content = getReferenceImageContent(
+    const content = getReferenceImageContentForGemini(
       context.currentLookState.referenceImageId
     );
     if (content) {
@@ -149,18 +150,116 @@ export function selectReferenceImage(context: ReferenceSelectionContext): {
   // Log the selected reference image details
   console.log(
     `📸 [ReferenceSelector] Selected image: ${selected.ref.id}`,
+    `\n   URL: ${selected.ref.url}`,
     `\n   Hairstyle: ${selected.ref.hairstyle}`,
     `\n   Outfit: ${selected.ref.outfitStyle}`,
     `\n   File: ${selected.ref.fileName}`,
     `\n   Score: ${selected.score.toFixed(0)}`
   );
 
-  const content = getReferenceImageContent(selected.ref.id);
+  const content = getReferenceImageContentForGemini(selected.ref.id);
   console.log("content:", content);
   if (!content) throw new Error("Reference not found: " + selected.ref.id);
 
   return { referenceId: selected.ref.id, base64Content: content, reasoning };
 }
+
+export function selectReferenceImageForGrok(context: ReferenceSelectionContext): {
+  referenceId: string;
+  url: string;
+  reasoning: string[];
+} {
+  const reasoning: string[] = [];
+
+  // DEBUG: Force a specific reference image for testing
+  if (DEBUG_FORCE_REFERENCE) {
+    console.log("🔧 [DEBUG] Forcing reference:", DEBUG_FORCE_REFERENCE);
+    const content = getReferenceImageContentForGrok(DEBUG_FORCE_REFERENCE);
+    if (content) {
+      reasoning.push("🔧 DEBUG: Forced reference " + DEBUG_FORCE_REFERENCE);
+      return {
+        referenceId: DEBUG_FORCE_REFERENCE,
+        url: content,
+        reasoning,
+      };
+    }
+    console.warn("🔧 [DEBUG] Reference not found:", DEBUG_FORCE_REFERENCE);
+    reasoning.push(
+      "🔧 DEBUG: Reference not found, falling back to normal selection"
+    );
+  }
+
+  console.log("selectReferenceImage - context: ", context);
+  const hairstyleRequest = detectExplicitHairstyleRequest(context);
+  console.log("hairstyleRequest: ", hairstyleRequest);
+  if (hairstyleRequest.requested && context.currentLookState) {
+    if (hairstyleRequest.hairstyle !== context.currentLookState.hairstyle) {
+      reasoning.push("🔓 EXPLICIT REQUEST: " + hairstyleRequest.hairstyle);
+    }
+  }
+
+  const shouldBypassLock =
+    hairstyleRequest.requested &&
+    context.currentLookState &&
+    hairstyleRequest.hairstyle !== context.currentLookState.hairstyle;
+  console.log("shouldBypassLock: ", shouldBypassLock);
+  const useLocked =
+    !shouldBypassLock &&
+    !shouldUnlockCurrentLook(context.temporalContext, context.currentLookState);
+  console.log("useLocked: ", useLocked);
+  if (useLocked && context.currentLookState) {
+    reasoning.push("Using locked look: " + context.currentLookState.hairstyle);
+    const content = getReferenceImageContentForGrok(
+      context.currentLookState.referenceImageId
+    );
+    if (content) {
+      console.log("returning:");
+      console.log("referenceId: ", context.currentLookState.referenceImageId);
+      return {
+        referenceId: context.currentLookState.referenceImageId,
+        url: content,
+        reasoning,
+      };
+    }
+    reasoning.push("⚠️ Locked reference not found");
+  }
+
+  if (context.temporalContext.isOldPhoto) {
+    reasoning.push("📅 OLD PHOTO detected");
+  }
+
+  console.log("REFERENCE_IMAGE_REGISTRY:", REFERENCE_IMAGE_REGISTRY);
+  const scored = REFERENCE_IMAGE_REGISTRY.map((ref) => ({
+    ref,
+    score: scoreReference(ref, context, reasoning),
+  }));
+
+  applyAntiRepetitionPenalty(scored, context, reasoning);
+  scored.sort((a, b) => b.score - a.score);
+
+  const selected = scored[0];
+  console.log("selected:", selected);
+  reasoning.push(
+    "🎯 SELECTED: " + selected.ref.id + " (" + selected.score.toFixed(0) + ")"
+  );
+
+  // Log the selected reference image details
+  console.log(
+    `📸 [ReferenceSelector] Selected image: ${selected.ref.id}`,
+    `\n   URL: ${selected.ref.url}`,
+    `\n   Hairstyle: ${selected.ref.hairstyle}`,
+    `\n   Outfit: ${selected.ref.outfitStyle}`,
+    `\n   File: ${selected.ref.fileName}`,
+    `\n   Score: ${selected.score.toFixed(0)}`
+  );
+
+  const content = getReferenceImageContentForGrok(selected.ref.id);
+  console.log("content:", content);
+  if (!content) throw new Error("Reference not found: " + selected.ref.id);
+
+  return { referenceId: selected.ref.id, url: content, reasoning };
+}
+
 
 function scoreReference(
   ref: ReferenceImageMetadata,

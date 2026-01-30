@@ -82,7 +82,6 @@ export async function createPendingMessage(
     id: message.id,
     message_text: message.messageText,
     message_type: message.messageType,
-    selfie_url: message.selfieUrl,
     trigger: message.trigger,
     trigger_event_id: message.triggerEventId,
     trigger_event_title: message.triggerEventTitle,
@@ -267,7 +266,6 @@ function mapRowToMessage(row: Record<string, unknown>): PendingMessage {
     id: row.id as string,
     messageText: row.message_text as string,
     messageType: row.message_type as MessageType,
-    selfieUrl: row.selfie_url as string | undefined,
     trigger: row.trigger as MessageTrigger,
     triggerEventId: row.trigger_event_id as string | undefined,
     triggerEventTitle: row.trigger_event_title as string | undefined,
@@ -276,7 +274,6 @@ function mapRowToMessage(row: Record<string, unknown>): PendingMessage {
     deliveredAt: row.delivered_at
       ? new Date(row.delivered_at as string)
       : undefined,
-    reaction: row.reaction as string | undefined,
     metadata: row.metadata as Record<string, unknown> | undefined,
   };
 }

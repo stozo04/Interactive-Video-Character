@@ -1,0 +1,31 @@
+graph TD
+    Root[Greeting Logic] --> Day
+    Root --> Calendar
+    Root --> Tasks
+    Root --> Checkin["Check-in: How I am Feeling/thoughts/worries"]
+    Root --> News["Major Important News Since Last"]
+    Root --> Plans["Plans For The Day"]
+
+    Day --> Holiday
+    Day --> ImpDay["Important Day"]
+    ImpDay --> UserFact["User_Fact_Dates"]
+    Day --> TOD["Time of Day"]
+    TOD --> Early["Early - Ok?"]
+    TOD --> Norm["Norm... - Hi"]
+    TOD --> Late["Late - Thanks"]
+
+    Calendar --> Past["Past - Week"]
+    Calendar --> Present
+    Calendar --> Future
+
+    Tasks --> High["High - Maybe How Long Its Been a Task"]
+    Tasks --> Med["Med - Ignore"]
+    Tasks --> Low["Low - Ignore"]
+
+    News --> Personal
+    News --> National
+    News --> Global
+
+    Plans --> PTasks["Tasks - Personal / Work"]
+    Plans --> Deadlines
+    Plans --> ToDos["To Dos"]

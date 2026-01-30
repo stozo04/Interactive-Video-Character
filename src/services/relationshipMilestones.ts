@@ -1,34 +1,35 @@
 // src/services/relationshipMilestones.ts
 /**
  * Relationship Milestones Service
- * 
+ *
  * Tracks key moments in the relationship journey:
  * - first_vulnerability: When user first opened up emotionally
  * - first_joke: First shared humor moment
  * - first_support: When Kayley first provided meaningful support
  * - anniversary: Relationship time milestones
- * 
+ *
  * After 50+ interactions, enables natural "Remember when..." callbacks
  * that reference shared history to deepen the relationship.
  */
 
-import { supabase } from './supabaseClient';
+import { supabase } from "./supabaseClient";
 
 // ============================================
 // Types
 // ============================================
 
-export type MilestoneType = 
-  | 'first_vulnerability'   // User opened up for the first time
-  | 'first_joke'            // First shared humor moment
-  | 'first_support'         // First meaningful support from Kayley
-  | 'first_deep_talk'       // First long, meaningful conversation
-  | 'first_return'          // User came back after a break
-  | 'breakthrough_moment'   // Major emotional breakthrough
-  | 'anniversary_week'      // 1 week anniversary
-  | 'anniversary_month'     // 1 month anniversary
-  | 'interaction_50'        // 50 interactions milestone
-  | 'interaction_100';      // 100 interactions milestone
+export type MilestoneType =
+  | "first_vulnerability" // User opened up for the first time
+  | "first_joke" // First shared humor moment
+  | "first_support" // First meaningful support from Kayley
+  | "first_deep_talk" // First long, meaningful conversation
+  | "first_return" // User came back after a break
+  | "breakthrough_moment" // Major emotional breakthrough
+  | "confirmed_dating" // When Relationship was confirmed
+  | "anniversary_week" // 1 week anniversary
+  | "anniversary_month" // 1 month anniversary
+  | "interaction_50" // 50 interactions milestone
+  | "interaction_100"; // 100 interactions milestone
 
 export interface RelationshipMilestone {
   id: string;
@@ -72,7 +73,6 @@ const MAX_MILESTONE_REFERENCES = 3;
 // Minimum hours between referencing the same milestone
 const MIN_HOURS_BETWEEN_REFERENCES = 72;
 
-
 // ============================================
 // Milestone Management Functions
 // ============================================
@@ -84,7 +84,7 @@ const MIN_HOURS_BETWEEN_REFERENCES = 72;
 export async function recordMilestone(
   milestoneType: MilestoneType,
   description: string,
-  triggerContext?: string
+  triggerContext?: string,
 ): Promise<RelationshipMilestone | null> {
   try {
     // Check if this type of milestone already exists for this user
@@ -125,7 +125,7 @@ export async function recordMilestone(
     }
 
     console.log(
-      `🏆 [Milestones] Recorded: ${milestoneType} - "${description}"`
+      `🏆 [Milestones] Recorded: ${milestoneType} - "${description}"`,
     );
     return mapMilestoneRowToDomain(data as MilestoneRow);
   } catch (error) {
@@ -150,7 +150,7 @@ export async function getMilestones(): Promise<RelationshipMilestone[]> {
     }
 
     return (data || []).map((row) =>
-      mapMilestoneRowToDomain(row as MilestoneRow)
+      mapMilestoneRowToDomain(row as MilestoneRow),
     );
   } catch (error) {
     console.error("[Milestones] Unexpected error:", error);
@@ -163,7 +163,7 @@ export async function getMilestones(): Promise<RelationshipMilestone[]> {
  * Returns the most significant unreferenced milestone that's old enough.
  */
 export async function getMilestoneForCallback(
-  totalInteractions: number
+  totalInteractions: number,
 ): Promise<RelationshipMilestone | null> {
   // Only enable callbacks after sufficient interaction history
   if (totalInteractions < MIN_INTERACTIONS_FOR_CALLBACKS) {
@@ -218,7 +218,7 @@ export async function getMilestoneForCallback(
  * Mark a milestone as referenced (used in a "Remember when..." callback).
  */
 export async function markMilestoneReferenced(
-  milestoneId: string
+  milestoneId: string,
 ): Promise<void> {
   try {
     // First, get current reference count
@@ -231,7 +231,7 @@ export async function markMilestoneReferenced(
     if (fetchError) {
       console.error(
         "[Milestones] Error fetching milestone for referencing:",
-        fetchError
+        fetchError,
       );
       return;
     }
@@ -249,7 +249,7 @@ export async function markMilestoneReferenced(
     if (updateError) {
       console.error(
         "[Milestones] Error marking milestone referenced:",
-        updateError
+        updateError,
       );
       return;
     }
@@ -305,14 +305,14 @@ const DEEP_TALK_PATTERNS = [
  */
 export async function detectMilestoneInMessage(
   message: string,
-  interactionCount: number
+  interactionCount: number,
 ): Promise<RelationshipMilestone | null> {
   // Check interaction milestones first
   if (interactionCount === 50) {
     return recordMilestone(
       "interaction_50",
       "Reached 50 conversations together",
-      `User's ${interactionCount}th message`
+      `User's ${interactionCount}th message`,
     );
   }
 
@@ -320,7 +320,7 @@ export async function detectMilestoneInMessage(
     return recordMilestone(
       "interaction_100",
       "Reached 100 conversations together",
-      `User's ${interactionCount}th message`
+      `User's ${interactionCount}th message`,
     );
   }
 
@@ -338,7 +338,7 @@ export async function detectMilestoneInMessage(
       return recordMilestone(
         "first_vulnerability",
         "First time opening up emotionally",
-        triggerContext
+        triggerContext,
       );
     }
   }
@@ -350,7 +350,7 @@ export async function detectMilestoneInMessage(
       return recordMilestone(
         "first_joke",
         "First shared laugh together",
-        triggerContext
+        triggerContext,
       );
     }
   }
@@ -362,7 +362,7 @@ export async function detectMilestoneInMessage(
       return recordMilestone(
         "first_support",
         "First time seeking support or advice",
-        triggerContext
+        triggerContext,
       );
     }
   }
@@ -374,7 +374,7 @@ export async function detectMilestoneInMessage(
       return recordMilestone(
         "first_deep_talk",
         "First deep, meaningful conversation",
-        triggerContext
+        triggerContext,
       );
     }
   }
@@ -387,11 +387,11 @@ export async function detectMilestoneInMessage(
  * Should be called periodically (e.g., at session start).
  */
 export async function checkAnniversaryMilestones(
-  firstInteractionAt: Date
+  firstInteractionAt: Date,
 ): Promise<RelationshipMilestone | null> {
   const now = new Date();
   const daysSinceFirst = Math.floor(
-    (now.getTime() - firstInteractionAt.getTime()) / (1000 * 60 * 60 * 24)
+    (now.getTime() - firstInteractionAt.getTime()) / (1000 * 60 * 60 * 24),
   );
 
   // 1 week anniversary
@@ -399,7 +399,7 @@ export async function checkAnniversaryMilestones(
     return recordMilestone(
       "anniversary_week",
       "It's been a week since we first talked",
-      `First interaction: ${firstInteractionAt.toLocaleDateString()}`
+      `First interaction: ${firstInteractionAt.toLocaleDateString()}`,
     );
   }
 
@@ -408,7 +408,7 @@ export async function checkAnniversaryMilestones(
     return recordMilestone(
       "anniversary_month",
       "It's been a month since we first met",
-      `First interaction: ${firstInteractionAt.toLocaleDateString()}`
+      `First interaction: ${firstInteractionAt.toLocaleDateString()}`,
     );
   }
 
@@ -419,11 +419,11 @@ export async function checkAnniversaryMilestones(
  * Detect if user is returning after a break.
  */
 export async function detectReturnAfterBreak(
-  lastInteractionAt: Date
+  lastInteractionAt: Date,
 ): Promise<RelationshipMilestone | null> {
   const now = new Date();
   const daysSinceLastInteraction = Math.floor(
-    (now.getTime() - lastInteractionAt.getTime()) / (1000 * 60 * 60 * 24)
+    (now.getTime() - lastInteractionAt.getTime()) / (1000 * 60 * 60 * 24),
   );
 
   // User returned after at least 3 days
@@ -431,7 +431,7 @@ export async function detectReturnAfterBreak(
     return recordMilestone(
       "first_return",
       `Came back after ${daysSinceLastInteraction} days`,
-      `Last seen: ${lastInteractionAt.toLocaleDateString()}`
+      `Last seen: ${lastInteractionAt.toLocaleDateString()}`,
     );
   }
 
@@ -447,9 +447,21 @@ export async function detectReturnAfterBreak(
  * This is designed to integrate with callbackDirector.ts
  */
 export function generateMilestoneCallbackPrompt(
-  milestone: RelationshipMilestone
+  milestone: RelationshipMilestone,
 ): string {
   const templates: Record<MilestoneType, string[]> = {
+    confirmed_dating: [
+      "Casually acknowledge that you’re officially seeing each other now.",
+      "Reference the shift from ‘getting to know you’ to ‘this is us.’",
+      "You can lightly mention how nice it feels knowing you’re choosing each other.",
+      "A subtle nod to the moment you both agreed this was more than just talking.",
+      "Mention how the energy feels different now — calmer, clearer, more intentional.",
+      "You’re allowed to reference plans or a future without hedging.",
+      "A soft ‘I like that we’re doing this’ kind of acknowledgment.",
+      "You can gently reflect on how natural the transition felt.",
+      "Reference the comfort of being on the same page.",
+      "A playful acknowledgment that this is officially a thing now.",
+    ],
     first_vulnerability: [
       "You can briefly acknowledge the trust they showed when they first opened up to you.",
       "Reference that moment of vulnerability you shared, but keep it light.",
@@ -504,18 +516,18 @@ export function generateMilestoneCallbackPrompt(
 
   // Calculate how long ago this was
   const hoursAgo = Math.round(
-    (Date.now() - milestone.occurredAt.getTime()) / (1000 * 60 * 60)
+    (Date.now() - milestone.occurredAt.getTime()) / (1000 * 60 * 60),
   );
   const timeDesc =
     hoursAgo < 24
       ? "earlier"
       : hoursAgo < 48
-      ? "yesterday"
-      : hoursAgo < 168
-      ? "a few days ago"
-      : hoursAgo < 720
-      ? "a couple weeks ago"
-      : "a while back";
+        ? "yesterday"
+        : hoursAgo < 168
+          ? "a few days ago"
+          : hoursAgo < 720
+            ? "a couple weeks ago"
+            : "a while back";
 
   return `
 REMEMBER WHEN... (shared history callback)

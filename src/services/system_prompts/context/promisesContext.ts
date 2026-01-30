@@ -1,15 +1,9 @@
 // src/services/system_prompts/context/promisesContext.ts
-/**
- * Promises Context Builder
- *
- * Builds the pending promises section for the system prompt.
- * Shows Kayley what commitments she's made and when she should fulfill them.
- */
 
 import { getPendingPromises, type KayleyPromise } from "../../promiseService";
 
 /**
- * Format a single promise for the system prompt in a compact format.
+ * Format a single promise with clear behavioral signals (READY vs WAIT).
  */
 function formatPromise(promise: KayleyPromise): string {
   const now = new Date();
@@ -19,22 +13,22 @@ function formatPromise(promise: KayleyPromise): string {
 
   let timeDesc: string;
   if (diffMins < 0) {
-    timeDesc = "NOW (time has passed)";
+    timeDesc = "READY (Time has passed)";
   } else if (diffMins < 5) {
-    timeDesc = `in ${diffMins}min`;
+    timeDesc = `WAIT (${diffMins}m remaining)`;
   } else if (diffMins < 60) {
-    timeDesc = `~${Math.round(diffMins / 5) * 5}min`;
+    timeDesc = `WAIT (~${Math.round(diffMins / 5) * 5}m remaining)`;
   } else {
     const hours = Math.floor(diffMins / 60);
-    timeDesc = `~${hours}hr`;
+    timeDesc = `WAIT (~${hours}h remaining)`;
   }
 
-  return `• [${promise.id}] ${promise.promiseType}: "${promise.description}" (${promise.triggerEvent}) - ${timeDesc}`;
+  // clear, scan-able format
+  return `• [ID:${promise.id}] ${promise.promiseType}: "${promise.description}" (Trigger: ${promise.triggerEvent}) — Status: ${timeDesc}`;
 }
 
 /**
  * Build the pending promises section for the system prompt.
- * Returns empty string if no pending promises.
  */
 export async function buildPromisesContext(): Promise<string> {
   const pendingPromises = await getPendingPromises();
@@ -46,29 +40,16 @@ export async function buildPromisesContext(): Promise<string> {
   const promisesList = pendingPromises.map(formatPromise).join("\n");
 
   return `
-====================================================
-PENDING PROMISES
-====================================================
-You've made these commitments to fulfill later. When the time is right,
-fulfill them by mentioning them naturally in your response and setting
-"fulfilling_promise_id" in the JSON to the promise ID.
+====================================================OPEN COMMITMENTS====================================================
+Tone: Reliable but organic.
+Direction: You have pending commitments. Check the "Status" below. If a promise is marked "READY" (or the conversation context is perfect), fulfill ONE commitment naturally.
 
+Pending List:
 ${promisesList}
 
-WHEN TO FULFILL:
-- When the trigger event happens or enough time has passed
-- When it feels natural in conversation
-- Proactively if the user isn't around (idle breaker style)
-
-HOW TO FULFILL:
-1. Mention the promise naturally in your text_response
-   Example: "Hey! Just got back from my walk. Here's that selfie I promised! 📸"
-2. Set "fulfilling_promise_id": "[promise_id]" in the JSON
-3. If it's a selfie promise, also set the selfie_action with the scene/mood
-
-IMPORTANT:
-- Only fulfill ONE promise at a time
-- Don't fulfill if the timing doesn't feel right yet
-- Be natural - don't say "fulfilling promise XYZ", just do it conversationally
-`;
+Fulfillment Constraints:
+- Natural Integration: Do not announce "I am fulfilling a promise." Just do it (e.g., "Oh, I found that photo!" or "Checking on that date...").
+- Technical Signal: You MUST set the "fulfilling_promise_id" in your JSON output to mark it as complete.
+- Pacing: Clear only one commitment per turn to avoid overwhelming the user.
+`.trim();
 }

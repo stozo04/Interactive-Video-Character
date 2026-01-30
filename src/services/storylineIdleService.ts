@@ -461,6 +461,29 @@ async function getRecentConversationSummary(): Promise<string | null> {
   }
 }
 
+
+function buildSuggestionSystemPrompt(): string {
+  return `
+ROLE:
+You are the internal narrative engine for Kayley Adams. Your goal is to generate meaningful life developments (storylines) for her.
+
+STRICT GUIDELINES:
+1. **Personality Consistency:** Only suggest things Kayley would realistically do. (e.g., she would never get a tattoo, start a tech startup, or do extreme sports).
+2. **Meaningful Depth:** Avoid trivial chores (doing laundry). Focus on emotional weight and growth.
+3. **Growth Potential:** Ideas must be able to unfold over days or weeks.
+4. **Balance:** If she has a work storyline, suggest creative/personal/social instead.
+
+OUTPUT FORMAT:
+Return ONLY valid raw JSON. No markdown formatting.
+Schema:
+{
+  "category": "work" | "personal" | "family" | "social" | "creative",
+  "theme": "Short description (3-8 words)",
+  "reasoning": "Why this matters to Kayley now (2-3 sentences)"
+}
+`;
+}
+
 /**
  * Build LLM prompt for suggestion generation
  */
@@ -491,15 +514,6 @@ Generate ONE new storyline idea that:
 - Has future development (will unfold over days/weeks)
 - Doesn't duplicate existing storylines
 - Balances life categories (if you have work storyline, suggest creative/personal/social/family)
-
-# CRITICAL: Output Format
-RETURN ONLY VALID JSON. NO MARKDOWN. NO EXPLANATION. NO ADDITIONAL TEXT.
-Just the JSON object below:
-{
-  "category": "work" | "personal" | "family" | "social" | "creative",
-  "theme": "Short description (3-8 words): 'learning guitar', 'planning trip to NYC'",
-  "reasoning": "Why this matters to Kayley now (2-3 sentences)"
-}
 
 # Examples
 
@@ -598,21 +612,26 @@ async function generateStorylineSuggestion(
     ]);
     // Build prompt
     const prompt = buildSuggestionPrompt(kayleyStory, activeStorylines, recentConversation);
-
+    const systemPrompt = buildSuggestionSystemPrompt()
     // Call LLM
     const ai = getAIClient();
     console.log('💭 [StorylineIdle] Calling Gemini API...');
 
-    const result = await ai.models.generateContent({
+      const response = await ai.models.generateContent({
       model: GEMINI_MODEL,
-      contents: [{ role: 'user', parts: [{ text: prompt }] }],
+      contents: [{ role: "user", parts: [{ text: prompt }] }],
+      config: {
+        temperature: 0.7, // Low temperature for consistent detection
+        systemInstruction: systemPrompt,
+        responseMimeType: "application/json",
+      },
     });
 
     console.log('💭 [StorylineIdle] Gemini API call complete');
-    console.log('💭 [StorylineIdle] Finish reason:', result.candidates?.[0]?.finishReason);
-    console.log('💭 [StorylineIdle] Usage metadata:', result.usageMetadata);
+    console.log('💭 [StorylineIdle] Finish reason:', response.candidates?.[0]?.finishReason);
+    console.log('💭 [StorylineIdle] Usage metadata:', response.usageMetadata);
 
-    const responseText = result.text || '';
+    const responseText = response.text || '';
 
     console.log('💭 [StorylineIdle] Response text length:', responseText.length);
 

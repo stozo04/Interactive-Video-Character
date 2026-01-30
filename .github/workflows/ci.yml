@@ -1,0 +1,28 @@
+name: TypeScript CI
+
+on:
+  pull_request:
+    branches: [ main ]  # Runs only when a PR is opened against main
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4  # Downloads your code to the runner
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'  # Speeds up subsequent runs
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Run TypeScript compiler
+        run: npx tsc --noEmit
+
+      - name: Run tests
+        run: npm test

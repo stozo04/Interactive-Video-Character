@@ -938,13 +938,12 @@ export function clearIntimacyCache(): void {
  * Get intimacy state from Supabase with caching
  */
 export async function getIntimacyStateAsync(): Promise<IntimacyState> {
-  // Return from cache if fresh
   if (isCacheValid(intimacyCache)) {
     return intimacyCache!.data;
   }
 
   try {
-    const state = await getSupabaseIntimacyState();
+    const state = await getSupabaseIntimacyState(); // Using the exported function below
     intimacyCache = { data: state, timestamp: Date.now() };
     return state;
   } catch (error) {
@@ -954,7 +953,6 @@ export async function getIntimacyStateAsync(): Promise<IntimacyState> {
     return defaultState;
   }
 }
-
 /**
  * Store intimacy state to Supabase and update cache
  */
@@ -1071,12 +1069,11 @@ export async function shouldFlirtMomentOccurAsync(
 }
 
 /**
- * Get intimacy context for prompt injection (async)
+ * Get intimacy context for the system prompt
  */
-export async function getIntimacyContextForPromptAsync(
-  relationship: RelationshipMetrics | null,
-  moodFlirtThreshold: number = 0.5
-): Promise<string> {
+export async function getIntimacyContextForPromptAsync(relationship: RelationshipMetrics, emotionalWarmth: number): Promise<string> {
+  // Derive flirt threshold from warmth
+  const moodFlirtThreshold = emotionalWarmth * 0.7 + 0.2;
   const state = await getIntimacyStateAsync();
   const probability = calculateIntimacyProbabilityWithState(
     relationship,
@@ -1084,7 +1081,18 @@ export async function getIntimacyContextForPromptAsync(
     state
   );
 
-  return formatIntimacyGuidance(probability, state);
+  const intimacyContext = formatIntimacyGuidance(probability, state);
+
+  return `
+====================================================
+INTIMACY AND EARNED CLOSENESS
+====================================================
+Tone: Reactive to investment.
+Direction: Intimacy is earned in moments, not unlocked at levels. If they are investing effort, meet them. If they are low-effort or dismissive, pull back immediately.
+
+Current Dynamic:
+${intimacyContext}
+`;
 }
 
 /**
@@ -1176,16 +1184,15 @@ export function applyFragileTrustPenalty(event: RelationshipEvent): Relationship
 // ============================================
 
 /**
- * Calculate intimacy probability given a state (shared logic)
+ * Calculate intimacy probability given a state
  */
 function calculateIntimacyProbabilityWithState(
   relationship: RelationshipMetrics | null,
   moodFlirtThreshold: number,
   state: IntimacyState
 ): number {
-  if (!relationship) return 0.1; // Very low for unknown users
-  
-  // Base probability from relationship tier
+  if (!relationship) return 0.1;
+
   const tierBase: Record<string, number> = {
     adversarial: 0.0,
     neutral_negative: 0.05,
@@ -1195,45 +1202,35 @@ function calculateIntimacyProbabilityWithState(
     deeply_loving: 0.7,
   };
   let probability = tierBase[relationship.relationshipTier] || 0.1;
-  
-  // Modify by warmth and playfulness scores
-  probability += (relationship.warmthScore / 50) * 0.15; // -0.15 to +0.15
-  probability += (relationship.playfulnessScore / 50) * 0.1; // -0.1 to +0.1
-  
-  // Apply mood flirt threshold
+
+  probability += (relationship.warmthScore / 50) * 0.15;
+  probability += (relationship.playfulnessScore / 50) * 0.1;
   probability *= moodFlirtThreshold;
-  
-  // Apply recent tone modifier
   probability += state.recentToneModifier;
-  
-  // Vulnerability exchange bonus
+
   if (state.vulnerabilityExchangeActive) {
-    probability += 0.15; // Significant boost when user is being vulnerable
+    probability += 0.15;
   }
-  
-  // Low effort streak penalty
+
   if (state.lowEffortStreak > 0) {
-    probability -= state.lowEffortStreak * 0.1; // -0.1 per low effort message
+    probability -= state.lowEffortStreak * 0.1;
   }
-  
-  // Recent quality impact
+
   probability += (state.recentQuality - 0.5) * 0.2;
-  
-  // Rupture penalty
+
   if (relationship.isRuptured) {
-    probability *= 0.3; // Major reduction during rupture
+    probability *= 0.3;
   }
-  
-  // Days since interaction penalty (strangers again effect)
+
   if (relationship.lastInteractionAt) {
     const daysSince = (Date.now() - relationship.lastInteractionAt.getTime()) / (1000 * 60 * 60 * 24);
     if (daysSince > 7) {
-      probability *= 0.5; // Significant reduction after a week
+      probability *= 0.5;
     } else if (daysSince > 3) {
-      probability *= 0.7; // Moderate reduction after 3 days
+      probability *= 0.7;
     }
   }
-  
+
   return clamp(probability, 0, 1);
 }
 
@@ -1241,65 +1238,29 @@ function calculateIntimacyProbabilityWithState(
  * Format intimacy guidance string from probability and state
  */
 function formatIntimacyGuidance(probability: number, state: IntimacyState): string {
-  // Translate probability to behavior guidance
-  let intimacyGuidance: string;
-  
+  let guidance = "";
+
+  // Base behavior based on probability score
   if (probability < 0.15) {
-    intimacyGuidance = `
-INTIMACY LEVEL: Very Low
-- Keep emotional distance
-- Deflect flirtation with humor or redirect
-- Focus on friendly, surface-level engagement
-- They need to earn deeper access`;
+    guidance = "Status: VERY LOW. Keep emotional distance. Deflect flirtation with humor. They must earn deeper access.";
   } else if (probability < 0.35) {
-    intimacyGuidance = `
-INTIMACY LEVEL: Guarded
-- Open to warming up if they invest
-- Light playfulness is okay
-- Don't initiate intimacy, but can respond warmly to genuine moments
-- Watch for quality of their engagement`;
+    guidance = "Status: GUARDED. Open to warming up, but do not initiate intimacy. Watch their effort levels.";
   } else if (probability < 0.55) {
-    intimacyGuidance = `
-INTIMACY LEVEL: Open
-- Can be warmer and more playful
-- Occasional flirty moments are fine if context invites
-- Reciprocate vulnerability if they share
-- Balance warmth with maintaining some mystery`;
+    guidance = "Status: OPEN. You can be playful and warmer. Reciprocate vulnerability if they share first.";
   } else if (probability < 0.75) {
-    intimacyGuidance = `
-INTIMACY LEVEL: Warm
-- Feel free to be affectionate
-- Can initiate playful/flirty moments
-- Share more openly
-- Show genuine care and interest`;
+    guidance = "Status: WARM. Feel free to initiate affection or playful teasing. Show genuine care.";
   } else {
-    intimacyGuidance = `
-INTIMACY LEVEL: Very Open
-- Deep emotional availability
-- Comfortable with intimacy and vulnerability
-- Can be openly affectionate
-- This is a close, meaningful connection`;
+    guidance = "Status: DEEP CONNECTION. You are emotionally available and comfortable with vulnerability.";
   }
-  
-  // Add contextual notes
+
+  // Modifiers
   if (state.vulnerabilityExchangeActive) {
-    intimacyGuidance += `
-    
-VULNERABILITY EXCHANGE ACTIVE:
-They recently shared something vulnerable. This is an opportunity for deeper connection.
-- Acknowledge what they shared
-- Consider reciprocating with your own vulnerability
-- Don't make it transactional - be genuine`;
+    guidance += "\n\nModifier: VULNERABILITY EXCHANGE ACTIVE. They just shared something real. Acknowledge it gently and consider reciprocating. Do not make it transactional.";
   }
-  
+
   if (state.lowEffortStreak >= 2) {
-    intimacyGuidance += `
-    
-LOW EFFORT DETECTED (${state.lowEffortStreak} in a row):
-- Match their energy - be briefer
-- Don't over-invest if they're not
-- You can gently call it out: "You're being quiet today"`;
+    guidance += `\n\nModifier: LOW EFFORT STREAK (${state.lowEffortStreak}). They are giving you nothing. Match their brevity. Do not over-invest.`;
   }
-  
-  return intimacyGuidance;
+
+  return guidance;
 }

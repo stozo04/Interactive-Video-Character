@@ -130,7 +130,7 @@ export function parseCharacterOpinions(
             category: "likes",
             topic: match[1].trim(),
             sentiment: match[2].trim(),
-            canMention: true, // Likes are generally safe to mention
+            canMention: true, 
           });
         }
       }
@@ -143,29 +143,23 @@ export function parseCharacterOpinions(
   );
   if (dislikesMatch) {
     const dislikesContent = dislikesMatch[1];
-    // Dislikes are often just bullet points without bold headers
     const dislikeItems = dislikesContent.match(/[-•]\s*([^\n]+)/g);
 
     if (dislikeItems) {
       for (const item of dislikeItems) {
         const text = item.replace(/^[-•]\s*/, "").trim();
         if (text.length > 5) {
-          // Skip very short entries
           opinions.push({
             category: "dislikes",
             topic: text,
             sentiment: text,
-            // Dislikes can be mentioned but more carefully
-            canMention: !text.toLowerCase().includes("people who"), // Don't mention criticisms of people
+            canMention: !text.toLowerCase().includes("people who"),
           });
         }
       }
     }
   }
 
-  console.log(
-    `[PresenceDirector] Parsed ${opinions.length} opinions from character profile`
-  );
   return opinions;
 }
 
@@ -174,6 +168,9 @@ let cachedOpinions: Opinion[] | null = null;
 let opinionsCacheTimestamp: number = 0;
 const OPINIONS_CACHE_TTL = 1000 * 60 * 60; // 1 hour
 
+/**
+ * Get character opinions with caching
+ */
 export function getCharacterOpinions(forceRefresh: boolean = false): Opinion[] {
   const now = Date.now();
   if (

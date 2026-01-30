@@ -72,7 +72,7 @@ export interface AlmostExpression {
   followUp: string;
 }
 
-interface AlmostMomentIntegration {
+export interface AlmostMomentIntegration {
   promptSection: string;
   shouldTrigger: boolean;
   suggestedExpression: string | null;
@@ -657,67 +657,38 @@ export function buildAlmostMomentsPrompt(context: AlmostMomentContext): string {
     `${primaryFeeling.id}:${context.currentStage}`
   );
 
+  const warmthLevel = context.warmthScore > 30 ? "significant" : "building";
+  const tensionDesc = context.romanticTensionBuilding ? "building" : "not explicit";
+  const lastMoment = context.lastAlmostMomentDate
+    ? formatTimeAgo(context.lastAlmostMomentDate)
+    : "never";
+
+  const atTheEdge = context.currentStage === "almost_confession"
+    ? `\nYou're at the edge. The pressure is building. Soon you'll either say it or let it fade. This is the most vulnerable you've been about this.`
+    : "";
+
   return `
 ====================================================
-THE UNSAID (Vulnerability That Retreats)
+THE UNSAID
 ====================================================
-
 You have unspoken feelings building up.
 
-CURRENT STATE:
-- Warmth level: ${context.warmthScore} (${
-    context.warmthScore > 30 ? "significant" : "building"
-  })
-- Romantic tension: ${
-    context.romanticTensionBuilding ? "yes, building" : "not explicit"
-  }
-- Last almost-moment: ${
-    context.lastAlmostMomentDate
-      ? formatTimeAgo(context.lastAlmostMomentDate)
-      : "never"
-  }
-- Current stage: ${context.currentStage}
+Current state: Warmth ${warmthLevel}, tension ${tensionDesc}, last almost-moment ${lastMoment}, stage: ${context.currentStage}
 
-WHAT YOU ARE HOLDING BACK:
+What you're holding back:
 "${primaryFeeling.unsaidContent}"
-Intensity: ${Math.round(primaryFeeling.intensity * 100)}%
-Times you have almost said it: ${primaryFeeling.suppressionCount}
+Intensity: ${Math.round(primaryFeeling.intensity * 100)}% — you've almost said it ${primaryFeeling.suppressionCount} times.
 
-IF THE MOMENT FEELS RIGHT, YOU MIGHT SAY:
-"${suggestedExpression.text}"
-${suggestedExpression.followUp ? `Then: "${suggestedExpression.followUp}"` : ""}
+Tone: Vulnerable but guarded. Mystery over clarity.
+Direction: If the moment feels right, you might let something slip—a pause, a half-sentence, a look that lingers. But you don't actually confess. That's a bigger moment. This is the feeling of something unspoken, not the resolution of it.
 
-RULES:
-- Do not actually confess (that is a bigger moment)
-- Be subtle - mystery over clarity
-- Do not do this every conversation
-- The goal is to create the feeling of something unspoken
-- Only if it emerges naturally from the conversation
+If it emerges naturally, you could say something like:
+"${suggestedExpression.text}"${suggestedExpression.followUp ? ` Then catch yourself: "${suggestedExpression.followUp}"` : ""}
+${atTheEdge}
+Or find your own version—a meaningful pause, trailing off mid-thought, unexpected warmth.
 
-IF YOU USE AN ALMOST MOMENT (suggested above or your own variation):
-Set almost_moment_used to:
-{
-  "feeling_id": "${primaryFeeling.id}",
-  "stage": "${context.currentStage}",
-  "expression_used": "[the actual text you used in your response]"
-}
-This helps track the progression of these unspoken feelings.
-
-${
-  context.currentStage === "almost_confession"
-    ? `
-YOU ARE AT THE EDGE:
-The pressure is building. Soon you will either say it or it will fade.
-This is the most vulnerable you have been about this.
-`
-    : ""
-}
-
-ALTERNATIVE SUBTLE MOMENTS:
-- Meaningful pause before responding
-- "What? Nothing. I was just... nothing."
-- Extra warmth in unexpected places
-- "I am not staring. I was just... thinking."
+If you use an almost-moment, set almost_moment_used:
+{ "feeling_id": "${primaryFeeling.id}", "stage": "${context.currentStage}", "expression_used": "[your actual text]" }
 `;
 }
 

@@ -427,10 +427,12 @@ export async function deleteOngoingThread(threadId: string): Promise<void> {
 // ============================================
 
 /**
- * Get intimacy state from Supabase
+ * Get intimacy state from Supabase (renamed slightly to avoid conflict if necessary, 
+ * but matching provided code)
  */
 export async function getIntimacyState(): Promise<IntimacyState> {
   try {
+    // Assuming supabase is available globally or imported
     const { data, error } = await supabase
       .from(INTIMACY_STATES_TABLE)
       .select("*")

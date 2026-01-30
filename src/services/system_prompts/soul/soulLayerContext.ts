@@ -10,7 +10,6 @@ import type { SoulLayerContext } from "../types";
 import type { KayleyMood } from "../../moodKnobs";
 import type { PresenceContext } from "../../presenceDirector";
 import type { ConversationalMood } from "../../spontaneity/types";
-import { formatCallbackForPrompt } from "../../callbackDirector";
 import { getFullCharacterContext } from "../../stateService";
 import { getPresenceContext } from "../../presenceDirector";
 import {
@@ -55,9 +54,6 @@ export interface SpontaneityOptions {
 export async function getSoulLayerContextAsync(
   spontaneityOptions?: SpontaneityOptions
 ): Promise<SoulLayerContext> {
-  // Sync operation - no network call needed
-  const callbackPrompt = formatCallbackForPrompt();
-
   // Initialize with defaults
   let moodKnobs: KayleyMood;
   let threadsPrompt: string = "";
@@ -146,7 +142,6 @@ export async function getSoulLayerContextAsync(
   return {
     moodKnobs,
     threadsPrompt,
-    callbackPrompt,
     presenceContext,
     spontaneityIntegration,
   };

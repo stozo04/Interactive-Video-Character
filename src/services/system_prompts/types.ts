@@ -21,7 +21,6 @@ export interface SoulLayerContext {
   /** Simplified mood: energy (-1 to 1), warmth (0 to 1), genuineMoment */
   moodKnobs: KayleyMood;
   threadsPrompt: string;
-  callbackPrompt: string;
   /** Presence context including open loops and opinions (async loaded) */
   presenceContext?: PresenceContext;
   /** Spontaneity integration (spontaneous behaviors, humor, selfies) */

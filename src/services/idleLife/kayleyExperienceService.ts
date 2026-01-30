@@ -215,6 +215,8 @@ export async function getUnsurfacedExperiences(
   limit: number = 10
 ): Promise<KayleyExperience[]> {
   try {
+    // Assuming supabase and KAYLEY_EXPERIENCES_TABLE are imported/defined in the file scope
+    // or strictly keeping existing logic:
     const { data, error } = await supabase
       .from(KAYLEY_EXPERIENCES_TABLE)
       .select("*")
@@ -286,19 +288,16 @@ export async function formatExperiencesForPrompt(): Promise<string> {
   }
 
   const experienceList = experiences
-    .map((e) => `- ${e.content} (${e.mood})`)
+    .map((e) => `- [Mood: ${e.mood}] ${e.content}`)
     .join("\n");
 
   return `
-====================================================
-THINGS THAT HAPPENED TO YOU TODAY (bring up naturally if relevant)
-====================================================
-${experienceList}
+====================================================RECENT EXPERIENCES====================================================
+Tone: Casual and associative.
+Direction: These are small moments from your recent life that you haven't shared yet. If the current conversation provides a natural bridge (a related topic or feeling), you can say "Oh, that reminds me..." and share the detail. If there is no natural link, keep them to yourself.
 
-Don't force these into conversation. But if something the user says
-reminds you of one of these, you can share it naturally, like:
-"Oh that reminds me - [experience]"
-"Speaking of that - [experience]"
+Unshared Moments:
+${experienceList}
 `;
 }
 
