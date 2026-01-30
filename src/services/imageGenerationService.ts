@@ -38,12 +38,15 @@ import { getMoodAsync } from "./moodKnobs";
 import { getCharacterFacts } from "./characterFactsService";
 import { getUserFacts } from "./memoryService";
 import { generateImageEdit } from "@/utils/grokAPIUtils";
+import { supabase } from "./supabaseClient";
 
 const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
 const GEMINI_IMAGEN_MODEL = import.meta.env.VITE_GEMINI_IMAGEN_MODEL;
 const GROK_API_KEY = import.meta.env.VITE_GROK_API_KEY;
 const GROK_IMAGEN_MODEL = import.meta.env.VITE_GROK_IMAGEN_MODEL;
 const IMAGE_GENERATOR_SERVICE = import.meta.env.VITE_IMAGE_GENERATOR_SERVICE;
+const VIDEO_SELFIE_BUCKET = "Character-Images-For-Videos";
+const LATEST_SELFIE_PUBLIC_URL_KEY = "latestSelfiePublicUrl";
 
 // ============================================
 // MAIN IMAGE GENERATION FUNCTION
@@ -59,6 +62,7 @@ export interface SelfieRequest {
   presenceOutfit?: string; // From presence_contexts table
   presenceMood?: string; // From presence_contexts table
   upcomingEvents?: Array<{ title: string; startTime: Date; isFormal: boolean }>; // From calendar
+  forVideo?: boolean; // Upload selfie for video generation
 
   // LLM-generated fields (calculated internally)
   llmScene?: string;
@@ -320,6 +324,14 @@ export async function generateCompanionSelfie(
 
       console.log("✅ [ImageGen] Selfie generated successfully!");
 
+      if (request.forVideo) {
+        await uploadSelfieForVideo(
+          generatedPart.inlineData.data,
+          generatedPart.inlineData.mimeType || "image/png",
+          request.scene,
+        );
+      }
+
       // --- AUTO-SAVE TO LOCAL FILESYSTEM (Development only) ---
       try {
         fetch("/api/save-selfie", {
@@ -381,6 +393,14 @@ export async function generateCompanionSelfie(
       });
 
       console.log("Success! Image data received.", result);
+
+      if (request.forVideo) {
+        await uploadSelfieForVideo(
+          result.data[0].b64_json,
+          "image/png",
+          request.scene,
+        );
+      }
 
       // --- AUTO-SAVE TO LOCAL FILESYSTEM (Development only) ---
       try {
@@ -500,6 +520,63 @@ export function base64ToDataUrl(
   mimeType: string = "image/png",
 ): string {
   return `data:${mimeType};base64,${base64}`;
+}
+
+async function uploadSelfieForVideo(
+  imageBase64: string,
+  mimeType: string,
+  scene?: string,
+): Promise<void> {
+  const cleaned = cleanBase64(imageBase64);
+  if (!cleaned) {
+    throw new Error("Empty selfie payload");
+  }
+
+  const bytes = atob(cleaned);
+  const buffer = new Uint8Array(bytes.length);
+  for (let i = 0; i < bytes.length; i += 1) {
+    buffer[i] = bytes.charCodeAt(i);
+  }
+
+  const ext = mimeType === "image/jpeg" ? "jpg" : "png";
+  const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+  const safeScene = scene
+    ? scene.substring(0, 30).replace(/[^a-z0-9]/gi, "_").toLowerCase()
+    : "selfie";
+  const filePath = `selfies/selfie_${timestamp}_${safeScene}.${ext}`;
+
+  console.log("📤 [ImageGen][SelfieUpload] Uploading selfie for video:", {
+    bucket: VIDEO_SELFIE_BUCKET,
+    filePath,
+    mimeType,
+  });
+
+  const { error } = await supabase.storage
+    .from(VIDEO_SELFIE_BUCKET)
+    .upload(filePath, new Blob([buffer], { type: mimeType }), {
+      contentType: mimeType,
+      upsert: true,
+    });
+
+  if (error) {
+    console.error("❌ [ImageGen][SelfieUpload] Upload failed:", error);
+    throw new Error("Selfie upload failed");
+  }
+
+  const { data } = supabase.storage
+    .from(VIDEO_SELFIE_BUCKET)
+    .getPublicUrl(filePath);
+
+  const publicUrl = data?.publicUrl;
+  if (!publicUrl) {
+    console.error("❌ [ImageGen][SelfieUpload] Missing public URL");
+    throw new Error("Missing selfie public URL");
+  }
+
+  localStorage.setItem(LATEST_SELFIE_PUBLIC_URL_KEY, publicUrl);
+  console.log("✅ [ImageGen][SelfieUpload] Stored latest selfie URL:", {
+    publicUrl,
+  });
 }
 
 /**

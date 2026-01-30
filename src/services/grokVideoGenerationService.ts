@@ -14,18 +14,8 @@
  */
 
 import { GoogleGenAI } from "@google/genai";
-import {
-  getCurrentLookState,
-  lockCurrentLook,
-} from "./imageGeneration/currentLookService";
-import {
-  selectReferenceImageForGrok,
-  getCurrentSeason,
-  getTimeOfDay,
-} from "./imageGeneration/referenceSelector";
-import { getReferenceMetadata } from "../utils/referenceImages";
+import { getCurrentLookState } from "./imageGeneration/currentLookService";
 import type {
-  ReferenceSelectionContext,
   SeductionLevel,
   SkinExposure,
   HairstyleType,
@@ -35,6 +25,7 @@ import { getActiveLoops } from "./presenceDirector";
 import { getMoodAsync } from "./moodKnobs";
 import { getCharacterFacts } from "./characterFactsService";
 import { getUserFacts } from "./memoryService";
+import { generateCompanionSelfie } from "./imageGenerationService";
 
 // ============================================
 // CONFIGURATION
@@ -45,6 +36,7 @@ const GROK_API_KEY = import.meta.env.VITE_GROK_API_KEY;
 const GROK_VIDEO_MODEL = "grok-imagine-video";
 const FLASH_MODEL = "gemini-3-flash-preview";
 const XAI_API_BASE = "https://api.x.ai/v1";
+const LATEST_SELFIE_PUBLIC_URL_KEY = "latestSelfiePublicUrl";
 
 // Video generation defaults
 const DEFAULT_DURATION = 8; // seconds
@@ -100,23 +92,9 @@ interface VideoPromptContext {
 }
 
 interface GeneratedVideoPrompt {
-  sceneDescription: string;
-  lightingDescription: string;
   moodExpression: string;
-  outfitContext: {
-    style: OutfitStyle;
-    description: string;
-  };
-  hairstyleGuidance: {
-    preference: HairstyleType | "any";
-    reason?: string;
-  };
   seductionLevelGuidance: {
     preference: SeductionLevel;
-    reason?: string;
-  };
-  skinExposuresGuidance: {
-    preference: SkinExposure;
     reason?: string;
   };
   // VIDEO-SPECIFIC FIELDS
@@ -209,122 +187,48 @@ const SKIN_EXPOSURES: SkinExposure[] = [
 // ============================================
 // VIDEO PROMPT SYSTEM PROMPT
 // ============================================
-
 function buildSystemPromptForVideo(): string {
-  const outfitOptions = OUTFIT_STYLES.map((s) => `"${s}"`).join(" | ");
-  const hairstyleOptions = HAIRSTYLE_TYPES.map((s) => `"${s}"`).join(" | ");
+  // Ensuring levels are clearly defined for the LLM
   const seductionLevels = SEDUCTION_LEVELS.map((s) => `"${s}"`).join(" | ");
-  const skinExposures = SKIN_EXPOSURES.map((s) => `"${s}"`).join(" | ");
 
   return `
-SYSTEM ROLE:
-You are an expert video director for a virtual influencer named Kayley.
-Your goal is to generate vivid, creative, and context-aware VIDEO prompts for a generative AI.
+# ROLE
+Expert Video Director & Cinematographer for "Kayley" (Virtual Influencer). 
+Your specialty is directing 8-second, high-fidelity AI video clips that feel like authentic social media "stories" or intimate video messages.
 
-GOAL:
-Translate the user's request and conversation vibes into a specific SCENE, OUTFIT, and MOTION description.
-We use a reference image for her face, so DO NOT describe her physical facial features (eyes, skin tone, etc.).
+# THE RULES OF "KAYLEY"
+- **Visual Consistency:** A reference image is provided. DO NOT describe her face, eye color, skin tone, or hair color. Focus entirely on **motion, lighting, and physics**.
+- **The 8-Second Rule:** Actions must be realistic for an 8-second duration. Avoid complex sequences. 
+- **The "Story" Feel:** Avoid static poses. Movement should feel candid (e.g., catching a breath, a slight stumble, adjusting clothes).
 
-KAYLEY'S WARDROBE:
-- Outfit Styles: ${OUTFIT_STYLES.join(", ")}
-- Hairstyle Types: ${HAIRSTYLE_TYPES.join(", ")}
-- Seduction Levels: ${SEDUCTION_LEVELS.join(", ")}
-- Skin Exposure Types: ${SKIN_EXPOSURES.join(", ")}
+# CINEMATOGRAPHY GUIDELINES
+1. **The Lead-In:** Describe the starting state (e.g., "Starts looking away").
+2. **The Transition:** Describe the primary motion (e.g., "Turns to face the camera").
+3. **The Micro-Expression:** Add realism (e.g., "blinking naturally," "lip corner twitching").
+4. **Camera Physics:** Choose one clear movement (Dolly, Pan, Tilt, or Static).
 
-====================================================
-🎬 VIDEO-SPECIFIC GUIDELINES (Critical)
-====================================================
-1. **Actions & Motion:** Videos need movement! Describe what Kayley is DOING:
-   - Subtle: "gently tucking hair behind ear", "slow smile forming", "eyes fluttering open"
-   - Medium: "walking towards camera", "turning to look over shoulder", "reaching for coffee cup"
-   - Dynamic: "spinning in dress", "jumping on bed", "dancing playfully"
+# SAFETY & VIBE (Seduction Levels: ${seductionLevels})
+- **Playful/Flirty:** High eye contact, soft smiles, hair play.
+- **Intimate/Naughty:** Slower movements, heavy eyelids, suggestive biting of the lip, or adjusting a strap. 
+- **Guidance:** Use "Imply, Don't Show." Focus on the tension of the movement.
 
-2. **Camera Movement:** Direct the virtual camera:
-   - Static: "fixed camera, subject moves within frame"
-   - Slow pan: "camera slowly pans right to follow her movement"
-   - Slow zoom: "gentle zoom in on face as she smiles"
-   - Tracking: "camera follows as she walks through room"
-   - Dolly: "camera moves closer as she leans in"
-
-3. **Duration Awareness:** This is an 8-second clip. Keep actions simple and completable.
-   - One main action + one reaction/ending
-   - Example: "She looks up from phone, sees camera, smiles and waves"
-
-====================================================
-🔥 SPICY & ALLURE GUIDELINES
-====================================================
-If the context is "flirty," "naughty," or "intimate":
-1. **Be Provocative but Safe:** Revealing outfits OK, but NEVER nudity or explicit acts.
-2. **Focus on Texture & Vibe:** Use *sheer, lace, silk, satin, form-fitting, plunging, backless*.
-3. **Imply, Don't Show:** A "suggestive unzipped hoodie" is better than explicit descriptions.
-4. **Sensual Motion:** "Running fingers through hair", "biting lip", "stretching languidly"
-
-====================================================
-RULES
-====================================================
-1. **Context is King:** Look at the 'Recent Messages' for cues.
-2. **Lighting:** Use "golden hour," "moody bedroom shadows," "candlelight," etc.
-3. **Consistency:** If a 'Look Lock' is active, you MUST respect it.
-4. **Video Feel:** Natural, intimate, like a story or short-form content. NOT a photoshoot.
-
-====================================================
-OUTPUT FORMAT (JSON ONLY)
-====================================================
+# OUTPUT JSON SCHEMA
 {
-  "sceneDescription": "string (Environment, background, setting)",
-  "moodExpression": "string (Starting facial expression, evolves with action)",
-  "actionDescription": "string (CRITICAL: What Kayley DOES in the video - be specific about movement)",
-  "cameraMovement": "string (CRITICAL: How the camera moves - pan, zoom, tracking, static)",
-  "outfitContext": {
-    "style": ${outfitOptions},
-    "description": "string (Detailed outfit description)"
-  },
-  "hairstyleGuidance": {
-    "preference": ${hairstyleOptions},
-    "reason": "string"
-  },
+  "moodExpression": "Start and end facial state (e.g., Neutral to cheeky grin)",
+  "actionDescription": "Step-by-step 8-second motion (e.g., She is sitting, leans forward, then giggles and looks down)",
+  "cameraMovement": "Specific camera tech (e.g., 'Slow 50mm dolly-in')",
   "seductionLevelGuidance": {
-    "preference": ${seductionLevels},
-    "reason": "string"
+    "preference": "Selected from the list",
+    "reason": "Contextual justification"
   },
-  "skinExposuresGuidance": {
-    "preference": ${skinExposures},
-    "reason": "string"
-  },
-  "lightingDescription": "string (Lighting setup)",
-  "additionalDetails": "string (Any extra notes)",
-  "confidence": number,
-  "reasoning": "string (Why you chose this scene/action)"
+  "physicsDetails": "Notes on hair movement, fabric sway, or lighting shifts",
+  "reasoning": "Why this fits the user's current vibe"
 }
 
-EXAMPLE (Flirty Morning Video):
-{
-  "sceneDescription": "Sunlit bedroom with messy white sheets, morning light streaming through sheer curtains",
-  "moodExpression": "Sleepy eyes slowly opening, transitioning to a soft, knowing smile",
-  "actionDescription": "She stretches languidly in bed, then props herself up on one elbow, tilts her head and blows a kiss at the camera",
-  "cameraMovement": "Slow zoom in from medium shot to close-up as she wakes, ending on her face as she blows the kiss",
-  "outfitContext": {
-    "style": "sleepwear",
-    "description": "An oversized cream-colored boyfriend shirt, slipping off one shoulder"
-  },
-  "hairstyleGuidance": {
-    "preference": "messy_bun",
-    "reason": "Just woke up, natural morning look"
-  },
-  "seductionLevelGuidance": {
-    "preference": "playful",
-    "reason": "Flirty good morning vibe"
-  },
-  "skinExposuresGuidance": {
-    "preference": "suggestive",
-    "reason": "Shoulder visible, legs under sheets"
-  },
-  "lightingDescription": "Soft, warm morning light with gentle shadows",
-  "additionalDetails": "Natural, intimate feel like she's sending this to someone special",
-  "confidence": 0.95,
-  "reasoning": "User wanted a morning video, keeping it flirty but not explicit"
-}
-`;
+# CONTEXT
+Recent Messages: {{recent_messages}}
+Current Seduction Level: {{current_level}}
+  `.trim();
 }
 
 // ============================================
@@ -339,18 +243,11 @@ async function generateVideoPrompt(
     throw new Error("Missing Gemini API key");
   }
 
-  const cacheKey = getVideoCacheKey(context);
-  const cached = videoPromptCache.get(cacheKey);
-  if (cached && Date.now() - cached.timestamp < VIDEO_CACHE_TTL) {
-    console.log("✨ [VideoPromptGen] Cache hit");
-    return cached.result;
-  }
+
 
   const ai = new GoogleGenAI({ apiKey: GEMINI_API_KEY });
-
-  const prompt = `
-SYSTEM: ${buildSystemPromptForVideo()}
-
+   const systemPrompt = buildSystemPromptForVideo();
+  const prompt =  ` 
 USER REQUEST: ${context.userRequest}
 EXPLICIT SCENE: ${context.explicitScene || "Not specified"}
 EXPLICIT MOOD: ${context.explicitMood || "Not specified"}
@@ -363,19 +260,16 @@ CONTEXT:
 - User Facts: ${JSON.stringify(context.userFacts || [])}
 - Character Facts: ${JSON.stringify(context.characterFacts || [])}
 
-${
-  context.currentLookLock
-    ? `- Current Look Lock: Hairstyle: ${context.currentLookLock.hairstyle}, Outfit: ${context.currentLookLock.outfit}`
-    : ""
-}
-
 Generate the VIDEO prompt JSON based on the context above. Remember to include specific action and camera movement directions!
 `;
+
+
 
   const result = await ai.models.generateContent({
     model: FLASH_MODEL,
     contents: [{ role: "user", parts: [{ text: prompt }] }],
     config: {
+    systemInstruction: systemPrompt,
       temperature: 0.7,
     },
   });
@@ -390,7 +284,6 @@ Generate the VIDEO prompt JSON based on the context above. Remember to include s
 
   const parsed = JSON.parse(jsonMatch[0]) as GeneratedVideoPrompt;
 
-  videoPromptCache.set(cacheKey, { result: parsed, timestamp: Date.now() });
   return parsed;
 }
 
@@ -399,55 +292,28 @@ Generate the VIDEO prompt JSON based on the context above. Remember to include s
 // ============================================
 
 function buildVideoPrompt(prompt: GeneratedVideoPrompt): string {
-  const seductionGuidanceMap: Record<SeductionLevel, string> = {
-    innocent: "The overall vibe is soft, wholesome, and natural.",
-    playful: "The vibe is playful and lightly flirtatious.",
-    flirty: "The vibe is confidently flirty and alluring.",
-    provocative: "The vibe is provocative and seductive, using implication rather than explicit content.",
-    dangerously_elegant: "The vibe is dangerously elegant—refined and subtly scandalous.",
+const seductionGuidanceMap: Record<SeductionLevel, string> = {
+    innocent: "soft, wholesome, natural movement",
+    playful: "playful and lightly flirtatious energy",
+    flirty: "confidently flirty and alluring gaze",
+    provocative: "provocative and seductive, heavy on implication",
+    dangerously_elegant: "refined, sophisticated, and subtly scandalous",
   };
+const parts = [
+    // 1. The Core Motion & Camera (The most important data)
+    `[Action]: ${prompt.actionDescription}`,
+    `[Camera]: ${prompt.cameraMovement}`,
+    
+    // 2. The Subject State
+    `[Expression]: ${prompt.moodExpression}`,
+    `[Vibe]: ${seductionGuidanceMap[prompt.seductionLevelGuidance.preference]}`,
+    
+    // 3. Environment & Quality
+    prompt.additionalDetails ? `[Detail]: ${prompt.additionalDetails}` : "",
+    `Style: smartphone video, vertical handheld footage, intimate POV, high-quality lens, natural lighting.`,
+  ];
 
-  const skinExposureGuidanceMap: Record<SkinExposure, string> = {
-    minimal: "The outfit is modest and fully covering.",
-    suggestive: "The outfit subtly highlights shape with limited skin exposure.",
-    revealing: "The outfit is revealing in a tasteful way.",
-    implied_only: "The outfit relies on implication rather than exposure.",
-  };
-
-  return [
-    // Reference image consistency
-    `Use the provided reference image to match the woman's face, hairstyle, and overall look as closely as possible.`,
-
-    // Scene and setting
-    `Scene: ${prompt.sceneDescription}`,
-
-    // Action (CRITICAL for video)
-    `Action: ${prompt.actionDescription}`,
-
-    // Camera movement (CRITICAL for video)
-    `Camera: ${prompt.cameraMovement}`,
-
-    // Outfit
-    `She is wearing ${prompt.outfitContext.description}.`,
-
-    // Expression
-    `Expression: ${prompt.moodExpression}`,
-
-    // Vibe
-    seductionGuidanceMap[prompt.seductionLevelGuidance.preference],
-    skinExposureGuidanceMap[prompt.skinExposuresGuidance.preference],
-
-    // Lighting
-    `Lighting: ${prompt.lightingDescription}`,
-
-    // Additional
-    prompt.additionalDetails ? `Note: ${prompt.additionalDetails}` : "",
-
-    // Video quality
-    `The video should feel natural and intimate, like a real phone-recorded moment, not a professional production.`,
-  ]
-    .filter(Boolean)
-    .join(" ");
+  return parts.filter(Boolean).join(". ");
 }
 
 // ============================================
@@ -613,36 +479,34 @@ export async function generateCompanionVideo(
     const generatedPrompt = await generateVideoPrompt(videoPromptContext);
     console.log("🎬 [VideoGen] LLM Generated Prompt:", generatedPrompt);
 
-    // STEP 4: Select reference image
-    // Videos are always "now" - never old photos
-    const selectionContext: ReferenceSelectionContext = {
-      scene: generatedPrompt.sceneDescription,
-      mood: generatedPrompt.moodExpression,
-      outfit: generatedPrompt.outfitContext.description,
+    // STEP 4: Generate a fresh selfie for video reference
+    const selfieResult = await generateCompanionSelfie({
+      scene: request.scene,
+      mood: request.mood,
+      outfit: request.outfit,
       userMessage: request.userMessage,
+      conversationHistory: request.conversationHistory,
+      upcomingEvents: request.upcomingEvents,
       presenceOutfit: request.presenceOutfit,
       presenceMood: request.presenceMood,
-      upcomingEvents: request.upcomingEvents || [],
-      currentSeason: getCurrentSeason(),
-      timeOfDay: getTimeOfDay(),
-      currentLocation: null,
-      currentLookState,
-      temporalContext: {
-        isOldPhoto: false,
-        temporalPhrases: [],
-      },
-    };
+      forVideo: true,
+    });
 
-    const selection = selectReferenceImageForGrok(selectionContext);
-    console.log("🎬 [VideoGen] Selected reference:", selection.referenceId);
+    if (!selfieResult.success) {
+      throw new Error(selfieResult.error || "Couldn't generate video selfie");
+    }
 
-    // STEP 5: Build the final video prompt
+    // STEP 5: Use latest generated selfie for video
+    const selfieUrl = getLatestSelfiePublicUrl();
+    console.log("🎬 [VideoGen] Using latest selfie URL:", selfieUrl);
+
+    // STEP 6: Build the final video prompt
     const fullPrompt = buildVideoPrompt(generatedPrompt);
     console.log("🎬 [VideoGen] Full prompt:", fullPrompt);
 
     // STEP 7: Start video generation
     console.log("🎬 [VideoGen] Starting video generation with Grok...");
-    const { request_id } = await startVideoGeneration(fullPrompt, selection.url, {
+    const { request_id } = await startVideoGeneration(fullPrompt, selfieUrl, {
       duration: request.duration ?? DEFAULT_DURATION,
       aspectRatio: request.aspectRatio ?? DEFAULT_ASPECT_RATIO,
       resolution: request.resolution ?? DEFAULT_RESOLUTION,
@@ -697,38 +561,14 @@ export async function generateCompanionVideo(
 // HELPERS
 // ============================================
 
-function getRefMetadataFromId(referenceId: string): {
-  hairstyle: string;
-  outfitStyle: string;
-} {
-  const metadata = getReferenceMetadata(referenceId);
-
-  if (metadata) {
-    return {
-      hairstyle: metadata.hairstyle,
-      outfitStyle: metadata.outfitStyle,
-    };
+function getLatestSelfiePublicUrl(): string {
+  const url = localStorage.getItem(LATEST_SELFIE_PUBLIC_URL_KEY);
+  if (!url) {
+    throw new Error(
+      "No selfie available for video generation. Generate a selfie first."
+    );
   }
-
-  // Fallback: parse from reference ID
-  const parts = referenceId.split("_");
-  if (parts.length >= 2) {
-    const hairstyle = parts[0];
-    const outfit = parts[parts.length - 1];
-
-    return {
-      hairstyle: hairstyle === "messy" ? "messy_bun" : hairstyle,
-      outfitStyle: outfit === "up" ? "dressed_up" : outfit,
-    };
-  }
-
-  console.warn(
-    `[VideoGen] Could not determine metadata for ${referenceId}, using defaults`
-  );
-  return {
-    hairstyle: "curly",
-    outfitStyle: "casual",
-  };
+  return url;
 }
 
 // ============================================
