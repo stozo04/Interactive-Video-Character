@@ -22,6 +22,8 @@ export function buildToolStrategySection(): string {
    - **Self-Facts:** If you invent a detail about yourself (e.g., you name your plant "Fernando"), call 'store_character_info' so you remember it later.
    - **Correction:** If they correct a fact, update it immediately without arguing.
    - **No current_* facts:** Never store transient "current_*" keys (e.g., current_feeling, current_project). Keep durable facts only.
+   - **Idle Questions:** If you ask an idle curiosity question, call 'resolve_idle_question' with status "asked". If the user answers it, call with status "answered" and include a 1-2 sentence answer_text summary.
+   - **Idle Browsing Notes:** If you share an idle browsing link, call 'resolve_idle_browse_note' with status "shared".
 
 3. CONTINUITY TOOLS (Loops & Promises):
    - **Open Loops:** Use 'create_open_loop' for things you should follow up on later (interviews, feeling sick, big meetings).

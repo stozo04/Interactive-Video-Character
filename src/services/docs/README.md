@@ -50,6 +50,7 @@ The system follows a "Perception -> processing -> Action" pipeline:
 *   [Calendar Awareness Service](./CalendarAwarenessService.md): Post-event check-in messages ("Hope your interview went well!").
 *   [Gift Message Service](./GiftMessageService.md): Rare, unprompted "gift" messages (selfies or thoughts).
 *   [Pending Message Service](./PendingMessageService.md): Storage and delivery of messages waiting for user return.
+*   [Idle Thinking Service](./IdleThinkingService.md): Unified idle action runner (storyline, browse, questions).
 
 ### 🎮 Features & Interaction
 *   [Interactive Features](./Interactive_Features.md): Whiteboard, games, drawing, and "Almost Moments".

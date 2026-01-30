@@ -54,6 +54,7 @@ import { shuffleArray } from './utils/arrayUtils';
 import { getAccessToken } from './services/googleAuth';
 import { hasBeenBriefedToday, markBriefedToday } from './services/dailyCatchupService';
 import { StorageKey } from './utils/enums';
+import { runIdleThinkingTick } from './services/idleThinkingService';
 
 // ============================================================================
 // CONSTANTS & TYPES
@@ -166,6 +167,7 @@ const App: React.FC = () => {
     lastInteractionAt,
     setLastInteractionAt,
     registerInteraction,
+    isIdle,
   } = useIdleTracking();
 
   // Character Actions (playback, idle scheduling, categorization)
@@ -263,6 +265,8 @@ const App: React.FC = () => {
   });
 
   const lastIdleBreakerAtRef = useRef<number | null>(null);
+  const idleTriggeredRef = useRef<boolean>(false);
+  const idleThinkingInFlightRef = useRef<boolean>(false);
 
   // ==========================================================================
   // INITIALIZATION EFFECTS
@@ -542,6 +546,32 @@ const App: React.FC = () => {
       return;
     }
     
+    if (idleThinkingInFlightRef.current) {
+      console.log("[IdleThinking] Idle thinking already in flight, skipping");
+      return;
+    }
+
+    const idleNow = Date.now();
+    lastIdleBreakerAtRef.current = idleNow;
+
+    console.log("[IdleThinking] User is idle. Running idle thinking tick...");
+
+    try {
+      idleThinkingInFlightRef.current = true;
+      const result = await runIdleThinkingTick({
+        allowStoryline: proactiveSettings.checkins,
+        allowQuestion: proactiveSettings.checkins,
+        allowBrowse: proactiveSettings.news,
+      });
+      console.log("[IdleThinking] Idle thinking result:", result);
+    } catch (error) {
+      console.error("[IdleThinking] Error:", error);
+    } finally {
+      idleThinkingInFlightRef.current = false;
+    }
+
+    return;
+
     const now = Date.now();
     setLastInteractionAt(now); // reset timer to avoid back-to-back firings
     lastIdleBreakerAtRef.current = now;
@@ -632,37 +662,23 @@ const App: React.FC = () => {
   // IDLE & PREFETCH EFFECTS
   // ==========================================================================
 
-  // Idle timeout check (5 minutes)
+  // Idle timeout check (2 minutes)
   useEffect(() => {
-    const IDLE_TIMEOUT = 5 * 60 * 1000; // 5 minutes
-    const IDLE_CHECK_INTERVAL = 10000; // 10 seconds
+    const IDLE_TIMEOUT = 2 * 60 * 1000; // 2 minutes
+    const IDLE_CHECK_INTERVAL = 30000; // 30 seconds
 
     const checkIdle = () => {
-      const now = Date.now();
-      const timeSinceInteraction = now - lastInteractionAt;
-      const lastBreakerAt = lastIdleBreakerAtRef.current ?? 0;
-      const recentlyTriggered =
-        lastBreakerAt !== 0 && now - lastBreakerAt < IDLE_TIMEOUT;
+      if (idleTriggeredRef.current) return;
+      if (!isIdle(IDLE_TIMEOUT)) return;
+      if (isProcessingAction || isSpeaking) return;
 
-      if (
-        timeSinceInteraction > IDLE_TIMEOUT &&
-        !isProcessingAction &&
-        !isSpeaking &&
-        !recentlyTriggered
-      ) {
-        // GATES: To get Idle thoughts complete I need a way to have Kayley 
-        // mention or share her idle thoughts (that she chooses) and then
-        // think about following up or resolving this thoughts
-        // Plus: Right now all thoughts are hard coded and not LLM Generated
-        // based on past conversation history
-        console.log("Idle thoughts are not conected.")
-        // triggerIdleBreaker();
-      }
+      idleTriggeredRef.current = true;
+      triggerIdleBreaker();
     };
 
     const interval = window.setInterval(checkIdle, IDLE_CHECK_INTERVAL);
     return () => window.clearInterval(interval);
-  }, [lastInteractionAt, isProcessingAction, isSpeaking, triggerIdleBreaker]);
+  }, [isIdle, isProcessingAction, isSpeaking, triggerIdleBreaker]);
 
   // 🚀 OPTIMIZATION: Pre-fetch context on idle (30s)
   useEffect(() => {
@@ -1053,6 +1069,7 @@ const App: React.FC = () => {
 
   const markInteraction = () => {
     registerInteraction();
+    idleTriggeredRef.current = false;
     handleUserInterrupt();
   };
 
@@ -1066,6 +1083,7 @@ const App: React.FC = () => {
   ) => {
     if (!selectedCharacter || !session) return;
     registerInteraction();
+    idleTriggeredRef.current = false;
     setErrorMessage(null);
     const trimmedMessage = message.trim();
     if (!trimmedMessage && !image) return;

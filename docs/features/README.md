@@ -111,6 +111,7 @@ Each feature document should include:
 | Feature | Status | Version | Date | Document |
 |---------|--------|---------|------|----------|
 | Idle Thoughts System | ✅ Complete | 1.0 | 2025-12-29 | [Idle_Thoughts_System.md](Idle_Thoughts_System.md) |
+| Idle Thinking System | ✅ Complete | 1.0 | 2026-01-30 | [Idle_Thinking_System.md](Idle_Thinking_System.md) |
 
 ## Planned Refactors
 

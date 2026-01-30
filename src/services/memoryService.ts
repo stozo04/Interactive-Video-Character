@@ -393,7 +393,7 @@ export const formatFactsForAI = (facts: UserFact[]): string => {
 // Tool Execution Handler
 // ============================================
 
-export type MemoryToolName = 'web_search' | 'recall_memory' | 'recall_user_info' | 'store_user_info' | 'task_action' | 'calendar_action' | 'store_character_info' | 'resolve_open_loop' | 'make_promise' | 'create_life_storyline' | 'create_open_loop' | 'recall_character_profile';
+export type MemoryToolName = 'web_search' | 'recall_memory' | 'recall_user_info' | 'store_user_info' | 'task_action' | 'calendar_action' | 'store_character_info' | 'resolve_open_loop' | 'resolve_idle_question' | 'resolve_idle_browse_note' | 'make_promise' | 'create_life_storyline' | 'create_open_loop' | 'recall_character_profile';
 
 /**
  * Optional context passed to tool execution (e.g., access tokens)
@@ -448,6 +448,15 @@ export interface ToolCallArgs {
     topic: string;
     resolution_type: 'resolved' | 'dismissed';
     reason?: string;
+  };
+  resolve_idle_question: {
+    id: string;
+    status: 'asked' | 'answered';
+    answer_text?: string;
+  };
+  resolve_idle_browse_note: {
+    id: string;
+    status: 'shared';
   };
   make_promise: {
     promiseType: 'send_selfie' | 'share_update' | 'follow_up' | 'send_content' | 'reminder' | 'send_voice_note';
@@ -870,6 +879,26 @@ export const executeMemoryTool = async (
           console.error(`❌ [Memory Tool] Error resolving loop:`, error);
           return `Error resolving open loop: ${error instanceof Error ? error.message : 'Unknown error'}`;
         }
+      }
+      case 'resolve_idle_question': {
+        const { updateIdleQuestionStatus } = await import('./idleThinkingService');
+        const { id, status, answer_text } = args as ToolCallArgs['resolve_idle_question'];
+        console.log("[Memory Tool] resolve_idle_question called:", { id, status, hasAnswer: !!answer_text });
+
+        const success = await updateIdleQuestionStatus(id, status, answer_text);
+        return success
+          ? `OK: idle question ${status} (${id})`
+          : `Failed to update idle question ${id}.`;
+      }
+      case 'resolve_idle_browse_note': {
+        const { updateIdleBrowseNoteStatus } = await import('./idleThinkingService');
+        const { id, status } = args as ToolCallArgs['resolve_idle_browse_note'];
+        console.log("[Memory Tool] resolve_idle_browse_note called:", { id, status });
+
+        const success = await updateIdleBrowseNoteStatus(id, status);
+        return success
+          ? `OK: idle browse note ${status} (${id})`
+          : `Failed to update idle browse note ${id}.`;
       }
       case 'make_promise': {
         const { createPromise } = await import('./promiseService');

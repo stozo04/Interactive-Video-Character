@@ -60,6 +60,7 @@ import {
 import { buildMajorNewsPrompt } from "../greeting/checkInGuidance";
 import { DailyLogisticsContext } from "./dailyCatchupBuilder";
 import { getUserFacts, UserFact } from "@/services/memoryService";
+import { buildAnsweredIdleQuestionsPromptSection, buildIdleBrowseNotesPromptSection, buildIdleQuestionPromptSection } from "../../idleThinkingService";
 
 /**
  * Greeting Context - data needed for greeting-specific prompt sections
@@ -111,9 +112,11 @@ export const buildSystemPromptForNonGreeting = async (
   let soulContext: SoulLayerContext;
   let characterFactsPrompt: string;
   let almostMoments: AlmostMomentIntegration;
+  let idleQuestionPrompt: string;
+  let idleBrowseNotesPrompt: string;
 
   console.log("[buildSystemPromptForNonGreeting] fetching now");
-  [soulContext, characterFactsPrompt, almostMoments] = await Promise.all([
+  [soulContext, characterFactsPrompt, almostMoments, idleQuestionPrompt, idleBrowseNotesPrompt] = await Promise.all([
     getSoulLayerContextAsync(),
     formatCharacterFactsForPrompt(),
     integrateAlmostMoments(relationship, {
@@ -122,6 +125,8 @@ export const buildSystemPromptForNonGreeting = async (
       vulnerabilityExchangeActive: false,
       allowGeneration: false,
     }),
+    buildIdleQuestionPromptSection(),
+    buildIdleBrowseNotesPromptSection(),
   ]);
   console.log("[buildSystemPromptForNonGreeting] soulContext: ", soulContext);
   console.log(
@@ -137,6 +142,8 @@ ${KAYLEY_CONDENSED_PROFILE}
 ${buildAntiAssistantSection()}
 ${await buildCurrentWorldContext()}
 ${await buildCuriositySection()}
+${idleBrowseNotesPrompt}
+${idleQuestionPrompt}
 ${characterFactsPrompt}
 ${buildRelationshipTierPrompt(relationship, soulContext.moodKnobs, false, almostMoments.promptSection)}
 ${buildOpinionsAndPushbackSection()}
@@ -369,7 +376,10 @@ Direction: You know what's on their plate. If they mention something related to 
 
 export async function buildCuriositySection(): Promise<string> {
 
-    const allUserFacts = await getUserFacts();
+    const [allUserFacts, answeredIdleQuestionsPrompt] = await Promise.all([
+      getUserFacts(),
+      buildAnsweredIdleQuestionsPromptSection(),
+    ]);
     const groupedFacts = allUserFacts.reduce<Record<string, UserFact[]>>(
       (acc, fact) => {
         acc[fact.category] ??= [];
@@ -409,5 +419,7 @@ When you learn something meaningful, store it. That's how you become someone who
 Do not ask questions that you should already know. Here is everything you currently know about your user:
 
 ${formattedFacts || "• (No stored user facts yet)"}
+
+${answeredIdleQuestionsPrompt} 
 `;
   }
