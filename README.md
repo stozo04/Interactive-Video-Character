@@ -14,7 +14,7 @@
 ## Preview
 
 <div align="center">
-  <video src="demo.mp4" width="800" controls></video>
+  <img src="https://github.com/stozo04/Interactive-Video-Character/raw/feature/github-ready/demo.gif" alt="AI Interactive Chat Demo" width="800">
 </div>
 
 ---
