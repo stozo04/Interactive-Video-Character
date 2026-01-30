@@ -14,7 +14,7 @@
 ## Preview
 
 <div align="center">
-  <p><em>Screenshot coming soon</em></p>
+  <video src="demo.mp4" width="800" controls></video>
 </div>
 
 ---
