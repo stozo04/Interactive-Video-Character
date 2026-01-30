@@ -13,7 +13,6 @@ interface ImportMetaEnv {
   readonly VITE_GEMINI_VIDEO_MODEL: string;
   readonly VITE_GEMINI_API_KEY: string;
   readonly VITE_GROK_MODEL: string;
-  readonly VITE_GROK_CHARACTER_COLLECTION_ID: string;
   readonly VITE_CHATGPT_MODEL: string;
   readonly VITE_GMAIL_POLL_INTERVAL_MS: string;
   readonly VITE_CHATGPT_ASSISTANT_NAME: string;
