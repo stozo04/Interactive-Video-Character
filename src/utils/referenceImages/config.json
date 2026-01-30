@@ -5,31 +5,37 @@
     "images": [
       {
         "fileName": "curly_hair_casual_smile.jpg",
-        "id": "curly_casual_smile"
+        "id": "curly_casual_smile",
+        "url": "https://bqyfplifeyvkilkoneph.supabase.co/storage/v1/object/public/Character_Reference_Images/curlyHairCasual/curly_hair_casual_smile.jpg"
       },
       {
         "fileName": "curly_hair_1.jpg",
-        "id": "curly_casual_1"
+        "id": "curly_casual_1",
+        "url": "https://bqyfplifeyvkilkoneph.supabase.co/storage/v1/object/public/Character_Reference_Images/curlyHairCasual/curly_hair_1.jpg"
       },
       {
         "fileName": "curly_hair_casual.jpg",
-        "id": "curly_casual"
+        "id": "curly_casual",
+        "url": "https://bqyfplifeyvkilkoneph.supabase.co/storage/v1/object/public/Character_Reference_Images/curlyHairCasual/curly_hair_casual.jpg"
       },
       {
         "fileName": "curly_hair_messy_bun_casual.jpg",
         "id": "messy_bun_casual",
-        "hairstyle": "messy_bun"
+        "hairstyle": "messy_bun",
+        "url": "https://bqyfplifeyvkilkoneph.supabase.co/storage/v1/object/public/Character_Reference_Images/curlyHairCasual/curly_hair_messy_bun_casual.jpg"
       },
       {
         "fileName": "curly_hair_bun_in_bed.jpg",
         "id": "curly_bun_cozy",
         "hairstyle": "messy_bun",
-        "outfit": "cozy"
+        "outfit": "cozy",
+        "url": "https://bqyfplifeyvkilkoneph.supabase.co/storage/v1/object/public/Character_Reference_Images/curlyHairCasual/curly_hair_bun_in_bed.jpg"
       },
       {
         "fileName": "waves.jpg",
         "id": "waves_casual",
-        "hairstyle": "waves"
+        "hairstyle": "waves",
+        "url": "https://bqyfplifeyvkilkoneph.supabase.co/storage/v1/object/public/Character_Reference_Images/curlyHairCasual/waves.jpg"
       }
     ]
   },
@@ -39,7 +45,8 @@
     "images": [
       {
         "fileName": "curly_hair_dressed_up.jpg",
-        "id": "curly_dressed_up"
+        "id": "curly_dressed_up",
+        "url": "https://bqyfplifeyvkilkoneph.supabase.co/storage/v1/object/public/Character_Reference_Images/curlyHairFormal/curly_hair_dressed_up.jpg"
       }
     ]
   },
@@ -49,17 +56,20 @@
     "images": [
       {
         "fileName": "straight_hair_casual.jpg",
-        "id": "straight_casual"
+        "id": "straight_casual",
+        "url": "https://bqyfplifeyvkilkoneph.supabase.co/storage/v1/object/public/Character_Reference_Images/straightHairCasual/straight_hair_casual.jpg"
       },
       {
         "fileName": "straight_hair_bun_casual.jpg",
         "id": "straight_bun_casual",
-        "hairstyle": "messy_bun"
+        "hairstyle": "messy_bun",
+        "url": "https://bqyfplifeyvkilkoneph.supabase.co/storage/v1/object/public/Character_Reference_Images/straightHairCasual/straight_hair_bun_casual.jpg"
       },
       {
         "fileName": "slickback_bun.jpg",
         "id": "slickback_bun_casual",
-        "hairstyle": "messy_bun"
+        "hairstyle": "messy_bun",
+        "url": "https://bqyfplifeyvkilkoneph.supabase.co/storage/v1/object/public/Character_Reference_Images/straightHairCasual/slickback_bun.jpg"
       }
     ]
   },
@@ -69,7 +79,8 @@
     "images": [
       {
         "fileName": "straight_hair_dressed_up.jpg",
-        "id": "straight_dressed_up"
+        "id": "straight_dressed_up",
+        "url": "https://bqyfplifeyvkilkoneph.supabase.co/storage/v1/object/public/Character_Reference_Images/straightHairFormal/straight_hair_dressed_up.jpg"
       }
     ]
   },
@@ -79,12 +90,14 @@
     "images": [
       {
         "fileName": "athletic_hair_bun.jpg",
-        "id": "athletic_bun"
+        "id": "athletic_bun",
+        "url": "https://bqyfplifeyvkilkoneph.supabase.co/storage/v1/object/public/Character_Reference_Images/athletic/athletic_hair_bun.jpg"
       },
       {
         "fileName": "athletic_hair_headband.jpg",
         "id": "athletic_headband",
-        "hairstyle": "headband"
+        "hairstyle": "headband",
+        "url": "https://bqyfplifeyvkilkoneph.supabase.co/storage/v1/object/public/Character_Reference_Images/athletic/athletic_hair_headband.jpg"
       }
     ]
   },
@@ -94,7 +107,8 @@
     "images": [
       {
         "fileName": "claw_clip.jpg",
-        "id": "claw_clip_casual"
+        "id": "claw_clip_casual",
+        "url": "https://bqyfplifeyvkilkoneph.supabase.co/storage/v1/object/public/Character_Reference_Images/clawClipCasual/claw_clip.jpg"
       }
     ]
   },
@@ -104,11 +118,13 @@
     "images": [
       {
         "fileName": "half_up_half_down_curly.jpg",
-        "id": "half_up_casual_curly"
+        "id": "half_up_casual_curly",
+        "url": "https://bqyfplifeyvkilkoneph.supabase.co/storage/v1/object/public/Character_Reference_Images/halfUpCasual/half_up_half_down_curly.jpg"
       },
       {
         "fileName": "half_up_half_down_straight.jpg",
-        "id": "half_up_casual_straight"
+        "id": "half_up_casual_straight",
+        "url": "https://bqyfplifeyvkilkoneph.supabase.co/storage/v1/object/public/Character_Reference_Images/halfUpCasual/half_up_half_down_straight.jpg"
       }
     ]
   },
@@ -118,7 +134,8 @@
     "images": [
       {
         "fileName": "heatless_curls.jpg",
-        "id": "heatless_curls_casual"
+        "id": "heatless_curls_casual",
+        "url": "https://bqyfplifeyvkilkoneph.supabase.co/storage/v1/object/public/Character_Reference_Images/heatlessCurlsCasual/heatless_curls.jpg"
       }
     ]
   },
@@ -128,11 +145,13 @@
     "images": [
       {
         "fileName": "ponytail.jpg",
-        "id": "ponytail_casual"
+        "id": "ponytail_casual",
+        "url": "https://bqyfplifeyvkilkoneph.supabase.co/storage/v1/object/public/Character_Reference_Images/ponytailCasual/ponytail.jpg"
       },
       {
         "fileName": "slick_back_ponytail.jpg",
-        "id": "slick_back_ponytail_casual"
+        "id": "slick_back_ponytail_casual",
+        "url": "https://bqyfplifeyvkilkoneph.supabase.co/storage/v1/object/public/Character_Reference_Images/ponytailCasual/slick_back_ponytail.jpg"
       }
     ]
   },
@@ -142,7 +161,8 @@
     "images": [
       {
         "fileName": "single_dutch_braid.jpg",
-        "id": "dutch_braid_casual"
+        "id": "dutch_braid_casual",
+        "url": "https://bqyfplifeyvkilkoneph.supabase.co/storage/v1/object/public/Character_Reference_Images/dutchBraidCasual/single_dutch_braid.jpg"
       }
     ]
   },
@@ -152,7 +172,8 @@
     "images": [
       {
         "fileName": "styled_bun.jpg",
-        "id": "styled_bun_casual"
+        "id": "styled_bun_casual",
+        "url": "https://bqyfplifeyvkilkoneph.supabase.co/storage/v1/object/public/Character_Reference_Images/styledBunCasual/styled_bun.jpg"
       }
     ]
   }

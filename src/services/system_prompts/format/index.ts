@@ -6,6 +6,6 @@
  */
 
 export {
-  buildOutputFormatSection,
-  buildCriticalOutputRulesSection,
+  buildStandardOutputSection,
+  buildGreetingOutputSection
 } from "./outputFormat";

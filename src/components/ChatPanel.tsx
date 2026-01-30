@@ -194,14 +194,33 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
               {/* AI-generated selfie images */}
               {msg.assistantImage && (
                 <div className="mb-2">
-                  <img 
-                    src={`data:${msg.assistantImageMimeType || 'image/png'};base64,${msg.assistantImage}`} 
-                    alt="selfie" 
+                  <img
+                    src={`data:${msg.assistantImageMimeType || 'image/png'};base64,${msg.assistantImage}`}
+                    alt="selfie"
                     className="max-w-full rounded-lg border border-pink-400/30 shadow-lg shadow-pink-500/20"
                     style={{ maxHeight: '400px', objectFit: 'contain' }}
                   />
                   <div className="text-xs text-gray-400 mt-1 flex items-center gap-1">
                     <span className="inline-block w-2 h-2 bg-pink-400 rounded-full animate-pulse"></span>
+                  </div>
+                </div>
+              )}
+              {/* AI-generated videos */}
+              {msg.assistantVideoUrl && (
+                <div className="mb-2">
+                  <video
+                    src={msg.assistantVideoUrl}
+                    controls
+                    autoPlay
+                    loop
+                    muted
+                    playsInline
+                    className="max-w-full rounded-lg border border-purple-400/30 shadow-lg shadow-purple-500/20"
+                    style={{ maxHeight: '400px', objectFit: 'contain' }}
+                  />
+                  <div className="text-xs text-gray-400 mt-1 flex items-center gap-1">
+                    <span className="inline-block w-2 h-2 bg-purple-400 rounded-full animate-pulse"></span>
+                    <span>Video</span>
                   </div>
                 </div>
               )}

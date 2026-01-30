@@ -28,6 +28,7 @@ export enum ActionType {
   CALENDAR = 'calendar',
   NEWS = 'news',
   SELFIE = 'selfie',
+  VIDEO = 'video',
   NONE = 'none',
 }
 
@@ -165,6 +166,15 @@ export interface OrchestratorResult {
 
   /** Selfie message text for TTS (Phase 5) */
   selfieMessageText?: string;
+
+  /** Video URL result (if video action succeeded) */
+  videoUrl?: string;
+
+  /** Video error message (if video action failed) */
+  videoError?: string;
+
+  /** Video message text for TTS */
+  videoMessageText?: string;
 
   /** News prompt for system message (if news action succeeded) */
   newsPrompt?: string;
@@ -329,5 +339,6 @@ export function determineActionType(response: AIActionResponse): ActionType {
   if (response.calendar_action) return ActionType.CALENDAR;
   if (response.news_action) return ActionType.NEWS;
   if (response.selfie_action) return ActionType.SELFIE;
+  if ((response as any).video_action) return ActionType.VIDEO;
   return ActionType.NONE;
 }

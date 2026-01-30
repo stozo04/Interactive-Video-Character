@@ -13,13 +13,14 @@
  */
 
 // Phase 8: System prompt builder (main prompt)
-export { buildSystemPromptForNonGreeting, buildSystemPromptForGreeting } from "./systemPromptBuilder";
+export {
+  buildSystemPromptForNonGreeting,
+  buildSystemPromptForGreeting,
+  type GreetingContext,
+} from "./systemPromptBuilder";
 
 // Phase 7: Proactive thread prompt builder
 export { buildProactiveThreadPrompt } from "./proactiveThreadBuilder";
-
-// Phase 7: Greeting prompt builder
-export { buildGreetingPrompt, buildNonGreetingPrompt } from "./greetingBuilder";
 
 // Daily catch-up builder (first-login context)
 export {
@@ -34,3 +35,5 @@ export {
 
 // Selfie action builder
 export { buildSelfieRulesPrompt, getSelfieRulesConfig } from "./selfiePromptBuilder";
+
+export { buildNonGreetingPrompt, buildGreetingPrompt } from "./greetingPromptBuilders";

@@ -1,9 +1,10 @@
 // src/services/imageGeneration/temporalDetection.ts
 
-import { SelfieTemporalContext } from './types';
-import { GoogleGenAI } from '@google/genai';
+import { SelfieTemporalContext } from "./types";
+import { GoogleGenAI } from "@google/genai";
 
 const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
+const GEMINI_MODEL = import.meta.env.VITE_GEMINI_MODEL;
 
 /**
  * LLM-based detection of temporal context for selfies
@@ -12,84 +13,92 @@ const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
 export async function detectTemporalContextLLM(
   scene: string,
   userMessage: string,
-  previousMessages: Array<{ role: string; content: string }>
+  previousMessages: Array<{ role: string; content: string }>,
 ): Promise<SelfieTemporalContext> {
   if (!GEMINI_API_KEY) {
-    console.warn('[TemporalDetection] No API key, falling back to heuristics');
+    console.warn("[TemporalDetection] No API key, falling back to heuristics");
     return detectTemporalContextFallback(scene, userMessage, previousMessages);
   }
 
   try {
     const ai = new GoogleGenAI({ apiKey: GEMINI_API_KEY });
 
-    // Build context from recent messages
+    // 1. Build the Conversation History String
     const conversationContext = previousMessages
       .slice(-5)
-      .map(m => `${m.role}: ${m.content}`)
-      .join('\n');
+      .map((m) => `${m.role}: ${m.content}`)
+      .join("\n");
 
-    const prompt = `You are analyzing a selfie request to determine if it's for a CURRENT photo (taken now) or an OLD photo (from the past).
+    // 2. Define Static Rules (System Instruction)
+    const SYSTEM_INSTRUCTION = `
+  ROLE:
+  You are an advanced context analyzer for an AI character. Your specific task is to determine the TEMPORAL CONTEXT of a photo/selfie request.
 
-CONVERSATION CONTEXT:
-${conversationContext}
+  TASK:
+  Analyze the conversation and current message to decide if the photo being discussed is:
+  1. CURRENT PHOTO (Selfie taken right now, present moment)
+  2. OLD PHOTO (Photo from yesterday, last week, "when I was at...", or specific past events)
 
-CURRENT MESSAGE: ${userMessage}
-SCENE: ${scene}
+  OUTPUT JSON FORMAT:
+  {
+    "isOldPhoto": boolean,
+    "timeframe": "now" | "today" | "yesterday" | "last_week" | "last_month" | "vague_past",
+    "confidence": 0.0-1.0,
+    "reasoning": "brief explanation",
+    "temporalPhrases": ["string", "string"]
+  }
 
-TASK:
-Determine if this is:
-1. CURRENT PHOTO - Selfie being taken right now, in the present moment
-2. OLD PHOTO - Photo from the past (yesterday, last week, "when I was at...", etc.)
+  EXAMPLES:
+  Input: "Send me a selfie"
+  Output: {"isOldPhoto": false, "timeframe": "now", "confidence": 0.9, "reasoning": "Generic request implies current photo", "temporalPhrases": []}
 
-OUTPUT JSON:
-{
-  "isOldPhoto": boolean,
-  "timeframe": "now" | "today" | "yesterday" | "last_week" | "last_month" | "vague_past",
-  "confidence": 0.0-1.0,
-  "reasoning": "brief explanation",
-  "temporalPhrases": ["key phrases that indicate timing"]
-}
+  Input: "Here's a pic from last weekend at the beach"
+  Output: {"isOldPhoto": true, "timeframe": "last_week", "confidence": 1.0, "reasoning": "Explicitly from last weekend", "temporalPhrases": ["last weekend"]}
 
-EXAMPLES:
+  Input: User: "Show me that photo you took yesterday" -> Kayley: "Oh yeah! *sends selfie*"
+  Output: {"isOldPhoto": true, "timeframe": "yesterday", "confidence": 1.0, "reasoning": "User explicitly requested yesterday's photo", "temporalPhrases": ["yesterday"]}
 
-Input: "Send me a selfie"
-Output: {"isOldPhoto": false, "timeframe": "now", "confidence": 0.9, "reasoning": "Generic request implies current photo", "temporalPhrases": []}
+  Input: "I'm at the coffee shop"
+  Output: {"isOldPhoto": false, "timeframe": "now", "confidence": 0.8, "reasoning": "Present tense implies current moment", "temporalPhrases": ["I'm at"]}
+  `;
 
-Input: "Here's a pic from last weekend at the beach"
-Output: {"isOldPhoto": true, "timeframe": "last_week", "confidence": 1.0, "reasoning": "Explicitly from last weekend", "temporalPhrases": ["last weekend"]}
+    // 3. Define Dynamic Input
+    const userPrompt = `
+  ANALYZE THIS CONTEXT:
 
-Input: User: "Show me that photo you took yesterday"
-      Kayley: "Oh yeah! *sends selfie*"
-Output: {"isOldPhoto": true, "timeframe": "yesterday", "confidence": 1.0, "reasoning": "User explicitly requested yesterday's photo", "temporalPhrases": ["yesterday"]}
+  PREVIOUS MESSAGES:
+  ${conversationContext || "No previous context."}
 
-Input: "Take a selfie right now"
-Output: {"isOldPhoto": false, "timeframe": "now", "confidence": 1.0, "reasoning": "Explicitly requesting current photo", "temporalPhrases": ["right now"]}
-
-Input: "I'm at the coffee shop" (context: sending selfie)
-Output: {"isOldPhoto": false, "timeframe": "now", "confidence": 0.8, "reasoning": "Present tense implies current moment", "temporalPhrases": ["I'm at"]}
-
-Now analyze the conversation above and respond with ONLY the JSON object.`;
-
+  CURRENT MESSAGE: "${userMessage}"
+  CURRENT SCENE: "${scene || "Unknown"}"
+  `;
+    // 4. Initialize Model with Rules
     const response = await ai.models.generateContent({
-      model: 'gemini-2.0-flash-exp',
-      contents: [{ role: 'user', parts: [{ text: prompt }] }],
+      model: GEMINI_MODEL,
+      contents: [{ role: "user", parts: [{ text: userPrompt }] }],
       config: {
-        temperature: 0.1, // Low temperature for consistent analysis
+        temperature: 0.1, // Low temperature for consistent detection
+        systemInstruction: SYSTEM_INSTRUCTION,
+        responseMimeType: "application/json",
       },
     });
 
-    const text = response.text?.trim() || '';
+    const text = response.text?.trim() || "";
 
     // Extract JSON from response (handle markdown code blocks)
     const jsonMatch = text.match(/\{[\s\S]*\}/);
     if (!jsonMatch) {
-      console.warn('[TemporalDetection] No JSON in response, using fallback');
-      return detectTemporalContextFallback(scene, userMessage, previousMessages);
+      console.warn("[TemporalDetection] No JSON in response, using fallback");
+      return detectTemporalContextFallback(
+        scene,
+        userMessage,
+        previousMessages,
+      );
     }
 
     const parsed = JSON.parse(jsonMatch[0]);
 
-    console.log('[TemporalDetection LLM]', {
+    console.log("[TemporalDetection LLM]", {
       isOldPhoto: parsed.isOldPhoto,
       timeframe: parsed.timeframe,
       confidence: parsed.confidence,
@@ -98,11 +107,13 @@ Now analyze the conversation above and respond with ONLY the JSON object.`;
 
     return {
       isOldPhoto: parsed.isOldPhoto,
-      referenceDate: parsed.isOldPhoto ? estimateReferenceDateFromTimeframe(parsed.timeframe) : undefined,
+      referenceDate: parsed.isOldPhoto
+        ? estimateReferenceDateFromTimeframe(parsed.timeframe)
+        : undefined,
       temporalPhrases: parsed.temporalPhrases || [],
     };
   } catch (error) {
-    console.error('[TemporalDetection] LLM error, falling back:', error);
+    console.error("[TemporalDetection] LLM error, falling back:", error);
     return detectTemporalContextFallback(scene, userMessage, previousMessages);
   }
 }
@@ -113,22 +124,32 @@ Now analyze the conversation above and respond with ONLY the JSON object.`;
 function detectTemporalContextFallback(
   scene: string,
   userMessage: string,
-  previousMessages: Array<{ role: string; content: string }>
+  previousMessages: Array<{ role: string; content: string }>,
 ): SelfieTemporalContext {
   const combined = `${userMessage} ${scene}`.toLowerCase();
 
   // Simple heuristics
   const oldPhotoKeywords = [
-    'from last', 'yesterday', 'other day', 'when i was', 'when we',
-    'that time', 'remember when', 'old photo', 'previous', 'earlier'
+    "from last",
+    "yesterday",
+    "other day",
+    "when i was",
+    "when we",
+    "that time",
+    "remember when",
+    "old photo",
+    "previous",
+    "earlier",
   ];
 
-  const isOldPhoto = oldPhotoKeywords.some(kw => combined.includes(kw));
+  const isOldPhoto = oldPhotoKeywords.some((kw) => combined.includes(kw));
 
   return {
     isOldPhoto,
-    referenceDate: isOldPhoto ? new Date(Date.now() - 2 * 24 * 60 * 60 * 1000) : undefined,
-    temporalPhrases: isOldPhoto ? ['(fallback detection)'] : [],
+    referenceDate: isOldPhoto
+      ? new Date(Date.now() - 2 * 24 * 60 * 60 * 1000)
+      : undefined,
+    temporalPhrases: isOldPhoto ? ["(fallback detection)"] : [],
   };
 }
 
@@ -136,25 +157,31 @@ function detectTemporalContextFallback(
  * Estimate reference date from LLM-detected timeframe
  */
 function estimateReferenceDateFromTimeframe(
-  timeframe: 'now' | 'today' | 'yesterday' | 'last_week' | 'last_month' | 'vague_past'
+  timeframe:
+    | "now"
+    | "today"
+    | "yesterday"
+    | "last_week"
+    | "last_month"
+    | "vague_past",
 ): Date | undefined {
   const now = new Date();
 
   switch (timeframe) {
-    case 'now':
-    case 'today':
+    case "now":
+    case "today":
       return undefined; // Current photo
 
-    case 'yesterday':
+    case "yesterday":
       return new Date(now.getTime() - 24 * 60 * 60 * 1000);
 
-    case 'last_week':
+    case "last_week":
       return new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
 
-    case 'last_month':
+    case "last_month":
       return new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
 
-    case 'vague_past':
+    case "vague_past":
       // Default: 2-3 days ago for "the other day"
       return new Date(now.getTime() - 2.5 * 24 * 60 * 60 * 1000);
 
@@ -169,7 +196,7 @@ function estimateReferenceDateFromTimeframe(
  */
 export function shouldUnlockCurrentLook(
   temporalContext: SelfieTemporalContext,
-  currentLookState: { expiresAt: Date } | null
+  currentLookState: { expiresAt: Date } | null,
 ): boolean {
   // If no current look is locked, nothing to unlock
   if (!currentLookState) return false;
@@ -198,9 +225,12 @@ const CACHE_TTL_MS = 30 * 1000; // 30 seconds
 function getCacheKey(
   scene: string,
   userMessage: string,
-  previousMessages: Array<{ role: string; content: string }>
+  previousMessages: Array<{ role: string; content: string }>,
 ): string {
-  const context = `${scene}|${userMessage}|${previousMessages.slice(-3).map(m => m.content).join('|')}`;
+  const context = `${scene}|${userMessage}|${previousMessages
+    .slice(-3)
+    .map((m) => m.content)
+    .join("|")}`;
   // Simple hash (truncate for key size)
   return context.substring(0, 200);
 }
@@ -211,19 +241,23 @@ function getCacheKey(
 export async function detectTemporalContextLLMCached(
   scene: string,
   userMessage: string,
-  previousMessages: Array<{ role: string; content: string }>
+  previousMessages: Array<{ role: string; content: string }>,
 ): Promise<SelfieTemporalContext> {
   const cacheKey = getCacheKey(scene, userMessage, previousMessages);
 
   // Check cache
   const cached = cache.get(cacheKey);
   if (cached && Date.now() - cached.timestamp.getTime() < CACHE_TTL_MS) {
-    console.log('[TemporalDetection] Cache hit');
+    console.log("[TemporalDetection] Cache hit");
     return cached.result;
   }
 
   // Call LLM
-  const result = await detectTemporalContextLLM(scene, userMessage, previousMessages);
+  const result = await detectTemporalContextLLM(
+    scene,
+    userMessage,
+    previousMessages,
+  );
 
   // Store in cache
   cache.set(cacheKey, { result, timestamp: new Date() });

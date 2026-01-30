@@ -5,6 +5,7 @@ export interface ChatMessage {
   imageMimeType?: string; // mime type for user-sent images
   assistantImage?: string; // base64 string for AI-generated images (selfies)
   assistantImageMimeType?: string; // mime type for assistant images
+  assistantVideoUrl?: string; // URL for AI-generated videos
 }
 
 export interface UploadedImage {

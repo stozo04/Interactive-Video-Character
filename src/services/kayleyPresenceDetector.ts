@@ -7,9 +7,10 @@
  * currently wearing, doing, or feeling.
  */
 
-import { GoogleGenAI } from '@google/genai';
+import { GoogleGenAI } from "@google/genai";
 
 const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
+const GEMINI_MODEL = import.meta.env.VITE_GEMINI_MODEL;
 
 export interface DetectedPresence {
   outfit?: string;
@@ -28,15 +29,41 @@ function mightContainPresenceInfo(response: string): boolean {
 
   // Presence keywords
   const presenceKeywords = [
-    "i'm in", "i'm wearing", "i'm at", "i'm feeling", "i feel",
-    "just got back", "getting ready", "working on", "making",
-    "relaxing", "sitting", "laying", "standing", "walking",
-    "tired", "excited", "stressed", "happy", "sad", "energized",
-    "gym", "home", "room", "coffee", "couch", "bed", "desk",
-    "pajamas", "hoodie", "outfit", "dressed", "clothes"
+    "i'm in",
+    "i'm wearing",
+    "i'm at",
+    "i'm feeling",
+    "i feel",
+    "just got back",
+    "getting ready",
+    "working on",
+    "making",
+    "relaxing",
+    "sitting",
+    "laying",
+    "standing",
+    "walking",
+    "tired",
+    "excited",
+    "stressed",
+    "happy",
+    "sad",
+    "energized",
+    "gym",
+    "home",
+    "room",
+    "coffee",
+    "couch",
+    "bed",
+    "desk",
+    "pajamas",
+    "hoodie",
+    "outfit",
+    "dressed",
+    "clothes",
   ];
 
-  return presenceKeywords.some(keyword => lowerResponse.includes(keyword));
+  return presenceKeywords.some((keyword) => lowerResponse.includes(keyword));
 }
 
 /**
@@ -44,10 +71,10 @@ function mightContainPresenceInfo(response: string): boolean {
  */
 export async function detectKayleyPresence(
   kayleyResponse: string,
-  userMessage?: string
+  userMessage?: string,
 ): Promise<DetectedPresence | null> {
   if (!GEMINI_API_KEY) {
-    console.warn('[KayleyPresenceDetector] No API key, skipping detection');
+    console.warn("[KayleyPresenceDetector] No API key, skipping detection");
     return null;
   }
 
@@ -60,67 +87,91 @@ export async function detectKayleyPresence(
   try {
     const ai = new GoogleGenAI({ apiKey: GEMINI_API_KEY });
 
-    const prompt = `You are analyzing Kayley's (an AI companion) response to detect if she mentioned what she's currently wearing, doing, feeling, or where she is.
+    const SYSTEM_INSTRUCTION = `
+ROLE:
+You are an advanced state-detection system for an AI character named Kayley. Your goal is to extract her CURRENT physical state and context from her latest response.
 
-USER MESSAGE: ${userMessage || 'N/A'}
-KAYLEY'S RESPONSE: ${kayleyResponse}
+STRICT GUIDELINES:
+1. **Timeframe:** Detect ONLY the PRESENT state (currently happening/wearing/feeling). Ignore past tense ("I was", "I went") and future/hypothetical ("I will", "I might", "If I were").
+2. **Explicitness:** Extract the exact text snippet where possible. Do not hallucinate. If she doesn't mention it, return null.
+3. **Format:** Output raw JSON only. Do not wrap in markdown code blocks.
 
-TASK:
-Detect if Kayley mentioned her CURRENT state (not past or future). Look for:
-1. **Outfit/Clothing**: "I'm in my pajamas", "just got back from the gym", "wearing my favorite hoodie"
-2. **Activity**: "making coffee", "working on my laptop", "relaxing on the couch", "getting ready"
-3. **Mood/Feeling**: "feeling cute today", "I'm tired", "so excited", "a bit stressed"
-4. **Location**: "at home", "at the gym", "in my room", "at a coffee shop"
-
-IMPORTANT:
-- Only detect PRESENT STATE ("I'm wearing", "I'm feeling", "I'm at")
-- Ignore PAST ("I was at", "I wore")
-- Ignore FUTURE ("I'll wear", "I'm going to")
-- Ignore HYPOTHETICALS ("If I were", "I could wear")
-- Be SPECIFIC (extract the exact phrase she used)
-
-OUTPUT JSON:
-{
-  "outfit": "exact phrase or null",
-  "activity": "exact phrase or null",
-  "mood": "exact phrase or null",
-  "location": "exact phrase or null",
-  "confidence": 0.0-1.0,
-  "reasoning": "brief explanation"
-}
+CATEGORIES TO DETECT:
+1. **Outfit:** What she is specifically wearing (e.g., "pajamas", "red dress", "hoodie").
+   * *Note:* Do not infer outfit from location unless she explicitly references her clothes (e.g. "dressed for the gym" is okay, "at the gym" is not an outfit).
+2. **Activity:** What she is currently doing (e.g., "sipping coffee", "working", "lying in bed").
+3. **Mood:** Her internal emotional state (e.g., "excited", "tired", "cozy").
+4. **Location:** Her physical environment (e.g., "kitchen", "in bed", "park").
 
 EXAMPLES:
 
 Input: "Just got back from the gym! Feeling energized 💪"
-Output: {"outfit": "just got back from the gym", "activity": null, "mood": "feeling energized", "location": null, "confidence": 0.95, "reasoning": "Explicitly mentions gym (recent outfit context) and current feeling"}
+Output: {
+  "outfit": null,
+  "activity": "Just got back from the gym",
+  "mood": "feeling energized",
+  "location": null,
+  "confidence": 0.95,
+  "reasoning": "Activity implies recent movement; mood is explicit. No specific clothing mentioned."
+}
 
-Input: "I'm in my favorite oversized hoodie, just relaxing on the couch"
-Output: {"outfit": "in my favorite oversized hoodie", "activity": "relaxing on the couch", "mood": null, "location": "on the couch", "confidence": 1.0, "reasoning": "Explicit current outfit and activity"}
+Input: "I'm in my favorite oversized hoodie, just relaxing on the couch."
+Output: {
+  "outfit": "in my favorite oversized hoodie",
+  "activity": "relaxing",
+  "mood": "relaxing",
+  "location": "on the couch",
+  "confidence": 1.0,
+  "reasoning": "Explicitly describes clothing, activity, and location."
+}
 
-Input: "Making myself some coffee ☕"
-Output: {"outfit": null, "activity": "making coffee", "mood": null, "location": null, "confidence": 0.9, "reasoning": "Current activity explicitly stated"}
+Input: "I'm going to wear that red dress tonight."
+Output: {
+  "outfit": null,
+  "activity": null,
+  "mood": null,
+  "location": null,
+  "confidence": 0.0,
+  "reasoning": "Future tense used ('going to wear'). No current state."
+}
 
-Input: "I love that song!"
-Output: {"outfit": null, "activity": null, "mood": null, "location": null, "confidence": 0.0, "reasoning": "No current state mentioned"}
+Input: "Ugh, I'm so bored sitting here at my desk."
+Output: {
+  "outfit": null,
+  "activity": "sitting here",
+  "mood": "bored",
+  "location": "at my desk",
+  "confidence": 1.0,
+  "reasoning": "Explicit mood, activity, and location."
+}
 
-Input: "I was at the gym earlier"
-Output: {"outfit": null, "activity": null, "mood": null, "location": null, "confidence": 0.0, "reasoning": "Past tense, not current state"}
+Analyze the response above and output the JSON object:
+`;
 
-Now analyze the response above and respond with ONLY the JSON object.`;
+    // 2. Define the Input (Dynamic) - This changes every request
+    const userPrompt = `
+ANALYZE THIS INTERACTION:
+USER MESSAGE: "${userMessage || "N/A"}"
+KAYLEY'S RESPONSE: "${kayleyResponse}"
+
+Response (JSON Only):
+`;
 
     const response = await ai.models.generateContent({
-      model: 'gemini-2.0-flash-exp',
-      contents: [{ role: 'user', parts: [{ text: prompt }] }],
+      model: GEMINI_MODEL,
+      contents: [{ role: "user", parts: [{ text: userPrompt }] }],
       config: {
         temperature: 0.1, // Low temperature for consistent detection
+        systemInstruction: SYSTEM_INSTRUCTION,
+        responseMimeType: "application/json",
       },
     });
 
-    const text = response.text?.trim() || '';
+    const text = response.text?.trim() || "";
     const jsonMatch = text.match(/\{[\s\S]*\}/);
 
     if (!jsonMatch) {
-      console.warn('[KayleyPresenceDetector] No JSON in response');
+      console.warn("[KayleyPresenceDetector] No JSON in response");
       return null;
     }
 
@@ -128,7 +179,7 @@ Now analyze the response above and respond with ONLY the JSON object.`;
 
     // Only return if something was detected
     if (parsed.outfit || parsed.activity || parsed.mood || parsed.location) {
-      console.log('[KayleyPresenceDetector] Detected presence:', {
+      console.log("[KayleyPresenceDetector] Detected presence:", {
         outfit: parsed.outfit,
         activity: parsed.activity,
         mood: parsed.mood,
@@ -148,8 +199,7 @@ Now analyze the response above and respond with ONLY the JSON object.`;
 
     return null;
   } catch (error) {
-    console.error('[KayleyPresenceDetector] Error:', error);
+    console.error("[KayleyPresenceDetector] Error:", error);
     return null;
   }
 }
-

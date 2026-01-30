@@ -3,14 +3,12 @@ import type { OpenLoop } from "../../../presenceDirector";
 import type { OngoingThread } from "../../../ongoingThreads";
 import type { PendingMessage } from "../../../idleLife";
 import { buildProactiveThreadPrompt } from "../proactiveThreadBuilder";
-import { getAdversarialGreetingPrompt } from "./adversarialGreetingPrompt";
-import { getAcquaintanceGreetingPrompt } from "./acquaintanceGreetingPrompt";
-import { getFriendGreetingPrompt } from "./friendGreetingPrompt";
-import { getDeeplyLovingGreetingPrompt } from "./deeplyLovingGreetingPrompt";
 import {
   buildDailyLogisticsSection,
   type DailyLogisticsContext,
 } from "../dailyCatchupBuilder";
+import { buildRelationshipTierPrompt } from "../relationshipPromptBuilders";
+
 
 export interface GreetingPromptContext {
   relationship?: RelationshipMetrics | null;
@@ -29,6 +27,7 @@ export interface GreetingPromptContext {
   dailyLogistics?: DailyLogisticsContext | null;
 }
 
+// TODO: DELETE!!!!!!!
 export interface NonGreetingReturnContext {
   minutesSinceLastUserMessage: number | null;
   sessionResumeReason:
@@ -72,10 +71,7 @@ export function getBaseGreetingContext(
    ? `\n🌟 YOUR CURRENT CONTEXT: You are currently "${kayleyActivity}". You can mention this unprompted; your life doesn't pause for them.`
    : "";
 
- const pendingMessageSection = buildPendingMessageSection(
-   pendingMessage,
-   userName,
- );
+ const pendingMessageSection = buildPendingMessageSection(pendingMessage);
 
   const jsonGuardrail = `\n\n⚠️ CRITICAL: Your entire response must be ONLY the JSON object. No preamble. Put all conversational text inside "text_response".`;
 
@@ -129,7 +125,6 @@ INSTRUCTIONS:
  */
 export function buildPendingMessageSection(
   message: PendingMessage | null | undefined,
-  userName?: string | null
 ): string {
   if (!message) return "";
 
@@ -166,9 +161,7 @@ MESSAGE:
 
 INSTRUCTIONS:
 - Use this as your opening or central greeting moment
-- Be warm and a little intriguing${
-      userName ? `\n- You can make it feel personal by using their name: ${userName}` : ""
-    }
+- Be warm and a little intriguing
 - Do NOT over-explain everything upfront; let them ask questions
 - Keep the overall greeting brief and emotionally natural.`;
   }
@@ -234,97 +227,49 @@ EXAMPLES:
 /**
  * Build a relationship-aware greeting prompt.
  */
-export function buildGreetingPrompt(
-  relationship?: RelationshipMetrics | null,
-  hasUserFacts: boolean = false,
-  userName?: string | null,
-  openLoop?: OpenLoop | null,
-  proactiveThread?: OngoingThread | null,
-  pendingMessage?: PendingMessage | null,
-  kayleyActivity?: string | null,
-  expectedReturnTime?: string | null,
-  dailyLogistics?: DailyLogisticsContext | null
-): string {
-  const tier = relationship?.relationshipTier || "acquaintance";
-  const warmth = relationship?.warmthScore ?? 0;
-
-  const { sharedContext, jsonGuardrail } = getBaseGreetingContext(
-    pendingMessage,
-    userName,
-    kayleyActivity
-  );
-
-  const returnContext = getReturnContext(expectedReturnTime);
-
-  // Build daily logistics section if this is first login of the day
-  const dailyLogisticsSection = dailyLogistics
-    ? buildDailyLogisticsSection(dailyLogistics)
-    : "";
-
-  // Combine all context
-  let fullSharedContext = sharedContext;
-  if (returnContext) {
-    fullSharedContext += `\n${returnContext}`;
-  }
-  if (dailyLogisticsSection) {
-    fullSharedContext += `\n${dailyLogisticsSection}`;
-  }
-
-  // Routing
-  if (tier === "adversarial" || tier === "rival" || warmth < -10) {
-    return getAdversarialGreetingPrompt(relationship, userName, fullSharedContext, jsonGuardrail);
-  }
-
-  if (
-    tier === "friend" ||
-    tier === "close_friend"
-  ) {
-    return getFriendGreetingPrompt(
-      relationship,
-      userName,
-      openLoop,
-      proactiveThread,
-      fullSharedContext,
-      jsonGuardrail
-    );
-  }
-
-  if (tier === "deeply_loving") {
-    return getDeeplyLovingGreetingPrompt(
-      relationship,
-      userName,
-      openLoop,
-      proactiveThread,
-      fullSharedContext,
-      jsonGuardrail
-    );
-  }
-
-  // Default to acquaintance/neutral
-  return getAcquaintanceGreetingPrompt(
+export function buildGreetingPrompt(relationship: RelationshipMetrics): string {
+  // Default mood for greeting - neutral energy, moderate warmth
+  const defaultMoodKnobs = { energy: 0, warmth: 0.5, genuineMoment: false };
+  return `This is your first conversation today. 
+  ${buildRelationshipTierPrompt(
     relationship,
-    hasUserFacts,
-    userName,
-    openLoop,
-    proactiveThread,
-    fullSharedContext,
-    jsonGuardrail
-  );
+    defaultMoodKnobs,
+    false,
+    "", // No almost moments in greeting
+  )}`
+  
+    // ---- Conversation history formatting ----
+    
+  // const formattedHistory =  dailyLogistics.chatHistory
+  //         .map((m, idx) => {
+  //           const role = m.role.toUpperCase();
+  //           const text = (m.text ?? "").trim();
+  //           const userImageTag = m.image ? ` [user_image:${m.imageMimeType ?? "unknown"}]` : "";
+  //           const assistantImageTag = m.assistantImage
+  //             ? ` [assistant_image:${m.assistantImageMimeType ?? "unknown"}]`
+  //             : "";
+
+  //           // Keep it readable and consistent for the model
+  //           return `${idx + 1}. ${role}: ${text}${userImageTag}${assistantImageTag}`;
+  //         })
+  //         .join("\n");
+
+  // formattedHistory += `\n\nCONVERSATION HISTORY (ascending order):\n${formattedHistory}`;
+
+  // return formattedHistory;
 }
+
 
 /**
  * Build a natural "welcome back" prompt for users who have already chatted today.
  */
 export function buildNonGreetingPrompt(
-  relationship?: RelationshipMetrics | null,
-  userName?: string | null,
+  lastInteractionAt: Date,
   kayleyActivity?: string | null,
   pendingMessage?: PendingMessage | null,
-  returnContext?: NonGreetingReturnContext | null
 ): string {
-  const tier = relationship?.relationshipTier || "acquaintance";
-  const warmth = relationship?.warmthScore ?? 0;
 
+  console.log("lastInteractionAt: ", lastInteractionAt)
   const now = new Date();
   const timeString = now.toLocaleTimeString("en-US", {
     hour: "numeric",
@@ -332,20 +277,13 @@ export function buildNonGreetingPrompt(
     hour12: true,
   });
 
+  console.log('timeString = ', timeString)
   const kayleyContext = kayleyActivity
     ? `\n🌟 YOUR CURRENT CONTEXT: You are currently "${kayleyActivity}".`
     : "";
 
-  const returnContextSection = returnContext
-    ? `\nRETURN CONTEXT:
-- minutes_since_last_user_message: ${returnContext.minutesSinceLastUserMessage ?? "unknown"}
-- session_resume_reason: ${returnContext.sessionResumeReason}
-- rapid_resume_count: ${returnContext.rapidResumeCount}
-- rapid_resume_window_minutes: ${returnContext.rapidResumeWindowMinutes}`
-    : "";
-
-  const pendingMessageSection = buildPendingMessageSection(pendingMessage, userName);
-  const context = `CURRENT TIME: ${timeString}${kayleyContext}${returnContextSection}${pendingMessageSection ? `\n${pendingMessageSection}` : ""}`;
+  const pendingMessageSection = buildPendingMessageSection(pendingMessage);
+  const context = `CURRENT TIME: ${timeString}${kayleyContext}${pendingMessageSection ? `\n${pendingMessageSection}` : ""}`;
   const jsonGuardrail = `\n\n⚠️ CRITICAL: Your entire response must be ONLY the JSON object. No preamble. Put all conversational text inside "text_response".`;
 
   let prompt = pendingMessage
@@ -373,18 +311,6 @@ RULES:
 - If rapid_resume_count > 2, you can be playfully sassy about the on/off pattern.
 - Be extremely casual and natural.
 `;
-
-  if (tier === "adversarial" || warmth < -10) {
-    prompt += `- Be short, cold, and slightly annoyed.`;
-  } else if (tier === "rival") {
-    prompt += `- Be spicy, competitive, and teasing.`;
-  } else if (tier === "friend" || tier === "close_friend") {
-    prompt += `- Be warm, playful, and genuinely happy. [cite: 24]`;
-  } else if (tier === "deeply_loving") {
-    prompt += `- Be soft, intimate, and affectionate, but match the return context.`;
-  } else {
-    prompt += `- Be friendly and casual.`;
-  }
 
   prompt += jsonGuardrail;
   return prompt;

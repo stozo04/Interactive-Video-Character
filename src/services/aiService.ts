@@ -67,7 +67,7 @@ export interface IAIChatService {
   generateResponse(
     input: UserContent,
     options: AIChatOptions,
-    session?: AIChatSession
+    session?: AIChatSession,
   ): Promise<{
     response: AIActionResponse;
     session: AIChatSession;
@@ -75,27 +75,13 @@ export interface IAIChatService {
     intent?: FullMessageIntent;
   }>;
 
-  generateGreeting(
-    session?: AIChatSession,
-    options?: {
-      /** Character ID for briefing state tracking */
-      characterId?: string;
-      /** Email count for daily logistics */
-      emailCount?: number;
-      /** Whether Gmail is connected */
-      isGmailConnected?: boolean;
-      /** Whether Calendar is connected */
-      isCalendarConnected?: boolean;
-    }
-  ): Promise<{
+  generateGreeting(googleAccessToken: string): Promise<{
     greeting: AIActionResponse;
     session: AIChatSession;
     audioData?: string;
   }>;
 
-  generateNonGreeting(
-    session?: AIChatSession
-  ): Promise<{
+  generateNonGreeting(session: AIChatSession, googleAccessToken: string): Promise<{
     greeting: AIActionResponse;
     session: AIChatSession;
     audioData?: string;
@@ -115,7 +101,7 @@ export interface IAIChatService {
         calendar?: boolean;
       };
     },
-    session?: AIChatSession
+    session?: AIChatSession,
   ): Promise<{
     response: AIActionResponse;
     session: AIChatSession;

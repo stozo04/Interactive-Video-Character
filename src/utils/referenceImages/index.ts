@@ -14,8 +14,9 @@ const imageModules = import.meta.glob<string>('./**/*.jpg', {
 
 // Type for individual image entries (optional overrides)
 type ImageEntry = {
-  fileName: string;
   id: string;
+  url: string; // For Grok
+  fileName: string;
   hairstyle?: HairstyleType;  // Optional override
   outfit?: OutfitStyle;       // Optional override
 };
@@ -58,6 +59,7 @@ function buildRegistry(): ReferenceImageMetadata[] {
     // Use image override if present, otherwise use folder default
     registry.push({
       id: imageEntry.id,
+      url: imageEntry.url,
       fileName: pathWithoutPrefix,
       hairstyle: imageEntry.hairstyle || folderConfig.hairstyle,
       outfitStyle: imageEntry.outfit || folderConfig.outfit,
@@ -68,7 +70,7 @@ function buildRegistry(): ReferenceImageMetadata[] {
 }
 
 // Build image content map from discovered images
-function buildContentMap(): Record<string, string> {
+function buildContentMapForGemini(): Record<string, string> {
   const contentMap: Record<string, string> = {};
 
   for (const [importPath, base64Content] of Object.entries(imageModules)) {
@@ -79,20 +81,40 @@ function buildContentMap(): Record<string, string> {
   return contentMap;
 }
 
+function buildContentMapForGrok(): Record<string, string> {
+  const contentMap: Record<string, string> = {};
+
+  for (const [importPath, url] of Object.entries(imageModules)) {
+    const configKey = importPath.replace('./', '');
+    contentMap[configKey] = url;
+  }
+
+  return contentMap;
+}
+
 // Export the registry (built once at module load)
 export const REFERENCE_IMAGE_REGISTRY: ReferenceImageMetadata[] = buildRegistry();
 
 // Internal content map
-const REFERENCE_IMAGE_CONTENT: Record<string, string> = buildContentMap();
+const REFERENCE_IMAGE_CONTENT_GEMINI: Record<string, string> = buildContentMapForGemini();
+
+const REFERENCE_IMAGE_CONTENT_GROK: Record<string, string> = buildContentMapForGrok();
 
 /**
  * Get reference image base64 content by ID
  */
-export function getReferenceImageContent(referenceId: string): string | null {
+export function getReferenceImageContentForGemini(referenceId: string): string | null {
   const metadata = REFERENCE_IMAGE_REGISTRY.find(r => r.id === referenceId);
   if (!metadata) return null;
 
-  return REFERENCE_IMAGE_CONTENT[metadata.fileName] || null;
+  return REFERENCE_IMAGE_CONTENT_GEMINI[metadata.fileName] || null;
+}
+
+export function getReferenceImageContentForGrok(referenceId: string): string | null {
+  const metadata = REFERENCE_IMAGE_REGISTRY.find(r => r.id === referenceId);
+  if (!metadata) return null;
+
+  return REFERENCE_IMAGE_CONTENT_GROK[metadata.fileName] || null;
 }
 
 /**

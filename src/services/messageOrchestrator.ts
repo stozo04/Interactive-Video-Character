@@ -26,11 +26,13 @@ import {
   processCalendarAction,
   processNewsAction,
   processSelfieAction,
+  processVideoAction,
   parseTaskActionFromResponse,
   detectTaskCompletionFallback,
   type CalendarAction,
   type NewsAction,
   type SelfieAction,
+  type VideoAction,
   type TaskAction,
 } from '../handlers/messageActions';
 
@@ -317,6 +319,33 @@ export async function processUserMessage(input: OrchestratorInput): Promise<Orch
       }
     }
 
+    // Video Action (Generate companion video)
+    if (actionType === ActionType.VIDEO) {
+      const videoAction = (response as any).video_action as VideoAction | undefined;
+      if (videoAction?.scene) {
+        const videoResult = await processVideoAction(videoAction, {
+          userMessage,
+          chatHistory,
+          upcomingEvents,
+        });
+        if (videoResult.handled) {
+          if (videoResult.success && videoResult.videoUrl) {
+            result.videoUrl = videoResult.videoUrl;
+            result.videoMessageText = "Here's a little video for you!";
+            console.log(`🎬 [Orchestrator] Video generated successfully`);
+          } else {
+            result.videoError =
+              videoResult.error ||
+              "I couldn't make that video right now, sorry!";
+            result.videoMessageText = result.videoError;
+            console.log(
+              `🎬 [Orchestrator] Video failed: ${result.videoError}`
+            );
+          }
+        }
+      }
+    }
+
     // ========================================================================
     // PHASE 4: POST-PROCESSING (Fire-and-forget)
     // ========================================================================
@@ -387,11 +416,6 @@ export async function processUserMessage(input: OrchestratorInput): Promise<Orch
     // Audio (only if not muted)
     if (!isMuted && aiResult.audioData) {
       result.audioToPlay = aiResult.audioData;
-    }
-
-    // Action playback
-    if (response.action_id) {
-      result.actionToPlay = response.action_id;
     }
 
     // App opening
