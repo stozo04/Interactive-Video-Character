@@ -264,8 +264,7 @@ const App: React.FC = () => {
     triggerSystemMessage: (prompt) => calendarTriggerRef.current(prompt),
   });
 
-  const lastIdleBreakerAtRef = useRef<number | null>(null);
-  const idleTriggeredRef = useRef<boolean>(false);
+  const lastIdleActionAtRef = useRef<number | null>(null);
   const idleThinkingInFlightRef = useRef<boolean>(false);
 
   // ==========================================================================
@@ -552,7 +551,7 @@ const App: React.FC = () => {
     }
 
     const idleNow = Date.now();
-    lastIdleBreakerAtRef.current = idleNow;
+    lastIdleActionAtRef.current = idleNow;
 
     console.log("[IdleThinking] User is idle. Running idle thinking tick...");
 
@@ -571,75 +570,6 @@ const App: React.FC = () => {
     }
 
     return;
-
-    const now = Date.now();
-    setLastInteractionAt(now); // reset timer to avoid back-to-back firings
-    lastIdleBreakerAtRef.current = now;
-
-    console.log("💤 User is idle. Triggering idle breaker...");
-
-    if (!selectedCharacter || !session) {
-      console.warn('[IdleBreaker] Missing character or session, skipping');
-      return;
-    }
-
-    // Business Logic: Delegate to BaseAIService (the Brain)
-    // if (!activeService.triggerIdleBreaker) {
-    //   console.warn('[IdleBreaker] Service does not support triggerIdleBreaker');
-    //   return;
-    // }
-
-    try {
-      setIsProcessingAction(true);
-
-      // const result = await activeService.triggerIdleBreaker(
-      //   {
-      //     chatHistory,
-      //     googleAccessToken: session?.accessToken,
-      //     proactiveSettings,
-      //   },
-      //   aiSession || { model: activeService.model }
-      // );
-
-      // if (!result) {
-      //   // Service decided to skip (e.g., no news when news-only mode)
-      //   console.log("💤 [IdleBreaker] Service returned null, skipping");
-      //   return;
-      // }
-
-     // const { response, session: updatedSession, audioData } = result;
-
-      // setAiSession(updatedSession);
-
-      // // UI Layer: Update chat history (no user bubble)
-      // setChatHistory(prev => [
-      //   ...prev, 
-      //   { role: 'model', text: response.text_response }
-      // ]);
-      
-      // Save to DB
-      // await conversationHistoryService.appendConversationHistory(
-      //   [{ role: 'model', text: response.text_response }],
-      //   updatedSession.interactionId
-      // );
-
-      // // UI Layer: Play Audio/Action
-      // if (!isMuted && audioData) {
-      //   // Convert string URL to ArrayBuffer if needed, or use directly
-      //   // Gates: Disable Audio 
-      //   // enqueueAudio(audioData as any); // audioData is already a string URL from generateSpeech
-      // }
-      // if (response.action_id) playAction(response.action_id);
-      // if (response.open_app) {
-      //   console.log("Launching app:", response.open_app);
-      //   window.location.href = response.open_app;
-      // }
-
-    } catch (error) {
-      console.error('[IdleBreaker] Error:', error);
-    } finally {
-      setIsProcessingAction(false);
-    }
   }, [
     isSnoozed,
     snoozeUntil,
@@ -668,11 +598,13 @@ const App: React.FC = () => {
     const IDLE_CHECK_INTERVAL = 30000; // 30 seconds
 
     const checkIdle = () => {
-      if (idleTriggeredRef.current) return;
+      const now = Date.now();
       if (!isIdle(IDLE_TIMEOUT)) return;
       if (isProcessingAction || isSpeaking) return;
 
-      idleTriggeredRef.current = true;
+      const lastActionAt = lastIdleActionAtRef.current ?? 0;
+      if (now - lastActionAt < IDLE_TIMEOUT) return;
+
       triggerIdleBreaker();
     };
 
@@ -1069,7 +1001,7 @@ const App: React.FC = () => {
 
   const markInteraction = () => {
     registerInteraction();
-    idleTriggeredRef.current = false;
+    lastIdleActionAtRef.current = null;
     handleUserInterrupt();
   };
 
@@ -1083,7 +1015,7 @@ const App: React.FC = () => {
   ) => {
     if (!selectedCharacter || !session) return;
     registerInteraction();
-    idleTriggeredRef.current = false;
+    lastIdleActionAtRef.current = null;
     setErrorMessage(null);
     const trimmedMessage = message.trim();
     if (!trimmedMessage && !image) return;

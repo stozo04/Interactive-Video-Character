@@ -13,7 +13,7 @@ const TABLES = {
   BROWSE_NOTES: "idle_browse_notes",
 } as const;
 
-const DAILY_CAP = 1;
+const DAILY_CAP = 3;
 const MAX_BROWSE_NOTES_IN_PROMPT = 3;
 const BROWSE_NOTES_MAX_AGE_DAYS = 7;
 const MAX_BROWSE_NOTES_FOR_DEDUPE = 50;
@@ -609,9 +609,11 @@ export async function buildIdleQuestionPromptSection(): Promise<string> {
 
   const queuedQuestion = queued.length > 0 ? queued[0] : null;
 
-  const allQuestionsList = questions
+  const activeQuestionsList = questions
+    .filter((q) => q.status !== "answered")
     .map((q) => `- [${q.status}] (${q.id}) ${q.question}`)
     .join("\n");
+  const allQuestionsList = activeQuestionsList || "• (No active idle questions right now)";
 
   const askedList = asked.length > 0
     ? asked.map((q) => `- (${q.id}) ${q.question}`).join("\n")
@@ -635,13 +637,14 @@ ${queuedQuestion ? `{ id: "${queuedQuestion.id}", question: "${queuedQuestion.qu
 Asked but unanswered questions (if the user answers any of these, call resolve_idle_question with status "answered"):
 ${askedList}
 
-All questions (answered + unanswered) for dedupe:
+Active questions (queued + asked) for dedupe:
 ${allQuestionsList}
 
 Rules:
 1. Do NOT dump questions. Ask at most one, and only if it feels natural.
 2. If you ask the queued question, call resolve_idle_question with status "asked" and its id.
 3. If the user answers any asked question, call resolve_idle_question with status "answered" and its id.
+
 `.trim();
 }
 
@@ -673,6 +676,7 @@ These idle questions were already answered by the user. Do not ask them again.
 If relevant, treat the answers as part of your knowledge context.
 
 ${answeredList}
+
 `.trim();
 }
 
