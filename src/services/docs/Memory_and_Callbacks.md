@@ -33,3 +33,11 @@ The "Long-Term Memory" (RAG) system. Used for searching months of conversation h
 
 *   **Tables**: `conversation_history`, `user_facts`
 *   **LLM?**: **Yes.** Uses embeddings and vector search to find relevant context when the user asks a question about the past.
+
+## Daily Notes (append-only memory lane)
+
+Kayley stores small, useful context as daily notes via tools. Notes are append-only and surfaced back in the system prompt.
+
+*   **Table**: `kayley_daily_notes`
+*   **Migration**: `supabase/migrations/20260131_kayley_daily_notes.sql`
+*   **Docs**: `docs/features/Daily_Notes.md`

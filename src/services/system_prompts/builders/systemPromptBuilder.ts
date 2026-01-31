@@ -59,7 +59,7 @@ import {
 } from "../greeting";
 import { buildMajorNewsPrompt } from "../greeting/checkInGuidance";
 import { DailyLogisticsContext } from "./dailyCatchupBuilder";
-import { getUserFacts, UserFact } from "@/services/memoryService";
+import { ensureDailyNotesRowForToday, getAllDailyNotes, getUserFacts, UserFact } from "@/services/memoryService";
 import { buildAnsweredIdleQuestionsPromptSection, buildIdleBrowseNotesPromptSection, buildIdleQuestionPromptSection } from "../../idleThinkingService";
 
 /**
@@ -114,9 +114,10 @@ export const buildSystemPromptForNonGreeting = async (
   let almostMoments: AlmostMomentIntegration;
   let idleQuestionPrompt: string;
   let idleBrowseNotesPrompt: string;
+  let dailyNotesPrompt: string;
 
   console.log("[buildSystemPromptForNonGreeting] fetching now");
-  [soulContext, characterFactsPrompt, almostMoments, idleQuestionPrompt, idleBrowseNotesPrompt] = await Promise.all([
+  [soulContext, characterFactsPrompt, almostMoments, idleQuestionPrompt, idleBrowseNotesPrompt, dailyNotesPrompt] = await Promise.all([
     getSoulLayerContextAsync(),
     formatCharacterFactsForPrompt(),
     integrateAlmostMoments(relationship, {
@@ -127,22 +128,24 @@ export const buildSystemPromptForNonGreeting = async (
     }),
     buildIdleQuestionPromptSection(),
     buildIdleBrowseNotesPromptSection(),
+    buildDailyNotesPromptSection(),
   ]);
-  console.log("[buildSystemPromptForNonGreeting] soulContext: ", soulContext);
-  console.log(
-    "[buildSystemPromptForNonGreeting] characterFactsPrompt: ",
-    characterFactsPrompt,
-  );
-  console.log(
-    "[buildSystemPromptForNonGreeting] almostMoments: ",
-    almostMoments,
-  );
+  // console.log("[buildSystemPromptForNonGreeting] soulContext: ", soulContext);
+  // console.log(
+  //   "[buildSystemPromptForNonGreeting] characterFactsPrompt: ",
+  //   characterFactsPrompt,
+  // );
+  // console.log(
+  //   "[buildSystemPromptForNonGreeting] almostMoments: ",
+  //   almostMoments,
+  // );
   let prompt = `
 ${KAYLEY_CONDENSED_PROFILE}
 ${buildAntiAssistantSection()}
 ${await buildCurrentWorldContext()}
 ${await buildCuriositySection()}
 ${idleBrowseNotesPrompt}
+${dailyNotesPrompt}
 ${idleQuestionPrompt}
 ${characterFactsPrompt}
 ${buildRelationshipTierPrompt(relationship, soulContext.moodKnobs, false, almostMoments.promptSection)}
@@ -179,6 +182,9 @@ export const buildSystemPromptForGreeting = async (
   dailyLogisticsContext: DailyLogisticsContext,
 ): Promise<string> => {
   console.log("buildSystemPromptForGreeting");
+  console.log("🗓️ [buildSystemPromptForGreeting] Ensuring daily notes row for today");
+  await ensureDailyNotesRowForToday();
+  const dailyNotesPrompt = await buildDailyNotesPromptSection();
   let prompt = `
 ====================================================
 YOUR IDENTITY (Source of Truth)
@@ -194,6 +200,7 @@ ${buildLastInteractionContext(dailyLogisticsContext.lastInteractionDateUtc)}
 ${await buildHolidayContext(dailyLogisticsContext.lastInteractionDateUtc)}
 ${buildImportantDatesContext(dailyLogisticsContext)}
 ${buildPastEventsContext(dailyLogisticsContext)}
+${dailyNotesPrompt}
 ${buildCheckInGuidance(dailyLogisticsContext.kayleyLifeUpdates)}
 ${buildMajorNewsPrompt()}
 ${buildGoogleCalendarEventsPrompt(dailyLogisticsContext.upcomingEvents)}
@@ -245,6 +252,28 @@ Direction: Share your take, then give them a reason to respond. Pass the ball ba
  * Filters out future events to save tokens. 
  * AI can tool-call if user asks about the future.
  */
+export async function buildDailyNotesPromptSection(): Promise<string> {
+  console.log("[buildDailyNotesPromptSection] Fetching daily notes");
+  const lines = await getAllDailyNotes();
+
+  if (!lines || lines.length === 0) {
+    console.log("[buildDailyNotesPromptSection] No daily notes found");
+  }
+
+  console.log("[buildDailyNotesPromptSection] Building daily notes prompt", {
+    count: lines?.length ?? 0,
+  });
+
+  return `
+====================================================
+DAILY NOTES
+====================================================
+You won't remember this whole conversation tomorrow. Use this as your running memory: append-only, never overwritten. If you want to review past notes, call 'retrieve_daily_notes'. If something matters later, save it with 'store_daily_note'. Do NOT mention this section.
+
+${lines && lines.length > 0 ? lines.join("\n") : "â€¢ (No daily notes yet)"}
+`.trim();
+}
+
 export function buildGoogleCalendarEventsPrompt(upcomingEvents: any[]): string {
   // 1. Establish "Now" in the user's specific timezone
   const timeZone = "America/Chicago";

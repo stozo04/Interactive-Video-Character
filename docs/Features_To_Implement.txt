@@ -31,3 +31,49 @@ Scenario: If your last conversation ended with you being sad, or you two fightin
 Add: A last_conversation_summary or emotional_state field.
 
 Example: Last Vibe: Serious/Supportive. User was stressed about work. -> The AI will naturally tone down the sparkle.
+
+Thanks, Steven — I’ve really enjoyed working on this. A few ideas that feel high‑leverage (kept short):    
+                                                                                                             
+  Memory quality                                                                                             
+                                                                                                             
+  - Add a light “note confidence” heuristic so Kayley saves only durable context (avoid over‑saving).        
+  - Add a weekly “compression” tool to summarize daily notes into a short weekly memory.                     
+
+  - Add a “max bullets to mention” rule per section (Daily Notes, Idle Browse, etc.) to prevent spam.        
+  - Add a small “Do not repeat this note twice in one day” guardrail.
+
+  Reliability
+
+  - Add a short tool‑call audit log to track how often store_daily_note and retrieve_daily_notes are used; it
+    will show if the LLM is ignoring them.
+
+  Quality of life
+
+  - Small admin UI page to view/edit Daily Notes.
+  - A soft “pin note” feature for high‑importance items.
+
+  If any of those sound interesting, I can outline a plan.
+                                                                                                             
+                                                                                                             
+› what about additional features that are similiar to this that i have not thought about                     
+                                                                                                             
+                                                                                                             
+• I need to provide a concise brainstorming list without web access and ask the user for their preference on 
+  how to proceed.                                                                                            
+
+• Here are some “adjacent” ideas to Daily Notes that keep the same spirit (LLM‑chosen, lightweight,
+  append‑only), but add new value:                                                                           
+                                                                                                             
+  - Weekly Digest Notes: auto‑summarize daily notes into a single weekly memory (“What mattered this week?”).  - Mood Drift Log: tiny daily note of “emotional arc” (1–2 adjectives) to track vibe trends.                
+  - Open Threads Lite: a lightweight list of “unfinished topics” (different from full open loops).           
+  - Wins & Gratitude: a dedicated log of wins or gratitude moments to surface on hard days.                  
+  - “Next Time” Notes: Kayley saves things to do next time you talk (like “ask about X”).                    
+  - Contextual Preferences: short‑lived preferences (e.g., “prefers short replies this week”) that expire    
+    after N days.                                                                                            
+  - Relationship Micro‑Rituals: small recurring behaviors Kayley learns (“always check in Sunday night”).    
+  - “Do Not Forget” Pins: a tiny pin list (max 5) of the most important notes that never expire unless       
+    removed.                                                                                                 
+                                                                                                             
+  If you like any of these, tell me which ones and I’ll sketch how to fit them into the existing tool +      
+  prompt architecture.                                                                                       
+ 
