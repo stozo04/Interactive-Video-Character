@@ -3,6 +3,17 @@ import { GoogleGenAI } from "@google/genai";
 import { KAYLEY_FULL_PROFILE } from "../domain/characters/kayleyCharacterProfile";
 import { getUserFacts, executeMemoryTool } from "./memoryService";
 import { checkForStorylineSuggestion } from "./storylineIdleService";
+import { TOOL_CATALOG_KEYS, formatToolCatalogForPrompt } from "./toolCatalog";
+import {
+  TOOL_IDEA_THEMES,
+  formatToolIdeaSeedsForPrompt,
+  formatToolIdeaThemesForPrompt,
+} from "./toolIdeaSeeds";
+import {
+  createToolSuggestion,
+  getToolSuggestions,
+  normalizeToolKey,
+} from "./toolSuggestionService";
 
 const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
 const GEMINI_MODEL = import.meta.env.VITE_GEMINI_MODEL;
@@ -14,12 +25,15 @@ const TABLES = {
 } as const;
 
 const DAILY_CAP = 3;
+const TOOL_DISCOVERY_DAILY_CAP = 10;
 const MAX_BROWSE_NOTES_IN_PROMPT = 3;
 const BROWSE_NOTES_MAX_AGE_DAYS = 7;
 const MAX_BROWSE_NOTES_FOR_DEDUPE = 50;
+const MAX_TOOL_SUGGESTIONS_FOR_DEDUPE = 200;
+const TOOL_SUGGESTION_THEME_WINDOW = 5;
 const LOG_PREFIX = "[IdleThinking]";
 
-export type IdleActionType = "storyline" | "browse" | "question";
+export type IdleActionType = "storyline" | "browse" | "question" | "tool_discovery";
 export type IdleQuestionStatus = "queued" | "asked" | "answered";
 
 export interface IdleQuestion {
@@ -40,6 +54,13 @@ export interface IdleBrowseNote {
   itemUrl?: string | null;
   status: "queued" | "shared";
   createdAt: Date;
+}
+
+function getDailyCap(actionType: IdleActionType): number {
+  if (actionType === "tool_discovery") {
+    return TOOL_DISCOVERY_DAILY_CAP;
+  }
+  return DAILY_CAP;
 }
 
 let aiClient: GoogleGenAI | null = null;
@@ -89,19 +110,21 @@ async function getActionLog(
 async function canRunAction(actionType: IdleActionType): Promise<boolean> {
   const today = getTodayDateString();
   const row = await getActionLog(actionType, today);
+  const cap = getDailyCap(actionType);
   console.log(`${LOG_PREFIX} Daily cap check`, {
     actionType,
     runDate: today,
     runCount: row?.run_count ?? 0,
-    cap: DAILY_CAP,
+    cap,
   });
   if (!row) return true;
-  return (row.run_count ?? 0) < DAILY_CAP;
+  return (row.run_count ?? 0) < cap;
 }
 
 async function recordActionRun(actionType: IdleActionType): Promise<void> {
   const today = getTodayDateString();
   const existing = await getActionLog(actionType, today);
+  const cap = getDailyCap(actionType);
 
   if (!existing) {
     console.log(`${LOG_PREFIX} Recording first run`, { actionType, runDate: today });
@@ -118,7 +141,7 @@ async function recordActionRun(actionType: IdleActionType): Promise<void> {
     return;
   }
 
-  const nextCount = Math.min(DAILY_CAP, (existing.run_count ?? 0) + 1);
+  const nextCount = Math.min(cap, (existing.run_count ?? 0) + 1);
   console.log(`${LOG_PREFIX} Updating action log`, {
     actionType,
     runDate: today,
@@ -504,6 +527,277 @@ Summarize what you learned.
   }
 }
 
+function buildToolSuggestionSystemPrompt(): string {
+  return `
+ROLE:
+You are Kayley Adams thinking during idle time. You want to propose ONE new tool you wish you had.
+This is a creative exploration: look for surprising, useful, or emotionally resonant capabilities
+that could make Steven’s day easier, bring you closer, or expand your agency.
+
+EXPLORATION LENSES (pick ANY that spark ideas):
+- Companion agency (preferred): small, safe ways you can take initiative.
+- Hidden friction: tiny annoyances Steven probably tolerates but you could remove.
+- Unmet moments: things Steven asks for that you can’t currently do.
+- Emotional support: ways to comfort, celebrate, or connect more deeply.
+- Shared rituals: recurring moments you could make warmer or more fun.
+- Anticipation: proactive help before Steven asks.
+- Personalization: using what you know about Steven to tailor help.
+
+GUARDRAILS:
+1. Suggest exactly ONE tool that does NOT exist in the current tool catalog.
+2. Do NOT duplicate any existing tool suggestion (queued or shared).
+3. The tool must be realistic, safe, and consent-based.
+4. Prefer low permissions; list only necessary permissions.
+5. Provide a stable snake_case tool_key.
+6. Try not to repeat yourself across ideas or themes.
+7. Keep fields concise but specific.
+8. Prefer the theme "agency" when it fits, but you may choose any theme.
+9. Choose a theme from the provided list and a seed_id from the seed list.
+
+OUTPUT:
+Return raw JSON only.
+Schema:
+{
+  "theme": "...",
+  "seed_id": "...",
+  "tool_key": "...",
+  "title": "...",
+  "reasoning": "...",
+  "user_value": "...",
+  "trigger": "...",
+  "sample_prompt": "...",
+  "permissions_needed": ["..."]
+}
+`.trim();
+}
+
+function buildToolSuggestionPrompt(
+  userFacts: string[],
+  toolCatalog: string,
+  existingSuggestions: string,
+  recentThemes: string,
+  seeds: string,
+  recentSeedIds: string,
+): string {
+  const factsBlock = userFacts.length > 0 ? userFacts.join("\n") : "None.";
+  return `
+KAYLEY PROFILE:
+${KAYLEY_FULL_PROFILE}
+
+KNOWN USER FACTS:
+${factsBlock}
+
+CURRENT TOOLS (DO NOT SUGGEST THESE):
+${toolCatalog}
+
+EXISTING TOOL SUGGESTIONS (DO NOT DUPLICATE):
+${existingSuggestions}
+
+THEMES (pick one):
+${formatToolIdeaThemesForPrompt()}
+
+SEED IDEAS (pick one seed_id and evolve it):
+${seeds}
+
+RECENT THEMES TO AVOID REPEATING:
+${recentThemes}
+
+RECENT SEED_IDS TO AVOID REPEATING:
+${recentSeedIds}
+
+Task: Propose ONE new tool idea that would genuinely help Steven, prioritizing agency when it fits.
+Return JSON only.
+`.trim();
+}
+
+function parsePermissionsNeeded(value: unknown): string[] {
+  if (Array.isArray(value)) {
+    return value
+      .filter((item) => typeof item === "string")
+      .map((item) => item.trim())
+      .filter((item) => item.length > 0);
+  }
+  if (typeof value === "string") {
+    return value
+      .split(",")
+      .map((item) => item.trim())
+      .filter((item) => item.length > 0);
+  }
+  return [];
+}
+
+async function generateToolSuggestion(): Promise<boolean> {
+  if (!GEMINI_API_KEY) {
+    console.warn(`${LOG_PREFIX} No Gemini API key configured. Skipping tool discovery.`);
+    return false;
+  }
+
+  const existingSuggestions = await getToolSuggestions({
+    limit: MAX_TOOL_SUGGESTIONS_FOR_DEDUPE,
+  });
+  const existingSuggestionKeys = new Set(
+    existingSuggestions.map((suggestion) => suggestion.toolKey),
+  );
+  const recentThemes = existingSuggestions
+    .map((suggestion) => suggestion.theme)
+    .filter((theme): theme is string => Boolean(theme));
+  const recentSeedIds = existingSuggestions
+    .map((suggestion) => suggestion.seedId)
+    .filter((seedId): seedId is string => Boolean(seedId));
+  const recentThemeWindow = existingSuggestions
+    .slice(0, TOOL_SUGGESTION_THEME_WINDOW)
+    .map((suggestion) => suggestion.theme)
+    .filter((theme): theme is string => Boolean(theme));
+  const toolCatalogKeys = new Set(TOOL_CATALOG_KEYS);
+
+  const facts = await getUserFacts("all");
+  const userFacts = facts.map(
+    (fact) => `${fact.category}: ${fact.fact_key} = ${fact.fact_value}`,
+  );
+
+  console.log(`${LOG_PREFIX} Generating tool suggestion`, {
+    userFactsCount: userFacts.length,
+    existingSuggestionCount: existingSuggestions.length,
+  });
+
+  const prompt = buildToolSuggestionPrompt(
+    userFacts,
+    formatToolCatalogForPrompt(),
+    existingSuggestions.length > 0
+      ? existingSuggestions
+          .map(
+            (suggestion) =>
+              `- ${suggestion.toolKey} [${suggestion.status}] ${suggestion.title}\n` +
+              `  reasoning: ${suggestion.reasoning}\n` +
+              `  user_value: ${suggestion.userValue}\n` +
+              `  trigger: ${suggestion.trigger}\n` +
+              `  theme: ${suggestion.theme ?? "unknown"}\n` +
+              `  seed_id: ${suggestion.seedId ?? "unknown"}`,
+          )
+          .join("\n")
+      : "None.",
+    recentThemes.length > 0 ? recentThemes.join(", ") : "None.",
+    formatToolIdeaSeedsForPrompt(),
+    recentSeedIds.length > 0 ? recentSeedIds.join(", ") : "None.",
+  );
+  const systemPrompt = buildToolSuggestionSystemPrompt();
+
+  try {
+    const ai = getAIClient();
+    const response = await ai.models.generateContent({
+      model: GEMINI_MODEL,
+      contents: [{ role: "user", parts: [{ text: prompt }] }],
+      config: {
+        temperature: 0.4,
+        systemInstruction: systemPrompt,
+        responseMimeType: "application/json",
+      },
+    });
+
+    const text = response.text?.trim() || "";
+    const jsonMatch = text.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) {
+      console.warn(`${LOG_PREFIX} No JSON returned for tool suggestion.`);
+      return false;
+    }
+
+    const parsed = JSON.parse(jsonMatch[0]);
+    const theme = typeof parsed.theme === "string" ? parsed.theme.trim() : "";
+    const seedId = typeof parsed.seed_id === "string" ? parsed.seed_id.trim() : "";
+    const rawToolKey = typeof parsed.tool_key === "string" ? parsed.tool_key.trim() : "";
+    const title = typeof parsed.title === "string" ? parsed.title.trim() : "";
+    const reasoning = typeof parsed.reasoning === "string" ? parsed.reasoning.trim() : "";
+    const userValue = typeof parsed.user_value === "string" ? parsed.user_value.trim() : "";
+    const trigger = typeof parsed.trigger === "string" ? parsed.trigger.trim() : "";
+    const samplePrompt =
+      typeof parsed.sample_prompt === "string" ? parsed.sample_prompt.trim() : "";
+    const permissionsNeeded = parsePermissionsNeeded(parsed.permissions_needed);
+
+    if (
+      !theme ||
+      !seedId ||
+      !rawToolKey ||
+      !title ||
+      !reasoning ||
+      !userValue ||
+      !trigger ||
+      !samplePrompt
+    ) {
+      console.warn(`${LOG_PREFIX} Invalid tool suggestion payload`, {
+        theme,
+        seedId,
+        rawToolKey,
+        title,
+        reasoning,
+        userValue,
+        trigger,
+        samplePrompt,
+      });
+      return false;
+    }
+
+    if (!TOOL_IDEA_THEMES.includes(theme as any)) {
+      console.warn(`${LOG_PREFIX} Invalid theme for tool suggestion`, { theme });
+      return false;
+    }
+
+    if (recentThemeWindow.includes(theme)) {
+      console.warn(`${LOG_PREFIX} Theme recently used; skipping`, {
+        theme,
+        recentThemes: recentThemeWindow,
+      });
+      return false;
+    }
+
+    const seedMatch = seedId && seedId.length > 0;
+    if (!seedMatch) {
+      console.warn(`${LOG_PREFIX} Missing seed_id for tool suggestion`);
+      return false;
+    }
+
+    const toolKey = normalizeToolKey(rawToolKey);
+    if (!toolKey) {
+      console.warn(`${LOG_PREFIX} Invalid tool_key after normalization`, { rawToolKey });
+      return false;
+    }
+
+    if (toolCatalogKeys.has(toolKey)) {
+      console.warn(`${LOG_PREFIX} Tool suggestion already exists in catalog`, { toolKey });
+      return false;
+    }
+
+    if (existingSuggestionKeys.has(toolKey)) {
+      console.warn(`${LOG_PREFIX} Duplicate tool suggestion`, { toolKey });
+      return false;
+    }
+
+    const stored = await createToolSuggestion(
+      {
+        toolKey,
+        title,
+        reasoning,
+        userValue,
+        trigger,
+        samplePrompt,
+        permissionsNeeded,
+        triggerSource: "idle",
+        theme,
+        seedId,
+      },
+      "queued",
+    );
+
+    return !!stored;
+  } catch (error) {
+    console.error(`${LOG_PREFIX} Tool suggestion generation failed`, { error });
+    return false;
+  }
+}
+
+async function runToolDiscoveryAction(): Promise<boolean> {
+  return await generateToolSuggestion();
+}
+
 async function runQuestionAction(): Promise<boolean> {
   const question = await generateIdleQuestion();
   return !!question;
@@ -518,11 +812,13 @@ export async function runIdleThinkingTick(options?: {
   allowStoryline?: boolean;
   allowBrowse?: boolean;
   allowQuestion?: boolean;
+  allowToolDiscovery?: boolean;
 }): Promise<{ action?: IdleActionType; skipped?: boolean; reason?: string }> {
   const allowedActions: IdleActionType[] = [];
   if (options?.allowStoryline !== false) allowedActions.push("storyline");
   if (options?.allowBrowse !== false) allowedActions.push("browse");
   if (options?.allowQuestion !== false) allowedActions.push("question");
+  if (options?.allowToolDiscovery !== false) allowedActions.push("tool_discovery");
 
   console.log(`${LOG_PREFIX} Idle tick`, { allowedActions });
   const action = pickRandomAction(allowedActions);
@@ -548,6 +844,9 @@ export async function runIdleThinkingTick(options?: {
       break;
     case "question":
       success = await runQuestionAction();
+      break;
+    case "tool_discovery":
+      success = await runToolDiscoveryAction();
       break;
   }
 
@@ -738,6 +1037,44 @@ IDLE BROWSING NOTES
 These are quiet notes from idle browsing. If it fits naturally, you can mention ONE shareable item (prefer newer notes).
 
 ${notesList}
+`.trim();
+}
+
+export async function buildToolSuggestionsPromptSection(): Promise<string> {
+  const suggestions = await getToolSuggestions({
+    status: "queued",
+    limit: 1,
+    ascending: true,
+  });
+
+  if (suggestions.length === 0) {
+    console.log(`${LOG_PREFIX} No tool suggestions for prompt`);
+    return "";
+  }
+
+  const suggestion = suggestions[0];
+  const permissionsList = suggestion.permissionsNeeded.length > 0
+    ? `[${suggestion.permissionsNeeded.map((perm) => `"${perm}"`).join(", ")}]`
+    : "[]";
+
+  console.log(`${LOG_PREFIX} Building tool suggestion prompt`, {
+    toolKey: suggestion.toolKey,
+  });
+
+return `
+====================================================
+TOOL IDEAS (POSSIBLE NEW CAPABILITIES)
+====================================================
+You have one queued tool idea from idle time. Share it when it fits the current conversation or the user is open to ideas.
+If the user mentions the trigger, asks for help, or the chat is open-ended, it's a good moment to share.
+
+Queued idea (share at most one):
+{ id: "${suggestion.id}", tool_key: "${suggestion.toolKey}", title: "${suggestion.title}", user_value: "${suggestion.userValue}", reasoning: "${suggestion.reasoning}", trigger: "${suggestion.trigger}", permissions_needed: ${permissionsList}, sample_prompt: "${suggestion.samplePrompt}" }
+
+Rules:
+1. If you share this idea, call tool_suggestion with action "mark_shared" and the id.
+2. Do NOT claim you can already do this. Present it as a possible new capability.
+3. Do NOT use the exact phrase "I wish I could" here. Save that for live ideas you create on the spot.
 `.trim();
 }
 

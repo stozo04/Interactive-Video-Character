@@ -557,6 +557,7 @@ export type MemoryToolName =
   | 'resolve_open_loop'
   | 'resolve_idle_question'
   | 'resolve_idle_browse_note'
+  | 'tool_suggestion'
   | 'make_promise'
   | 'create_life_storyline'
   | 'create_open_loop'
@@ -630,6 +631,22 @@ export interface ToolCallArgs {
   resolve_idle_browse_note: {
     id: string;
     status: 'shared';
+  };
+  tool_suggestion: {
+    action: 'create' | 'mark_shared';
+    id?: string;
+    tool_key?: string;
+    title?: string;
+    reasoning?: string;
+    user_value?: string;
+    trigger?: string;
+    trigger_source?: 'idle' | 'live';
+    trigger_text?: string;
+    trigger_reason?: string;
+    theme?: string;
+    seed_id?: string;
+    sample_prompt?: string;
+    permissions_needed?: string[];
   };
   make_promise: {
     promiseType: 'send_selfie' | 'share_update' | 'follow_up' | 'send_content' | 'reminder' | 'send_voice_note';
@@ -1088,6 +1105,98 @@ export const executeMemoryTool = async (
         return success
           ? `OK: idle browse note ${status} (${id})`
           : `Failed to update idle browse note ${id}.`;
+      }
+      case 'tool_suggestion': {
+        const {
+          action,
+          id,
+          tool_key,
+          title,
+          reasoning,
+          user_value,
+          trigger,
+          trigger_source,
+          trigger_text,
+          trigger_reason,
+          theme,
+          seed_id,
+          sample_prompt,
+          permissions_needed,
+        } = args as ToolCallArgs['tool_suggestion'];
+        console.log("[Memory Tool] tool_suggestion called:", {
+          action,
+          id,
+          toolKey: tool_key,
+          triggerSource: trigger_source,
+        });
+
+        const { createToolSuggestion, markToolSuggestionShared } = await import('./toolSuggestionService');
+
+        if (action === 'mark_shared') {
+          if (!id) {
+            console.warn("[Memory Tool] tool_suggestion missing id for mark_shared");
+            return "Missing id for tool_suggestion mark_shared.";
+          }
+
+          const success = await markToolSuggestionShared(id);
+          return success
+            ? `OK: tool suggestion shared (${id})`
+            : `Failed to mark tool suggestion shared (${id}).`;
+        }
+
+        if (action !== 'create') {
+          console.warn("[Memory Tool] tool_suggestion invalid action", { action });
+          return `Unknown tool_suggestion action: ${action}`;
+        }
+
+        const missingFields: string[] = [];
+        if (!tool_key) missingFields.push("tool_key");
+        if (!title) missingFields.push("title");
+        if (!reasoning) missingFields.push("reasoning");
+        if (!user_value) missingFields.push("user_value");
+        if (!trigger) missingFields.push("trigger");
+        if (!sample_prompt) missingFields.push("sample_prompt");
+
+        if (missingFields.length > 0) {
+          console.warn("[Memory Tool] tool_suggestion missing fields", { missingFields });
+          return `Missing required fields for tool_suggestion create: ${missingFields.join(", ")}`;
+        }
+
+        if (!tool_key || !title || !reasoning || !user_value || !trigger || !sample_prompt) {
+          return "Invalid tool_suggestion payload.";
+        }
+
+        if (!trigger_text || !trigger_reason) {
+          console.warn("[Memory Tool] tool_suggestion missing live trigger details");
+          return "Missing trigger_text or trigger_reason for live tool_suggestion.";
+        }
+
+        const permissions =
+          Array.isArray(permissions_needed)
+            ? permissions_needed.filter((perm) => typeof perm === "string" && perm.trim().length > 0)
+            : [];
+
+        const stored = await createToolSuggestion(
+          {
+            toolKey: tool_key,
+            title,
+            reasoning,
+            userValue: user_value,
+            trigger,
+            samplePrompt: sample_prompt,
+            permissionsNeeded: permissions,
+            triggerSource: "live",
+            triggerText: trigger_text,
+            triggerReason: trigger_reason,
+            theme: theme ?? null,
+            seedId: seed_id ?? null,
+          },
+          "shared",
+        );
+
+        return stored
+          ? `OK: tool suggestion stored (${stored.toolKey})`
+          : "Failed to store tool suggestion.";
       }
       case 'make_promise': {
         const { createPromise } = await import('./promiseService');
