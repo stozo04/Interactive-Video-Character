@@ -256,6 +256,7 @@ const App: React.FC = () => {
     checkForApplicableCheckins,
   } = useCalendar({
     session,
+    isAuthConnected: authStatus === 'connected',
     selectedCharacter,
     proactiveSettings,
     isSnoozed,

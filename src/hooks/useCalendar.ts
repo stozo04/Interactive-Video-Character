@@ -40,6 +40,9 @@ export interface UseCalendarOptions {
   /** Google auth session with access token */
   session: { accessToken: string } | null;
 
+  /** Whether auth is currently connected */
+  isAuthConnected: boolean;
+
   /** Selected character (needed for check-in triggers) */
   selectedCharacter: { id: string; name: string } | null;
 
@@ -104,6 +107,7 @@ export interface UseCalendarResult {
  *   registerCalendarEffects,
  * } = useCalendar({
  *   session,
+ *   isAuthConnected,
  *   selectedCharacter,
  *   proactiveSettings,
  *   isSnoozed,
@@ -121,6 +125,7 @@ export interface UseCalendarResult {
 export function useCalendar(options: UseCalendarOptions): UseCalendarResult {
   const {
     session,
+    isAuthConnected,
     selectedCharacter,
     proactiveSettings,
     isSnoozed,
@@ -136,24 +141,32 @@ export function useCalendar(options: UseCalendarOptions): UseCalendarResult {
    * Refresh upcoming events from the calendar API
    */
   const refreshEvents = useCallback(async (accessToken: string): Promise<CalendarEvent[]> => {
-    // console.log('📅 [useCalendar] Refreshing upcoming events...');
+    if (!isAuthConnected) {
+      console.warn('[useCalendar] Skipping refreshEvents: auth not connected');
+      return [];
+    }
+    // console.log('[useCalendar] Refreshing upcoming events...');
     const events = await calendarService.getUpcomingEvents(accessToken);
-    // console.log(`📅 [useCalendar] Loaded ${events.length} upcoming event(s)`);
+    // console.log(`[useCalendar] Loaded ${events.length} upcoming event(s)`);
     setUpcomingEvents(events);
     return events;
-  }, []);
+  }, [isAuthConnected]);
 
   /**
    * Refresh week events from the calendar API
    */
   const refreshWeekEvents = useCallback(async (accessToken: string): Promise<void> => {
-    // console.log('📅 [useCalendar] Refreshing week events...');
+    if (!isAuthConnected) {
+      console.warn('[useCalendar] Skipping refreshWeekEvents: auth not connected');
+      return;
+    }
+    // console.log('[useCalendar] Refreshing week events...');
     const events = await calendarService.getWeekEvents(accessToken);
-    // console.log(`📅 [useCalendar] Loaded ${events.length} week event(s)`);
+    // console.log(`[useCalendar] Loaded ${events.length} week event(s)`);
     setWeekEvents(events);
     // Clean up old check-in states for events no longer in this week
     cleanupOldCheckins(events.map(e => e.id));
-  }, []);
+  }, [isAuthConnected]);
 
   /**
    * Trigger a calendar check-in for a specific event
@@ -253,7 +266,7 @@ export function useCalendar(options: UseCalendarOptions): UseCalendarResult {
     const intervalIds: NodeJS.Timeout[] = [];
     const timeoutIds: NodeJS.Timeout[] = [];
 
-    if (!session) {
+    if (!session || !isAuthConnected) {
       // console.log('📅 [useCalendar] No session, skipping calendar effects');
       return () => {};
     }
@@ -299,7 +312,7 @@ export function useCalendar(options: UseCalendarOptions): UseCalendarResult {
       intervalIds.forEach(clearInterval);
       timeoutIds.forEach(clearTimeout);
     };
-  }, [session]);
+  }, [session, isAuthConnected]);
 
   return {
     upcomingEvents,
