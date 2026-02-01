@@ -40,10 +40,12 @@ export type FactCategory = 'identity' | 'preference' | 'relationship' | 'context
 
 const CONVERSATION_HISTORY_TABLE = 'conversation_history';
 const USER_FACTS_TABLE = 'user_facts';
+const KAYLEY_DAILY_NOTES_TABLE = 'kayley_daily_notes';
 
 // Default limits to prevent context overflow
 const DEFAULT_MEMORY_LIMIT = 5;
 const DEFAULT_RECENT_CONTEXT_COUNT = 6; // Last 3 exchanges (user + model)
+const CST_TIMEZONE = 'America/Chicago';
 
 // ============================================
 // Utility Functions
@@ -67,6 +69,157 @@ function sanitizeForGemini(text: string): string {
 
   return sanitized;
 }
+
+/**
+ * Get today's date string in CST (YYYY-MM-DD)
+ */
+function getTodayCstDateString(): string {
+  const now = new Date();
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: CST_TIMEZONE,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(now);
+
+  const year = parts.find((p) => p.type === 'year')?.value;
+  const month = parts.find((p) => p.type === 'month')?.value;
+  const day = parts.find((p) => p.type === 'day')?.value;
+
+  if (!year || !month || !day) {
+    console.warn('⚠️ [Daily Notes] Failed to parse CST date parts, falling back to UTC date');
+    return new Date().toISOString().slice(0, 10);
+  }
+
+  return `${year}-${month}-${day}`;
+}
+
+function normalizeDailyNoteInput(note: string): string {
+  return note.replace(/^\s*-\s*/, '').trim();
+}
+
+// ============================================
+// Daily Notes Functions
+// ============================================
+
+/**
+ * Ensure the daily notes row exists for today's CST date.
+ */
+export const ensureDailyNotesRowForToday = async (): Promise<boolean> => {
+  try {
+    const cstDate = getTodayCstDateString();
+    console.log(`🗓️ [Daily Notes] Ensuring daily notes row exists for CST date: ${cstDate}`);
+
+    const { error } = await supabase
+      .from(KAYLEY_DAILY_NOTES_TABLE)
+      .upsert(
+        {
+          note_date_cst: cstDate,
+        },
+        {
+          onConflict: 'note_date_cst',
+        },
+      );
+
+    if (error) {
+      console.error('❌ [Daily Notes] Failed to ensure daily notes row:', error);
+      return false;
+    }
+
+    console.log('✅ [Daily Notes] Daily notes row is ready');
+    return true;
+  } catch (error) {
+    console.error('❌ [Daily Notes] Error ensuring daily notes row:', error);
+    return false;
+  }
+};
+
+/**
+ * Append a note to today's daily notes row.
+ */
+export const appendDailyNote = async (note: string): Promise<boolean> => {
+  const normalizedNote = normalizeDailyNoteInput(note);
+
+  if (!normalizedNote) {
+    console.warn('⚠️ [Daily Notes] Skipping empty daily note');
+    return false;
+  }
+
+  try {
+    const cstDate = getTodayCstDateString();
+    console.log(`🗒️ [Daily Notes] Appending note for CST date: ${cstDate}`);
+    console.log(`🗒️ [Daily Notes] Note content: "${normalizedNote}"`);
+
+    const ensured = await ensureDailyNotesRowForToday();
+    if (!ensured) {
+      console.warn('⚠️ [Daily Notes] Could not ensure daily notes row; aborting append');
+      return false;
+    }
+
+    const { data, error } = await supabase
+      .from(KAYLEY_DAILY_NOTES_TABLE)
+      .select('notes')
+      .eq('note_date_cst', cstDate)
+      .single();
+
+    if (error) {
+      console.error('❌ [Daily Notes] Failed to fetch existing notes:', error);
+      return false;
+    }
+
+    const existingNotes = (data?.notes || '').trim();
+    const updatedNotes = existingNotes
+      ? `${existingNotes}\n- ${normalizedNote}`
+      : `- ${normalizedNote}`;
+
+    const { error: updateError } = await supabase
+      .from(KAYLEY_DAILY_NOTES_TABLE)
+      .update({ notes: updatedNotes, updated_at: new Date().toISOString() })
+      .eq('note_date_cst', cstDate);
+
+    if (updateError) {
+      console.error('❌ [Daily Notes] Failed to append note:', updateError);
+      return false;
+    }
+
+    console.log('✅ [Daily Notes] Note appended successfully');
+    return true;
+  } catch (error) {
+    console.error('❌ [Daily Notes] Error appending daily note:', error);
+    return false;
+  }
+};
+
+/**
+ * Retrieve all daily notes as bullet lines (no dates).
+ */
+export const getAllDailyNotes = async (): Promise<string[]> => {
+  try {
+    console.log('📚 [Daily Notes] Retrieving all daily notes');
+
+    const { data, error } = await supabase
+      .from(KAYLEY_DAILY_NOTES_TABLE)
+      .select('notes, note_date_cst')
+      .order('note_date_cst', { ascending: true });
+
+    if (error) {
+      console.error('❌ [Daily Notes] Failed to retrieve notes:', error);
+      return [];
+    }
+
+    const lines = (data || [])
+      .flatMap((row) => (row.notes || '').split('\n'))
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0)
+      .map((line) => (line.startsWith('-') ? line : `- ${line}`));
+
+    console.log(`📚 [Daily Notes] Retrieved ${lines.length} note line(s)`);
+    return lines;
+  } catch (error) {
+    console.error('❌ [Daily Notes] Error retrieving notes:', error);
+    return [];
+  }
+};
 
 // ============================================
 // Memory Search Functions
@@ -393,7 +546,23 @@ export const formatFactsForAI = (facts: UserFact[]): string => {
 // Tool Execution Handler
 // ============================================
 
-export type MemoryToolName = 'web_search' | 'recall_memory' | 'recall_user_info' | 'store_user_info' | 'task_action' | 'calendar_action' | 'store_character_info' | 'resolve_open_loop' | 'make_promise' | 'create_life_storyline' | 'create_open_loop' | 'recall_character_profile';
+export type MemoryToolName =
+  | 'web_search'
+  | 'recall_memory'
+  | 'recall_user_info'
+  | 'store_user_info'
+  | 'task_action'
+  | 'calendar_action'
+  | 'store_character_info'
+  | 'resolve_open_loop'
+  | 'resolve_idle_question'
+  | 'resolve_idle_browse_note'
+  | 'make_promise'
+  | 'create_life_storyline'
+  | 'create_open_loop'
+  | 'recall_character_profile'
+  | 'store_daily_note'
+  | 'retrieve_daily_notes';
 
 /**
  * Optional context passed to tool execution (e.g., access tokens)
@@ -421,6 +590,10 @@ export interface ToolCallArgs {
     key: string;
     value: string;
   };
+  store_daily_note: {
+    note: string;
+  };
+  retrieve_daily_notes: Record<string, never>;
   task_action: {
     action: 'create' | 'complete' | 'delete' | 'list';
     task_text?: string;
@@ -448,6 +621,15 @@ export interface ToolCallArgs {
     topic: string;
     resolution_type: 'resolved' | 'dismissed';
     reason?: string;
+  };
+  resolve_idle_question: {
+    id: string;
+    status: 'asked' | 'answered';
+    answer_text?: string;
+  };
+  resolve_idle_browse_note: {
+    id: string;
+    status: 'shared';
   };
   make_promise: {
     promiseType: 'send_selfie' | 'share_update' | 'follow_up' | 'send_content' | 'reminder' | 'send_voice_note';
@@ -601,10 +783,30 @@ export const executeMemoryTool = async (
       }
       case 'store_user_info': {
         const { category, key, value } = args as ToolCallArgs['store_user_info'];
+        if (isCurrentFactKey(key)) {
+          console.log(`⏭️ [Memory] Skipping current_* fact (transient): ${category}.${key}`);
+          return `Skipped transient fact: ${key}`;
+        }
         const success = await storeUserFact(category, key, value);
         return success 
           ? `✓ Stored: ${key} = "${value}"` 
           : `Failed to store information.`;
+      }
+      case 'store_daily_note': {
+        const { note } = args as ToolCallArgs['store_daily_note'];
+        console.log('🗒️ [Memory Tool] Storing daily note');
+        const success = await appendDailyNote(note);
+        return success
+          ? '✓ Daily note stored.'
+          : 'Failed to store daily note.';
+      }
+      case 'retrieve_daily_notes': {
+        console.log('📚 [Memory Tool] Retrieving daily notes');
+        const lines = await getAllDailyNotes();
+        if (lines.length === 0) {
+          return 'No daily notes recorded yet.';
+        }
+        return `Daily notes:\n${lines.join('\n')}`;
       }
       case 'task_action': {
         // Import taskService functions dynamically to avoid circular dependency
@@ -867,6 +1069,26 @@ export const executeMemoryTool = async (
           return `Error resolving open loop: ${error instanceof Error ? error.message : 'Unknown error'}`;
         }
       }
+      case 'resolve_idle_question': {
+        const { updateIdleQuestionStatus } = await import('./idleThinkingService');
+        const { id, status, answer_text } = args as ToolCallArgs['resolve_idle_question'];
+        console.log("[Memory Tool] resolve_idle_question called:", { id, status, hasAnswer: !!answer_text });
+
+        const success = await updateIdleQuestionStatus(id, status, answer_text);
+        return success
+          ? `OK: idle question ${status} (${id})`
+          : `Failed to update idle question ${id}.`;
+      }
+      case 'resolve_idle_browse_note': {
+        const { updateIdleBrowseNoteStatus } = await import('./idleThinkingService');
+        const { id, status } = args as ToolCallArgs['resolve_idle_browse_note'];
+        console.log("[Memory Tool] resolve_idle_browse_note called:", { id, status });
+
+        const success = await updateIdleBrowseNoteStatus(id, status);
+        return success
+          ? `OK: idle browse note ${status} (${id})`
+          : `Failed to update idle browse note ${id}.`;
+      }
       case 'make_promise': {
         const { createPromise } = await import('./promiseService');
         const { promiseType, description, triggerEvent, fulfillmentData } = args as ToolCallArgs['make_promise'];
@@ -1078,6 +1300,10 @@ const ADDITIVE_KEY_PATTERNS = [
   /^dislikes$/       // dislikes list
 ];
 
+function isCurrentFactKey(key: string): boolean {
+  return key.trim().toLowerCase().startsWith('current_');
+}
+
 /**
  * Determines the storage behavior for a fact key.
  */
@@ -1156,6 +1382,11 @@ export const processDetectedFacts = async (
     const storedFacts: LLMDetectedFact[] = [];
 
     for (const fact of detectedFacts) {
+      if (isCurrentFactKey(fact.key)) {
+        console.log(`⏭️ [Memory] Skipping current_* fact (transient): ${fact.category}.${fact.key}`);
+        continue;
+      }
+
       const factKey = `${fact.category}:${fact.key}`;
       const existingFact = existingFactsMap.get(factKey);
       const storageType = getFactStorageType(fact.key);
@@ -1521,6 +1752,9 @@ export const memoryService = {
   detectAndStoreUserInfo, // @deprecated - use processDetectedFacts instead
   processDetectedFacts,
   getImportantDateFacts,
+  ensureDailyNotesRowForToday,
+  appendDailyNote,
+  getAllDailyNotes,
 };
 
 export default memoryService;

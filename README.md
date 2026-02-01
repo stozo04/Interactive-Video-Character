@@ -184,6 +184,7 @@ See `.env.example` for the complete list of available configuration options.
 | [Character Profile](docs/features/Kayley_Adams_Character_Profile.md) | Example AI personality configuration |
 | [Google OAuth Setup](docs/GOOGLE_OAUTH_SETUP.md) | Authentication configuration guide |
 | [System Prompt Guidelines](docs/System_Prompt_Guidelines.md) | How to modify AI behavior |
+| [Idle Thinking System](docs/features/Idle_Thinking_System.md) | Idle-time storyline, browsing, and curiosity questions |
 | [CLAUDE.md](CLAUDE.md) | Developer guide for Claude Code |
 
 ---
