@@ -482,10 +482,57 @@ export const StoreUserInfoSchema = z.object({
   )
 });
 
+/**
+ * Schema for the resolve_idle_question tool.
+ * Used to update the status of an idle curiosity question.
+ */
+export const ResolveIdleQuestionSchema = z.object({
+  id: z.string().describe("The idle question id to update"),
+  status: z.enum(["asked", "answered"]).describe(
+    "Update status when the question is asked or answered"
+  ),
+  answer_text: z.string().optional().describe(
+    "Short summary of the user's answer (1-2 sentences). Required when status is 'answered'."
+  ),
+});
+
+/**
+ * Schema for the resolve_idle_browse_note tool.
+ * Used to update the status of an idle browsing note.
+ */
+export const ResolveIdleBrowseNoteSchema = z.object({
+  id: z.string().describe("The idle browse note id to update"),
+  status: z.enum(["shared"]).describe(
+    "Update status when you share a browsing note with the user"
+  ),
+});
+
+/**
+ * Schema for the store_daily_note tool.
+ * Used to append a short bullet to today's daily notes.
+ */
+export const StoreDailyNoteSchema = z.object({
+  note: z.string().describe(
+    "A short note to append as a single bullet line (no dates or timestamps)."
+  ),
+});
+
+/**
+ * Schema for the retrieve_daily_notes tool.
+ * Used to retrieve all stored daily notes.
+ */
+export const RetrieveDailyNotesSchema = z.object({}).describe(
+  "Retrieve all daily notes (no arguments)."
+);
+
 // Export types for tool arguments
 export type RecallMemoryArgs = z.infer<typeof RecallMemorySchema>;
 export type RecallUserInfoArgs = z.infer<typeof RecallUserInfoSchema>;
 export type StoreUserInfoArgs = z.infer<typeof StoreUserInfoSchema>;
+export type ResolveIdleQuestionArgs = z.infer<typeof ResolveIdleQuestionSchema>;
+export type ResolveIdleBrowseNoteArgs = z.infer<typeof ResolveIdleBrowseNoteSchema>;
+export type StoreDailyNoteArgs = z.infer<typeof StoreDailyNoteSchema>;
+export type RetrieveDailyNotesArgs = z.infer<typeof RetrieveDailyNotesSchema>;
 
 // Union type for all memory tool arguments
 export type MemoryToolArgs =
@@ -493,6 +540,10 @@ export type MemoryToolArgs =
   | { tool: "web_search"; args: { query: string } }
   | { tool: "recall_user_info"; args: RecallUserInfoArgs }
   | { tool: "store_user_info"; args: StoreUserInfoArgs }
+  | { tool: "resolve_idle_question"; args: ResolveIdleQuestionArgs }
+  | { tool: "resolve_idle_browse_note"; args: ResolveIdleBrowseNoteArgs }
+  | { tool: "store_daily_note"; args: StoreDailyNoteArgs }
+  | { tool: "retrieve_daily_notes"; args: RetrieveDailyNotesArgs }
   | {
       tool: "store_character_info";
       args: { category: string; key: string; value: string };
@@ -629,7 +680,8 @@ export const GeminiMemoryToolDeclarations = [
     description:
       "Save PERSONAL FACTS about the user (name, job, preferences, family, current life projects). " +
       "Use 'context' for things like 'working on a startup' or 'training for a marathon'. " +
-      "NEVER use for tasks, to-dos, or checklist items - use task_action instead.",
+      "NEVER use for tasks, to-dos, or checklist items - use task_action instead. " +
+      "Never store transient current_* keys (e.g., current_feeling).",
     parameters: {
       type: "object",
       properties: {
@@ -686,6 +738,79 @@ export const GeminiMemoryToolDeclarations = [
         },
       },
       required: ["category", "key", "value"],
+    },
+  },
+  {
+    name: "resolve_idle_question",
+    description:
+      "Update the status of an idle curiosity question. " +
+      "Call with status='asked' when you ask the queued question. " +
+      "Call with status='answered' when the user answers it, and include a short answer_text summary.",
+    parameters: {
+      type: "object",
+      properties: {
+        id: {
+          type: "string",
+          description: "The idle question id to update",
+        },
+        status: {
+          type: "string",
+          enum: ["asked", "answered"],
+          description: "Set to 'asked' or 'answered'",
+        },
+        answer_text: {
+          type: "string",
+          description: "Short summary of the user's answer (1-2 sentences). Required when status is 'answered'.",
+        },
+      },
+      required: ["id", "status"],
+    },
+  },
+  {
+    name: "resolve_idle_browse_note",
+    description:
+      "Mark an idle browsing note as shared after you mention or share its link.",
+    parameters: {
+      type: "object",
+      properties: {
+        id: {
+          type: "string",
+          description: "The idle browsing note id to mark as shared",
+        },
+        status: {
+          type: "string",
+          enum: ["shared"],
+          description: "Set to 'shared' after you share the item",
+        },
+      },
+      required: ["id", "status"],
+    },
+  },
+  {
+    name: "store_daily_note",
+    description:
+      "Append a short bullet to today's daily notes. " +
+      "Use this when something feels useful to remember later but doesn't fit as a structured user fact. " +
+      "Keep it brief and DO NOT include dates or timestamps.",
+    parameters: {
+      type: "object",
+      properties: {
+        note: {
+          type: "string",
+          description: "Short note to append as a single bullet line",
+        },
+      },
+      required: ["note"],
+    },
+  },
+  {
+    name: "retrieve_daily_notes",
+    description:
+      "Retrieve all stored daily notes (no dates included). " +
+      "Use this when you want to review what you've saved in daily notes.",
+    parameters: {
+      type: "object",
+      properties: {},
     },
   },
   {
@@ -1112,6 +1237,10 @@ export interface PendingToolCall {
     | "calendar_action"
     | "store_character_info"
     | "resolve_open_loop"
+    | "resolve_idle_question"
+    | "resolve_idle_browse_note"
+    | "store_daily_note"
+    | "retrieve_daily_notes"
     | "make_promise"
     | "create_life_storyline"
     | "create_open_loop"
