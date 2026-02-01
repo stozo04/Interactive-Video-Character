@@ -689,9 +689,9 @@ const App: React.FC = () => {
 
   useEffect(() => {
     const handleAuthError = async () => {
-      console.log('Google Auth error detected. Attempting background refresh...');
+      console.log('Google Auth error detected. Attempting forced refresh...');
       try {
-        await refreshSession();
+        await refreshSession({ force: true, reason: 'gmail_or_calendar_401' });
       } catch (err) {
         console.warn('Background refresh failed:', err);
       }

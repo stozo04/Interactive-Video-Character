@@ -9,7 +9,7 @@ interface GoogleAuthContextType {
   error: string | null;
   signIn: () => Promise<void>;
   signOut: () => Promise<void>;
-  refreshSession: () => Promise<void>;
+  refreshSession: (options?: { force?: boolean; reason?: string }) => Promise<void>;
   clearError: () => void;
 }
 
@@ -59,7 +59,7 @@ export function GoogleAuthProvider({
           const gmailSession: GmailSession = {
             email: sbSession.user.email || '',
             accessToken: sbSession.provider_token,
-            expiresAt: (sbSession.expires_at || 0) * 1000,
+            expiresAt: sbSession.expires_at ? sbSession.expires_at * 1000 : Date.now() + 3600 * 1000,
             refreshedAt: Date.now(),
           };
           googleAuth.saveSession(gmailSession);
@@ -225,7 +225,44 @@ export function GoogleAuthProvider({
     }
   }, []);
 
-  const refreshSession = useCallback(async () => {
+  const refreshSession = useCallback(async (options?: { force?: boolean; reason?: string }) => {
+    if (options?.force) {
+      setStatus('refreshing');
+      setError(null);
+
+      try {
+        const { accessToken, expiresAt, refreshedAt } = await googleAuth.refreshAccessToken();
+        const { data: { session: sbSession } } = await googleAuth.supabase.auth.getSession();
+        const email =
+          session?.email ||
+          googleAuth.getSession()?.email ||
+          sbSession?.user.email ||
+          '';
+
+        const refreshedSession: GmailSession = {
+          email,
+          accessToken,
+          expiresAt,
+          refreshedAt,
+        };
+        googleAuth.saveSession(refreshedSession);
+        setSession(refreshedSession);
+        setStatus('connected');
+        return;
+      } catch (err: any) {
+        console.warn('Forced refresh failed, attempting silent re-auth...', err);
+        try {
+          await attemptSilentRefresh(options?.reason || 'forced_refresh_failed');
+          return;
+        } catch (silentErr: any) {
+          console.error('Forced silent re-auth failed:', silentErr);
+          setError(err?.message || 'Failed to refresh session');
+          setStatus('needs_reconnect');
+          throw silentErr;
+        }
+      }
+    }
+
     if (!session) {
       setStatus('refreshing');
       setError(null);
