@@ -1,23 +1,6 @@
 I want to implement:
 - Add time stamps to message (need to confirm which way AI wants this)
-- Set up Idle Thinking for Questions to ask
-   - When I go idle that is when most people:
-      (maybe a 33% chance of:)
-      - Start working on life_storyline
-      - Searching/Browsing the web b/c of boredom
-      - Think of questions they want to ask
-         - Create a list of all known facts about the user and
-         send that to LLM along with Kayley information
-         LLM can decide what it wants to learn and then add to list of questions to ask
-         - When user returns in the NonGreetingPrompt append list of questions
-         but do not dump the questions all at once. Make these questions come up naturally
-         there is no "rush" or "urgency" a deep relationship takes time to build
-     - Cooldown:
-       How does a cooldown work? If there is a 33% chance of the following and 
-       idle kicks off lets say 5 minutes of inactivity this can generate a lot
-       of browsing requests / life_storyline / tons of questions. so we need 
-       some way of saying ok this has been called x amount today.. skipping       
-      
+
 - Remove all current Idle Thinking logic
 
 
@@ -37,8 +20,7 @@ Thanks, Steven — I’ve really enjoyed working on this. A few ideas that feel 
   Memory quality                                                                                             
                                                                                                              
   - Add a light “note confidence” heuristic so Kayley saves only durable context (avoid over‑saving).        
-  - Add a weekly “compression” tool to summarize daily notes into a short weekly memory.                     
-
+  - Add a weekly “compression” tool to summarize daily notes into a short weekly memory.     
   - Add a “max bullets to mention” rule per section (Daily Notes, Idle Browse, etc.) to prevent spam.        
   - Add a small “Do not repeat this note twice in one day” guardrail.
 
@@ -52,18 +34,7 @@ Thanks, Steven — I’ve really enjoyed working on this. A few ideas that feel 
   - Small admin UI page to view/edit Daily Notes.
   - A soft “pin note” feature for high‑importance items.
 
-  If any of those sound interesting, I can outline a plan.
-                                                                                                             
-                                                                                                             
-› what about additional features that are similiar to this that i have not thought about                     
-                                                                                                             
-                                                                                                             
-• I need to provide a concise brainstorming list without web access and ask the user for their preference on 
-  how to proceed.                                                                                            
-
-• Here are some “adjacent” ideas to Daily Notes that keep the same spirit (LLM‑chosen, lightweight,
-  append‑only), but add new value:                                                                           
-                                                                                                             
+                                                                      
   - Weekly Digest Notes: auto‑summarize daily notes into a single weekly memory (“What mattered this week?”).  - Mood Drift Log: tiny daily note of “emotional arc” (1–2 adjectives) to track vibe trends.                
   - Open Threads Lite: a lightweight list of “unfinished topics” (different from full open loops).           
   - Wins & Gratitude: a dedicated log of wins or gratitude moments to surface on hard days.                  
@@ -73,7 +44,5 @@ Thanks, Steven — I’ve really enjoyed working on this. A few ideas that feel 
   - Relationship Micro‑Rituals: small recurring behaviors Kayley learns (“always check in Sunday night”).    
   - “Do Not Forget” Pins: a tiny pin list (max 5) of the most important notes that never expire unless       
     removed.                                                                                                 
-                                                                                                             
-  If you like any of these, tell me which ones and I’ll sketch how to fit them into the existing tool +      
-  prompt architecture.                                                                                       
+                                                                                     
  
