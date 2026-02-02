@@ -1,0 +1,34 @@
+ Write a short, personal, reflective blog post about the feature I just shipped.                                                                                                  
+                                                                                                                                                                                   
+  Audience: mixed (devs + general).
+  Length: short (600–900 words).                                                                                                                                                   
+  Tone: personal, reflective, excited but grounded.                                                                                                                                
+                                                                                                                                                                                   
+  Include these sections with headings:                                                                                                                                            
+                                                                                                                                                                                   
+  1. Title (1 line)                                                                                                                                                                
+  2. Why it matters (human impact first, then technical)                                                                                                                           
+  3. What we built (plain language bullets)                                                                                                                                        
+  4. Technical hiccups (2–4 bullets)                                                                                                                                               
+  5. Why I’m excited                                                                                                                                                               
+  6. What’s next (3–5 bullets)                                                                                                                                                     
+                                                                                                                                                                                   
+  Constraints:                                                                                                                                                                     
+                                                                                                                                                                                   
+  - Avoid marketing fluff.                                                                                                                                                         
+  - Keep technical terms explained in simple language.
+  - Mention the real tradeoffs or constraints.                                                                                                                                     
+  - End with: “If this interests you, follow along here: https://github.com/stozo04/Interactive-Video-Character”                                                                   
+                                                                                                                                                                                   
+  Feature details to include:                                                                                                                                                      
+                                                                                                                                                                                   
+  - Feature name:                                                                                                                                                                  
+  - Problem it solves:                                                                                                                                                             
+  - Key design decisions:                                                                                                                                                          
+  - Biggest challenge:                                                                                                                                                             
+  - Tools/tech involved:                                                                                                                                                           
+  - Any metrics or results (if any):                                                                                                                                               
+  - 2–3 future ideas:                                                                                                                                                              
+                                                                                                                                                                                   
+  Now write the post.                                                                                                                                                              
+                         
