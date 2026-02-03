@@ -1,11 +1,11 @@
 # IdleThinkingService
 
 ## Core Responsibilities
-- Run a single idle action (storyline, browse, or question) per idle session.
+- Run a single idle action (storyline, browse, question, or tool discovery) per idle session.
 - Enforce per‑action daily caps via `idle_action_log`.
-- Generate and store idle questions and browse notes.
-- Build prompt sections for queued idle questions and browse notes.
-- Update statuses via tool calls (`resolve_idle_question`, `resolve_idle_browse_note`).
+- Generate and store idle questions, browse notes, and tool suggestions.
+- Build prompt sections for queued idle questions, browse notes, and tool suggestions.
+- Update statuses via tool calls (`resolve_idle_question`, `resolve_idle_browse_note`, `tool_suggestion`).
 
 ---
 
@@ -20,12 +20,14 @@
    |   |   +--> question -> idle_questions (queued)
    |   +------> browse   -> idle_browse_notes (queued)
    +----------> storyline -> storyline_pending_suggestions
+   +----------> tool_discovery -> kayley_tool_suggestions (queued)
         |
         v
 [systemPromptBuilder]
    |
    +--> buildIdleQuestionPromptSection()
    +--> buildIdleBrowseNotesPromptSection()
+   +--> buildToolSuggestionsPromptSection()
 ```
 
 ---
@@ -33,7 +35,7 @@
 ## Key Types / Interfaces
 
 ```ts
-export type IdleActionType = "storyline" | "browse" | "question";
+export type IdleActionType = "storyline" | "browse" | "question" | "tool_discovery";
 
 export type IdleQuestionStatus = "queued" | "asked" | "answered";
 
@@ -65,6 +67,7 @@ export interface IdleBrowseNote {
 - Gemini is used to generate:
   - Deep curiosity questions
   - Browse topics and summaries
+  - Tool suggestions (tool discovery)
 - System prompts are built in `idleThinkingService.ts`.
 
 ---
@@ -76,8 +79,9 @@ Logged events include:
 - Action selection + daily cap checks
 - Question generation + storage
 - Browse topic/summary generation + storage
+- Tool suggestion generation + storage
 - Prompt section building counts
-- Status updates for questions and browse notes
+- Status updates for questions, browse notes, and tool suggestions
 
 ---
 
@@ -88,7 +92,7 @@ Logged events include:
 - `memoryService.ts` (tool calls)
 
 **Outputs to:**
-- Supabase tables (`idle_action_log`, `idle_questions`, `idle_browse_notes`)
+- Supabase tables (`idle_action_log`, `idle_questions`, `idle_browse_notes`, `kayley_tool_suggestions`)
 - `systemPromptBuilder.ts` (prompt sections)
 
 ---
@@ -113,6 +117,7 @@ npm test -- --run
 2) Add daily cap check in `runIdleThinkingTick`.
 3) Implement storage + prompt injection logic.
 4) Add tool calls if status tracking is needed.
+5) Update prompt sections if the action injects context.
 
 **Change idle timing**
 - Update constants in `App.tsx` and `idleThinkingService.ts`.

@@ -9,7 +9,7 @@ interface GoogleAuthContextType {
   error: string | null;
   signIn: () => Promise<void>;
   signOut: () => Promise<void>;
-  refreshSession: () => Promise<void>;
+  refreshSession: (options?: { force?: boolean; reason?: string }) => Promise<void>;
   clearError: () => void;
 }
 
@@ -33,19 +33,6 @@ export function GoogleAuthProvider({
   const [status, setStatus] = useState<AuthStatus>('idle');
   const [error, setError] = useState<string | null>(null);
   const refreshTimerRef = useRef<number | null>(null);
-  const lastSilentRefreshAtRef = useRef<number>(0);
-
-  const attemptSilentRefresh = useCallback(async (reason: string) => {
-    const now = Date.now();
-    if (now - lastSilentRefreshAtRef.current < 30000) {
-      //console.log(`Silent refresh throttled (${reason})`);
-      return;
-    }
-    lastSilentRefreshAtRef.current = now;
-    const error = await googleAuth.silentRefresh();
-    if (error) throw error;
-    // console.log(`Silent refresh request sent (${reason})`);
-  }, []);
 
   // Load existing session on mount
   useEffect(() => {
@@ -59,7 +46,7 @@ export function GoogleAuthProvider({
           const gmailSession: GmailSession = {
             email: sbSession.user.email || '',
             accessToken: sbSession.provider_token,
-            expiresAt: (sbSession.expires_at || 0) * 1000,
+            expiresAt: sbSession.expires_at ? sbSession.expires_at * 1000 : Date.now() + 3600 * 1000,
             refreshedAt: Date.now(),
           };
           googleAuth.saveSession(gmailSession);
@@ -102,14 +89,9 @@ export function GoogleAuthProvider({
         const hasLocalToken = !!googleAuth.getSession()?.accessToken;
 
         if (!hasProviderToken && !hasLocalToken) {
-          setStatus('refreshing');
-          try {
-            await attemptSilentRefresh('auth_state_missing_token');
-          } catch (silentErr: any) {
-            console.error('Silent re-auth failed:', silentErr);
-            setError(silentErr.message || 'Failed to refresh session');
-            setStatus('needs_reconnect');
-          }
+          console.warn('[GoogleAuth] Provider token missing after sign-in. Reconnect required.');
+          setError('Google access token missing. Please reconnect.');
+          setStatus('needs_reconnect');
         }
 
         // Bridged Update: Preserve current token if Supabase didn't provide one
@@ -225,7 +207,38 @@ export function GoogleAuthProvider({
     }
   }, []);
 
-  const refreshSession = useCallback(async () => {
+  const refreshSession = useCallback(async (options?: { force?: boolean; reason?: string }) => {
+    if (options?.force) {
+      setStatus('refreshing');
+      setError(null);
+
+      try {
+        const { accessToken, expiresAt, refreshedAt } = await googleAuth.refreshAccessToken();
+        const { data: { session: sbSession } } = await googleAuth.supabase.auth.getSession();
+        const email =
+          session?.email ||
+          googleAuth.getSession()?.email ||
+          sbSession?.user.email ||
+          '';
+
+        const refreshedSession: GmailSession = {
+          email,
+          accessToken,
+          expiresAt,
+          refreshedAt,
+        };
+        googleAuth.saveSession(refreshedSession);
+        setSession(refreshedSession);
+        setStatus('connected');
+        return;
+      } catch (err: any) {
+        console.warn('Forced refresh failed. Reconnect required.', err);
+        setError(err?.message || 'Failed to refresh session');
+        setStatus('needs_reconnect');
+        throw err;
+      }
+    }
+
     if (!session) {
       setStatus('refreshing');
       setError(null);
@@ -235,15 +248,9 @@ export function GoogleAuthProvider({
         throw new Error('No active session to refresh');
       }
 
-      try {
-        await attemptSilentRefresh('no_session');
-        return;
-      } catch (silentErr: any) {
-        console.error('Silent re-auth failed:', silentErr);
-        setError(silentErr.message || 'Failed to refresh session');
-        setStatus('needs_reconnect');
-        throw silentErr;
-      }
+      setError('Google session missing. Please reconnect.');
+      setStatus('needs_reconnect');
+      throw new Error('GOOGLE_RECONNECT_REQUIRED');
     }
 
     setStatus('refreshing');
@@ -255,18 +262,11 @@ export function GoogleAuthProvider({
       setStatus('connected');
       // console.log('?o. Session refreshed successfully via Supabase');
     } catch (err: any) {
-      console.warn('Standard refresh failed, trying silent silent re-auth...', err);
-
-      try {
-        // Try silent re-auth as a last resort before showing banner
-        await attemptSilentRefresh('refresh_failed');
-      } catch (silentErr: any) {
-        console.error('Silent re-auth failed:', silentErr);
-        setError(err.message || 'Failed to refresh session');
-        setStatus('needs_reconnect');
-      }
+      console.warn('Standard refresh failed. Reconnect required.', err);
+      setError(err.message || 'Failed to refresh session');
+      setStatus('needs_reconnect');
     }
-  }, [session, attemptSilentRefresh]);
+  }, [session]);
 
   const clearError = useCallback(() => {
     setError(null);

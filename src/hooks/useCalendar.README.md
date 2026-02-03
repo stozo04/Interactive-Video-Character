@@ -29,6 +29,7 @@ const {
   checkForApplicableCheckins,
 } = useCalendar({
   session,
+  isAuthConnected,
   selectedCharacter,
   proactiveSettings,
   isSnoozed,
@@ -71,6 +72,7 @@ useEffect(() => {
 | Option | Type | Description |
 |--------|------|-------------|
 | `session` | `{ accessToken: string } \| null` | Google auth session with access token |
+| `isAuthConnected` | `boolean` | Whether Google auth is currently connected |
 | `selectedCharacter` | `{ id, name } \| null` | Currently selected character |
 | `proactiveSettings` | `ProactiveSettings` | Proactive feature settings |
 | `isSnoozed` | `boolean` | Whether check-ins are snoozed |

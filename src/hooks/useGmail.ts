@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { gmailService, type NewEmailPayload } from '../services/gmailService';
 import type { GmailSession } from '../services/googleAuth';
 
@@ -10,6 +10,11 @@ interface UseGmailOptions {
 export function useGmail({ session, status }: UseGmailOptions) {
   const [emailQueue, setEmailQueue] = useState<NewEmailPayload[]>([]);
   const [isInitialized, setIsInitialized] = useState(false);
+  const statusRef = useRef(status);
+
+  useEffect(() => {
+    statusRef.current = status;
+  }, [status]);
 
   // Initialize Gmail service when session is ready
   useEffect(() => {
@@ -36,6 +41,9 @@ export function useGmail({ session, status }: UseGmailOptions) {
 
     const poll = async () => {
       try {
+        if (statusRef.current === "refreshing") {
+          return;
+        }
         // console.log('📬 [useGmail] Polling for new mail...');
         await gmailService.pollForNewMail(session.accessToken);
       } catch (err) {

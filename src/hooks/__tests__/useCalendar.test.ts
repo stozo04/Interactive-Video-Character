@@ -81,6 +81,7 @@ describe('useCalendar', () => {
 
   const defaultOptions = {
     session: { accessToken: "test-token" },
+    isAuthConnected: true,
     selectedCharacter: { id: "char-1", name: "Test Character" } as any,
     proactiveSettings: { calendar: true, news: true, checkins: true },
     isSnoozed: false,
@@ -236,6 +237,14 @@ describe('useCalendar', () => {
 
     it("should not start polling without session", () => {
       const hook = useCalendar({ ...defaultOptions, session: null });
+      hook.registerCalendarEffects();
+
+      expect(calendarService.getUpcomingEvents).not.toHaveBeenCalled();
+      expect(calendarService.getWeekEvents).not.toHaveBeenCalled();
+    });
+
+    it("should not start polling when auth is not connected", () => {
+      const hook = useCalendar({ ...defaultOptions, isAuthConnected: false });
       hook.registerCalendarEffects();
 
       expect(calendarService.getUpcomingEvents).not.toHaveBeenCalled();

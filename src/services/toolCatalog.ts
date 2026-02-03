@@ -1,0 +1,200 @@
+export interface ToolCatalogEntry {
+  tool_key: string;
+  name: string;
+  description: string;
+  user_value: string;
+  permissions_needed: string[];
+  triggers: string[];
+  sample_prompts: string[];
+}
+
+export const TOOL_CATALOG: ToolCatalogEntry[] = [
+  {
+    tool_key: "web_search",
+    name: "Web Search",
+    description: "Search the web for real-time info, news, or specific facts.",
+    user_value: "Keeps you updated without leaving the chat.",
+    permissions_needed: ["web_access"],
+    triggers: ["latest news", "current events", "fact check"],
+    sample_prompts: ["What is the latest in AI news?"],
+  },
+  {
+    tool_key: "news_action",
+    name: "News Fetch",
+    description: "Fetch and summarize the latest tech/AI news.",
+    user_value: "Gives you a quick, curated recap when you ask.",
+    permissions_needed: ["web_access"],
+    triggers: ["latest tech news", "AI headlines"],
+    sample_prompts: ["What is the latest in AI this week?"],
+  },
+  {
+    tool_key: "task_action",
+    name: "Task Manager",
+    description: "Create, complete, delete, or list checklist tasks.",
+    user_value: "Helps you track daily priorities and follow through.",
+    permissions_needed: ["local_tasks"],
+    triggers: ["to-do", "reminder", "checklist"],
+    sample_prompts: ["Add buy milk to my list."],
+  },
+  {
+    tool_key: "calendar_action",
+    name: "Calendar Manager",
+    description: "Create, delete, or list Google Calendar events.",
+    user_value: "Keeps your schedule organized without switching apps.",
+    permissions_needed: ["calendar_read_write"],
+    triggers: ["schedule", "meeting", "appointment"],
+    sample_prompts: ["Schedule lunch tomorrow at 12:30."],
+  },
+  {
+    tool_key: "selfie_action",
+    name: "Selfies",
+    description: "Generate an image of Kayley in a requested scene.",
+    user_value: "Adds visual presence and warmth to the chat.",
+    permissions_needed: ["image_generation"],
+    triggers: ["selfie", "photo", "picture"],
+    sample_prompts: ["Send me a selfie at a coffee shop."],
+  },
+  {
+    tool_key: "video_action",
+    name: "Videos",
+    description: "Generate a short video clip of Kayley.",
+    user_value: "Gives you a more alive, expressive response.",
+    permissions_needed: ["video_generation"],
+    triggers: ["video", "clip", "show me"],
+    sample_prompts: ["Send a quick video saying hi."],
+  },
+  {
+    tool_key: "open_app",
+    name: "Open External Apps",
+    description: "Launch supported apps using URL schemes.",
+    user_value: "Lets you jump into tools quickly.",
+    permissions_needed: ["local_app_launch"],
+    triggers: ["open Slack", "launch Spotify"],
+    sample_prompts: ["Open Spotify."],
+  },
+  {
+    tool_key: "recall_memory",
+    name: "Conversation Recall",
+    description: "Search past conversation history for context.",
+    user_value: "Keeps continuity and avoids repeating questions.",
+    permissions_needed: ["memory_read"],
+    triggers: ["remember", "did I tell you"],
+    sample_prompts: ["Do you remember what I said about my job?"],
+  },
+  {
+    tool_key: "recall_user_info",
+    name: "User Facts Recall",
+    description: "Retrieve stored facts about the user.",
+    user_value: "Personalizes responses and avoids forgetting.",
+    permissions_needed: ["memory_read"],
+    triggers: ["my preferences", "my name"],
+    sample_prompts: ["What do you know about my preferences?"],
+  },
+  {
+    tool_key: "store_user_info",
+    name: "Store User Facts",
+    description: "Save durable user facts (identity, preferences, context).",
+    user_value: "Builds long-term memory and personalization.",
+    permissions_needed: ["memory_write"],
+    triggers: ["new personal detail", "life context"],
+    sample_prompts: ["Remember that I work in product design."],
+  },
+  {
+    tool_key: "store_character_info",
+    name: "Store Kayley Facts",
+    description: "Save new facts Kayley shares about herself.",
+    user_value: "Keeps Kayley's character consistent over time.",
+    permissions_needed: ["memory_write"],
+    triggers: ["new Kayley detail"],
+    sample_prompts: ["Remember you named your plant Fern."],
+  },
+  {
+    tool_key: "store_daily_note",
+    name: "Daily Notes",
+    description: "Append a short bullet to Kayley's daily notes.",
+    user_value: "Captures context without polluting long-term memory.",
+    permissions_needed: ["memory_write"],
+    triggers: ["quick note", "remember later"],
+    sample_prompts: ["Add a note that I felt exhausted today."],
+  },
+  {
+    tool_key: "retrieve_daily_notes",
+    name: "Daily Notes Recall",
+    description: "Retrieve all stored daily notes.",
+    user_value: "Lets Kayley review recent context quickly.",
+    permissions_needed: ["memory_read"],
+    triggers: ["what did you note", "daily notes"],
+    sample_prompts: ["What did you write in your daily notes?"],
+  },
+  {
+    tool_key: "make_promise",
+    name: "Promises",
+    description: "Create a promise to do something later.",
+    user_value: "Creates follow-through moments that feel human.",
+    permissions_needed: ["memory_write"],
+    triggers: ["I'll do that later", "remind me later"],
+    sample_prompts: ["Promise you'll send a selfie later."],
+  },
+  {
+    tool_key: "create_open_loop",
+    name: "Open Loops",
+    description: "Create a follow-up reminder for later check-ins.",
+    user_value: "Helps Kayley revisit important topics later.",
+    permissions_needed: ["memory_write"],
+    triggers: ["follow up", "check in later"],
+    sample_prompts: ["Ask me later how the interview went."],
+  },
+  {
+    tool_key: "resolve_open_loop",
+    name: "Resolve Open Loop",
+    description: "Mark an open loop as resolved or dismissed.",
+    user_value: "Prevents nagging and keeps follow-ups clean.",
+    permissions_needed: ["memory_write"],
+    triggers: ["resolved follow-up", "drop the topic"],
+    sample_prompts: ["We already talked about that interview."],
+  },
+  {
+    tool_key: "create_life_storyline",
+    name: "Life Storylines",
+    description: "Create a multi-day storyline for ongoing arcs.",
+    user_value: "Adds continuity for long-term life events.",
+    permissions_needed: ["memory_write"],
+    triggers: ["new long-term project", "ongoing change"],
+    sample_prompts: ["I started learning guitar."],
+  },
+  {
+    tool_key: "recall_character_profile",
+    name: "Kayley Profile Recall",
+    description: "Retrieve deeper parts of Kayley's character profile.",
+    user_value: "Keeps Kayley consistent and grounded.",
+    permissions_needed: ["memory_read"],
+    triggers: ["tell me about your past"],
+    sample_prompts: ["Tell me more about your background."],
+  },
+  {
+    tool_key: "resolve_idle_question",
+    name: "Idle Curiosity Questions",
+    description: "Track when idle questions are asked/answered.",
+    user_value: "Helps deepen relationship without repeats.",
+    permissions_needed: ["memory_write"],
+    triggers: ["idle question asked", "idle question answered"],
+    sample_prompts: ["(internal) Mark idle question as asked."],
+  },
+  {
+    tool_key: "resolve_idle_browse_note",
+    name: "Idle Browsing Notes",
+    description: "Track when an idle browsing note is shared.",
+    user_value: "Keeps idle browsing from repeating.",
+    permissions_needed: ["memory_write"],
+    triggers: ["shared idle browsing link"],
+    sample_prompts: ["(internal) Mark browse note as shared."],
+  },
+];
+
+export const TOOL_CATALOG_KEYS = TOOL_CATALOG.map((tool) => tool.tool_key);
+
+export function formatToolCatalogForPrompt(): string {
+  return TOOL_CATALOG
+    .map((tool) => `- ${tool.tool_key}: ${tool.name} — ${tool.description}`)
+    .join("\n");
+}

@@ -129,8 +129,7 @@ export async function getAccessToken(): Promise<Omit<GmailSession, "email">> {
   // Check if session has a provider token
   if (session?.provider_token) {
     console.log('✅ Provider token found in Supabase session');
-    // Use standard 1-hour expiry for Google tokens
-    const expiresAt = Date.now() + 3600 * 1000;
+    const expiresAt = session.expires_at ? session.expires_at * 1000 : Date.now() + 3600 * 1000;
     return {
       accessToken: session.provider_token,
       expiresAt: expiresAt,
@@ -175,7 +174,7 @@ export async function refreshAccessToken(): Promise<Omit<GmailSession, "email">>
     console.log('✅ Refreshed Provider token present in Supabase response');
     return {
       accessToken: sbSession.provider_token,
-      expiresAt: Date.now() + 3600 * 1000,
+      expiresAt: sbSession.expires_at ? sbSession.expires_at * 1000 : Date.now() + 3600 * 1000,
       refreshedAt: Date.now(),
     };
   }
