@@ -34,6 +34,20 @@
 
 ---
 
+## Plan: Improve IdleThinking "Theme Recently Used" Log
+
+1) Confirm desired log detail and format in `src/services/idleThinkingService.ts`.
+2) Update the log message and context payload for the theme-skip case.
+3) Verification (if approved): `npm test -- --run`.
+
+## Progress
+- [ ] Waiting on approval to patch.
+
+## Review Notes
+- Not started.
+
+---
+
 ## Plan: Canonicalize User Facts + Pinned Facts + Data Cleanup
 
 1) Define canonical keys (e.g., identity.nickname) and pinning flag behavior.

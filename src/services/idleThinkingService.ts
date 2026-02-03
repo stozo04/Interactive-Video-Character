@@ -742,9 +742,10 @@ async function generateToolSuggestion(): Promise<boolean> {
     }
 
     if (recentThemeWindow.includes(theme)) {
-      console.warn(`${LOG_PREFIX} Theme recently used; skipping`, {
+      console.warn(`${LOG_PREFIX} Skipping tool suggestion: theme recently used`, {
         theme,
         recentThemes: recentThemeWindow,
+        windowSize: TOOL_SUGGESTION_THEME_WINDOW,
       });
       return false;
     }
