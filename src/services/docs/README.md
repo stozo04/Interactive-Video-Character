@@ -6,51 +6,35 @@ This folder contains detailed explanations of the services that power Kayley's b
 
 The system follows a "Perception -> processing -> Action" pipeline:
 
-1.  **Perception**: `intentService.ts` analyzes what the user said (Tone, Intent, Genuine Moments).
+1.  **Perception**: The user message is processed to extract context and intent.
 2.  **State Processing**:
-    *   **The Soul**: `moodKnobs.ts` & `relationshipService.ts` update her internal vibe.
+    *   **The Soul**: `relationshipService.ts` tracks her emotional state and relationship tier.
     *   **The Memory**: `memoryService.ts` & `presenceDirector.ts` store facts and topics.
-    *   **The Background**: `messageAnalyzer.ts` orchestrates all of the above silently.
-3.  **Action**: `BaseAIService.ts` gathers all this context and generates the final response.
+    *   **The Orchestration**: `messageOrchestrator.ts` coordinates message processing.
+3.  **Action**: The AI service gathers all this context and generates the final response.
 
 ## Detailed Service Docs
 
 ### 🧠 The Brain & Logic
 *   [AI Services / Providers](./AI_Services.md): Multi-model support (Gemini, ChatGPT) and JSON schemas.
 *   [AI Schema Workflow](./aiSchema_Workflow.md): Response fields vs tools - when to use which mechanism.
-*   [Intent Service](./IntentService.md): Front-line semantic analysis (Tone, Sarcasm).
-*   [Message Orchestrator](./MessageOrchestrator.md): Central coordinator for user message processing. *(In Development)*
-*   [Message Analyzer](./MessageAnalyzer.md): Background processing and "magic" systems integration.
-*   [State Service](./StateService.md): Central database interaction layers (Supabase).
+*   [Message Orchestrator](./MessageOrchestrator.md): Central coordinator for user message processing.
 *   [Performance & Assets](./Performance_and_Assets.md): Caching, pre-fetching, and high-performance video delivery.
 
 ### ❤️ Personality & The Soul
-*   [Mood Knobs](./MoodKnobs.md): Energy, social battery, and emotional momentum math.
 *   [Relationship Service](./RelationshipService.md): Trust, warmth, and long-term bond progression.
-*   [Ongoing Threads](./OngoingThreads.md): Her internal "mental weather" and hobby projects.
-*   [Autonomous Thought Service](./AutonomousThoughtService.md): LLM-based dynamic thought generation for ongoing threads.
 *   [Life Event Service](./LifeEventService.md): Tracks recent events in Kayley's life for thought context.
 *   [Storyline Service](./StorylineService.md): Life events as living storylines with emotional arcs and closure. *(Phase 1 Complete)*
-*   [Storyline Creation Service](./StorylineCreationService.md): Conversation-driven storyline creation with safety controls (Phase 1). **NEW**
+*   [Storyline Creation Service](./StorylineCreationService.md): Conversation-driven storyline creation with safety controls (Phase 1).
 *   [User Patterns](./UserPatterns.md): Cross-session behavioral trend detection.
-*   [Soul & Utility](./Soul_and_Utility.md): Broad overview of secondary utility services.
 
 ### 📅 Proactive & Memory
 *   [Presence Director](./PresenceDirector.md): Decides what's most important to mention *now*.
 *   [Memory & Callbacks](./Memory_and_Callbacks.md): Long-term RAG memory and session "inside jokes".
 *   [Character Facts Service](./CharacterFactsService.md): Kayley's emergent self-knowledge and memories.
-*   [Kayley Presence](./KayleyPresence.md): Real-time tracking of what she's wearing/doing/feeling.
 *   [Proactive Systems](./Proactive_Systems.md): Overview of Calendar and News systems.
 *   [Loop Cleanup](./LoopCleanup.md): The "janitor" that keeps her memory from getting cluttered.
 *   [Promise Service](./promiseService.md): Temporal awareness and future commitment tracking.
-
-### 🌙 Idle Life (Part Two: Kayley Lives Her Life)
-*   [Idle Life Service](./IdleLifeService.md): Overview of the complete idle-time system.
-*   [Kayley Experience Service](./KayleyExperienceService.md): Life experiences (activities, mishaps, thoughts) generated during absence.
-*   [Calendar Awareness Service](./CalendarAwarenessService.md): Post-event check-in messages ("Hope your interview went well!").
-*   [Gift Message Service](./GiftMessageService.md): Rare, unprompted "gift" messages (selfies or thoughts).
-*   [Pending Message Service](./PendingMessageService.md): Storage and delivery of messages waiting for user return.
-*   [Idle Thinking Service](./IdleThinkingService.md): Unified idle action runner (storyline, browse, questions).
 
 ### 🎮 Features & Interaction
 *   [Interactive Features](./Interactive_Features.md): Whiteboard, games, drawing, and "Almost Moments".
@@ -63,40 +47,43 @@ The system follows a "Perception -> processing -> Action" pipeline:
 This is the most common point of confusion. A simple rule of thumb:
 
 *   **LLM Services ("Thinking")**: These use `Gemini` or `OpenAI` because they need to understand language or generate content.
-    *   *Examples*: `intentService`, `BaseAIService`, `messageAnalyzer` (for deep loop detection), `autonomousThoughtService` (thought generation).
+    *   *Examples*: `geminiChatService`, `imageGenerationService`, `grokVideoGenerationService`.
 *   **Non-LLM Services ("Data/Logic")**: These use `Typescript` logic and `Supabase` queries. They handle math, data storage, and timing.
-    *   *Examples*: `stateService`, `presenceDirector`, `moodKnobs`, `calendarService`, `lifeEventService`.
+    *   *Examples*: `presenceDirector`, `calendarService`, `lifeEventService`, `relationshipService`.
 
 ### 2. Is there overlap between these services?
 Yes, by design. Some services are "Managers" and some are "Workers":
 
-*   **Overlap in "Mood"**: `moodKnobs.ts` handles the math of mood levels, while `messageAnalyzer.ts` is what *decides* when to call the math functions.
-*   **Overlap in "Intent"**: `intentService.ts` is a specialized fast-pass for intent. You might see similar logic in `messageAnalyzer`, but `intentService` is optimized for **latency** (getting a result in <1s) while `messageAnalyzer` is optimized for **depth**.
+*   **Overlap in "Personality"**: `relationshipService.ts` tracks relationship metrics and warmth, while various prompt builders use this data to shape Kayley's responses.
+*   **Overlap in "Memory"**: `memoryService.ts` provides memory tools and context retrieval, while `presenceDirector.ts` decides what's most important to mention.
 
 ### 3. How do the non-LLM services work without an "Action"?
 They are "Reactive." They wait for an LLM to tell them what to do.
-*   *Example*: The LLM thinks: "The user said they are sad."
-*   *The Action*: The LLM calls the `stateService` (via `moodKnobs`) to lower Kayley's `energy` and updates the DB.
-*   *The Result*: The next time Kayley speaks, she sees her "Energy" is low in her prompt and talks more softly.
+*   *Example*: The LLM generates a response that acknowledges the user's emotion.
+*   *The Action*: The system updates relationship metrics and stores context for future interactions.
+*   *The Result*: The next time Kayley speaks, she has richer context about the user's emotional state and can respond more thoughtfully.
 
-## ASCII Workflow Overview
+## Workflow Overview
 
 ```text
 [ USER MESSAGE ]
       |
       V
-[ intentService ] (LLM: "They are sad!")
+[ messageOrchestrator ] (Coordinates processing)
       |
-      +------------------------------------------+
-      | (Background - Non Blocking)               | (Real-time - Blocking)
-      V                                          V
-[ messageAnalyzer ] (LLM: "Job interview loop") [ BaseAIService ] 
-      |                                          |
-      V                                          V
-[ stateService ] (DB: Update mood/loops)        [ AI Providers ] (LLM: "I'm so sorry...")
-      |                                          |
-      +------------------------------------------+
-      |
-      V
-[ UI / AUDIO RESPONSE ]
+      +----------------------------------+
+      |                                  |
+      V                                  V
+[ Context Fetch ]              [ geminiChatService ] (LLM: Generate response)
+(relationship, memory, etc.)          |
+      |                               V
+      +----> [ AI Response ]
+              (text, actions, etc.)
+              |
+              V
+         [ Response Handler ]
+         (execute actions, store facts)
+              |
+              V
+        [ UI / AUDIO ]
 ```
