@@ -15,11 +15,6 @@
 
 import { supabase } from './supabaseClient';
 import { KAYLEY_FULL_PROFILE } from '../domain/characters/kayleyCharacterProfile';
-import {
-  type OpenLoopIntent,
-  type FollowUpTimeframe,
-  type ConversationContext,
-} from "./intentService";
 
 // ============================================
 // Types
@@ -907,33 +902,10 @@ export async function expireOldLoops(): Promise<void> {
  * Analyze a user message for potential open loops to create.
  * This should be called after each user message.
  *
- * Phase 5: Now uses LLM-based detection as the primary method,
- * with regex patterns as fallback when LLM fails or returns nothing.
- *
  * @param userMessage - The user's message to analyze
- * @param llmCall - DEPRECATED: no longer used, LLM detection now uses intentService
- * @param conversationContext - Optional context for LLM detection
- */
-/**
- * Analyze a user message for potential open loops to create.
- * This should be called after each user message.
- *
- * Phase 5: Now uses LLM-based detection as the primary method,
- * with regex patterns as fallback when LLM fails or returns nothing.
- *
- * Phase 7 Update: Accepts 'providedIntent' from the Unified Intent System
- * to avoid redundant LLM calls.
- *
- * @param userMessage - The user's message to analyze
- * @param llmCall - DEPRECATED: no longer used
- * @param conversationContext - Optional context for LLM detection
- * @param providedIntent - PRE-CALCULATED intent from the unified system (optimization)
  */
 export async function detectOpenLoops(
   userMessage: string,
-  llmCall?: (prompt: string) => Promise<string>,
-  conversationContext?: ConversationContext,
-  providedIntent?: OpenLoopIntent
 ): Promise<OpenLoop[]> {
   const createdLoops: OpenLoop[] = [];
 
@@ -942,49 +914,6 @@ export async function detectOpenLoops(
     return createdLoops;
   }
 
-  // Phase 5/7: Try LLM-based detection (either provided or internal)
-  let llmResult: OpenLoopIntent | null = null;
-
-  try {
-    llmResult = providedIntent;
-    if (
-      llmResult &&
-      llmResult.hasFollowUp &&
-      llmResult.loopType &&
-      llmResult.topic
-    ) {
-      // Convert LLM result to open loop
-      const loop = await createOpenLoop(
-        llmResult.loopType as LoopType, // LoopTypeIntent maps directly to LoopType
-        llmResult.topic,
-        {
-          triggerContext: userMessage.slice(0, 200),
-          suggestedFollowup: llmResult.suggestedFollowUp || undefined,
-          salience: llmResult.salience,
-          shouldSurfaceAfter: mapTimeframeToSurfaceDate(llmResult.timeframe),
-          eventDateTime: llmResult.eventDateTime
-            ? (() => {
-                const parsed = new Date(llmResult.eventDateTime);
-                return !isNaN(parsed.getTime()) ? parsed : undefined;
-              })()
-            : undefined,
-        }
-      );
-      if (loop) {
-        createdLoops.push(loop);
-        console.log(
-          `🔄 [PresenceDirector] Created open loop via LLM: ${llmResult.loopType} - "${llmResult.topic}"`
-        );
-        return createdLoops; // Return early - LLM result is preferred
-      }
-    }
-  } catch (error) {
-    console.warn(
-      "[PresenceDirector] LLM open loop detection failed, falling back to regex:",
-      error
-    );
-    // Fall through to regex detection below
-  }
 
   // Fallback: Simple pattern-based detection (fast, used when LLM fails or returns nothing)
   const simpleLoops = detectSimplePatterns(userMessage);
@@ -999,41 +928,6 @@ export async function detectOpenLoops(
   }
 
   return createdLoops;
-}
-
-/**
- * Convert LLM-inferred timeframe to a Date for shouldSurfaceAfter.
- * This enables context-aware scheduling of follow-ups.
- */
-function mapTimeframeToSurfaceDate(
-  timeframe: FollowUpTimeframe | null
-): Date | undefined {
-  if (!timeframe) return undefined;
-
-  const now = new Date();
-
-  switch (timeframe) {
-    case "immediate":
-      // Surface immediately (within minutes, for in-conversation follow-ups)
-      return new Date(now.getTime() + 2 * 60 * 1000); // 2 minutes
-    case "today":
-      // Surface after 2 hours (give event time to happen)
-      return new Date(now.getTime() + 2 * 60 * 60 * 1000);
-    case "tomorrow":
-      // Surface next day
-      return new Date(now.getTime() + 24 * 60 * 60 * 1000);
-    case "this_week":
-      // Surface after 2 days
-      return new Date(now.getTime() + 48 * 60 * 60 * 1000);
-    case "soon":
-      // Surface after 3 days
-      return new Date(now.getTime() + 72 * 60 * 60 * 1000);
-    case "later":
-      // Surface after 1 week
-      return new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
-    default:
-      return undefined;
-  }
 }
 
 interface DetectedPattern {

@@ -132,7 +132,6 @@ export interface ImagePromptContext {
   relevantOpinion?: { topic: string; sentiment: string };
 
   // Character context
-  kayleyMood: { energy: number; warmth: number };
   userFacts?: string[];
   characterFacts?: string[];
 

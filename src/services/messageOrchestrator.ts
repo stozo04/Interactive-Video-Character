@@ -9,7 +9,7 @@
  * @see src/services/docs/MessageOrchestrator.md
  */
 
-import type { IAIChatService, AIChatOptions, UserContent } from './aiService';
+import type { AIChatOptions, UserContent } from './aiService';
 import type { CalendarEvent } from './calendarService';
 import {
   ActionType,
@@ -35,11 +35,6 @@ import {
   type VideoAction,
   type TaskAction,
 } from '../handlers/messageActions';
-
-// Background services (fire-and-forget)
-import { processDetectedFacts } from './memoryService';
-import { detectKayleyPresence } from './kayleyPresenceDetector';
-import { updateKayleyPresenceState, getDefaultExpirationMinutes } from './kayleyPresenceService';
 import { appendConversationHistory } from './conversationHistoryService';
 
 // ============================================================================
@@ -351,7 +346,6 @@ export async function processUserMessage(input: OrchestratorInput): Promise<Orch
     // ========================================================================
 
     result.stage = ProcessingStage.POSTPROCESSING;
-    const intent = aiResult.intent;
 
     // User facts detection has been removed from intent detection to reduce payload size
     // Facts can be stored via the store_user_info tool in the main chat instead
@@ -359,32 +353,7 @@ export async function processUserMessage(input: OrchestratorInput): Promise<Orch
     // Character facts are now stored exclusively via the store_self_info LLM tool
     // Pattern-based detection has been removed in favor of LLM semantic understanding
 
-    // Background presence detection - don't await
-    detectKayleyPresence(response.text_response, userMessage)
-      .then((presence) => {
-        if (presence && presence.confidence > 0.7) {
-          console.log(
-            `👁️ [Orchestrator] Detected presence: ${presence.activity}`
-          );
-          const expirationMinutes = getDefaultExpirationMinutes(
-            presence.activity,
-            presence.outfit
-          );
-          updateKayleyPresenceState({
-            outfit: presence.outfit,
-            mood: presence.mood,
-            activity: presence.activity,
-            location: presence.location,
-            expirationMinutes,
-            confidence: presence.confidence,
-          }).catch((err) =>
-            console.error("❌ [Orchestrator] Failed to update presence:", err)
-          );
-        }
-      })
-      .catch((err) =>
-        console.error("❌ [Orchestrator] Failed to detect presence:", err)
-      );
+
 
     // Background conversation history - don't await
     const historyMessages = [
@@ -428,7 +397,6 @@ export async function processUserMessage(input: OrchestratorInput): Promise<Orch
 
     // Raw response for action routing in App.tsx
     result.rawResponse = response;
-    result.intent = intent;
 
     console.log(
       `✅ [Orchestrator] Complete: actionType=${actionType}, success=true`

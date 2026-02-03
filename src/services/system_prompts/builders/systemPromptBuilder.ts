@@ -5,31 +5,19 @@
  * This is the core prompt construction logic.
  */
 
-import { Task } from "../../../types";
 import type { RelationshipMetrics } from "../../relationshipService";
 import { KAYLEY_CONDENSED_PROFILE } from "../../../domain/characters/kayleyCharacterProfile";
 import { getRecentNewsContext } from "../../newsService";
-import { formatMoodForPrompt } from "../../moodKnobs";
-import { getIntimacyContextForPromptAsync } from "../../relationshipService";
 import { formatCharacterFactsForPrompt } from "../../characterFactsService";
-import type { SoulLayerContext } from "../types";
-import { buildComfortableImperfectionPrompt } from "../behavior/comfortableImperfection";
-import { buildStyleOutputSection } from "../context/styleOutput";
 import { buildPromisesContext } from "../context/promisesContext";
 import { buildRelationshipTierPrompt } from "./relationshipPromptBuilders";
 import { buildSelfieRulesPrompt } from "./selfiePromptBuilder";
 import { buildVideoRulesPrompt } from "./videoPromptBuilder";
-import { buildBidDetectionPrompt } from "../behavior/bidDetection";
-import { buildSelectiveAttentionPrompt } from "../behavior/selectiveAttention";
-import { buildCuriosityEngagementSection } from "../behavior/curiosityEngagement";
-import { buildPresencePrompt } from "../soul/presencePrompt";
-import { getSoulLayerContextAsync } from "../soul/soulLayerContext";
 import { buildAntiAssistantSection } from "../core/antiAssistant";
 import {
   buildCurrentContextSection,
   buildOpinionsAndPushbackSection,
 } from "../core/opinionsAndPushback";
-import { buildIdentityAnchorSection } from "../core/identityAnchor";
 import {
   integrateAlmostMoments,
   type AlmostMomentIntegration,
@@ -38,7 +26,6 @@ import {
   getStorylinePromptContext,
   type StorylinePromptContext,
 } from "../../storylineService";
-import { formatExperiencesForPrompt } from "../../idleLife"; // COMPLETED REFACTOR!
 import {
 buildToolStrategySection
 } from "../tools";
@@ -107,14 +94,8 @@ export const buildSystemPromptForNonGreeting = async (
   relationship?: RelationshipMetrics | null,
   upcomingEvents: any[] = [],
   characterContext?: string,
-  tasks?: Task[],
-  prefetchedContext?: {
-    soulContext: SoulLayerContext;
-    characterFacts: string;
-  },
   messageCount: number = 0,
 ): Promise<string> => {
-  let soulContext: SoulLayerContext;
   let characterFactsPrompt: string;
   let almostMoments: AlmostMomentIntegration;
   let idleQuestionPrompt: string;
@@ -123,8 +104,8 @@ export const buildSystemPromptForNonGreeting = async (
   let dailyNotesPrompt: string;
 
   console.log("[buildSystemPromptForNonGreeting] fetching now");
-  [soulContext, characterFactsPrompt, almostMoments, idleQuestionPrompt, idleBrowseNotesPrompt, toolSuggestionsPrompt, dailyNotesPrompt] = await Promise.all([
-    getSoulLayerContextAsync(),
+  [characterFactsPrompt, almostMoments, idleQuestionPrompt, idleBrowseNotesPrompt, toolSuggestionsPrompt, dailyNotesPrompt] = await Promise.all([
+
     formatCharacterFactsForPrompt(),
     integrateAlmostMoments(relationship, {
       conversationDepth: "surface",
@@ -156,14 +137,10 @@ ${toolSuggestionsPrompt}
 ${dailyNotesPrompt}
 ${idleQuestionPrompt}
 ${characterFactsPrompt}
-${buildRelationshipTierPrompt(relationship, soulContext.moodKnobs, false, almostMoments.promptSection)}
+${buildRelationshipTierPrompt(relationship, almostMoments.promptSection)}
 ${buildOpinionsAndPushbackSection()}
 ${buildCurrentContextSection(characterContext)}
-${buildComfortableImperfectionPrompt()}
-${buildBidDetectionPrompt()}
 ${await getStorylinePromptContext(messageCount)}
-${await formatExperiencesForPrompt()}
-${await getIntimacyContextForPromptAsync(relationship, soulContext.moodKnobs.warmth)}
 ${await buildPromisesContext()}
 ${buildSelfieRulesPrompt(relationship)}
 ${buildVideoRulesPrompt(relationship)}

@@ -18,9 +18,6 @@
 // Types (Phase 2)
 export * from "./types";
 
-// Behavior sections (Phase 2 + Phase 4 + Phase 5b)
-export * from "./behavior";
-
 // Context sections (Phase 3 + Phase 5b)
 export * from "./context";
 

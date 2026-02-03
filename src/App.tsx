@@ -36,7 +36,6 @@ import { processUserMessage } from './services/messageOrchestrator';
 import { useGoogleAuth } from './contexts/GoogleAuthContext';
 import { useDebounce } from './hooks/useDebounce';
 import { useMediaQueues } from './hooks/useMediaQueues';
-import { useCacheWarming } from './hooks/useCacheWarming';
 import { useTasks } from './hooks/useTasks';
 import { useCalendar } from './hooks/useCalendar';
 import { useProactiveSettings } from './hooks/useProactiveSettings';
@@ -101,7 +100,7 @@ const App: React.FC = () => {
   // MEDIA & CACHE HOOKS
   // --------------------------------------------------------------------------
   const media = useMediaQueues();
-  useCacheWarming();
+
 
   // --------------------------------------------------------------------------
   // CHAT & PROCESSING STATE
@@ -1114,14 +1113,6 @@ const App: React.FC = () => {
         }
       };
 
-      const startBackgroundSentiment = () => {
-        relationshipService
-          .analyzeMessageSentiment(trimmedMessage, updatedHistory, result.intent)
-          .then(event => relationshipService.updateRelationship(event))
-          .then(updated => { if (updated) setRelationship(updated); })
-          .catch(err => console.error('Sentiment analysis failed:', err));
-      };
-
       // ============================================
       // ACTION-SPECIFIC PROCESSING (Phase 6: Simplified)
       // ============================================
@@ -1138,7 +1129,6 @@ const App: React.FC = () => {
         if (result.chatMessages.length > 0) setChatHistory(prev => [...prev, ...result.chatMessages]);
         if (result.audioToPlay) media.enqueueAudio(result.audioToPlay);
         await triggerSystemMessage(result.newsPrompt);
-        startBackgroundSentiment();
         return;
       }
 
@@ -1154,7 +1144,6 @@ const App: React.FC = () => {
         }
         // Gates: Disable Audio
         // if (!isMuted) { const audio = await generateSpeech(selfieMsg); if (audio) media.enqueueAudio(audio); }
-        startBackgroundSentiment();
         maybePlayResponseAction(result.actionToPlay);
         return;
       }
@@ -1169,7 +1158,6 @@ const App: React.FC = () => {
         } else {
           setChatHistory(prev => [...prev, { role: 'model', text: videoMsg }]);
         }
-        startBackgroundSentiment();
         maybePlayResponseAction(result.actionToPlay);
         return;
       }
@@ -1184,7 +1172,6 @@ const App: React.FC = () => {
       if (result.refreshCalendar && session) refreshCalendarEvents(session.accessToken);
       if (result.refreshTasks) refreshTasks();
       if (result.openTaskPanel) setIsTaskPanelOpen(true);
-      startBackgroundSentiment();
 
     } catch (error) {
       console.error('❌ [App] Message processing failed:', error);

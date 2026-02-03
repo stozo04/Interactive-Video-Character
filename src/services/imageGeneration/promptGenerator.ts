@@ -189,9 +189,6 @@ EXPLICIT MOOD: ${context.explicitMood || "Not specified"}
 CONTEXT:
 - Recent Messages: ${JSON.stringify(context.recentMessages.slice(-5))}
 - Active Loops: ${JSON.stringify(context.activeLoops)}
-- Kayley Mood: Energy: ${context.kayleyMood.energy}, Warmth: ${
-    context.kayleyMood.warmth
-  }
 - Is Old Photo: ${context.isOldPhoto}
 - Temporal Reference: ${context.temporalReference || "None"}
 - Upcoming Events: ${JSON.stringify(context.upcomingEvents || [])}
@@ -257,7 +254,6 @@ function getCacheKey(context: ImagePromptContext): string {
     context.explicitScene || "",
     context.explicitMood || "",
     msgHash,
-    Math.round(context.kayleyMood.energy * 10), // Round to avoid float precision issues
     context.isOldPhoto,
     loopHash,
     eventsCount,
