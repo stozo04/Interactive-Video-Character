@@ -64,3 +64,24 @@ Polling continues and repeatedly receives HTTP 401 from Gmail history endpoint.
 ## Notes
 - Stack indicates `gmailService.ts` polling and `useGmail.ts` interval loop.
 - A background refresh is attempted but does not resolve the 401.
+
+---
+
+## Update (2026-02-02)
+### New user report
+- On app startup, the browser is redirected to `/?error=interaction_required&error_description=#error=interaction_required`.
+- Manual sign-in still works after the redirect.
+
+### Root cause
+- The app attempts **silent OAuth** (`prompt=none`) on startup when a Supabase session exists but no `provider_token` is present.
+- Google blocks silent auth without user interaction and returns `interaction_required`, which Supabase surfaces in the redirect URL.
+- This behavior can be triggered by the same refresh/bridging logic introduced to mitigate Gmail 401s.
+
+### Fix (implemented)
+- Disable automatic silent OAuth attempts on app startup and background refresh paths.
+- When a token is missing, the app now moves to `needs_reconnect` and waits for an explicit user action.
+- The reconnect button now uses interactive sign-in instead of silent refresh.
+
+### Files touched
+- `src/contexts/GoogleAuthContext.tsx`
+- `src/components/AuthWarningBanner.tsx`

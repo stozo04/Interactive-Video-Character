@@ -13,3 +13,21 @@
 
 ## Review Notes
 - Draft complete; awaiting any edits or verification requests.
+
+---
+
+## Plan: Stop Silent Google OAuth On Startup (Option 1) + Bug Update
+
+1) Document findings and fix plan in `docs/bugs/BUG-2026-02-01-google-auth-gmail-401.md`.
+2) Update Google auth startup logic to avoid silent OAuth on load in `src/contexts/GoogleAuthContext.tsx`.
+3) Adjust any related messaging or guardrails if needed in `src/services/googleAuth.ts` and `src/components/AuthWarningBanner.tsx`.
+4) Verification (if approved): `npm test -- --run` and/or `npm run dev`.
+
+## Progress
+- [x] Bug doc updated with findings + fix
+- [x] Silent OAuth on startup disabled
+- [x] Guardrails/messaging reviewed
+- [ ] Verification run (if approved)
+
+## Review Notes
+- Pending approval to patch.

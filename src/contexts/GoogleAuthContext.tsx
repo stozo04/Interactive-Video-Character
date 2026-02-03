@@ -33,19 +33,6 @@ export function GoogleAuthProvider({
   const [status, setStatus] = useState<AuthStatus>('idle');
   const [error, setError] = useState<string | null>(null);
   const refreshTimerRef = useRef<number | null>(null);
-  const lastSilentRefreshAtRef = useRef<number>(0);
-
-  const attemptSilentRefresh = useCallback(async (reason: string) => {
-    const now = Date.now();
-    if (now - lastSilentRefreshAtRef.current < 30000) {
-      //console.log(`Silent refresh throttled (${reason})`);
-      return;
-    }
-    lastSilentRefreshAtRef.current = now;
-    const error = await googleAuth.silentRefresh();
-    if (error) throw error;
-    // console.log(`Silent refresh request sent (${reason})`);
-  }, []);
 
   // Load existing session on mount
   useEffect(() => {
@@ -102,14 +89,9 @@ export function GoogleAuthProvider({
         const hasLocalToken = !!googleAuth.getSession()?.accessToken;
 
         if (!hasProviderToken && !hasLocalToken) {
-          setStatus('refreshing');
-          try {
-            await attemptSilentRefresh('auth_state_missing_token');
-          } catch (silentErr: any) {
-            console.error('Silent re-auth failed:', silentErr);
-            setError(silentErr.message || 'Failed to refresh session');
-            setStatus('needs_reconnect');
-          }
+          console.warn('[GoogleAuth] Provider token missing after sign-in. Reconnect required.');
+          setError('Google access token missing. Please reconnect.');
+          setStatus('needs_reconnect');
         }
 
         // Bridged Update: Preserve current token if Supabase didn't provide one
@@ -250,16 +232,10 @@ export function GoogleAuthProvider({
         setStatus('connected');
         return;
       } catch (err: any) {
-        console.warn('Forced refresh failed, attempting silent re-auth...', err);
-        try {
-          await attemptSilentRefresh(options?.reason || 'forced_refresh_failed');
-          return;
-        } catch (silentErr: any) {
-          console.error('Forced silent re-auth failed:', silentErr);
-          setError(err?.message || 'Failed to refresh session');
-          setStatus('needs_reconnect');
-          throw silentErr;
-        }
+        console.warn('Forced refresh failed. Reconnect required.', err);
+        setError(err?.message || 'Failed to refresh session');
+        setStatus('needs_reconnect');
+        throw err;
       }
     }
 
@@ -272,15 +248,9 @@ export function GoogleAuthProvider({
         throw new Error('No active session to refresh');
       }
 
-      try {
-        await attemptSilentRefresh('no_session');
-        return;
-      } catch (silentErr: any) {
-        console.error('Silent re-auth failed:', silentErr);
-        setError(silentErr.message || 'Failed to refresh session');
-        setStatus('needs_reconnect');
-        throw silentErr;
-      }
+      setError('Google session missing. Please reconnect.');
+      setStatus('needs_reconnect');
+      throw new Error('GOOGLE_RECONNECT_REQUIRED');
     }
 
     setStatus('refreshing');
@@ -292,18 +262,11 @@ export function GoogleAuthProvider({
       setStatus('connected');
       // console.log('?o. Session refreshed successfully via Supabase');
     } catch (err: any) {
-      console.warn('Standard refresh failed, trying silent silent re-auth...', err);
-
-      try {
-        // Try silent re-auth as a last resort before showing banner
-        await attemptSilentRefresh('refresh_failed');
-      } catch (silentErr: any) {
-        console.error('Silent re-auth failed:', silentErr);
-        setError(err.message || 'Failed to refresh session');
-        setStatus('needs_reconnect');
-      }
+      console.warn('Standard refresh failed. Reconnect required.', err);
+      setError(err.message || 'Failed to refresh session');
+      setStatus('needs_reconnect');
     }
-  }, [session, attemptSilentRefresh]);
+  }, [session]);
 
   const clearError = useCallback(() => {
     setError(null);
