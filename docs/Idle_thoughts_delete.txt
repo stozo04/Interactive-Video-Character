@@ -1,0 +1,17 @@
+Dropped the following SQL Tables:
+- emotional_momentum
+- gift_message_history
+- kayley_experiences
+- kayley_narrative_arcs
+- mood_states
+- ongoing_threads
+- relationship_events
+
+Files Deleted:
+- idleThoughtsScheduler
+- intentService
+- idleLife/CalendarAwarenesService
+- idleLife/GiftMessageSerive
+- idleLife/index
+- idleLife/KayleyExperienceService
+- idleLife/pendingMessageService

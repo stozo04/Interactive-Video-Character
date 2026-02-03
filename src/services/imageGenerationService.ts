@@ -34,7 +34,6 @@ import type {
 } from "./imageGeneration/types";
 import { generateImagePrompt } from "./imageGeneration/promptGenerator";
 import { getActiveLoops } from "./presenceDirector";
-import { getMoodAsync } from "./moodKnobs";
 import { getCharacterFacts } from "./characterFactsService";
 import { getUserFacts } from "./memoryService";
 import { generateImageEdit } from "@/utils/grokAPIUtils";
@@ -131,10 +130,9 @@ export async function generateCompanionSelfie(
 
         // STEP 3: Get additional context for LLM prompt generation (Phase 2)
         // Run all context fetches in parallel for performance
-        const [activeLoops, kayleyMood, characterFacts, userFactsRaw] =
+        const [activeLoops, characterFacts, userFactsRaw] =
           await Promise.all([
             getActiveLoops(),
-            getMoodAsync(),
             getCharacterFacts(),
             getUserFacts("all"),
           ]);
@@ -158,7 +156,6 @@ export async function generateCompanionSelfie(
             topic: l.topic,
             loopType: l.loopType,
           })),
-          kayleyMood: { energy: kayleyMood.energy, warmth: kayleyMood.warmth },
           userFacts,
           characterFacts: characterFacts.map(
             (f) => `${f.fact_key}: ${f.fact_value}`,

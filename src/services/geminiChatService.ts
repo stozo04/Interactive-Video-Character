@@ -10,8 +10,6 @@ import {
   buildSystemPromptForNonGreeting,
   buildGreetingPrompt,
   buildNonGreetingPrompt,
-  buildProactiveThreadPrompt,
-  getSoulLayerContextAsync,
   buildSystemPromptForGreeting,
   DailyLogisticsContext,
 } from "./promptUtils";
@@ -22,30 +20,15 @@ import {
   MemoryToolName,
   getImportantDateFacts,
 } from "./memoryService";
-import { getTopLoopToSurface, markLoopSurfaced } from "./presenceDirector";
-import {
-  getUndeliveredMessage,
-  markMessageDelivered,
-  detectAndMarkSurfacedExperiences,
-} from "./idleLife";
-import { formatCharacterFactsForPrompt } from "./characterFactsService";
-import { analyzeUserMessageBackground } from "./messageAnalyzer";
-import {
-  getOngoingThreadsAsync,
-  selectProactiveThread,
-  markThreadMentionedAsync,
-} from "./ongoingThreads";
+
 import { storeCharacterFact } from "./characterFactsService";
-import { getPrefetchedContext, prefetchOnIdle } from "./prefetchService";
-import { detectAndMarkSharedThoughts } from "./spontaneity/idleThoughts";
+import {  prefetchOnIdle } from "./prefetchService";
 import type { RelationshipMetrics } from "./relationshipService";
 import * as relationshipService from "./relationshipService";
 import * as taskService from "./taskService";
 import { calendarService, type CalendarEvent } from "./calendarService";
 import { recordAlmostMoment } from "./almostMomentsService";
 import { getKayleyPresenceState } from "./kayleyPresenceService";
-import type { NonGreetingReturnContext } from "./system_prompts/builders/greetingPromptBuilders";
-import { loadConversationHistory } from "./conversationHistoryService";
 
 // 1. LOAD BOTH MODELS FROM ENV
 const GEMINI_MODEL = import.meta.env.VITE_GEMINI_MODEL; // The Brain (e.g. gemini-3-flash-preview)
@@ -757,8 +740,7 @@ export class GeminiService implements IAIChatService {
       const systemPrompt = await buildSystemPromptForNonGreeting(
         fetchedContext.relationship,
         fetchedContext.upcomingEvents,
-        fetchedContext.characterContext,
-        fetchedContext.tasks,
+        fetchedContext.characterContext
       );
       console.log("systemPrompt: ", systemPrompt);
       // ============================================
@@ -808,40 +790,6 @@ export class GeminiService implements IAIChatService {
           .catch((err) => {
             console.warn(
               `⚠️ [GeminiService] Failed to store character fact:`,
-              err,
-            );
-          });
-      }
-
-      // Detect and mark shared idle thoughts
-      if (aiResponse.text_response) {
-        detectAndMarkSharedThoughts(aiResponse.text_response)
-          .then((markedIds) => {
-            if (markedIds.length > 0) {
-              console.log(
-                `💭 [GeminiService] Marked ${markedIds.length} idle thought(s) as shared`,
-              );
-            }
-          })
-          .catch((err) => {
-            console.warn(
-              "[GeminiService] Failed to detect/mark shared thoughts:",
-              err,
-            );
-          });
-
-        // Detect and mark surfaced Kayley experiences
-        detectAndMarkSurfacedExperiences(aiResponse.text_response)
-          .then((markedIds) => {
-            if (markedIds.length > 0) {
-              console.log(
-                `🎭 [GeminiService] Marked ${markedIds.length} experience(s) as surfaced`,
-              );
-            }
-          })
-          .catch((err) => {
-            console.warn(
-              "[GeminiService] Failed to detect surfaced experiences:",
               err,
             );
           });
@@ -981,8 +929,7 @@ export class GeminiService implements IAIChatService {
     let systemPrompt = await buildSystemPromptForNonGreeting(
       fetchedContext.relationship,
       fetchedContext.upcomingEvents,
-      fetchedContext.characterContext,
-      fetchedContext.tasks,
+      fetchedContext.characterContext
     );
 
     // ============================================
@@ -1025,24 +972,10 @@ ${pendingSuggestion.reasoning}
 
     try {
       // Fetch any pending message from idle time
-      let pendingMessage = null;
-      try {
-        pendingMessage = await getUndeliveredMessage();
-        if (pendingMessage) {
-          console.log(
-            `[GeminiService] Found pending ${pendingMessage.trigger} message to deliver`,
-          );
-        }
-      } catch (e) {
-        console.log(
-          "[GeminiService] Could not fetch pending message for non-greeting",
-        );
-      }
 
       const nonGreetingPrompt = buildNonGreetingPrompt(
         fetchedContext.relationship.lastInteractionAt,
-        fetchedContext.characterContext,
-        pendingMessage,
+        fetchedContext.characterContext
       );
 
       // Build interaction config
@@ -1099,15 +1032,6 @@ ${pendingSuggestion.reasoning}
       // Generate audio
       const audioData = await generateSpeech(structuredResponse.text_response);
 
-      // Detect and mark surfaced Kayley experiences (fire-and-forget)
-      detectAndMarkSurfacedExperiences(structuredResponse.text_response).catch(
-        (err) =>
-          console.warn(
-            "[GeminiService] Failed to detect surfaced experiences in non-greeting:",
-            err,
-          ),
-      );
-
       // Handle promise fulfillment (fire-and-forget)
       handlePromiseFulfillment(structuredResponse).catch((err) => {
         console.warn(
@@ -1123,14 +1047,6 @@ ${pendingSuggestion.reasoning}
           err,
         );
       });
-
-      // Mark the pending message as delivered
-      if (pendingMessage) {
-        await markMessageDelivered(pendingMessage.id);
-        console.log(
-          `✅ [GeminiService] Marked pending ${pendingMessage.trigger} message as delivered`,
-        );
-      }
 
       return {
         greeting: structuredResponse,

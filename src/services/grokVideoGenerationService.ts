@@ -22,7 +22,6 @@ import type {
   OutfitStyle,
 } from "./imageGeneration/types";
 import { getActiveLoops } from "./presenceDirector";
-import { getMoodAsync } from "./moodKnobs";
 import { getCharacterFacts } from "./characterFactsService";
 import { getUserFacts } from "./memoryService";
 import { generateCompanionSelfie } from "./imageGenerationService";
@@ -81,7 +80,6 @@ interface VideoPromptContext {
   explicitMood?: string;
   recentMessages: Array<{ role: "user" | "kayley"; content: string }>;
   activeLoops: Array<{ topic: string; loopType: string }>;
-  kayleyMood: { energy: number; warmth: number };
   userFacts?: string[];
   characterFacts?: string[];
   upcomingEvents?: Array<{ title: string; startTime: Date }>;
@@ -255,7 +253,6 @@ EXPLICIT MOOD: ${context.explicitMood || "Not specified"}
 CONTEXT:
 - Recent Messages: ${JSON.stringify(context.recentMessages.slice(-5))}
 - Active Loops: ${JSON.stringify(context.activeLoops)}
-- Kayley Mood: Energy: ${context.kayleyMood.energy}, Warmth: ${context.kayleyMood.warmth}
 - Upcoming Events: ${JSON.stringify(context.upcomingEvents || [])}
 - User Facts: ${JSON.stringify(context.userFacts || [])}
 - Character Facts: ${JSON.stringify(context.characterFacts || [])}
@@ -432,10 +429,9 @@ export async function generateCompanionVideo(
     console.log("🎬 [VideoGen] Current look state:", currentLookState);
 
     // STEP 2: Get additional context for LLM prompt generation
-    const [activeLoops, kayleyMood, characterFacts, userFactsRaw] =
+    const [activeLoops, characterFacts, userFactsRaw] =
       await Promise.all([
         getActiveLoops(),
-        getMoodAsync(),
         getCharacterFacts(),
         getUserFacts("all"),
       ]);
@@ -458,7 +454,6 @@ export async function generateCompanionVideo(
         topic: l.topic,
         loopType: l.loopType,
       })),
-      kayleyMood: { energy: kayleyMood.energy, warmth: kayleyMood.warmth },
       userFacts,
       characterFacts: characterFacts.map((f) => `${f.fact_key}: ${f.fact_value}`),
       upcomingEvents: (request.upcomingEvents || []).map((e) => ({
@@ -595,7 +590,6 @@ function getVideoCacheKey(context: VideoPromptContext): string {
     context.explicitScene || "",
     context.explicitMood || "",
     msgHash,
-    Math.round(context.kayleyMood.energy * 10),
     loopHash,
     eventsCount,
   ].join("|");

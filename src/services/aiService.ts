@@ -1,6 +1,5 @@
 import { ChatMessage } from '../types';
 import { AIActionResponse } from './aiSchema';
-import { FullMessageIntent } from './intentService';
 
 // Define what a user can send (Text OR Audio OR Image with Text)
 export type UserContent =
@@ -72,7 +71,6 @@ export interface IAIChatService {
     response: AIActionResponse;
     session: AIChatSession;
     audioData?: string;
-    intent?: FullMessageIntent;
   }>;
 
   generateGreeting(googleAccessToken: string): Promise<{

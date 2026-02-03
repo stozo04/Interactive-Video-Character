@@ -1,6 +1,6 @@
 import { buildCompactRelationshipContext } from "../../context/messageContext";
 import { buildDynamicDimensionEffects } from "../../relationship/dimensionEffects";
-import type { RelationshipMetrics, KayleyMood } from "../../types";
+import type { RelationshipMetrics } from "../../types";
 import {
   getAcquaintanceRelationshipPrompt,
   getAdversarialRelationshipPrompt,
@@ -16,8 +16,6 @@ import {
  */
 export function buildRelationshipTierPrompt(
   relationship: RelationshipMetrics | null | undefined,
-  moodKnobs: KayleyMood,
-  isInappropriate: boolean,
   almostMomentsPrompt: string = ""
 ): string {
   const tier = relationship?.relationshipTier || "acquaintance";

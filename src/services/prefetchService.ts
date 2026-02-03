@@ -1,8 +1,6 @@
-import { getSoulLayerContextAsync } from './promptUtils';
 import { formatCharacterFactsForPrompt } from './characterFactsService';
 
 export interface PrefetchedContext {
-  soulContext: any;
   characterFacts: string;
   timestamp: number;
 }
@@ -18,13 +16,9 @@ export async function prefetchOnIdle(): Promise<void> {
   console.log('🚀 [PrefetchService] Pre-fetching context on idle...');
   
   try {
-    const [soulContext, characterFacts] = await Promise.all([
-      getSoulLayerContextAsync(),
-      formatCharacterFactsForPrompt()
-    ]);
+    const characterFacts = await formatCharacterFactsForPrompt();
     
     prefetchCache = {
-      soulContext,
       characterFacts,
       timestamp: Date.now()
     };

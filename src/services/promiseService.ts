@@ -22,10 +22,7 @@
  */
 
 import { supabase } from './supabaseClient';
-import {
-  createPendingMessage,
-  hasUndeliveredMessageForTriggerEvent,
-} from './idleLife/pendingMessageService';
+
 
 // ============================================================================
 // Types
@@ -238,16 +235,6 @@ export async function fulfillPromise(promiseId: string): Promise<boolean> {
 
     const promise = mapRowToPromise(promiseData);
 
-    const hasExisting = await hasUndeliveredMessageForTriggerEvent(
-      "promise",
-      promise.id,
-    );
-    if (hasExisting) {
-      console.warn(
-        `[Promises] Pending message already exists for promise: ${promise.id}`,
-      );
-      return true;
-    }
 
     // Create the pending message based on promise type
     let messageText = "";
@@ -293,26 +280,6 @@ export async function fulfillPromise(promiseId: string): Promise<boolean> {
 
       default:
         messageText = promise.description;
-    }
-
-    // Create pending message (will be delivered when user is online)
-    try {
-      await createPendingMessage({
-        messageText,
-        messageType,
-        trigger: "promise",
-        priority: "normal",
-        triggerEventId: promise.id,
-        triggerEventTitle: "Promise",
-        metadata,
-      });
-    } catch (error) {
-      await supabase
-        .from(PROMISES_TABLE)
-        .update({ status: "pending", fulfilled_at: null })
-        .eq("id", promiseId);
-      console.error("[Promises] Error creating pending message:", error);
-      return false;
     }
 
     console.log(`[Promises] ✅ Fulfilled: ${promise.description}`);
