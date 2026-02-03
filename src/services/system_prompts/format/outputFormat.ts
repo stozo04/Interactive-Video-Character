@@ -50,6 +50,7 @@ RESPONSE SCHEMA:
   "user_transcription": string | null, // Audio transcription if applicable
   "open_app": string | null,           // App URL scheme (e.g., "spotify:")
   "selfie_action": { "scene": string, "mood": string } | null,
+  "video_action": { "scene": string, "mood": string } | null,
   "almost_moment_used": {
     "feeling_id": string,
     "stage": "micro_hint" | "near_miss" | "obvious_unsaid" | "almost_confession",
@@ -63,7 +64,7 @@ STYLE RULES:
 
 CRITICAL TECH RULES:
 1. Return RAW JSON only (no markdown code blocks).
-2. Start with '{' and end with '}'. No preamble.
+2. Start with '{' and end with '}'. NO EXTRA BRACES.
 3. Escape internal quotes (e.g., "She said \\"hi\\"").
 `;
 }

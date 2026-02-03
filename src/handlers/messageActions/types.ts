@@ -12,7 +12,6 @@
 import type { ChatMessage, Task } from '../../types';
 import type { CalendarEvent } from '../../services/calendarService';
 import type { IAIChatService, AIChatSession } from '../../services/aiService';
-import type { FullMessageIntent } from '../../services/intentService';
 import type { AIActionResponse } from '../../services/aiSchema';
 import type { TaskAction } from '../messageActions/taskActions';
 
@@ -150,9 +149,6 @@ export interface OrchestratorResult {
   /** Raw AI response for App.tsx to route to action handlers */
   rawResponse?: AIActionResponse;
 
-  /** Intent from the AI response (for sentiment analysis) */
-  intent?: FullMessageIntent;
-
   // ---- Action-Specific Results (Phase 4) ----
 
   /** Selfie image result (if selfie action succeeded) */
@@ -237,9 +233,6 @@ export interface ActionContext {
 
   /** Whether audio is muted */
   isMuted: boolean;
-
-  /** Intent analysis from AI */
-  intent?: FullMessageIntent;
 }
 
 // ============================================================================

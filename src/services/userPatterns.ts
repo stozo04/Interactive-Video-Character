@@ -17,7 +17,6 @@
  */
 
 import { supabase } from './supabaseClient';
-import type { ToneIntent, PrimaryEmotion, TopicIntent } from './intentService';
 
 // ============================================
 // Types
@@ -339,51 +338,16 @@ async function recordPattern(
  * 
  * @param message - The user's message text
  * @param date - Date for time-based pattern tracking (defaults to now)
- * @param toneResult - Optional ToneIntent from Phase 2 LLM detection
- * @param topicResult - Optional TopicIntent from Phase 4 LLM detection
  */
 export async function analyzeMessageForPatterns(
   message: string,
   date: Date = new Date(),
-  toneResult?: ToneIntent,
-  topicResult?: TopicIntent
 ): Promise<UserPattern[]> {
   const detectedPatterns: UserPattern[] = [];
-  
-  // Phase 3: Try to get mood from LLM-detected emotion first
-  let mood: string | null = null;
-  
-  if (toneResult?.primaryEmotion) {
-    // Map LLM emotion to mood pattern category
-    mood = mapEmotionToMoodPattern(toneResult.primaryEmotion);
-    
-    if (mood) {
-      console.log(`🧠 [UserPatterns] Using LLM emotion for mood: ${toneResult.primaryEmotion} → ${mood}`);
-    }
-  }
-  
-  // Fallback to keyword detection if LLM didn't provide a mappable mood
-  if (!mood) {
-    mood = detectMood(message);
-  }
-  
-  // Phase 4: Get topics from LLM or fall back to keyword detection
-  let topics: string[] = [];
+  let mood = detectMood(message);
+  let topics = detectTopics(message)
   let emotionalContext: Record<string, string> = {};
   
-  if (topicResult && topicResult.topics.length > 0) {
-    // Use LLM-detected topics
-    topics = topicResult.topics;
-    emotionalContext = topicResult.emotionalContext;
-    
-    console.log(`📋 [UserPatterns] Using LLM topics: ${topics.join(', ')}`);
-    if (Object.keys(emotionalContext).length > 0) {
-      console.log(`📋 [UserPatterns] Emotional context:`, emotionalContext);
-    }
-  } else {
-    // Fallback to keyword detection
-    topics = detectTopics(message);
-  }
   
   // Record mood-time pattern if mood detected
   if (mood) {
@@ -425,28 +389,6 @@ export async function analyzeMessageForPatterns(
   }
   
   return detectedPatterns;
-}
-
-/**
- * Maps PrimaryEmotion from ToneIntent to mood pattern categories.
- * Returns null for emotions that don't map to trackable mood patterns.
- * 
- * This is the Phase 3 bridge between tone detection and mood patterns.
- */
-function mapEmotionToMoodPattern(emotion: PrimaryEmotion): string | null {
-  const emotionToMoodMap: Record<PrimaryEmotion, string | null> = {
-    'happy': 'happy',
-    'sad': 'sad',
-    'frustrated': 'frustrated',
-    'anxious': 'anxious',
-    'excited': 'happy',  // Excited maps to happy for pattern purposes
-    'angry': 'frustrated',  // Angry maps to frustrated
-    'playful': null,  // Playful is a tone, not a mood pattern
-    'dismissive': null,  // Dismissive is a tone, not a mood pattern
-    'neutral': null,  // Neutral doesn't indicate a mood pattern
-    'mixed': null,  // Mixed is too ambiguous for patterns
-  };
-  return emotionToMoodMap[emotion] ?? null;
 }
 
 // ============================================
@@ -537,73 +479,6 @@ export async function markPatternSurfaced(patternId: string): Promise<void> {
   } catch (error) {
     console.error('[UserPatterns] Unexpected error marking pattern surfaced:', error);
   }
-}
-
-/**
- * Generate a soft, natural prompt for surfacing a pattern.
- * Uses gentle language like "I've noticed..." rather than direct statements.
- */
-export function generatePatternSurfacePrompt(pattern: UserPattern): string {
-  const softStarters = [
-    "I've noticed",
-    "It seems like",
-    "I might be imagining this, but",
-    "Not to be weird, but I've noticed",
-    "I could be off, but it feels like",
-  ];
-  
-  const starter = softStarters[Math.floor(Math.random() * softStarters.length)];
-  
-  // Format based on pattern type
-  let patternDescription: string;
-  
-  switch (pattern.patternType) {
-    case 'mood_time': {
-      const data = pattern.patternData as { mood?: string; dayName?: string; timeOfDay?: string };
-      patternDescription = `you ${data?.mood || 'get stressed'} on ${data?.dayName || pattern.observation}s`;
-      break;
-    }
-    
-    case 'topic_correlation': {
-      patternDescription = pattern.observation;
-      break;
-    }
-    
-    case 'behavior': {
-      patternDescription = pattern.observation;
-      break;
-    }
-    
-    default:
-      patternDescription = pattern.observation;
-  }
-  
-  // Build the prompt section
-  return `
-=== PATTERN INSIGHT (use sparingly, only if it feels natural) ===
-
-OBSERVATION: "${starter} ${patternDescription}."
-
-HOW TO SURFACE THIS:
-- Only mention if it's genuinely relevant to the current conversation
-- Use SOFT language: "I've noticed..." or "It seems like..." 
-- Frame as curiosity, not diagnosis: "Is that a thing for you?" or "Am I imagining that?"
-- Be ready to be wrong gracefully: "Maybe I'm off base..."
-- Don't make it heavy or clinical
-
-EXAMPLE PHRASES:
-- "${starter} ${patternDescription}. Is that a thing, or am I making it up?"
-- "This might be random, but... ${patternDescription}? Just curious."
-- "Hey, do you find that ${patternDescription}? I feel like I've noticed that."
-
-CRITICAL:
-- Do NOT say "I've detected a pattern" or anything clinical
-- Do NOT frame this as analysis or observation from conversations
-- Make it feel like natural attentiveness, like a friend who pays attention
-- If it doesn't fit the current vibe, SKIP IT entirely
-
-PATTERN_ID: ${pattern.id}
-`;
 }
 
 // ============================================

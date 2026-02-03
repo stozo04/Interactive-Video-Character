@@ -5,31 +5,19 @@
  * This is the core prompt construction logic.
  */
 
-import { Task } from "../../../types";
 import type { RelationshipMetrics } from "../../relationshipService";
 import { KAYLEY_CONDENSED_PROFILE } from "../../../domain/characters/kayleyCharacterProfile";
 import { getRecentNewsContext } from "../../newsService";
-import { formatMoodForPrompt } from "../../moodKnobs";
-import { getIntimacyContextForPromptAsync } from "../../relationshipService";
 import { formatCharacterFactsForPrompt } from "../../characterFactsService";
-import type { SoulLayerContext } from "../types";
-import { buildComfortableImperfectionPrompt } from "../behavior/comfortableImperfection";
-import { buildStyleOutputSection } from "../context/styleOutput";
 import { buildPromisesContext } from "../context/promisesContext";
 import { buildRelationshipTierPrompt } from "./relationshipPromptBuilders";
 import { buildSelfieRulesPrompt } from "./selfiePromptBuilder";
 import { buildVideoRulesPrompt } from "./videoPromptBuilder";
-import { buildBidDetectionPrompt } from "../behavior/bidDetection";
-import { buildSelectiveAttentionPrompt } from "../behavior/selectiveAttention";
-import { buildCuriosityEngagementSection } from "../behavior/curiosityEngagement";
-import { buildPresencePrompt } from "../soul/presencePrompt";
-import { getSoulLayerContextAsync } from "../soul/soulLayerContext";
 import { buildAntiAssistantSection } from "../core/antiAssistant";
 import {
   buildCurrentContextSection,
   buildOpinionsAndPushbackSection,
 } from "../core/opinionsAndPushback";
-import { buildIdentityAnchorSection } from "../core/identityAnchor";
 import {
   integrateAlmostMoments,
   type AlmostMomentIntegration,
@@ -38,7 +26,6 @@ import {
   getStorylinePromptContext,
   type StorylinePromptContext,
 } from "../../storylineService";
-import { formatExperiencesForPrompt } from "../../idleLife"; // COMPLETED REFACTOR!
 import {
 buildToolStrategySection
 } from "../tools";
@@ -59,7 +46,7 @@ import {
 } from "../greeting";
 import { buildMajorNewsPrompt } from "../greeting/checkInGuidance";
 import { DailyLogisticsContext } from "./dailyCatchupBuilder";
-import { ensureDailyNotesRowForToday, getAllDailyNotes, getUserFacts, UserFact } from "@/services/memoryService";
+import { ensureDailyNotesRowForToday, getAllDailyNotes, getPinnedUserFacts, getUserFacts, UserFact } from "@/services/memoryService";
 import {
   buildAnsweredIdleQuestionsPromptSection,
   buildIdleBrowseNotesPromptSection,
@@ -107,14 +94,8 @@ export const buildSystemPromptForNonGreeting = async (
   relationship?: RelationshipMetrics | null,
   upcomingEvents: any[] = [],
   characterContext?: string,
-  tasks?: Task[],
-  prefetchedContext?: {
-    soulContext: SoulLayerContext;
-    characterFacts: string;
-  },
   messageCount: number = 0,
 ): Promise<string> => {
-  let soulContext: SoulLayerContext;
   let characterFactsPrompt: string;
   let almostMoments: AlmostMomentIntegration;
   let idleQuestionPrompt: string;
@@ -123,8 +104,8 @@ export const buildSystemPromptForNonGreeting = async (
   let dailyNotesPrompt: string;
 
   console.log("[buildSystemPromptForNonGreeting] fetching now");
-  [soulContext, characterFactsPrompt, almostMoments, idleQuestionPrompt, idleBrowseNotesPrompt, toolSuggestionsPrompt, dailyNotesPrompt] = await Promise.all([
-    getSoulLayerContextAsync(),
+  [characterFactsPrompt, almostMoments, idleQuestionPrompt, idleBrowseNotesPrompt, toolSuggestionsPrompt, dailyNotesPrompt] = await Promise.all([
+
     formatCharacterFactsForPrompt(),
     integrateAlmostMoments(relationship, {
       conversationDepth: "surface",
@@ -156,14 +137,10 @@ ${toolSuggestionsPrompt}
 ${dailyNotesPrompt}
 ${idleQuestionPrompt}
 ${characterFactsPrompt}
-${buildRelationshipTierPrompt(relationship, soulContext.moodKnobs, false, almostMoments.promptSection)}
+${buildRelationshipTierPrompt(relationship, almostMoments.promptSection)}
 ${buildOpinionsAndPushbackSection()}
 ${buildCurrentContextSection(characterContext)}
-${buildComfortableImperfectionPrompt()}
-${buildBidDetectionPrompt()}
 ${await getStorylinePromptContext(messageCount)}
-${await formatExperiencesForPrompt()}
-${await getIntimacyContextForPromptAsync(relationship, soulContext.moodKnobs.warmth)}
 ${await buildPromisesContext()}
 ${buildSelfieRulesPrompt(relationship)}
 ${buildVideoRulesPrompt(relationship)}
@@ -193,6 +170,7 @@ export const buildSystemPromptForGreeting = async (
   console.log("🗓️ [buildSystemPromptForGreeting] Ensuring daily notes row for today");
   await ensureDailyNotesRowForToday();
   const dailyNotesPrompt = await buildDailyNotesPromptSection();
+  const pinnedFactsPrompt = await buildPinnedFactsPromptSection();
   let prompt = `
 ====================================================
 YOUR IDENTITY (Source of Truth)
@@ -209,6 +187,7 @@ ${await buildHolidayContext(dailyLogisticsContext.lastInteractionDateUtc)}
 ${buildImportantDatesContext(dailyLogisticsContext)}
 ${buildPastEventsContext(dailyLogisticsContext)}
 ${dailyNotesPrompt}
+${pinnedFactsPrompt}
 ${buildCheckInGuidance(dailyLogisticsContext.kayleyLifeUpdates)}
 ${buildMajorNewsPrompt()}
 ${buildGoogleCalendarEventsPrompt(dailyLogisticsContext.upcomingEvents)}
@@ -279,6 +258,34 @@ DAILY NOTES
 You won't remember this whole conversation tomorrow. Use this as your running memory: append-only, never overwritten. If you want to review past notes, call 'retrieve_daily_notes'. If something matters later, save it with 'store_daily_note'. Do NOT mention this section.
 
 ${lines && lines.length > 0 ? lines.join("\n") : "â€¢ (No daily notes yet)"}
+`.trim();
+}
+
+export async function buildPinnedFactsPromptSection(): Promise<string> {
+  console.log("[buildPinnedFactsPromptSection] Fetching pinned user facts");
+  const pinnedFacts = await getPinnedUserFacts();
+
+  if (!pinnedFacts || pinnedFacts.length === 0) {
+    console.log("[buildPinnedFactsPromptSection] No pinned facts found");
+    return "";
+  }
+
+  console.log("[buildPinnedFactsPromptSection] Building pinned facts prompt", {
+    count: pinnedFacts.length,
+  });
+
+  const lines = pinnedFacts.map(
+    (f) => `- ${f.fact_key}: "${f.fact_value}"`,
+  );
+
+  return `
+====================================================
+PINNED USER FACTS
+====================================================
+These facts are durable and safe to use without re-asking.
+Use them naturally when addressing the user. Do not list them verbatim unless asked.
+
+${lines.join("\n")}
 `.trim();
 }
 
