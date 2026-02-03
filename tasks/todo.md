@@ -31,3 +31,15 @@
 
 ## Review Notes
 - Pending approval to patch.
+
+---
+
+## Plan: Canonicalize User Facts + Pinned Facts + Data Cleanup
+
+1) Define canonical keys (e.g., identity.nickname) and pinning flag behavior.
+2) Normalize existing data in C:\Users\gates\Downloads\user_facts_rows.json and return cleaned JSON.
+3) Update server-side fact normalization + tool rules to enforce canonical keys.
+4) Optional: add dynamic pinned-facts section to greeting prompt (if approved).
+5) Verification (if approved): 
+pm test -- --run.
+

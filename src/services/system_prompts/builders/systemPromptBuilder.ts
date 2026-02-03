@@ -59,7 +59,7 @@ import {
 } from "../greeting";
 import { buildMajorNewsPrompt } from "../greeting/checkInGuidance";
 import { DailyLogisticsContext } from "./dailyCatchupBuilder";
-import { ensureDailyNotesRowForToday, getAllDailyNotes, getUserFacts, UserFact } from "@/services/memoryService";
+import { ensureDailyNotesRowForToday, getAllDailyNotes, getPinnedUserFacts, getUserFacts, UserFact } from "@/services/memoryService";
 import {
   buildAnsweredIdleQuestionsPromptSection,
   buildIdleBrowseNotesPromptSection,
@@ -193,6 +193,7 @@ export const buildSystemPromptForGreeting = async (
   console.log("🗓️ [buildSystemPromptForGreeting] Ensuring daily notes row for today");
   await ensureDailyNotesRowForToday();
   const dailyNotesPrompt = await buildDailyNotesPromptSection();
+  const pinnedFactsPrompt = await buildPinnedFactsPromptSection();
   let prompt = `
 ====================================================
 YOUR IDENTITY (Source of Truth)
@@ -209,6 +210,7 @@ ${await buildHolidayContext(dailyLogisticsContext.lastInteractionDateUtc)}
 ${buildImportantDatesContext(dailyLogisticsContext)}
 ${buildPastEventsContext(dailyLogisticsContext)}
 ${dailyNotesPrompt}
+${pinnedFactsPrompt}
 ${buildCheckInGuidance(dailyLogisticsContext.kayleyLifeUpdates)}
 ${buildMajorNewsPrompt()}
 ${buildGoogleCalendarEventsPrompt(dailyLogisticsContext.upcomingEvents)}
@@ -279,6 +281,34 @@ DAILY NOTES
 You won't remember this whole conversation tomorrow. Use this as your running memory: append-only, never overwritten. If you want to review past notes, call 'retrieve_daily_notes'. If something matters later, save it with 'store_daily_note'. Do NOT mention this section.
 
 ${lines && lines.length > 0 ? lines.join("\n") : "â€¢ (No daily notes yet)"}
+`.trim();
+}
+
+export async function buildPinnedFactsPromptSection(): Promise<string> {
+  console.log("[buildPinnedFactsPromptSection] Fetching pinned user facts");
+  const pinnedFacts = await getPinnedUserFacts();
+
+  if (!pinnedFacts || pinnedFacts.length === 0) {
+    console.log("[buildPinnedFactsPromptSection] No pinned facts found");
+    return "";
+  }
+
+  console.log("[buildPinnedFactsPromptSection] Building pinned facts prompt", {
+    count: pinnedFacts.length,
+  });
+
+  const lines = pinnedFacts.map(
+    (f) => `- ${f.fact_key}: "${f.fact_value}"`,
+  );
+
+  return `
+====================================================
+PINNED USER FACTS
+====================================================
+These facts are durable and safe to use without re-asking.
+Use them naturally when addressing the user. Do not list them verbatim unless asked.
+
+${lines.join("\n")}
 `.trim();
 }
 

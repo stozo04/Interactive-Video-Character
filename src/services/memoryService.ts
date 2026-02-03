@@ -26,6 +26,7 @@ export interface UserFact {
   category: 'identity' | 'preference' | 'relationship' | 'context';
   fact_key: string;
   fact_value: string;
+  pinned: boolean;
   source_message_id?: string;
   confidence: number;
   created_at: string;
@@ -96,6 +97,81 @@ function getTodayCstDateString(): string {
 
 function normalizeDailyNoteInput(note: string): string {
   return note.replace(/^\s*-\s*/, '').trim();
+}
+
+const PINNED_IDENTITY_KEYS = new Set(['name', 'nickname', 'pronouns']);
+const NICKNAME_ALIASES = new Set([
+  'nickname',
+  'nick_name',
+  'pet_name',
+  'petname',
+  'cute_name',
+  'alias',
+  'call_me',
+  'term_of_endearment',
+  'terms_of_endearment',
+]);
+
+const IDENTITY_ALIASES: Record<string, string> = {
+  'first_name': 'name',
+  'firstname': 'name',
+  'given_name': 'name',
+  'name': 'name',
+  'last_name': 'last_name',
+  'lastname': 'last_name',
+  'surname': 'last_name',
+  'family_name': 'last_name',
+  'pronoun': 'pronouns',
+  'pronouns': 'pronouns',
+};
+
+const WORK_ALIASES: Record<string, string> = {
+  'job': 'occupation',
+  'job_title': 'occupation',
+  'title': 'occupation',
+  'occupation': 'occupation',
+  'profession': 'occupation',
+  'role': 'occupation',
+  'work': 'occupation',
+  'what_do_i_do': 'occupation',
+};
+
+const CONTEXT_ALIASES: Record<string, string> = {
+  'doctor': 'doctor_name',
+  'doctor_name': 'doctor_name',
+  'healthcare_provider': 'doctor_name',
+};
+
+function normalizeUserFactKey(category: FactCategory, rawKey: string): string {
+  const key = rawKey.trim().toLowerCase();
+
+  if (category === 'identity' || category === 'all') {
+    if (key.includes('nickname') || NICKNAME_ALIASES.has(key)) {
+      return 'nickname';
+    }
+    if (IDENTITY_ALIASES[key]) {
+      return IDENTITY_ALIASES[key];
+    }
+  }
+
+  if (WORK_ALIASES[key]) {
+    return WORK_ALIASES[key];
+  }
+
+  if (category === 'context' || category === 'all') {
+    if (CONTEXT_ALIASES[key]) {
+      return CONTEXT_ALIASES[key];
+    }
+    if (key.includes('doctor')) {
+      return 'doctor_name';
+    }
+  }
+
+  return key;
+}
+
+function shouldPinUserFact(category: FactCategory, key: string): boolean {
+  return category === 'identity' && PINNED_IDENTITY_KEYS.has(key);
 }
 
 // ============================================
@@ -385,6 +461,32 @@ export const getUserFacts = async (
   }
 };
 
+/**
+ * Get user facts that are marked as pinned.
+ */
+export const getPinnedUserFacts = async (): Promise<UserFact[]> => {
+  try {
+    console.log('📌 [Memory] Getting pinned user facts');
+
+    const { data, error } = await supabase
+      .from(USER_FACTS_TABLE)
+      .select('*')
+      .eq('pinned', true)
+      .order('updated_at', { ascending: false });
+
+    if (error) {
+      console.error('Failed to get pinned user facts:', error);
+      return [];
+    }
+
+    console.log(`📌 [Memory] Found ${data?.length || 0} pinned facts`);
+    return (data as UserFact[]) || [];
+  } catch (error) {
+    console.error('Error getting pinned user facts:', error);
+    return [];
+  }
+};
+
 const USER_ID = import.meta.env.VITE_USER_ID;
 /**
  * Store a new fact about the user or update an existing one.
@@ -404,7 +506,9 @@ export const storeUserFact = async (
   confidence: number = 1.0
 ): Promise<boolean> => {
   try {
-    console.log(`💾 [Memory] Storing fact: ${category}.${key} = "${value}"`);
+    const canonicalKey = normalizeUserFactKey(category, key);
+    const pinned = shouldPinUserFact(category, canonicalKey);
+    console.log(`💾 [Memory] Storing fact: ${category}.${canonicalKey} = "${value}"`);
 
     const now = new Date().toISOString();
     
@@ -412,10 +516,11 @@ export const storeUserFact = async (
       .from(USER_FACTS_TABLE)
       .upsert({
         category,
-        fact_key: key,
+        fact_key: canonicalKey,
         fact_value: value,
         source_message_id: sourceMessageId || null,
         confidence,
+        pinned,
         updated_at: now
       }, {
         onConflict: 'category,fact_key'
@@ -702,33 +807,8 @@ export const executeMemoryTool = async (
 ): Promise<string> => {
   console.log(`🔧 [Memory Tool] Executing: ${toolName}`, args);
 
-  const normalizeRequestedFactKey = (rawKey: string): string => {
-    const key = rawKey.trim().toLowerCase();
-
-    // Common user phrasing → canonical fact keys used in `user_facts.fact_key`
-    const aliases: Record<string, string> = {
-      // Identity
-      'first_name': 'name',
-      'firstname': 'name',
-      'given_name': 'name',
-      'name': 'name',
-      'last_name': 'last_name',
-      'lastname': 'last_name',
-      'surname': 'last_name',
-      'family_name': 'last_name',
-
-      // Work
-      'job': 'occupation',
-      'job_title': 'occupation',
-      'title': 'occupation',
-      'occupation': 'occupation',
-      'profession': 'occupation',
-      'role': 'occupation',
-      'work': 'occupation',
-      'what_do_i_do': 'occupation',
-    };
-
-    return aliases[key] || key;
+  const normalizeRequestedFactKey = (rawKey: string, category: FactCategory): string => {
+    return normalizeUserFactKey(category, rawKey);
   };
 
   try {
@@ -779,7 +859,7 @@ export const executeMemoryTool = async (
         
         // If a specific key was requested, filter to just that
         if (specific_key) {
-          const requestedKey = normalizeRequestedFactKey(specific_key);
+          const requestedKey = normalizeRequestedFactKey(specific_key, category);
           const specificFact = facts.find(
             f => f.fact_key.toLowerCase() === requestedKey
           );
@@ -800,13 +880,14 @@ export const executeMemoryTool = async (
       }
       case 'store_user_info': {
         const { category, key, value } = args as ToolCallArgs['store_user_info'];
-        if (isCurrentFactKey(key)) {
-          console.log(`⏭️ [Memory] Skipping current_* fact (transient): ${category}.${key}`);
+        const canonicalKey = normalizeUserFactKey(category, key);
+        if (isCurrentFactKey(key) || isCurrentFactKey(canonicalKey)) {
+          console.log(`⏭️ [Memory] Skipping current_* fact (transient): ${category}.${canonicalKey}`);
           return `Skipped transient fact: ${key}`;
         }
-        const success = await storeUserFact(category, key, value);
+        const success = await storeUserFact(category, canonicalKey, value);
         return success 
-          ? `✓ Stored: ${key} = "${value}"` 
+          ? `✓ Stored: ${canonicalKey} = "${value}"` 
           : `Failed to store information.`;
       }
       case 'store_daily_note': {
@@ -1851,6 +1932,7 @@ export const getImportantDateFacts = async (): Promise<ImportantDateFact[]> => {
 export const memoryService = {
   searchMemories,
   getUserFacts,
+  getPinnedUserFacts,
   storeUserFact,
   deleteUserFact,
   getRecentContext,
