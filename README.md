@@ -35,6 +35,8 @@
 
 - **Promise Tracking** - Your AI can make promises and commitments, then remember to follow through on them later.
 
+- **Tool Discovery & Suggestions** - Your AI can propose new tools during idle moments or live conversation ("I wish I could.."), helping uncover creative capabilities you may not have considered.
+
 - **Real-World Awareness** - Time-aware, location-aware, and news-aware. Your AI can search the web and understands what's happening in your world right now.
 
 - **Multi-Provider Support** - Choose from Google Gemini, OpenAI GPT, or xAI Grok as your AI backend.

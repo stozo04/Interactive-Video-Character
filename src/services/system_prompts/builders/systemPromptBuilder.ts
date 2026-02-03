@@ -60,7 +60,12 @@ import {
 import { buildMajorNewsPrompt } from "../greeting/checkInGuidance";
 import { DailyLogisticsContext } from "./dailyCatchupBuilder";
 import { ensureDailyNotesRowForToday, getAllDailyNotes, getUserFacts, UserFact } from "@/services/memoryService";
-import { buildAnsweredIdleQuestionsPromptSection, buildIdleBrowseNotesPromptSection, buildIdleQuestionPromptSection } from "../../idleThinkingService";
+import {
+  buildAnsweredIdleQuestionsPromptSection,
+  buildIdleBrowseNotesPromptSection,
+  buildIdleQuestionPromptSection,
+  buildToolSuggestionsPromptSection,
+} from "../../idleThinkingService";
 
 /**
  * Greeting Context - data needed for greeting-specific prompt sections
@@ -114,10 +119,11 @@ export const buildSystemPromptForNonGreeting = async (
   let almostMoments: AlmostMomentIntegration;
   let idleQuestionPrompt: string;
   let idleBrowseNotesPrompt: string;
+  let toolSuggestionsPrompt: string;
   let dailyNotesPrompt: string;
 
   console.log("[buildSystemPromptForNonGreeting] fetching now");
-  [soulContext, characterFactsPrompt, almostMoments, idleQuestionPrompt, idleBrowseNotesPrompt, dailyNotesPrompt] = await Promise.all([
+  [soulContext, characterFactsPrompt, almostMoments, idleQuestionPrompt, idleBrowseNotesPrompt, toolSuggestionsPrompt, dailyNotesPrompt] = await Promise.all([
     getSoulLayerContextAsync(),
     formatCharacterFactsForPrompt(),
     integrateAlmostMoments(relationship, {
@@ -128,6 +134,7 @@ export const buildSystemPromptForNonGreeting = async (
     }),
     buildIdleQuestionPromptSection(),
     buildIdleBrowseNotesPromptSection(),
+    buildToolSuggestionsPromptSection(),
     buildDailyNotesPromptSection(),
   ]);
   // console.log("[buildSystemPromptForNonGreeting] soulContext: ", soulContext);
@@ -145,6 +152,7 @@ ${buildAntiAssistantSection()}
 ${await buildCurrentWorldContext()}
 ${await buildCuriositySection()}
 ${idleBrowseNotesPrompt}
+${toolSuggestionsPrompt}
 ${dailyNotesPrompt}
 ${idleQuestionPrompt}
 ${characterFactsPrompt}

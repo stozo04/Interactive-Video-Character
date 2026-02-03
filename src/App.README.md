@@ -642,7 +642,7 @@ const {
   triggerCalendarCheckin,   // (event, type) => void
   registerCalendarEffects,  // () => cleanup function
   checkForApplicableCheckins, // (events) => void
-} = useCalendar({ session, selectedCharacter, proactiveSettings, ... });
+} = useCalendar({ session, isAuthConnected, selectedCharacter, proactiveSettings, ... });
 ```
 
 ### useProactiveSettings

@@ -508,6 +508,55 @@ export const ResolveIdleBrowseNoteSchema = z.object({
 });
 
 /**
+ * Schema for the tool_suggestion tool.
+ * Used to create or mark a tool suggestion as shared.
+ */
+export const ToolSuggestionSchema = z.object({
+  action: z.enum(["create", "mark_shared"]).describe(
+    "Use 'create' to log a new tool idea. Use 'mark_shared' after sharing a queued idea."
+  ),
+  id: z.string().optional().describe(
+    "Required when action is 'mark_shared'"
+  ),
+  tool_key: z.string().optional().describe(
+    "Stable snake_case tool key (required for create)"
+  ),
+  title: z.string().optional().describe(
+    "Short tool name (required for create)"
+  ),
+  reasoning: z.string().optional().describe(
+    "Why this tool matters (required for create)"
+  ),
+  user_value: z.string().optional().describe(
+    "User-facing benefit (required for create)"
+  ),
+  trigger: z.string().optional().describe(
+    "What sparked this idea (required for create)"
+  ),
+  trigger_source: z.enum(["idle", "live"]).optional().describe(
+    "Source of the idea (required for create)"
+  ),
+  trigger_text: z.string().optional().describe(
+    "Snippet of what triggered the live idea (required for live create)"
+  ),
+  trigger_reason: z.string().optional().describe(
+    "Why it came up right now (required for live create)"
+  ),
+  theme: z.string().optional().describe(
+    "Theme label for the tool idea (required for idle create)"
+  ),
+  seed_id: z.string().optional().describe(
+    "Seed id used to inspire the tool idea (required for idle create)"
+  ),
+  sample_prompt: z.string().optional().describe(
+    "Example user prompt (required for create)"
+  ),
+  permissions_needed: z.array(z.string()).optional().describe(
+    "List of permissions the tool would require (required for create)"
+  ),
+});
+
+/**
  * Schema for the store_daily_note tool.
  * Used to append a short bullet to today's daily notes.
  */
@@ -531,6 +580,7 @@ export type RecallUserInfoArgs = z.infer<typeof RecallUserInfoSchema>;
 export type StoreUserInfoArgs = z.infer<typeof StoreUserInfoSchema>;
 export type ResolveIdleQuestionArgs = z.infer<typeof ResolveIdleQuestionSchema>;
 export type ResolveIdleBrowseNoteArgs = z.infer<typeof ResolveIdleBrowseNoteSchema>;
+export type ToolSuggestionArgs = z.infer<typeof ToolSuggestionSchema>;
 export type StoreDailyNoteArgs = z.infer<typeof StoreDailyNoteSchema>;
 export type RetrieveDailyNotesArgs = z.infer<typeof RetrieveDailyNotesSchema>;
 
@@ -542,6 +592,7 @@ export type MemoryToolArgs =
   | { tool: "store_user_info"; args: StoreUserInfoArgs }
   | { tool: "resolve_idle_question"; args: ResolveIdleQuestionArgs }
   | { tool: "resolve_idle_browse_note"; args: ResolveIdleBrowseNoteArgs }
+  | { tool: "tool_suggestion"; args: ToolSuggestionArgs }
   | { tool: "store_daily_note"; args: StoreDailyNoteArgs }
   | { tool: "retrieve_daily_notes"; args: RetrieveDailyNotesArgs }
   | {
@@ -784,6 +835,78 @@ export const GeminiMemoryToolDeclarations = [
         },
       },
       required: ["id", "status"],
+    },
+  },
+  {
+    name: "tool_suggestion",
+    description:
+      "Log a new tool idea or mark a queued idea as shared. " +
+      "Use action='create' ONLY after you explicitly say 'I wish I could ...' in your response. " +
+      "Use action='mark_shared' after you share a queued tool idea.",
+    parameters: {
+      type: "object",
+      properties: {
+        action: {
+          type: "string",
+          enum: ["create", "mark_shared"],
+          description: "Use 'create' to log a new idea, 'mark_shared' after sharing it.",
+        },
+        id: {
+          type: "string",
+          description: "Required when action is 'mark_shared'.",
+        },
+        tool_key: {
+          type: "string",
+          description: "Stable snake_case tool key (required for create).",
+        },
+        title: {
+          type: "string",
+          description: "Short tool name (required for create).",
+        },
+        reasoning: {
+          type: "string",
+          description: "Why this tool matters (required for create).",
+        },
+        user_value: {
+          type: "string",
+          description: "User-facing benefit (required for create).",
+        },
+        trigger: {
+          type: "string",
+          description: "What sparked this idea (required for create).",
+        },
+        trigger_source: {
+          type: "string",
+          enum: ["idle", "live"],
+          description: "Source of the idea (required for create).",
+        },
+        trigger_text: {
+          type: "string",
+          description: "Snippet that triggered the idea (required for live create).",
+        },
+        trigger_reason: {
+          type: "string",
+          description: "Why it came up right now (required for live create).",
+        },
+        theme: {
+          type: "string",
+          description: "Theme label for the tool idea (required for idle create).",
+        },
+        seed_id: {
+          type: "string",
+          description: "Seed id used to inspire the tool idea (required for idle create).",
+        },
+        sample_prompt: {
+          type: "string",
+          description: "Example user prompt (required for create).",
+        },
+        permissions_needed: {
+          type: "array",
+          items: { type: "string" },
+          description: "List of permissions required (required for create).",
+        },
+      },
+      required: ["action"],
     },
   },
   {
@@ -1239,6 +1362,7 @@ export interface PendingToolCall {
     | "resolve_open_loop"
     | "resolve_idle_question"
     | "resolve_idle_browse_note"
+    | "tool_suggestion"
     | "store_daily_note"
     | "retrieve_daily_notes"
     | "make_promise"

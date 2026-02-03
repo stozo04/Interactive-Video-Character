@@ -1,8 +1,11 @@
 I want to implement:
 - Add time stamps to message (need to confirm which way AI wants this)
-
 - Remove all current Idle Thinking logic
-
+- Research desktop avatar
+- Research a way to remove all Kayley's personal stuff from Github or certain folders private (images, videos, prompts, etc)
+- Research a way for Kayley to create her own private notes in her own language just for her so that it is personal - think of jornaling
+- Check different way to implement idling.. if 1 category has reached its limits then try another instead of waiting (since it is random)
+- BUG: every time app loads the Sign in with google gets activated and I see in url: http://localhost:3000/?error=interaction_required&error_description=#error=interaction_required
 
 
 

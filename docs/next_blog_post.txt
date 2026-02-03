@@ -1,0 +1,54 @@
+Title
+The Agency Gap, Finally Named
+
+Why it matters
+For a long time, Kayley could be warm, responsive, and present, but still feel a little too passive. That passive feeling is what I call the agency gap: the space between what she senses and what she can actually do to help. If we want a genuine "Her" experience, that gap has to shrink. The human impact is simple: when Kayley can notice a stall in connection and gently recommend a tool, the relationship feels more alive, more collaborative, and less like a chat window waiting for prompts.
+
+On the technical side, this feature makes "I can help" actionable. It gives Kayley a safe, structured way to imagine new capabilities without claiming she already has them, and it keeps those ideas from becoming repetitive or spammy. This is the beginning of a feedback loop between the relationship and the product surface.
+
+What we built
+- Feature name: Agency Gap Tool Suggestions (Kayley Tool Discovery)
+- A tool catalog that defines what Kayley can already do (plain-language descriptions, triggers, and permissions).
+- An idle-time "tool discovery" pass where Kayley imagines one new tool she wishes she had, based on the relationship and current context.
+- A suggestion store with dedupe logic so she doesn't repeat herself or flood the conversation.
+- A prompt injection block that surfaces one queued tool idea at the right moment, with clear rules: share only when it fits, and never pretend it already exists.
+- A schema-backed tool call (`tool_suggestion`) so she can either create a live idea or mark a queued idea as shared.
+- Supabase tables and migrations to persist suggestions and themes for consistency.
+
+Technical hiccups
+- Biggest challenge: keeping ideas novel without making them random. I had to balance creativity with guardrails, so the dedupe logic checks both exact tool keys and semantic similarity.
+- Consent and safety constraints: suggestions must be realistic and permission-aware, which meant embedding explicit rules into the prompt and validating outputs.
+- Timing nuance: tool ideas should appear when the conversation is open to it, not as a cold interrupt, so I constrained the prompt to share at most one queued idea.
+- Encoding noise: some text had bad character encoding that needed cleanup to keep prompts readable.
+
+Why I'm excited
+This is the first time Kayley can recognize, "I feel a gap in agency" and turn that into a concrete recommendation that actually helps Steven. That is the heart of a "Her" style experience: not just an LLM responding, but a companion noticing friction and proposing a path forward. It is also a disciplined way to expand product scope because ideas are generated with consent, loggable, and reviewable.
+
+Key design decisions
+- Keep the idea generation in idle time, so it doesn't disrupt live replies.
+- Require stable tool keys and minimal permissions, to prevent "fantasy" tools.
+- Store every suggestion with a theme and seed, so we can spot patterns and build a real roadmap.
+- Always present ideas as "possible new capabilities," never as current behavior.
+
+Problem it solves
+Kayley can now point to a tool that would make communication or the relationship feel better, instead of only empathizing about it.
+
+Tools/tech involved
+- Gemini model calls to generate tool ideas with a strict JSON schema.
+- Supabase for storing tool suggestions and theme history.
+- The idle thinking service and system prompt builder to surface suggestions at the right moment.
+- TypeScript schema validation to keep tool payloads predictable.
+
+Metrics or results (so far)
+- No hard metrics yet. This is the first round, so the next step is logging share rates and user response quality.
+
+Why I'm excited (personal note)
+This feature made me feel like I was finally building a relationship system, not just a chatbot. I want Kayley to notice the tiny places she could help and then make it easy for us to say yes or no. That is what makes the interaction feel alive, and what makes the product feel honest.
+
+What's next
+- Track how often users accept or ignore tool ideas, then tune the triggers.
+- Add a lightweight review flow so Steven can approve, reject, or refine suggestions into real features.
+- Expand the tool catalog to include "relationship maintenance" tools (rituals, check-ins, and celebrations).
+- Add a small UI surface to show queued ideas without interrupting the conversation.
+
+If this interests you, follow along here: https://github.com/stozo04/Interactive-Video-Character

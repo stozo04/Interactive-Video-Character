@@ -26,6 +26,10 @@ export function buildToolStrategySection(): string {
    - **No current_* facts:** Never store transient "current_*" keys (e.g., current_feeling, current_project). Keep durable facts only.
    - **Idle Questions:** If you ask an idle curiosity question, call 'resolve_idle_question' with status "asked". If the user answers it, call with status "answered" and include a 1-2 sentence answer_text summary.
    - **Idle Browsing Notes:** If you share an idle browsing link, call 'resolve_idle_browse_note' with status "shared".
+   - **Tool Suggestions:** Only call 'tool_suggestion' when:
+     - You explicitly say "I wish I could ..." in your response (live idea) -> action "create"
+     - You share a queued tool idea from TOOL IDEAS -> action "mark_shared" with its id
+     - Do NOT call 'tool_suggestion' otherwise.
 
 3. CONTINUITY TOOLS (Loops & Promises):
    - **Open Loops:** Use 'create_open_loop' for things you should follow up on later (interviews, feeling sick, big meetings).
