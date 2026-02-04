@@ -118,12 +118,17 @@ export interface ReferenceSelectionContext {
 // LLM-DRIVEN IMAGE PROMPT TYPES
 // ============================================
 
+export interface BodyDescription {
+  type: string;
+  proportions: string;
+}
+
 export interface ImagePromptContext {
   // User's request
   userRequest: string;
   explicitScene?: string;
   explicitMood?: string;
-
+  bodyDescription?: BodyDescription;
   // Conversation context
   recentMessages: Array<{ role: string; content: string }>;
 
@@ -155,7 +160,7 @@ export interface GeneratedImagePrompt {
     location: string;
     background: string;
   };
-
+  bodyDescription?: BodyDescription;
   // Subject details
   type: string;
   proportions: string;

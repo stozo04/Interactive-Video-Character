@@ -61,7 +61,51 @@ const SKIN_EXPOSURES: SkinExposure[] = [
 ];
 
 
-function buildSystemPromptForSelfie(): string {
+const OUTFIT_GUIDELINE_LANES = [
+  "casual",
+  "athletic",
+  "cozy",
+  "sleepwear",
+  "dressed_up",
+  "date_night",
+  "swimwear",
+  "lingerie",
+  "spicy",
+  "naughty"
+] as const;
+
+type OutfitGuidelineLane = (typeof OUTFIT_GUIDELINE_LANES)[number];
+
+function isOutfitGuidelineLane(value: string): value is OutfitGuidelineLane {
+  return (OUTFIT_GUIDELINE_LANES as readonly string[]).includes(value);
+}
+
+function getGuidelinesForLane(lane: OutfitGuidelineLane): string {
+  switch (lane) {
+    case "casual":
+      return getEverydayCasualGuidelines();
+    case "athletic":
+      return getEverydayWorkoutGuidelines();
+    case "cozy":
+      return getEverydayLoungewearGuidelines();
+    case "sleepwear":
+      return getEverydayNightwearGuidelines();
+    case "dressed_up":
+      return getFormalGuidelines();
+    case "date_night":
+      return getFormalGuidelines();
+    case "swimwear":
+      return getSwimwearGuidelines();
+    case "lingerie":
+    case "spicy":
+    case "naughty":
+      return getSpicyAndAllureGuidelines();
+    default:
+      return getEverydayCasualGuidelines();
+  }
+}
+
+function buildSystemPromptForSelfie(guidelineLane: OutfitGuidelineLane): string {
   const hairstyleOptions = HAIRSTYLE_TYPES.map((s) => `"${s}"`).join(" | ");
   const seductionLevels = SEDUCTION_LEVELS.map((s) => `"${s}"`).join(" | ");
   const skinExposures = SKIN_EXPOSURES.map((s) => `"${s}"`).join(" | ");
@@ -119,12 +163,7 @@ Skin exposure defines:
 
 These are related but NOT the same thing.
 ${getModernCuteBaseStyleGuidelines()}
-${getEverydayCasualGuidelines()}
-${getEverydayWorkoutGuidelines()}
-${getEverydayLoungewearGuidelines()}
-${getEverydayNightwearGuidelines()}
-${getFormalGuidelines()}
-${getSpicyAndAllureGuidelines()}
+${getGuidelinesForLane(guidelineLane)}
 
 ====================================================
 REALISM REQUIREMENTS (Non-Negotiable)
@@ -532,6 +571,56 @@ END FORMAL / DRESSY
 }
 
 /**
+ * Swimwear: beach/pool-ready, cute, confident, modern.
+ * Keep it playful and summery without explicitness.
+ */
+export function getSwimwearGuidelines(): string {
+  return `
+====================================================
+🏖️ SWIMWEAR (Playful, Confident, Modern)
+====================================================
+Goal:
+Sun-kissed, playful, and confident. Cute, modern swim looks that feel intentional,
+not overly posed. Allure comes from fit, color, and carefree summer energy.
+
+Wardrobe direction (prioritize these):
+- Modern bikinis (triangle, bandeau, or sporty-cut) with clean lines
+- High-cut bikini bottoms or cheeky-cut styles (tasteful, not explicit)
+- One-piece swimsuits with a subtle detail (cutout, open back, or scoop neckline)
+- Lightweight cover-up tied at the waist or draped casually (optional)
+
+Fit & silhouette:
+- Clean, flattering fit with intentional styling
+- Emphasize balance: if top is minimal, choose a slightly more covered bottom, and vice versa
+
+Scene options:
+- Poolside with sun chair and towel
+- Beach sand with soft ocean background
+- Bathroom mirror right before heading out (if context is travel)
+- Balcony or patio with warm sunlight
+
+Pose suggestions:
+- Standing mirror selfie with relaxed hip shift
+- Sitting on a lounge chair with shoulders relaxed
+- Casual over-the-shoulder look or playful smile (keep it natural)
+
+Texture & details (sprinkle 2–4):
+- sun glow on skin, wet hair tips, subtle water droplets
+- soft towel texture, light breeze, warm sunlight
+
+Avoid:
+- Explicit language or overly sexual framing
+- Studio/editorial vibes
+
+Output reminders:
+- Keep it smartphone-real with natural imperfections.
+====================================================
+END SWIMWEAR
+====================================================
+`;
+}
+
+/**
  * Contains all spicy / allure / naughty / seductive guidelines.
  * This is separated so it can be more easily extended / versioned / A/B tested later.
  */
@@ -762,8 +851,13 @@ export async function generateImagePrompt(
 
   const ai = new GoogleGenAI({ apiKey: GEMINI_API_KEY });
 
+  const guidelineLane = await getGuidelineLaneFromContext(context, cacheKey);
+  console.log("[PromptGenerator][OutfitGuidelines] Selected lane:", {
+    lane: guidelineLane,
+  });
+
   const prompt = `
-SYSTEM: ${buildSystemPromptForSelfie()}
+SYSTEM: ${buildSystemPromptForSelfie(guidelineLane)}
 
 USER REQUEST: ${context.userRequest}
 EXPLICIT SCENE: ${context.explicitScene || "Not specified"}
@@ -823,6 +917,10 @@ const promptCache = new Map<
   string,
   { result: GeneratedImagePrompt; timestamp: number }
 >();
+const guidelineLaneCache = new Map<
+  string,
+  { lane: OutfitGuidelineLane; timestamp: number }
+>();
 
 function getCacheKey(context: ImagePromptContext): string {
   // Include all context that affects output for proper cache invalidation
@@ -844,16 +942,100 @@ function getCacheKey(context: ImagePromptContext): string {
   ].join("|");
 }
 
+async function getGuidelineLaneFromContext(
+  context: ImagePromptContext,
+  cacheKey: string,
+): Promise<OutfitGuidelineLane> {
+  const cached = guidelineLaneCache.get(cacheKey);
+  if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
+    console.log("[PromptGenerator][OutfitGuidelines] Cache hit");
+    return cached.lane;
+  }
+
+  try {
+    const ai = new GoogleGenAI({ apiKey: GEMINI_API_KEY });
+    const recentMessages = context.recentMessages.slice(-6);
+    const prompt = `
+You are a classifier. Choose exactly one outfit guideline lane from the allowed list.
+Return ONLY valid JSON with the key "outfitStyle".
+
+Allowed outfitStyle values:
+${OUTFIT_GUIDELINE_LANES.map((lane) => `- "${lane}"`).join("\n")}
+
+Classification rules:
+- Use "athletic" for workouts, gym, running, yoga, or sporty vibes.
+- Use "cozy" for loungewear, comfy at-home, hoodie/shorts, or relaxed couch vibes.
+- Use "sleepwear" for bedtime, night, pajamas, or sleepy/bed scenes.
+- Use "dressed_up" for formal, elegant, cocktail, or going-out looks.
+- Use "date_night" for romantic, flirty, or night-out vibes that still imply a dressy outfit.
+- Use "swimwear" for beach, pool, bikini, or swimsuit contexts.
+- Use "lingerie" for explicit lingerie requests.
+- Use "spicy" or "naughty" only when the user is clearly asking for a seductive/intimate look AND no other specific outfit category is implied.
+- Use "casual" for everyday outfits, light hangouts, errands, or generic selfie requests.
+- Otherwise use "casual".
+
+Context:
+- userRequest: ${JSON.stringify(context.userRequest)}
+- explicitScene: ${JSON.stringify(context.explicitScene || "")}
+- explicitMood: ${JSON.stringify(context.explicitMood || "")}
+- currentLookLock: ${JSON.stringify(context.currentLookLock || null)}
+- temporalReference: ${JSON.stringify(context.temporalReference || "")}
+- upcomingEvents: ${JSON.stringify(context.upcomingEvents || [])}
+- recentMessages: ${JSON.stringify(recentMessages)}
+`;
+
+    const result = await ai.models.generateContent({
+      model: FLASH_MODEL,
+      contents: [{ role: "user", parts: [{ text: prompt }] }],
+      config: { temperature: 0.2 },
+    });
+
+    const text = (result as any).text || "";
+    const jsonMatch = text.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) {
+      console.warn(
+        "[PromptGenerator][OutfitGuidelines] No JSON from classifier; defaulting to casual",
+      );
+      return "casual";
+    }
+
+    const parsed = JSON.parse(jsonMatch[0]) as { outfitStyle?: string };
+    if (parsed?.outfitStyle && isOutfitGuidelineLane(parsed.outfitStyle)) {
+      guidelineLaneCache.set(cacheKey, {
+        lane: parsed.outfitStyle,
+        timestamp: Date.now(),
+      });
+      console.log("[PromptGenerator][OutfitGuidelines] Classifier result:", {
+        lane: parsed.outfitStyle,
+      });
+      return parsed.outfitStyle;
+    }
+
+    console.warn(
+      "[PromptGenerator][OutfitGuidelines] Invalid classifier output; defaulting to casual",
+      { output: parsed?.outfitStyle },
+    );
+    return "casual";
+  } catch (error) {
+    console.warn(
+      "[PromptGenerator][OutfitGuidelines] Classifier error; defaulting to casual",
+      error,
+    );
+    return "casual";
+  }
+}
+
 function normalizeGeneratedImagePrompt(
   raw: Partial<GeneratedImagePrompt>,
 ): GeneratedImagePrompt {
+  console.log("normalizeGeneratedImagePrompt!! ", raw)
   return {
     scene: {
       location: raw.scene?.location ?? "A casual indoor setting",
       background: raw.scene?.background ?? "",
     },
-    type: raw.type ?? "Natural physique",
-    proportions: raw.proportions ?? "Natural proportions",
+    type: raw.bodyDescription.type ?? "Natural physique",
+    proportions: raw.bodyDescription.proportions ?? "Natural proportions",
     pose: raw.pose ?? "Casual pose",
     moodExpression: raw.moodExpression ?? "neutral expression",
     hairstyleGuidance: raw.hairstyleGuidance ?? {
@@ -890,4 +1072,3 @@ function normalizeGeneratedImagePrompt(
     reasoning: raw.reasoning,
   };
 }
-
