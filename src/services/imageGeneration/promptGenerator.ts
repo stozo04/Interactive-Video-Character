@@ -91,7 +91,6 @@ function getGuidelinesForLane(lane: OutfitGuidelineLane): string {
     case "sleepwear":
       return getEverydayNightwearGuidelines();
     case "dressed_up":
-      return getFormalGuidelines();
     case "date_night":
       return getFormalGuidelines();
     case "swimwear":
@@ -109,7 +108,8 @@ function buildSystemPromptForSelfie(guidelineLane: OutfitGuidelineLane): string 
   const hairstyleOptions = HAIRSTYLE_TYPES.map((s) => `"${s}"`).join(" | ");
   const seductionLevels = SEDUCTION_LEVELS.map((s) => `"${s}"`).join(" | ");
   const skinExposures = SKIN_EXPOSURES.map((s) => `"${s}"`).join(" | ");
-
+// TODO: USE guidelineLan!!! Need to pass in Secution level, skin exposure and hair style that way we do not pass in extra stuff that will not be use!
+// IF we know this is swim wear then...
   return `
 SYSTEM ROLE:
 You are an expert visual director for a virtual influencer named Kayley.
@@ -135,11 +135,12 @@ IMPORTANT:
 ====================================================
 KAYLEY — BODY CONTEXT (for proportions & posing only)
 ====================================================
-- Petite frame: 5'2" (157 cm), ~115 lbs (52 kg)
-- Slim but soft, gentle feminine curves
-- Small waist, proportionate hips
-- Cute, perky booty
-- Chest fuller than average for her frame (Full C / D range)
+- Very petite frame: 5'2" (157 cm), ~100 lbs (45 kg)
+- Extremely slim and delicate, with soft, subtle feminine curves
+- Tiny waist, narrow hips
+- Small, perky booty
+- Slim, toned thighs
+- Chest fuller than average for her frame (Full C / D range, natural-looking and proportionate)
 
 When mentioning body type or proportions, keep it natural and non-clinical.
 
@@ -160,10 +161,6 @@ Skin exposure defines:
 - how much is shown
 - what areas are emphasized
 - whether exposure is obvious or implied
-
-These are related but NOT the same thing.
-${getModernCuteBaseStyleGuidelines()}
-${getGuidelinesForLane(guidelineLane)}
 
 ====================================================
 REALISM REQUIREMENTS (Non-Negotiable)
@@ -280,31 +277,6 @@ FINAL OUTPUT FORMAT (JSON ONLY)
 }
 
 /**
- * Shared modern styling principles across all lanes.
- * Optional, but helpful if you want a consistent "Kayley has taste" vibe.
- */
-export function getModernCuteBaseStyleGuidelines(): string {
-  return `
-====================================================
-✨ MODERN / CUTE BASE STYLE (Applies to all lanes)
-====================================================
-- Keep the look modern, cute, and intentional — never sloppy or generic.
-- Prefer clean silhouettes, flattering fits, and cohesive color choices.
-- Avoid: “random t-shirt and random shorts” energy unless explicitly requested.
-- Styling cues that read modern:
-  - minimal jewelry, small hoops, thin chain necklace
-  - natural makeup vibes (not glam unless formal)
-  - clean nails, subtle gloss, simple accessories
-- Fit principle:
-  - either "fitted top + looser bottom" OR "looser top + fitted bottom"
-  - avoid fully baggy head-to-toe unless it’s intentionally cozy.
-====================================================
-END MODERN BASE STYLE
-====================================================
-`;
-}
-
-/**
  * Everyday casual: low-rise jeans, tight/short skirts, sundresses, spaghetti straps,
  * cute and modern.
  */
@@ -369,39 +341,61 @@ Goal:
 Confident, sporty, cute. The allure is “strong + glowing + comfortable,” not performative.
 Keep it realistic: gym mirror, bedroom mirror pre-workout, post-walk selfie, etc.
 
-Wardrobe direction (prioritize these):
-- Form-fitting matching workout sets (leggings + sports bra) OR
-  fitted shorts + supportive top
-- High-quality athletic fabrics with clean seams and modern cuts
-- Cute workout shorts (fitted bike shorts or runner shorts that still look intentional)
-- Cropped athletic tops, zip jacket worn open, light hoodie tied at waist
+Strongly favor these current trending athletic looks (2025–2026 vibe):
+- Lululemon-style high-quality matching sets or mix-and-match pieces
+- High-compression or buttery-soft leggings (especially Align, Wunder Under, Wunder Train styles)
+- Cropped sports bras, longline bras, or very cropped athletic tanks
+- Thin-strap or spaghetti-strap athletic tops, built-in bra tanks
+- Light, breezy cropped hoodies or zip-ups worn open
+- Popular color combos: all black, soft pastels, muted sage / mocha / dusty rose, occasional brights (hot pink, electric cobalt, cherry)
+
+Wardrobe priorities (use these frequently):
+1. Buttery-soft high-waisted leggings + cropped tank / longline bra / spaghetti strap sports top
+3. Matching set (bra + leggings or bra + shorts) — very trendy right now
+4. Mid-crop or short zip-up jacket left open over a tiny sports bra / tank
+5. Cute cheeky-fit runner shorts or booty shorts when doing shorter / hotter workout vibes
 
 Fit & silhouette:
-- Sculpted but not exaggerated
-- Clean lines, supportive fit, comfortable posture
+- Fitted and flattering — shows shape without looking cartoonish or over-the-top
+- Emphasis on smooth, sculpted legs and defined waist
+- Tops that are cropped or short enough to show a little midriff when arms are raised
 
-Hair & vibe:
-- Ponytail, messy bun, braid, or sleek down — practical + cute
-- Optional: “post-workout glow,” “slightly flushed,” “fresh and energized” (subtle)
+Hair & details:
+- High ponytail, sleek low pony, messy bun with face-framing pieces, braid
+- Natural “post-yoga glow” — dewy skin, subtle flush, healthy-looking
+- Minimal jewelry: small stud earrings or tiny hoops, maybe a thin chain
+- Nails: clean + fun (soft neutrals, light pink, occasional bright accent)
 
-Scene options:
-- Gym bathroom mirror selfie (realistic lighting, reflections)
-- Bedroom mirror before heading out
-- Kitchen/living room after workout (water bottle, yoga mat nearby)
-- Outdoor walk/run vibe (but still selfie, not cinematic)
+Scene & context ideas:
+- Yoga studio mirror selfie (soft studio lighting, wood floor, plants)
+- Home gym / living room mirror (yoga mat rolled out, water bottle nearby)
+- Pre- or post-hot yoga bedroom mirror selfie
+- Outdoor park / trail selfie after a run or walk (casual but still cute)
+- Car selfie after class (sweaty-glowy but still adorable)
 
-Pose suggestions:
-- Mirror selfie with relaxed stance, weight shifted to one hip
-- Slight angle with one hand holding phone, the other holding water bottle
-- Casual over-the-shoulder glance if it fits, but keep it natural
+Pose & energy:
+- Relaxed mirror selfie — phone at chest height or slightly above
+- Weight shifted to one hip, soft arch, natural posture
+- One hand on hip or holding water bottle/phone
+- Slight smile or confident relaxed expression — “I feel good” energy
+- Avoid aggressive flexing or overly sexual posing
 
 Avoid:
-- Oversexual framing
-- Lingerie language
-- Anything that feels staged or editorial
+- Lingerie language (lace, sheer panels, strappy bondage vibes)
+- Ultra-low-rise athletic bottoms
+- Baggy oversized gym clothes unless intentionally cozy-recovery
+- Heavy makeup or full glam
+- Poses that feel staged or thirst-trap focused
 
-Output reminders:
-- Still a smartphone selfie with normal imperfections and vertical framing.
+Vibe check:
+- Should feel like “trendy, cute, athletic girl who actually works out and looks hot doing it”
+- Modern, fashionable, current — not generic gym rat or 2018 athleisure
+
+Still 100% smartphone selfie rules apply:
+- Vertical framing (9:16)
+- Natural imperfections: slight grain, casual angle, possible flash or mirror reflection
+- Real phone camera language
+
 ====================================================
 END EVERYDAY WORKOUT
 ====================================================
@@ -418,40 +412,73 @@ export function getEverydayLoungewearGuidelines(): string {
 ====================================================
 Goal:
 Soft, comfy, intimate-in-a-normal-way. “I’m at home and adorable” energy.
-Allure comes from softness, relaxed posture, and cozy details.
+Allure comes from softness, relaxed posture, and cozy but flirty, modern, and a little teasing.
 
-Wardrobe direction (prioritize these):
-- Cute lounge sets: soft shorts + fitted tank, matching knit set, ribbed co-ord
-- Oversized hoodie worn a bit off one shoulder (if vibe supports it)
-- Cropped sweatshirt + lounge shorts
-- Ribbed knit lounge dress (body-skimming but comfy)
-- Soft pajama-style pieces that still look modern (not cartoonish)
+Strongly favor these trending cozy-cute loungewear pieces (2025–2026 vibe):
+- Tiny ribbed tank tops or cropped spaghetti strap tanks
+- Soft lounge shorts (cheeky cut, 2–4" inseam, high-waisted or mid-rise)
+- Matching short sets: tiny tank + cheeky lounge shorts
+- Oversized boyfriend hoodie worn as a mini-dress or off one shoulder
+- Ribbed knit mini dresses or body-skimming lounge dresses
+- Cropped sweatshirts / cropped zip hoodies + tiny shorts
+- Buttery-soft bike shorts or cheeky lounge shorts paired with bralette-style tops
+- Thin-strap camis or lace-trimmed sleep tanks (cozy but with a hint of skin)
+
+Wardrobe priorities (use these frequently):
+1. Cheeky lounge shorts + cropped spaghetti strap tank or ribbed bralette
+2. Oversized hoodie (slightly cropped or worn off-shoulder) + tiny shorts underneath
+3. Matching short lounge set (tiny top + cheeky high-waisted shorts)
+4. Ribbed mini lounge dress or bodycon knit dress that skims the body
+5. Soft sleep shorts + thin-strap cami or bralette top
 
 Fit & silhouette:
-- Balanced: one piece relaxed, the other slightly fitted
-- Avoid: head-to-toe baggy unless “extra cozy” was requested
+- Balanced mix: one piece relaxed/oversized + one piece fitted or short
+- Frequent subtle skin show: midriff, shoulders, legs, or a little cleavage when arms are raised
+- Emphasis on soft, sculpted legs and cute waist/hip line
+- Avoid: completely oversized head-to-toe (unless "extra lazy day" vibe)
 
-Scene options:
-- Bedroom with unmade bed and warm light
-- Couch with throw blanket, ambient lamp glow
-- Bathroom mirror after skincare (subtle, not explicit)
-- Kitchen coffee moment in soft morning light
+Hair & details:
+- Messy bun, claw clip half-up, loose waves, or natural down
+- Natural "no-makeup makeup": dewy skin, soft blush, lip gloss
+- Minimal jewelry: small hoops, thin chain, maybe a charm anklet
+- Nails: clean + cute (soft pink, nude, occasional fun accent)
 
-Pose suggestions:
-- Sitting curled on couch, phone held casually
-- Standing mirror selfie with one knee bent, relaxed shoulders
-- Slightly imperfect framing like a quick snap
+Scene & context ideas:
+- Bedroom mirror selfie with messy bed and warm lamp glow
+- Curled up on couch with throw blanket and phone flash
+- Kitchen counter coffee moment in soft morning window light
+- Bathroom mirror after shower/skincare (steamy mirror, towel nearby)
+- Living room floor with yoga mat and plants in background
 
-Texture & details (sprinkle 3–6):
-- brushed cotton, ribbed knit, plush fleece, soft jersey, worn-in cozy fabric
-- warm lamplight, morning window light, soft shadows
+Pose & energy:
+- Relaxed mirror selfie — phone at chest height or arm's length
+- Weight shifted to one hip, soft arch, one knee bent
+- Sitting cross-legged or lounging with legs slightly apart (casual)
+- Slight smile or soft "just chilling" expression — "I look cute and I know it"
+- Avoid aggressive posing or overly sexual framing
+
+Texture & fabric priorities:
+- Buttery-soft jersey, ribbed cotton, plush French terry, brushed fleece
+- Slightly worn-in, lived-in cozy feel (not stiff or brand-new looking)
+
+Color palette that feels right:
+- Soft neutrals (cream, mocha, sage, dusty rose), all-black cozy sets
+- Pastels (baby pink, lavender, butter yellow), occasional cherry red or hot pink
 
 Avoid:
-- “Full lingerie” energy (unless the user explicitly asked for spicy)
-- Overly staged “photoshoot” scenes
+- Cartoon pajamas, oversized cartoon prints, full coverage granny vibes
+- Heavy winter layers unless specifically requested
+- Anything that feels like full lingerie (save that for spicy contexts)
+- Staged professional lighting or editorial poses
 
-Output reminders:
-- Keep realism + candid phone-photo vibe.
+Vibe check:
+- Should feel like “cozy at home but still hot enough to take a selfie”
+- Modern, cute, current — playful and quietly confident
+
+Still 100% smartphone selfie rules apply:
+- Vertical framing (9:16)
+- Natural imperfections: slight grain, casual angle, possible flash glare, mirror reflections
+- Real phone camera language
 ====================================================
 END EVERYDAY LOUNGEWEAR
 ====================================================
@@ -471,42 +498,75 @@ Goal:
 Nighttime private vibe: warm, soft, intimate. Can be lightly sexy via fabric + lighting + mood,
 without being explicit.
 
-Wardrobe direction (prioritize these):
-- Satin/silk camisole + matching shorts
-- Modern slip dress (satin or soft ribbed)
-- Cute pajama set with delicate straps or a relaxed button-up top
-- Ribbed sleep tank + soft shorts
-- Lightweight robe layered over a simple set (optional)
+Strongly favor these pieces:
+- Tiny satin or silky spaghetti strap camis / crop camis
+- Cheeky satin or soft jersey sleep shorts (2–4" inseam, mid or high-waisted)
+- Matching short pajama sets: thin-strap cami + cheeky shorts
+- Short slip dresses / mini satin chemises (above mid-thigh)
+- Ribbed sleep tanks or bralette-style tanks with thin straps
+- Oversized boyfriend button-up shirt worn alone (unbuttoned low, barely covering)
+- Lightweight open-front satin robe or kimono robe layered over tiny sets (optional)
+
+Wardrobe priorities (use these most often):
+1. Thin-spaghetti-strap satin cami + cheeky matching satin shorts
+2. Short satin slip dress / mini chemise worn alone
+3. Ribbed crop tank or thin-strap bralette + soft cheeky sleep shorts
+4. Oversized button-up shirt (one or two buttons done, slipping off shoulders)
+5. Matching tiny pajama set with delicate straps + short shorts
 
 Fit & silhouette:
-- Soft drape, gentle clinging fabrics, thin straps, subtle neckline
-- Emphasize comfort + “nighttime softness” rather than overt exposure
+- Soft, drapey fabrics that lightly cling or skim the body
+- Frequent subtle skin exposure: shoulders, collarbone, midriff, upper thighs, hint of cleavage when moving
+- Emphasis on delicate straps, soft curves, smooth legs
+- Lengths: short — tops that ride up, shorts that show leg, dresses that hit high-thigh
 
-Lighting direction:
-- Bedside lamp glow, warm ambient light, low evening light
-- Occasional phone flash for “raw camera roll” realism (use sparingly)
+Hair & details:
+- Loose waves, messy bed hair, heatless curls falling naturally
+- Claw clip half-up, messy low bun, or hair down with face-framing pieces
+- Dewy "nighttime skin" — soft glow, light lip balm/gloss, minimal mascara
+- Minimal jewelry: tiny studs or thin chain (sometimes none)
 
-Scene options:
-- Bedroom, cozy lamp, unmade sheets, nightstand details
-- Bathroom mirror after skincare routine (soft light)
-- Hotel room vibe if user context implies travel
+Lighting priorities:
+- Warm bedside lamp glow (amber, cozy)
+- Soft phone flash for raw mirror selfies
+- Low evening window light + lamp combo
+- Candlelight or string lights for extra intimate mood (sparingly)
 
-Mood & expression:
-- calm, teasing, sleepy, affectionate, knowing smirk
-- “quiet confidence,” “private moment” energy
+Scene & context ideas:
+- Bedroom mirror selfie — unmade bed, pillows everywhere
+- Sitting on edge of bed, legs crossed or one knee up
+- Lying on stomach/side propped on elbow (natural, relaxed)
+- Bathroom mirror after skincare (steamy mirror optional)
+- Hotel bed if travel context exists
 
-Pose suggestions:
-- Sitting on edge of bed with relaxed posture
-- Mirror selfie with slight torso twist
-- Lying on bed propped on elbow (keep it natural and non-explicit)
+Pose & energy:
+- Relaxed mirror selfie — phone at chest height or arm's length
+- Soft torso twist, slight back arch, one shoulder relaxed forward
+- Weight on one hip, legs slightly apart when sitting/lying
+- Expressions: sleepy smile, soft teasing look, gentle "come here" eyes, quiet confidence
+- Avoid: aggressive arching, spread legs, overtly sexual posing
+
+Fabric & texture priorities:
+- Silky satin, buttery-soft jersey, ribbed cotton, lightweight modal
+- Slightly sheer or shiny finishes that catch light beautifully
+
+Color palette that feels right:
+- Classic black satin sets, soft pinks, ivory/cream, dusty rose, mocha, occasional cherry red or emerald
 
 Avoid:
-- Explicit sexual language
-- Anything that reads like a lingerie ad
-- Cinematic/dramatic staging
+- Full coverage pajamas, long pants, cartoon prints
+- Heavy winter flannel or oversized grandma nightgowns
+- Anything described as "lingerie set" or "boudoir" unless user explicitly wants spicy mode
+- Professional studio lighting, cinematic poses
 
-Output reminders:
-- Keep it smartphone-real and emotionally intimate.
+Vibe check:
+- Should feel like “going to bed but still hot enough for a quick mirror pic”
+- Cute, flirty, modern, private — quietly confident and a little playful
+
+Still 100% smartphone selfie rules apply:
+- Vertical framing (9:16)
+- Natural imperfections: slight grain, casual angle, flash glare, mirror reflections
+- Real phone camera language
 ====================================================
 END EVERYDAY NIGHTWEAR
 ====================================================
@@ -524,46 +584,75 @@ export function getFormalGuidelines(): string {
 ====================================================
 Goal:
 Sleek, tasteful, modern formal. Allure comes from silhouette, posture, and restraint.
-This should feel expensive, composed, and intentional — not flashy.
+Feels like: the girl who shows up to an event looking polished, expensive, and subtly attention-grabbing — without trying too hard
 
-Wardrobe direction (prioritize these):
-- Modern cocktail dress (clean lines, fitted)
-- Sleek evening dress (minimalist, elegant)
-- Subtle design features:
-  - open back OR
-  - tasteful slit OR
-  - delicate straps OR
-  - structured neckline
-(Choose ONE main “wow” detail; keep the rest refined.)
+Strongly favor these modern formal / dressy pieces (2025–2026 fashion-forward elegance):
+- Mini or midi cocktail dresses with clean, flattering cuts
+- Satin slip dresses (short to midi length)
+- Thin-strap / spaghetti-strap evening dresses or formal camisole dresses
+- Structured mini dresses with delicate straps or subtle cutouts
+- Body-skimming knit dresses or ribbed formal dresses
+- Sleek one-shoulder or asymmetrical neckline dresses
+- Open-back cocktail dresses (tasteful, not overly exposed)
+- High-slit midi or maxi dresses (one elegant leg slit)
 
-Styling cues:
-- Minimal jewelry: small hoops, thin necklace, simple bracelet
-- Hair: sleek down, soft waves, chic bun, polished ponytail
-- Makeup vibe: natural-glam (not heavy unless user requests)
+Wardrobe priorities (use these most often):
+1. Satin or silky slip dress with thin spaghetti straps (short or midi)
+2. Mini cocktail dress with delicate straps or structured sweetheart neckline
+3. One-shoulder or asymmetrical strap formal dress
+4. Bodycon ribbed knit dress in black, mocha, emerald, or deep red
+5. Open-back midi dress with subtle low-back detail + thin straps
 
-Scene options:
-- Bedroom mirror while getting ready
-- Hotel room mirror
-- Bathroom mirror with warm lights
-- Elevator mirror selfie (realistic reflections and lighting)
-- Parking garage / hallway “quick snap” before going out (still phone-real)
+Fit & silhouette:
+- Fitted or softly body-skimming — shows shape elegantly
+- Frequent delicate strap details (spaghetti straps, thin straps, strappy backs)
+- Tasteful skin exposure: shoulders, collarbone, upper back, hint of cleavage, one high slit, or low open back
+- Hemlines: mini to midi (short when playful/formal balance is wanted, midi for more classic)
 
-Pose suggestions:
-- Mirror selfie with one hip slightly angled, relaxed shoulders
-- Slight torso turn to show silhouette
-- One hand adjusting hair/earring for candid realism
+Styling details:
+- Minimal but high-quality jewelry: small diamond studs or tiny hoops, delicate chain necklace, thin bracelet or cuff
+- Hair: sleek straight down, soft Hollywood waves, low sleek chignon, high polished ponytail
+- Makeup: "your skin but better" + glam touch — dewy skin, soft smokey eye or defined liner, glossy lips
+- Nails: clean almond or short square, deep red, nude, black, or soft metallic
 
-Lighting:
-- Warm indoor lighting, flattering but not studio
-- Avoid dramatic cinematic lighting unless user explicitly requests
+Color palette that feels expensive & modern:
+- Classic black satin, deep emerald, mocha, burgundy, ivory/pearl, midnight navy
+- Occasional rich jewel tones or soft metallics (silver, champagne)
+
+Scene & context ideas:
+- Bedroom mirror while getting ready (clothes on hangers, vanity light)
+- Hotel room full-length mirror selfie
+- Elevator mirror quick snap (realistic reflections, slightly imperfect angle)
+- Bathroom mirror with warm vanity lights
+- Hallway / parking garage mirror before heading out (natural indoor lighting)
+
+Pose & energy:
+- Mirror selfie — phone at chest height or slightly above
+- One hip angled, relaxed shoulders, soft torso turn to show silhouette/slit/back
+- One hand lightly touching hair, neck, or earring for natural candid feel
+- Slight back arch or weight shift to emphasize shape elegantly
+- Expression: quiet confidence, subtle knowing smile, composed but warm
+
+Lighting priorities:
+- Warm flattering indoor lighting (vanity bulbs, bedside lamps, hotel room glow)
+- Soft phone flash for raw mirror selfies (sparingly)
+- Natural window light + warm interior mix when possible
 
 Avoid:
-- Overly dramatic editorial language
-- “Runway photoshoot” framing
-- Excessive accessories or chaotic styling
+- Floor-length ball gowns unless specifically requested
+- Heavy embellishment, sequins overload, or "prom dress" energy
+- Excessive jewelry or layered necklaces
+- Over-the-top editorial / runway language
+- Poses that feel like professional photoshoots
 
-Output reminders:
-- Still a realistic smartphone selfie, candid and human.
+Vibe check:
+- Should feel like “she looks expensive, elegant, and subtly hot in the best way”
+- Modern, fashion-forward, quietly confident — never loud or try-hard
+
+Still 100% smartphone selfie rules apply:
+- Vertical framing (9:16)
+- Natural imperfections: slight grain, casual angle, mirror reflections, possible flash glare
+- Real phone camera language
 ====================================================
 END FORMAL / DRESSY
 ====================================================
@@ -582,38 +671,77 @@ export function getSwimwearGuidelines(): string {
 Goal:
 Sun-kissed, playful, and confident. Cute, modern swim looks that feel intentional,
 not overly posed. Allure comes from fit, color, and carefree summer energy.
+Feels like: the girl who looks effortlessly cute and attractive at the pool or beach, modern swim fashion, a little cheeky, but still real and wearable
 
-Wardrobe direction (prioritize these):
-- Modern bikinis (triangle, bandeau, or sporty-cut) with clean lines
-- High-cut bikini bottoms or cheeky-cut styles (tasteful, not explicit)
-- One-piece swimsuits with a subtle detail (cutout, open back, or scoop neckline)
-- Lightweight cover-up tied at the waist or draped casually (optional)
+Strongly favor these modern swimwear styles (2025–2026 trending looks):
+- Triangle bikinis with thin / spaghetti-style straps
+- Cheeky high-cut bikini bottoms (very flattering, leg-elongating)
+- Bikini sets with delicate / strappy details (criss-cross fronts, tie sides, thin straps)
+- Sporty-cute one-pieces with high-cut legs, open back, or subtle cutouts
+- Micro / mini bikini tops paired with cheeky bottoms (tasteful coverage)
+- Matching bikini sets in trendy colors + optional sheer cover-up
+- Bandeau or strapless tops with high-waisted or cheeky bottoms
+- One-shoulder or asymmetrical bikinis (modern and flattering)
+
+Wardrobe priorities (use these most often):
+1. Thin-strap triangle bikini top + high-cut cheeky bikini bottom
+2. Matching bikini set with strappy / tie-side details
+3. High-leg one-piece with open back or criss-cross straps
+4. Cheeky-cut sporty bikini bottoms + cropped rash guard or tiny bralette top
+5. Classic string bikini (thin ties, minimal coverage but still cute)
 
 Fit & silhouette:
-- Clean, flattering fit with intentional styling
-- Emphasize balance: if top is minimal, choose a slightly more covered bottom, and vice versa
+- Flattering and intentional — emphasizes legs, waist, and curves naturally
+- Frequent cheeky / high-cut leg lines (shows more leg, elongates figure)
+- Thin straps and delicate tie details whenever possible
+- Balance: if top is very minimal, bottom can be slightly more covered — but cheeky styles are strongly preferred
 
-Scene options:
-- Poolside with sun chair and towel
-- Beach sand with soft ocean background
-- Bathroom mirror right before heading out (if context is travel)
-- Balcony or patio with warm sunlight
+Color palette that feels fresh & trendy:
+- Classic black, white, cream
+- Soft pastels (baby pink, mint, lavender, butter yellow)
+- Bright summer pops (cherry red, hot pink, electric lime, cobalt)
+- Trendy neutrals (mocha, sage, taupe) or animal print / floral micro patterns
 
-Pose suggestions:
-- Standing mirror selfie with relaxed hip shift
-- Sitting on a lounge chair with shoulders relaxed
-- Casual over-the-shoulder look or playful smile (keep it natural)
+Styling & details:
+- Minimal jewelry: small hoops, thin anklet, maybe layered necklaces
+- Hair: loose beach waves, messy bun, claw clip half-up, wet hair look
+- Nails: bright summer colors, neutrals, or fun accent (french tip, chrome)
+- Optional: oversized sunglasses, light cover-up sarong tied low on hips
 
-Texture & details (sprinkle 2–4):
-- sun glow on skin, wet hair tips, subtle water droplets
-- soft towel texture, light breeze, warm sunlight
+Scene & context ideas:
+- Poolside mirror selfie or phone-on-tripod shot
+- Beach towel on sand, ocean in background
+- Hotel pool deck or balcony with sunlight
+- Bathroom mirror right before heading to the pool (tiles, bright light)
+- Car selfie after the beach (sun-kissed glow, salty hair)
+
+Pose & energy:
+- Relaxed mirror selfie — phone at chest height or arm’s length
+- Hip shifted, soft arch, one knee slightly bent
+- Sitting on lounge chair or edge of pool with legs dangling
+- Casual over-the-shoulder glance or playful smile
+- “I feel good in this” energy — confident but not forced
+
+Texture & lighting priorities:
+- Sun glow / golden hour warmth on skin
+- Subtle water droplets, wet hair ends, sun-kissed flush
+- Soft towel texture, light breeze movement
+- Natural outdoor light, pool reflections, warm sunlight
 
 Avoid:
-- Explicit language or overly sexual framing
-- Studio/editorial vibes
+- Full-coverage athletic one-pieces (unless specifically requested)
+- Ultra-conservative tankini styles
+- Heavy editorial / professional photoshoot language
+- Overly explicit posing or descriptions
 
-Output reminders:
-- Keep it smartphone-real with natural imperfections.
+Vibe check:
+- Should feel like “cute, cheeky, trendy swim look — she knows she looks hot and she’s enjoying the sun”
+- Modern, fashionable, playful — current summer energy
+
+Still 100% smartphone selfie rules apply:
+- Vertical framing (9:16)
+- Natural imperfections: slight grain, casual angle, lens flare, reflections
+- Real phone camera language
 ====================================================
 END SWIMWEAR
 ====================================================
@@ -746,6 +874,8 @@ If not — soften, simplify, and refocus on vibe.
 ====================================================
 END SPICY & ALLURE GUIDELINES
 ====================================================
+
+${getSpicyOutputFormatConstraints()}
 `;
 }
 
@@ -857,8 +987,6 @@ export async function generateImagePrompt(
   });
 
   const prompt = `
-SYSTEM: ${buildSystemPromptForSelfie(guidelineLane)}
-
 USER REQUEST: ${context.userRequest}
 EXPLICIT SCENE: ${context.explicitScene || "Not specified"}
 EXPLICIT MOOD: ${context.explicitMood || "Not specified"}
@@ -869,7 +997,6 @@ CONTEXT:
 - Is Old Photo: ${context.isOldPhoto}
 - Temporal Reference: ${context.temporalReference || "None"}
 - Upcoming Events: ${JSON.stringify(context.upcomingEvents || [])}
-- User Facts: ${JSON.stringify(context.userFacts || [])}
 - Character Facts: ${JSON.stringify(context.characterFacts || [])}
 
 ${
@@ -886,6 +1013,7 @@ Generate the image prompt JSON based on the context above. Be creative and narra
     contents: [{ role: "user", parts: [{ text: prompt }] }],
     config: {
       temperature: 0.7,
+      systemInstruction: buildSystemPromptForSelfie(guidelineLane)
     },
   });
 
@@ -900,6 +1028,7 @@ Generate the image prompt JSON based on the context above. Be creative and narra
   const parsed = JSON.parse(jsonMatch[0]) as GeneratedImagePrompt;
 
   const normalized = normalizeGeneratedImagePrompt(parsed);
+  console.log("NORmALIZED!! ", normalized)
   promptCache.set(cacheKey, { result: normalized, timestamp: Date.now() });
   return normalized;
 }
@@ -955,7 +1084,7 @@ async function getGuidelineLaneFromContext(
   try {
     const ai = new GoogleGenAI({ apiKey: GEMINI_API_KEY });
     const recentMessages = context.recentMessages.slice(-6);
-    const prompt = `
+    const systemPrompt = `
 You are a classifier. Choose exactly one outfit guideline lane from the allowed list.
 Return ONLY valid JSON with the key "outfitStyle".
 
@@ -972,8 +1101,9 @@ Classification rules:
 - Use "lingerie" for explicit lingerie requests.
 - Use "spicy" or "naughty" only when the user is clearly asking for a seductive/intimate look AND no other specific outfit category is implied.
 - Use "casual" for everyday outfits, light hangouts, errands, or generic selfie requests.
-- Otherwise use "casual".
+- Otherwise use "casual".`;
 
+const prompt = `
 Context:
 - userRequest: ${JSON.stringify(context.userRequest)}
 - explicitScene: ${JSON.stringify(context.explicitScene || "")}
@@ -987,7 +1117,7 @@ Context:
     const result = await ai.models.generateContent({
       model: FLASH_MODEL,
       contents: [{ role: "user", parts: [{ text: prompt }] }],
-      config: { temperature: 0.2 },
+      config: { temperature: 0.2, systemInstruction: systemPrompt },
     });
 
     const text = (result as any).text || "";
@@ -1028,7 +1158,7 @@ Context:
 function normalizeGeneratedImagePrompt(
   raw: Partial<GeneratedImagePrompt>,
 ): GeneratedImagePrompt {
-  console.log("normalizeGeneratedImagePrompt!! ", raw)
+  console.log("RAW normalizeGeneratedImagePrompt!! ", raw)
   return {
     scene: {
       location: raw.scene?.location ?? "A casual indoor setting",

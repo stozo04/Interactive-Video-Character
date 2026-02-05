@@ -87,7 +87,7 @@ export async function generateCompanionSelfie(
     console.error("❌ [ImageGen] Missing VITE_GEMINI_API_KEY");
     return { success: false, error: "Image generation not configured" };
   }
-  console.log("IMAGE_GENERATOR_SERVICE: ", IMAGE_GENERATOR_SERVICE);
+  console.log("IMAGE_GENERATOR_SERVICE: ", request);
   try {
     console.log("📸 [ImageGen] Generating selfie for scene:", request.scene);
 
@@ -130,15 +130,11 @@ export async function generateCompanionSelfie(
 
         // STEP 3: Get additional context for LLM prompt generation (Phase 2)
         // Run all context fetches in parallel for performance
-        const [activeLoops, characterFacts, userFactsRaw] =
+        const [activeLoops, characterFacts] =
           await Promise.all([
             getActiveLoops(),
             getCharacterFacts(),
-            getUserFacts("all"),
           ]);
-        const userFacts = userFactsRaw.map(
-          (f) => `${f.fact_key}: ${f.fact_value}`,
-        );
 
         // Map conversation history to expected role format
         const recentMessages = (request.conversationHistory || []).map((m) => ({
@@ -156,7 +152,6 @@ export async function generateCompanionSelfie(
             topic: l.topic,
             loopType: l.loopType,
           })),
-          userFacts,
           characterFacts: characterFacts.map(
             (f) => `${f.fact_key}: ${f.fact_value}`,
           ),

@@ -137,7 +137,6 @@ export interface ImagePromptContext {
   relevantOpinion?: { topic: string; sentiment: string };
 
   // Character context
-  userFacts?: string[];
   characterFacts?: string[];
 
   // Temporal context
