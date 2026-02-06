@@ -11,7 +11,8 @@ import {
 } from "./types";
 
 const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
-const FLASH_MODEL = "gemini-3-flash-preview";
+const GROK_API_KEY = import.meta.env.VITE_GROK_API_KEY;
+const FLASH_MODEL = import.meta.env.VITE_GEMINI_MODEL;
 
 // ============================================
 // 1. UPDATE OUTFIT STYLES (CRITICAL)
@@ -1033,6 +1034,93 @@ Generate the image prompt JSON based on the context above. Be creative and narra
   return normalized;
 }
 
+
+export async function generateImagePromptGrok(
+  context: ImagePromptContext,
+): Promise<GeneratedImagePrompt> {
+  const cacheKey = getCacheKey(context);
+  const cached = promptCache.get(cacheKey);
+  if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
+    console.log("✨ [PromptGenerator] Cache hit");
+    return cached.result;
+  }
+
+  const guidelineLane = await getGuidelineLaneFromContext(context, cacheKey);
+  console.log("[PromptGenerator][OutfitGuidelines] Selected lane:", {
+    lane: guidelineLane,
+  });
+
+  const userPrompt = `
+USER REQUEST: ${context.userRequest}
+EXPLICIT SCENE: ${context.explicitScene || "Not specified"}
+EXPLICIT MOOD: ${context.explicitMood || "Not specified"}
+
+CONTEXT:
+- Recent Messages: ${JSON.stringify(context.recentMessages.slice(-5))}
+- Active Loops: ${JSON.stringify(context.activeLoops)}
+- Is Old Photo: ${context.isOldPhoto}
+- Temporal Reference: ${context.temporalReference || "None"}
+- Upcoming Events: ${JSON.stringify(context.upcomingEvents || [])}
+- Character Facts: ${JSON.stringify(context.characterFacts || [])}
+
+${
+  context.currentLookLock
+    ? `- Current Look Lock: Hairstyle: ${context.currentLookLock.hairstyle}, Outfit: ${context.currentLookLock.outfit}`
+    : ""
+}
+
+Generate the image prompt JSON based on the context above. Be creative and narrative.
+`.trim();
+
+  const systemPrompt = buildSystemPromptForSelfie(guidelineLane);
+
+  try {
+    const response = await fetch("https://api.x.ai/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${GROK_API_KEY}`,
+      },
+      body: JSON.stringify({
+        model: "grok-4-1-fast-reasoning",
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user",   content: userPrompt },
+        ],
+      }),
+    });
+
+    if (!response.ok) {
+      const errorBody = await response.text().catch(() => "");
+      throw new Error(`Grok API error ${response.status}: ${errorBody}`);
+    }
+
+    const data = await response.json();
+    const text = data.choices?.[0]?.message?.content?.trim() ?? "";
+
+    if (!text) {
+      throw new Error("Empty response from Grok");
+    }
+
+    // Extract JSON (same as before)
+    const jsonMatch = text.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) {
+      console.error("Response did not contain JSON block:\n", text.substring(0, 400));
+      throw new Error("No JSON found in Grok response");
+    }
+
+    const parsed = JSON.parse(jsonMatch[0]) as GeneratedImagePrompt;
+    const normalized = normalizeGeneratedImagePrompt(parsed);
+
+    console.log("Normalized prompt:", normalized);
+    promptCache.set(cacheKey, { result: normalized, timestamp: Date.now() });
+
+    return normalized;
+  } catch (err) {
+    console.error("[Grok Prompt Generator] Failed:", err);
+    throw err;
+  }
+}
 /**
  * Basic fallback if LLM fails
  */

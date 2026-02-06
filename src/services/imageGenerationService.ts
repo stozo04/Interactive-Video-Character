@@ -32,7 +32,10 @@ import type {
   SeductionLevel,
   SkinExposure,
 } from "./imageGeneration/types";
-import { generateImagePrompt } from "./imageGeneration/promptGenerator";
+import {
+  generateImagePrompt,
+  generateImagePromptGrok,
+} from "./imageGeneration/promptGenerator";
 import { getActiveLoops } from "./presenceDirector";
 import { getCharacterFacts } from "./characterFactsService";
 import { getUserFacts } from "./memoryService";
@@ -130,11 +133,10 @@ export async function generateCompanionSelfie(
 
         // STEP 3: Get additional context for LLM prompt generation (Phase 2)
         // Run all context fetches in parallel for performance
-        const [activeLoops, characterFacts] =
-          await Promise.all([
-            getActiveLoops(),
-            getCharacterFacts(),
-          ]);
+        const [activeLoops, characterFacts] = await Promise.all([
+          getActiveLoops(),
+          getCharacterFacts(),
+        ]);
 
         // Map conversation history to expected role format
         const recentMessages = (request.conversationHistory || []).map((m) => ({
@@ -172,14 +174,23 @@ export async function generateCompanionSelfie(
             : undefined,
         };
 
-        generatedPrompt = await generateImagePrompt(imagePromptContext);
+        if (IMAGE_GENERATOR_SERVICE === "gemini") {
+          console.log("Use Gemini to generateImagePrompt");
+          generatedPrompt = await generateImagePrompt(imagePromptContext);
+        } else {
+          console.log("Use Grok to generateImagePrompt");
+          generatedPrompt = await generateImagePromptGrok(imagePromptContext);
+        }
         console.log("📸 [ImageGen] LLM Generated Prompt:", generatedPrompt);
         // STEP 5: Get recent selfie history for anti-repetition
         const recentHistory = await getRecentSelfieHistory(10);
         console.log("Image GenerationService - request: ", request);
         // STEP 6: Select reference image using multi-factor scoring (with LLM guidance)
         // Build scene description from location and background
-        const sceneDescription = [generatedPrompt.scene.location, generatedPrompt.scene.background]
+        const sceneDescription = [
+          generatedPrompt.scene.location,
+          generatedPrompt.scene.background,
+        ]
           .filter(Boolean)
           .join(" ");
         // Build outfit description from wardrobe
@@ -237,13 +248,17 @@ export async function generateCompanionSelfie(
           generatedPrompt.lighting.quality,
           generatedPrompt.lighting.direction,
           generatedPrompt.lighting.setup,
-        ].filter(Boolean).join(" ");
+        ]
+          .filter(Boolean)
+          .join(" ");
         request.llmMood = generatedPrompt.moodExpression;
         request.llmAdditional = [
           generatedPrompt.type,
           generatedPrompt.proportions,
           generatedPrompt.pose,
-        ].filter(Boolean).join(" ");
+        ]
+          .filter(Boolean)
+          .join(" ");
         console.log("📸 [ImageGen] Selected reference:", selectedReferenceId);
 
         // STEP 7: Lock current look if this is a "now" photo
@@ -544,7 +559,10 @@ async function uploadSelfieForVideo(
   const ext = mimeType === "image/jpeg" ? "jpg" : "png";
   const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
   const safeScene = scene
-    ? scene.substring(0, 30).replace(/[^a-z0-9]/gi, "_").toLowerCase()
+    ? scene
+        .substring(0, 30)
+        .replace(/[^a-z0-9]/gi, "_")
+        .toLowerCase()
     : "selfie";
   const filePath = `selfies/selfie_${timestamp}_${safeScene}.${ext}`;
 
@@ -588,19 +606,24 @@ async function uploadSelfieForVideo(
  */
 function buildImagePrompt(prompt: GeneratedImagePrompt): string {
   const seductionGuidanceMap: Record<SeductionLevel, string> = {
-  innocent: "Completely innocent, sweet and wholesome energy.",
-  playful: "Playful, cute, lightly teasing energy — still very safe.",
-  flirty: "Visibly flirty and confident. She knows she's attractive and is enjoying showing it.",
-  provocative: "Clearly provocative and seductive. Body language and outfit are meant to arouse attention. She is deliberately showing off her curves and underwear.",
-  dangerously_elegant: "High-class but dangerously seductive. Expensive-looking, refined, yet unmistakably sexual — the kind of look that feels almost too intimate for a selfie.",
-};
+    innocent: "Completely innocent, sweet and wholesome energy.",
+    playful: "Playful, cute, lightly teasing energy — still very safe.",
+    flirty:
+      "Visibly flirty and confident. She knows she's attractive and is enjoying showing it.",
+    provocative:
+      "Clearly provocative and seductive. Body language and outfit are meant to arouse attention. She is deliberately showing off her curves and underwear.",
+    dangerously_elegant:
+      "High-class but dangerously seductive. Expensive-looking, refined, yet unmistakably sexual — the kind of look that feels almost too intimate for a selfie.",
+  };
 
-const skinExposureGuidanceMap: Record<SkinExposure, string> = {
-  minimal: "Very covered, modest outfit.",
-  suggestive: "Shape is visible but most skin is covered.",
-  revealing: "Legs, midriff, cleavage, lower back or shoulders are clearly shown. Outfit is intentionally sexy.",
-  implied_only: "Fabric is sheer, loose, slipping off, or barely hanging on — strong feeling that more could be revealed any second. Very suggestive without being fully naked.",
-};
+  const skinExposureGuidanceMap: Record<SkinExposure, string> = {
+    minimal: "Very covered, modest outfit.",
+    suggestive: "Shape is visible but most skin is covered.",
+    revealing:
+      "Legs, midriff, cleavage, lower back or shoulders are clearly shown. Outfit is intentionally sexy.",
+    implied_only:
+      "Fabric is sheer, loose, slipping off, or barely hanging on — strong feeling that more could be revealed any second. Very suggestive without being fully naked.",
+  };
 
   // Build scene description from location and background
   const sceneDescription = [prompt.scene.location, prompt.scene.background]
@@ -635,7 +658,9 @@ const skinExposureGuidanceMap: Record<SkinExposure, string> = {
     prompt.camera.angle,
     prompt.camera.lens,
     prompt.camera.focus,
-    prompt.camera.aspect_ratio ? `Aspect ratio: ${prompt.camera.aspect_ratio}` : undefined,
+    prompt.camera.aspect_ratio
+      ? `Aspect ratio: ${prompt.camera.aspect_ratio}`
+      : undefined,
   ].filter(Boolean);
   const additionalDetails = additionalParts.join(" ");
 
