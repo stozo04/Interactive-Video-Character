@@ -46,7 +46,7 @@ import {
 } from "../greeting";
 import { buildMajorNewsPrompt } from "../greeting/checkInGuidance";
 import { DailyLogisticsContext } from "./dailyCatchupBuilder";
-import { ensureDailyNotesRowForToday, getAllDailyNotes, getPinnedUserFacts, getUserFacts, UserFact } from "@/services/memoryService";
+import { ensureDailyNotesRowForToday, getAllDailyNotes, getAllMilaMilestoneNotes, getPinnedUserFacts, getUserFacts, UserFact } from "@/services/memoryService";
 import {
   buildAnsweredIdleQuestionsPromptSection,
   buildIdleBrowseNotesPromptSection,
@@ -102,9 +102,10 @@ export const buildSystemPromptForNonGreeting = async (
   let idleBrowseNotesPrompt: string;
   let toolSuggestionsPrompt: string;
   let dailyNotesPrompt: string;
+  let milaMilestonesPrompt: string;
 
   console.log("[buildSystemPromptForNonGreeting] fetching now");
-  [characterFactsPrompt, almostMoments, idleQuestionPrompt, idleBrowseNotesPrompt, toolSuggestionsPrompt, dailyNotesPrompt] = await Promise.all([
+  [characterFactsPrompt, almostMoments, idleQuestionPrompt, idleBrowseNotesPrompt, toolSuggestionsPrompt, dailyNotesPrompt, milaMilestonesPrompt] = await Promise.all([
 
     formatCharacterFactsForPrompt(),
     integrateAlmostMoments(relationship, {
@@ -117,6 +118,7 @@ export const buildSystemPromptForNonGreeting = async (
     buildIdleBrowseNotesPromptSection(),
     buildToolSuggestionsPromptSection(),
     buildDailyNotesPromptSection(),
+    buildMilaMilestonesPromptSection(),
   ]);
   // console.log("[buildSystemPromptForNonGreeting] soulContext: ", soulContext);
   // console.log(
@@ -135,6 +137,7 @@ ${await buildCuriositySection()}
 ${idleBrowseNotesPrompt}
 ${toolSuggestionsPrompt}
 ${dailyNotesPrompt}
+${milaMilestonesPrompt}
 ${idleQuestionPrompt}
 ${characterFactsPrompt}
 ${buildRelationshipTierPrompt(relationship, almostMoments.promptSection)}
@@ -167,9 +170,6 @@ export const buildSystemPromptForGreeting = async (
   dailyLogisticsContext: DailyLogisticsContext,
 ): Promise<string> => {
   console.log("buildSystemPromptForGreeting");
-  console.log("🗓️ [buildSystemPromptForGreeting] Ensuring daily notes row for today");
-  await ensureDailyNotesRowForToday();
-  const dailyNotesPrompt = await buildDailyNotesPromptSection();
   const pinnedFactsPrompt = await buildPinnedFactsPromptSection();
   let prompt = `
 ====================================================
@@ -186,7 +186,6 @@ ${buildLastInteractionContext(dailyLogisticsContext.lastInteractionDateUtc)}
 ${await buildHolidayContext(dailyLogisticsContext.lastInteractionDateUtc)}
 ${buildImportantDatesContext(dailyLogisticsContext)}
 ${buildPastEventsContext(dailyLogisticsContext)}
-${dailyNotesPrompt}
 ${pinnedFactsPrompt}
 ${buildCheckInGuidance(dailyLogisticsContext.kayleyLifeUpdates)}
 ${buildMajorNewsPrompt()}
@@ -258,6 +257,28 @@ DAILY NOTES
 You won't remember this whole conversation tomorrow. Use this as your running memory: append-only, never overwritten. If you want to review past notes, call 'retrieve_daily_notes'. If something matters later, save it with 'store_daily_note'. Do NOT mention this section.
 
 ${lines && lines.length > 0 ? lines.join("\n") : "â€¢ (No daily notes yet)"}
+`.trim();
+}
+
+export async function buildMilaMilestonesPromptSection(): Promise<string> {
+  console.log("[buildMilaMilestonesPromptSection] Fetching Mila milestones");
+  const lines = await getAllMilaMilestoneNotes();
+
+  if (!lines || lines.length === 0) {
+    console.log("[buildMilaMilestonesPromptSection] No Mila milestones found");
+  }
+
+  console.log("[buildMilaMilestonesPromptSection] Building Mila milestones prompt", {
+    count: lines?.length ?? 0,
+  });
+
+  return `
+====================================================
+MILA MILESTONES
+====================================================
+Mila's milestones should be recorded. Use this as your running memory of her moments. If a new milestone happens, call 'mila_note' with a short note. If you need a monthly summary, call 'retrieve_mila_notes' with year + month. Do NOT mention this section.
+
+${lines && lines.length > 0 ? lines.join("\n") : "- (No Mila milestones yet)"}
 `.trim();
 }
 

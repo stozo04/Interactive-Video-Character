@@ -42,6 +42,7 @@ export type FactCategory = 'identity' | 'preference' | 'relationship' | 'context
 const CONVERSATION_HISTORY_TABLE = 'conversation_history';
 const USER_FACTS_TABLE = 'user_facts';
 const KAYLEY_DAILY_NOTES_TABLE = 'kayley_daily_notes';
+const MILA_MILESTONE_NOTES_TABLE = 'mila_milestone_notes';
 
 // Default limits to prevent context overflow
 const DEFAULT_MEMORY_LIMIT = 5;
@@ -96,6 +97,17 @@ function getTodayCstDateString(): string {
 }
 
 function normalizeDailyNoteInput(note: string): string {
+  return note.replace(/^\s*-\s*/, '').trim();
+}
+
+/**
+ * Get today's date string in UTC (YYYY-MM-DD)
+ */
+function getTodayUtcDateString(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function normalizeMilaNoteInput(note: string): string {
   return note.replace(/^\s*-\s*/, '').trim();
 }
 
@@ -293,6 +305,186 @@ export const getAllDailyNotes = async (): Promise<string[]> => {
     return lines;
   } catch (error) {
     console.error('❌ [Daily Notes] Error retrieving notes:', error);
+    return [];
+  }
+};
+
+// ============================================
+// Mila Milestone Notes Functions
+// ============================================
+
+/**
+ * Ensure the Mila milestone notes row exists for a UTC date.
+ */
+export const ensureMilaMilestoneRowForDate = async (
+  utcDate: string
+): Promise<boolean> => {
+  try {
+    console.log(`🗓️ [Mila Notes] Ensuring milestone row exists for UTC date: ${utcDate}`);
+
+    const { error } = await supabase
+      .from(MILA_MILESTONE_NOTES_TABLE)
+      .upsert(
+        {
+          note_entry_date: utcDate,
+        },
+        {
+          onConflict: 'note_entry_date',
+        },
+      );
+
+    if (error) {
+      console.error('❌ [Mila Notes] Failed to ensure milestone row:', error);
+      return false;
+    }
+
+    console.log('✅ [Mila Notes] Milestone row is ready');
+    return true;
+  } catch (error) {
+    console.error('❌ [Mila Notes] Error ensuring milestone row:', error);
+    return false;
+  }
+};
+
+/**
+ * Append a milestone note for Mila to today's UTC row.
+ */
+export const appendMilaMilestoneNote = async (note: string): Promise<boolean> => {
+  const normalizedNote = normalizeMilaNoteInput(note);
+
+  if (!normalizedNote) {
+    console.warn('⚠️ [Mila Notes] Skipping empty milestone note');
+    return false;
+  }
+
+  try {
+    const utcDate = getTodayUtcDateString();
+    console.log(`🗒️ [Mila Notes] Appending milestone note for UTC date: ${utcDate}`);
+    console.log(`🗒️ [Mila Notes] Note content: "${normalizedNote}"`);
+
+    const ensured = await ensureMilaMilestoneRowForDate(utcDate);
+    if (!ensured) {
+      console.warn('⚠️ [Mila Notes] Could not ensure milestone row; aborting append');
+      return false;
+    }
+
+    const { data, error } = await supabase
+      .from(MILA_MILESTONE_NOTES_TABLE)
+      .select('note')
+      .eq('note_entry_date', utcDate)
+      .maybeSingle();
+
+    if (error) {
+      console.error('❌ [Mila Notes] Failed to fetch existing milestone note:', error);
+      return false;
+    }
+
+    const existingNotes = (data?.note || '').trim();
+    const updatedNotes = existingNotes
+      ? `${existingNotes}\n- ${normalizedNote}`
+      : `- ${normalizedNote}`;
+
+    const { error: updateError } = await supabase
+      .from(MILA_MILESTONE_NOTES_TABLE)
+      .update({ note: updatedNotes, updated_at: new Date().toISOString() })
+      .eq('note_entry_date', utcDate);
+
+    if (updateError) {
+      console.error('❌ [Mila Notes] Failed to append milestone note:', updateError);
+      return false;
+    }
+
+    console.log('✅ [Mila Notes] Milestone note appended successfully');
+    return true;
+  } catch (error) {
+    console.error('❌ [Mila Notes] Error appending milestone note:', error);
+    return false;
+  }
+};
+
+function formatMilaNoteLines(noteText: string, noteDate: string): string[] {
+  return (noteText || '')
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0)
+    .map((line) => line.replace(/^\s*-\s*/, ''))
+    .map((line) => `- ${noteDate}: ${line}`);
+}
+
+/**
+ * Retrieve all Mila milestone notes for a specific month (UTC).
+ */
+export const getMilaMilestonesForMonth = async (
+  year: number,
+  month: number
+): Promise<string[]> => {
+  try {
+    console.log('📚 [Mila Notes] Retrieving milestones for month', { year, month });
+
+    const safeYear = Number.isFinite(year) ? Math.floor(year) : NaN;
+    if (!Number.isFinite(safeYear) || safeYear < 1970 || safeYear > 2100) {
+      console.warn('⚠️ [Mila Notes] Invalid year for milestone retrieval', { year });
+      return [];
+    }
+
+    const monthIndex = Math.max(1, Math.min(12, Math.floor(month)));
+    const startDate = new Date(Date.UTC(safeYear, monthIndex - 1, 1));
+    const endDate = new Date(Date.UTC(safeYear, monthIndex, 0));
+    const startDateStr = startDate.toISOString().slice(0, 10);
+    const endDateStr = endDate.toISOString().slice(0, 10);
+
+    const { data, error } = await supabase
+      .from(MILA_MILESTONE_NOTES_TABLE)
+      .select('note, note_entry_date')
+      .gte('note_entry_date', startDateStr)
+      .lte('note_entry_date', endDateStr)
+      .order('note_entry_date', { ascending: true });
+
+    if (error) {
+      console.error('❌ [Mila Notes] Failed to retrieve month milestones:', error);
+      return [];
+    }
+
+    const lines = (data || [])
+      .flatMap((row) => formatMilaNoteLines(row.note, row.note_entry_date));
+
+    console.log('📚 [Mila Notes] Retrieved month milestone line(s)', {
+      count: lines.length,
+      startDate: startDateStr,
+      endDate: endDateStr,
+    });
+
+    return lines;
+  } catch (error) {
+    console.error('❌ [Mila Notes] Error retrieving month milestones:', error);
+    return [];
+  }
+};
+
+/**
+ * Retrieve all Mila milestone notes as dated bullet lines.
+ */
+export const getAllMilaMilestoneNotes = async (): Promise<string[]> => {
+  try {
+    console.log('📚 [Mila Notes] Retrieving all milestone notes');
+
+    const { data, error } = await supabase
+      .from(MILA_MILESTONE_NOTES_TABLE)
+      .select('note, note_entry_date')
+      .order('note_entry_date', { ascending: true });
+
+    if (error) {
+      console.error('❌ [Mila Notes] Failed to retrieve milestones:', error);
+      return [];
+    }
+
+    const lines = (data || [])
+      .flatMap((row) => formatMilaNoteLines(row.note, row.note_entry_date));
+
+    console.log(`📚 [Mila Notes] Retrieved ${lines.length} milestone line(s)`);
+    return lines;
+  } catch (error) {
+    console.error('❌ [Mila Notes] Error retrieving milestones:', error);
     return [];
   }
 };
@@ -668,7 +860,9 @@ export type MemoryToolName =
   | 'create_open_loop'
   | 'recall_character_profile'
   | 'store_daily_note'
-  | 'retrieve_daily_notes';
+  | 'retrieve_daily_notes'
+  | 'mila_note'
+  | 'retrieve_mila_notes';
 
 /**
  * Optional context passed to tool execution (e.g., access tokens)
@@ -700,6 +894,13 @@ export interface ToolCallArgs {
     note: string;
   };
   retrieve_daily_notes: Record<string, never>;
+  mila_note: {
+    note: string;
+  };
+  retrieve_mila_notes: {
+    year: number;
+    month: number;
+  };
   task_action: {
     action: 'create' | 'complete' | 'delete' | 'list';
     task_text?: string;
@@ -898,6 +1099,14 @@ export const executeMemoryTool = async (
           ? '✓ Daily note stored.'
           : 'Failed to store daily note.';
       }
+      case 'mila_note': {
+        const { note } = args as ToolCallArgs['mila_note'];
+        console.log('[Memory Tool] Storing Mila milestone note');
+        const success = await appendMilaMilestoneNote(note);
+        return success
+          ? 'Mila milestone note stored.'
+          : 'Failed to store Mila milestone note.';
+      }
       case 'retrieve_daily_notes': {
         console.log('📚 [Memory Tool] Retrieving daily notes');
         const lines = await getAllDailyNotes();
@@ -905,6 +1114,16 @@ export const executeMemoryTool = async (
           return 'No daily notes recorded yet.';
         }
         return `Daily notes:\n${lines.join('\n')}`;
+      }
+      case 'retrieve_mila_notes': {
+        const { year, month } = args as ToolCallArgs['retrieve_mila_notes'];
+        const monthLabel = `${year}-${String(month).padStart(2, '0')}`;
+        console.log('[Memory Tool] Retrieving Mila milestone notes', { year, month });
+        const lines = await getMilaMilestonesForMonth(year, month);
+        if (lines.length === 0) {
+          return `No Mila milestones recorded for ${monthLabel}.`;
+        }
+        return `Mila milestones for ${monthLabel}:\n${lines.join('\n')}`;
       }
       case 'task_action': {
         // Import taskService functions dynamically to avoid circular dependency
@@ -1946,6 +2165,10 @@ export const memoryService = {
   ensureDailyNotesRowForToday,
   appendDailyNote,
   getAllDailyNotes,
+  ensureMilaMilestoneRowForDate,
+  appendMilaMilestoneNote,
+  getMilaMilestonesForMonth,
+  getAllMilaMilestoneNotes,
 };
 
 export default memoryService;

@@ -574,6 +574,25 @@ export const RetrieveDailyNotesSchema = z.object({}).describe(
   "Retrieve all daily notes (no arguments)."
 );
 
+/**
+ * Schema for the mila_note tool.
+ * Used to append a milestone note about Mila.
+ */
+export const MilaNoteSchema = z.object({
+  note: z.string().describe(
+    "A short milestone note about Mila (no dates/timestamps). Include what happened and any helpful context."
+  ),
+});
+
+/**
+ * Schema for the retrieve_mila_notes tool.
+ * Used to retrieve Mila milestone notes for a specific month (UTC).
+ */
+export const RetrieveMilaNotesSchema = z.object({
+  year: z.number().describe("4-digit year (e.g., 2026)."),
+  month: z.number().min(1).max(12).describe("Month number (1-12)."),
+});
+
 // Export types for tool arguments
 export type RecallMemoryArgs = z.infer<typeof RecallMemorySchema>;
 export type RecallUserInfoArgs = z.infer<typeof RecallUserInfoSchema>;
@@ -583,6 +602,8 @@ export type ResolveIdleBrowseNoteArgs = z.infer<typeof ResolveIdleBrowseNoteSche
 export type ToolSuggestionArgs = z.infer<typeof ToolSuggestionSchema>;
 export type StoreDailyNoteArgs = z.infer<typeof StoreDailyNoteSchema>;
 export type RetrieveDailyNotesArgs = z.infer<typeof RetrieveDailyNotesSchema>;
+export type MilaNoteArgs = z.infer<typeof MilaNoteSchema>;
+export type RetrieveMilaNotesArgs = z.infer<typeof RetrieveMilaNotesSchema>;
 
 // Union type for all memory tool arguments
 export type MemoryToolArgs =
@@ -595,6 +616,8 @@ export type MemoryToolArgs =
   | { tool: "tool_suggestion"; args: ToolSuggestionArgs }
   | { tool: "store_daily_note"; args: StoreDailyNoteArgs }
   | { tool: "retrieve_daily_notes"; args: RetrieveDailyNotesArgs }
+  | { tool: "mila_note"; args: MilaNoteArgs }
+  | { tool: "retrieve_mila_notes"; args: RetrieveMilaNotesArgs }
   | {
       tool: "store_character_info";
       args: { category: string; key: string; value: string };
@@ -934,6 +957,44 @@ export const GeminiMemoryToolDeclarations = [
     parameters: {
       type: "object",
       properties: {},
+    },
+  },
+  {
+    name: "mila_note",
+    description:
+      "Append a short milestone note about Mila. " +
+      "Use this when a new milestone or memorable moment happens (firsts, new skills, funny moments). " +
+      "Keep it brief and DO NOT include dates or timestamps.",
+    parameters: {
+      type: "object",
+      properties: {
+        note: {
+          type: "string",
+          description:
+            "Short milestone note about Mila (what happened and any helpful context)",
+        },
+      },
+      required: ["note"],
+    },
+  },
+  {
+    name: "retrieve_mila_notes",
+    description:
+      "Retrieve Mila milestone notes for a specific month (UTC). " +
+      "Use this when preparing monthly summaries or blog drafts about Mila.",
+    parameters: {
+      type: "object",
+      properties: {
+        year: {
+          type: "number",
+          description: "4-digit year (e.g., 2026)",
+        },
+        month: {
+          type: "number",
+          description: "Month number (1-12)",
+        },
+      },
+      required: ["year", "month"],
     },
   },
   {
@@ -1365,6 +1426,8 @@ export interface PendingToolCall {
     | "tool_suggestion"
     | "store_daily_note"
     | "retrieve_daily_notes"
+    | "mila_note"
+    | "retrieve_mila_notes"
     | "make_promise"
     | "create_life_storyline"
     | "create_open_loop"
