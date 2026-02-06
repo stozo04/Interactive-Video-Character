@@ -15,6 +15,7 @@ Table: `mila_milestone_notes`
 - `note_entry_date` (date, unique) — UTC day key
 - `note` (text) — bullet list, append-only
 - `created_at`, `updated_at` (UTC timestamps)
+- No `user_id` or `character_id` (single-user app)
 
 ## Tools
 

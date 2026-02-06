@@ -183,6 +183,7 @@ See `.env.example` for the complete list of available configuration options.
 
 | Document | Description |
 |----------|-------------|
+| [Docs Index](docs/README.md) | Master documentation index (start here) |
 | [Character Profile](docs/features/Kayley_Adams_Character_Profile.md) | Example AI personality configuration |
 | [Google OAuth Setup](docs/GOOGLE_OAUTH_SETUP.md) | Authentication configuration guide |
 | [System Prompt Guidelines](docs/System_Prompt_Guidelines.md) | How to modify AI behavior |
