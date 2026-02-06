@@ -19,9 +19,9 @@ import { shouldUnlockCurrentLook } from "./temporalDetection";
 // Set to an image ID to bypass all selection logic
 // Set to null for normal behavior
 // ============================================
-const DEBUG_FORCE_REFERENCE: string | null = null;
+// const DEBUG_FORCE_REFERENCE: string | null = null;
 // Examples:
-// const DEBUG_FORCE_REFERENCE = "slickback_bun_casual";
+const DEBUG_FORCE_REFERENCE = "heatless_curls_2_casual";
 // const DEBUG_FORCE_REFERENCE = "athletic_ponytail";
 // const DEBUG_FORCE_REFERENCE = "messy_bun_casual";
 
@@ -43,6 +43,27 @@ const HAIRSTYLE_PATTERNS: Record<HairstyleType, string[]> = {
 
 function matchesPatterns(text: string, patterns: string[]): boolean {
   return patterns.some(p => text.includes(p));
+}
+
+// Outfit style patterns for inference from wardrobe descriptions
+const OUTFIT_STYLE_PATTERNS: Record<string, string[]> = {
+  athletic: ['gym', 'sports', 'athletic', 'workout', 'yoga', 'leggings', 'sports bra', 'running'],
+  cozy: ['loungewear', 'pajamas', 'pjs', 'cozy', 'comfy', 'sweatpants', 'hoodie', 'oversized'],
+  sleepwear: ['sleep', 'nightgown', 'nightie', 'bedtime', 'camisole', 'sleep shorts'],
+  swimwear: ['swimsuit', 'bikini', 'swimwear', 'bathing suit', 'beach', 'pool'],
+  lingerie: ['lingerie', 'lace', 'bra', 'underwear', 'negligee', 'chemise', 'teddy'],
+  date_night: ['date', 'cocktail dress', 'evening', 'night out', 'clubbing', 'sexy dress'],
+  dressed_up: ['dress', 'blouse', 'formal', 'elegant', 'heels', 'jewelry', 'fancy', 'gown'],
+  casual: ['jeans', 't-shirt', 'tee', 'casual', 'everyday', 'sneakers', 'sweater'],
+};
+
+function inferOutfitStyleFromWardrobe(wardrobeText: string): string | null {
+  for (const [style, patterns] of Object.entries(OUTFIT_STYLE_PATTERNS)) {
+    if (matchesPatterns(wardrobeText, patterns)) {
+      return style;
+    }
+  }
+  return null;
 }
 
 function detectExplicitHairstyleRequest(context: ReferenceSelectionContext): {
@@ -282,10 +303,18 @@ function scoreReference(
       }
     }
 
-    if (ref.outfitStyle === guidance.outfitContext.style) {
+    // Infer outfit style from wardrobe description
+    const wardrobeText = [
+      guidance.wardrobe.top,
+      guidance.wardrobe.bottom,
+      guidance.wardrobe.accessories,
+    ].join(" ").toLowerCase();
+
+    const inferredStyle = inferOutfitStyleFromWardrobe(wardrobeText);
+    if (inferredStyle && ref.outfitStyle === inferredStyle) {
       score += 45;
       factors.push("+45 outfit");
-    } else {
+    } else if (inferredStyle) {
       score -= 30;
       factors.push("-30 wrong outfit");
     }

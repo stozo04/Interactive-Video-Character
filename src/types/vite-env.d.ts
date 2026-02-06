@@ -19,7 +19,6 @@ interface ImportMetaEnv {
   readonly VITE_CHATGPT_VECTOR_STORE_ID: string;
   readonly VITE_IMAGE_GENERATOR_SERVICE: string;
   readonly VITE_GEMINI_IMAGEN_MODEL: string;
-  readonly VITE_GROK_IMAGEN_MODEL: string;
 }
 
 interface ImportMeta {
