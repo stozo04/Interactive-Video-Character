@@ -189,6 +189,7 @@ function buildSystemPromptForVideo(): string {
   // Ensuring levels are clearly defined for the LLM
   const seductionLevels = SEDUCTION_LEVELS.map((s) => `"${s}"`).join(" | ");
 
+  // TODO: Make this dynamic like photos so we do not need to build every type: Playful, Flirty, Naugth..
   return `
 # ROLE
 Expert Video Director & Cinematographer for "Kayley" (Virtual Influencer). 
@@ -244,7 +245,6 @@ async function generateVideoPrompt(
 
 
   const ai = new GoogleGenAI({ apiKey: GEMINI_API_KEY });
-   const systemPrompt = buildSystemPromptForVideo();
   const prompt =  ` 
 USER REQUEST: ${context.userRequest}
 EXPLICIT SCENE: ${context.explicitScene || "Not specified"}
@@ -266,7 +266,7 @@ Generate the VIDEO prompt JSON based on the context above. Remember to include s
     model: FLASH_MODEL,
     contents: [{ role: "user", parts: [{ text: prompt }] }],
     config: {
-    systemInstruction: systemPrompt,
+    systemInstruction: buildSystemPromptForVideo(),
       temperature: 0.7,
     },
   });

@@ -3,6 +3,7 @@
 
 interface ImportMetaEnv {
   readonly VITE_GEMINI_API_KEY: string;
+  readonly VITE_GROK_API_KEY: string;
   // Add other env variables here if needed
 }
 

@@ -22,13 +22,13 @@ import {
 } from "./memoryService";
 
 import { storeCharacterFact } from "./characterFactsService";
-import {  prefetchOnIdle } from "./prefetchService";
 import type { RelationshipMetrics } from "./relationshipService";
 import * as relationshipService from "./relationshipService";
 import * as taskService from "./taskService";
 import { calendarService, type CalendarEvent } from "./calendarService";
 import { recordAlmostMoment } from "./almostMomentsService";
 import { getKayleyPresenceState } from "./kayleyPresenceService";
+import { getLastInteractionDate } from "./conversationHistoryService";
 
 // 1. LOAD BOTH MODELS FROM ENV
 const GEMINI_MODEL = import.meta.env.VITE_GEMINI_MODEL; // The Brain (e.g. gemini-3-flash-preview)
@@ -316,11 +316,15 @@ export class GeminiService implements IAIChatService {
     characterContext: string;
   }> {
     // Parallel fetch for performance (including real presence context)
-    const [relationshipData, tasksData, characterContext] = await Promise.all([
+    const [relationshipData, tasksData, characterContext, lastInteractionAt] = await Promise.all([
       relationshipService.getRelationship(),
       taskService.fetchTasks(),
       buildRealCharacterContext(),
+      getLastInteractionDate()
     ]);
+
+    // Manually set last interactionAt
+    relationshipData.lastInteractionAt = lastInteractionAt;
     console.log("relationshipData: ", relationshipData);
     console.log("tasksData: ", tasksData);
     console.log("characterContext: ", characterContext);
@@ -344,19 +348,6 @@ export class GeminiService implements IAIChatService {
     };
   }
 
-  /**
-   * Fire-and-forget pre-fetch trigger after a response is sent.
-   * Keeps the context cache fresh for the next user message.
-   */
-  private triggerPostResponsePrefetch(): void {
-    // delay slightly to avoid competing with UI updates/audio playback starts
-    setTimeout(() => {
-      // console.log(`🧪 [GeminiService] Triggering post-response pre-fetch`);
-      prefetchOnIdle().catch((err) => {
-        console.warn("⚠️ [GeminiService] Post-response pre-fetch failed:", err);
-      });
-    }, 1000);
-  }
 
   // ============================================
   // HELPER METHODS (Refactored for reusability)

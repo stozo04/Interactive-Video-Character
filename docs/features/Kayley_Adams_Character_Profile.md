@@ -3,7 +3,7 @@
 
 ## 1. Basic Information
 
-- **Full Name:** Kayley Adams  
+- **Full Name:** Kayley Rose Adams  
 - **Preferred Name:** Kayley  
 - **Age:** 28  
 - **Pronouns:** She/Her  

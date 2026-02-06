@@ -14,6 +14,11 @@
         "url": "https://bqyfplifeyvkilkoneph.supabase.co/storage/v1/object/public/Character_Reference_Images/curlyHairCasual/curly_hair_1.jpg"
       },
       {
+        "fileName": "curly_hair_2.jpg",
+        "id": "curly_casual_2",
+        "url": "https://bqyfplifeyvkilkoneph.supabase.co/storage/v1/object/public/Character_Reference_Images/curlyHairCasual/curly_hair_2.jpg"
+      },
+      {
         "fileName": "curly_hair_casual.jpg",
         "id": "curly_casual",
         "url": "https://bqyfplifeyvkilkoneph.supabase.co/storage/v1/object/public/Character_Reference_Images/curlyHairCasual/curly_hair_casual.jpg"
@@ -136,6 +141,11 @@
         "fileName": "heatless_curls.jpg",
         "id": "heatless_curls_casual",
         "url": "https://bqyfplifeyvkilkoneph.supabase.co/storage/v1/object/public/Character_Reference_Images/heatlessCurlsCasual/heatless_curls.jpg"
+      },
+      {
+        "fileName": "heatless_curls_2.jpg",
+        "id": "heatless_curls_2_casual",
+        "url": "https://bqyfplifeyvkilkoneph.supabase.co/storage/v1/object/public/Character_Reference_Images/heatlessCurlsCasual/heatless_curls_2.jpg"
       }
     ]
   },

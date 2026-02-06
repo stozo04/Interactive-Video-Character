@@ -12,6 +12,33 @@ interface ConversationHistoryRow {
   created_at: string;
 }
 
+/**
+ * Get the date of the very last interaction (message).
+ * Used to calculate "Days since last conversation" for the AI context.
+ */
+export const getLastInteractionDate = async (): Promise<Date | null> => {
+  try {
+    const { data, error } = await supabase
+      .from(CONVERSATION_HISTORY_TABLE)
+      .select("created_at")
+      .order("created_at", { ascending: false }) // Newest first
+      .limit(1);
+
+    if (error) {
+      console.error("Failed to fetch last interaction date:", error);
+      return null;
+    }
+
+    if (!data || data.length === 0) {
+      return null;
+    }
+
+    return new Date(data[0].created_at);
+  } catch (error) {
+    console.error("Error getting last interaction date:", error);
+    return null;
+  }
+};
 
 /**
  * Load conversation history for a user

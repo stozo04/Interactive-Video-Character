@@ -302,11 +302,20 @@ export function buildGoogleCalendarEventsPrompt(upcomingEvents: any[]): string {
     day: "numeric",
   });
 
+  // [FIX] Establish a clear "Current Time" anchor with the timezone label
+  const currentTimeString = now.toLocaleTimeString("en-US", {
+    timeZone,
+    hour: "numeric",
+    minute: "2-digit",
+    timeZoneName: "short" // Adds "CST" or "CDT"
+  });
+
   if (!upcomingEvents || upcomingEvents.length === 0) {
     return `
 ====================================================
 CALENDAR CONTEXT
 ====================================================
+Current Time: ${currentTimeString}
 No events scheduled for TODAY (${todayString}).
 Direction: Don't mention their calendar.
 `;
@@ -328,12 +337,13 @@ Direction: Don't mention their calendar.
     });
 
     if (eventDateString === todayString) {
-       // Format the display string (e.g., "6:00 PM")
-       // We only need time for today's events, not the date
+       // [FIX] Format the display string with EXPLICIT timezone
+       // e.g., "11:00 AM CST"
       const timeStr = eventDateObj.toLocaleString("en-US", {
         timeZone,
         hour: "numeric",
         minute: "2-digit",
+        timeZoneName: "short" // Adds "CST"
       });
       eventsToday.push(`- "${event.summary}" at ${timeStr}`);
     }
@@ -346,6 +356,7 @@ Direction: Don't mention their calendar.
 ====================================================
 CALENDAR CONTEXT
 ====================================================
+Current Time: ${currentTimeString}
 No events scheduled for TODAY (${todayString}).
 Direction: Don't mention their calendar.
 `;
@@ -356,6 +367,7 @@ Direction: Don't mention their calendar.
 ====================================================
 CALENDAR CONTEXT
 ====================================================
+Current Time: ${currentTimeString}
 EVENTS HAPPENING TODAY (${todayString}):
 ${eventsToday.join("\n")}
 

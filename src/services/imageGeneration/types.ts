@@ -118,12 +118,17 @@ export interface ReferenceSelectionContext {
 // LLM-DRIVEN IMAGE PROMPT TYPES
 // ============================================
 
+export interface BodyDescription {
+  type: string;
+  proportions: string;
+}
+
 export interface ImagePromptContext {
   // User's request
   userRequest: string;
   explicitScene?: string;
   explicitMood?: string;
-
+  bodyDescription?: BodyDescription;
   // Conversation context
   recentMessages: Array<{ role: string; content: string }>;
 
@@ -132,7 +137,6 @@ export interface ImagePromptContext {
   relevantOpinion?: { topic: string; sentiment: string };
 
   // Character context
-  userFacts?: string[];
   characterFacts?: string[];
 
   // Temporal context
@@ -150,20 +154,17 @@ export interface ImagePromptContext {
 }
 
 export interface GeneratedImagePrompt {
-  // Scene description (replaces getEnhancedScene)
-  sceneDescription: string;
-
-  // Lighting (replaces inferLightingAndAtmosphere)
-  lightingDescription: string;
-
-  // Expression (replaces buildMoodDescription)
-  moodExpression: string;
-
-  // Outfit context for reference selection
-  outfitContext: {
-    style: OutfitStyle;
-    description: string;
+  // Scene context
+  scene: {
+    location: string;
+    background: string;
   };
+  bodyDescription?: BodyDescription;
+  // Subject details
+  type: string;
+  proportions: string;
+  pose: string;
+  moodExpression: string;
 
   // Hairstyle guidance for reference selection
   hairstyleGuidance: {
@@ -171,20 +172,43 @@ export interface GeneratedImagePrompt {
     reason?: string;
   };
 
+  // Seduction level guidance
   seductionLevelGuidance: {
     preference: SeductionLevel;
     reason?: string;
   };
 
+  // Skin exposure guidance
   skinExposuresGuidance: {
     preference: SkinExposure;
     reason?: string;
   };
 
-  // Additional visual details
-  additionalDetails?: string;
+  // Wardrobe details
+  wardrobe: {
+    top: string;
+    bottom: string;
+    accessories: string;
+  };
 
-  // Metadata
-  confidence: number;
+  // Lighting setup
+  lighting: {
+    style: string;
+    quality: string;
+    direction: string;
+    setup: string;
+  };
+
+  // Camera settings
+  camera: {
+    type: string;
+    angle: string;
+    lens: string;
+    focus: string;
+    aspect_ratio: string;
+  };
+
+  // Metadata (optional)
+  confidence?: number;
   reasoning?: string;
 }
