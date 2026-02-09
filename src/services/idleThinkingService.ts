@@ -815,25 +815,31 @@ export async function runIdleThinkingTick(options?: {
   allowQuestion?: boolean;
   allowToolDiscovery?: boolean;
 }): Promise<{ action?: IdleActionType; skipped?: boolean; reason?: string }> {
-  const allowedActions: IdleActionType[] = [];
-  if (options?.allowStoryline !== false) allowedActions.push("storyline");
-  if (options?.allowBrowse !== false) allowedActions.push("browse");
-  if (options?.allowQuestion !== false) allowedActions.push("question");
-  if (options?.allowToolDiscovery !== false) allowedActions.push("tool_discovery");
+  const candidateActions: IdleActionType[] = [];
+  if (options?.allowStoryline !== false) candidateActions.push("storyline");
+  if (options?.allowBrowse !== false) candidateActions.push("browse");
+  if (options?.allowQuestion !== false) candidateActions.push("question");
+  if (options?.allowToolDiscovery !== false) candidateActions.push("tool_discovery");
 
-  console.log(`${LOG_PREFIX} Idle tick`, { allowedActions });
+  // Filter out actions that have already hit their daily cap
+  const capChecks = await Promise.all(
+    candidateActions.map(async (a) => ({ action: a, canRun: await canRunAction(a) })),
+  );
+  const allowedActions = capChecks.filter((c) => c.canRun).map((c) => c.action);
+  const exhausted = capChecks.filter((c) => !c.canRun).map((c) => c.action);
+
+  if (exhausted.length > 0) {
+    console.log(`${LOG_PREFIX} Actions at daily cap`, { exhausted });
+  }
+
+  console.log(`${LOG_PREFIX} Idle tick`, { candidates: candidateActions, available: allowedActions });
   const action = pickRandomAction(allowedActions);
   if (!action) {
-    console.log(`${LOG_PREFIX} No actions available, skipping`);
-    return { skipped: true, reason: "no-actions" };
+    console.log(`${LOG_PREFIX} All actions exhausted for today, skipping`);
+    return { skipped: true, reason: "all-actions-capped" };
   }
 
   console.log(`${LOG_PREFIX} Selected action`, { action });
-  const canRun = await canRunAction(action);
-  if (!canRun) {
-    console.log(`${LOG_PREFIX} Action blocked by daily cap`, { action });
-    return { action, skipped: true, reason: "daily-cap" };
-  }
 
   let success = false;
   switch (action) {

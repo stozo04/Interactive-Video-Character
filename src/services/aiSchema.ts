@@ -316,8 +316,9 @@ export const AIActionResponseSchema = z.object({
     .object({
       feeling_id: z
         .string()
+        .uuid()
         .describe(
-          "The ID of the unsaid feeling you expressed (from the system prompt THE UNSAID section)"
+          "MUST be the exact UUID from THE UNSAID section of the system prompt (e.g. '3f2504e0-4f89-11d3-9a0c-0305e82c3301'). Do NOT invent your own ID."
         ),
       stage: z
         .enum([
