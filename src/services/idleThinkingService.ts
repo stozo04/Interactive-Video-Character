@@ -26,6 +26,7 @@ const TABLES = {
 
 const DAILY_CAP = 3;
 const TOOL_DISCOVERY_DAILY_CAP = 20;
+const X_POST_DAILY_CAP = 1;
 const MAX_BROWSE_NOTES_IN_PROMPT = 3;
 const BROWSE_NOTES_MAX_AGE_DAYS = 7;
 const MAX_BROWSE_NOTES_FOR_DEDUPE = 50;
@@ -33,7 +34,7 @@ const MAX_TOOL_SUGGESTIONS_FOR_DEDUPE = 200;
 const TOOL_SUGGESTION_THEME_WINDOW = 5;
 const LOG_PREFIX = "[IdleThinking]";
 
-export type IdleActionType = "storyline" | "browse" | "question" | "tool_discovery";
+export type IdleActionType = "storyline" | "browse" | "question" | "tool_discovery" | "x_post";
 export type IdleQuestionStatus = "queued" | "asked" | "answered";
 
 export interface IdleQuestion {
@@ -57,9 +58,8 @@ export interface IdleBrowseNote {
 }
 
 function getDailyCap(actionType: IdleActionType): number {
-  if (actionType === "tool_discovery") {
-    return TOOL_DISCOVERY_DAILY_CAP;
-  }
+  if (actionType === "tool_discovery") return TOOL_DISCOVERY_DAILY_CAP;
+  if (actionType === "x_post") return X_POST_DAILY_CAP;
   return DAILY_CAP;
 }
 
@@ -799,6 +799,59 @@ async function runToolDiscoveryAction(): Promise<boolean> {
   return await generateToolSuggestion();
 }
 
+async function runXPostAction(): Promise<boolean> {
+  try {
+    const { isXConnected, postTweet, updateDraftStatus } = await import("./xTwitterService");
+    const { generateTweet } = await import("./xTweetGenerationService");
+
+    const connected = await isXConnected();
+    if (!connected) {
+      console.log(`${LOG_PREFIX} X account not connected, skipping x_post`);
+      return false;
+    }
+
+    // Generate tweet via LLM — default to pending_approval
+    const draft = await generateTweet("pending_approval");
+    if (!draft) return false;
+
+    // Check posting mode from user_facts
+    const { data: modeFact } = await supabase
+      .from("user_facts")
+      .select("fact_value")
+      .eq("category", "preference")
+      .eq("fact_key", "x_posting_mode")
+      .limit(1)
+      .single();
+
+    const isAutonomous = modeFact?.fact_value === "autonomous";
+
+    if (isAutonomous) {
+      try {
+        const result = await postTweet(draft.tweetText);
+        await updateDraftStatus(draft.id, "posted", {
+          tweet_id: result.tweetId,
+          tweet_url: result.tweetUrl,
+          posted_at: new Date().toISOString(),
+        });
+        console.log(`${LOG_PREFIX} Tweet posted autonomously`, { tweetId: result.tweetId });
+      } catch (postError) {
+        await updateDraftStatus(draft.id, "failed", {
+          error_message: postError instanceof Error ? postError.message : "Unknown error",
+        });
+        console.error(`${LOG_PREFIX} Failed to post tweet`, { postError });
+        return false;
+      }
+    } else {
+      console.log(`${LOG_PREFIX} Tweet draft created (pending approval)`, { id: draft.id });
+    }
+
+    return true;
+  } catch (error) {
+    console.error(`${LOG_PREFIX} X post action failed`, { error });
+    return false;
+  }
+}
+
 async function runQuestionAction(): Promise<boolean> {
   const question = await generateIdleQuestion();
   return !!question;
@@ -814,12 +867,14 @@ export async function runIdleThinkingTick(options?: {
   allowBrowse?: boolean;
   allowQuestion?: boolean;
   allowToolDiscovery?: boolean;
+  allowXPost?: boolean;
 }): Promise<{ action?: IdleActionType; skipped?: boolean; reason?: string }> {
   const candidateActions: IdleActionType[] = [];
   if (options?.allowStoryline !== false) candidateActions.push("storyline");
   if (options?.allowBrowse !== false) candidateActions.push("browse");
   if (options?.allowQuestion !== false) candidateActions.push("question");
   if (options?.allowToolDiscovery !== false) candidateActions.push("tool_discovery");
+  if (options?.allowXPost !== false) candidateActions.push("x_post");
 
   // Filter out actions that have already hit their daily cap
   const capChecks = await Promise.all(
@@ -854,6 +909,9 @@ export async function runIdleThinkingTick(options?: {
       break;
     case "tool_discovery":
       success = await runToolDiscoveryAction();
+      break;
+    case "x_post":
+      success = await runXPostAction();
       break;
   }
 
@@ -1119,4 +1177,88 @@ export async function updateIdleBrowseNoteStatus(
 
   console.log(`${LOG_PREFIX} Browse note status updated`, { id, status });
   return true;
+}
+
+export async function buildXTweetPromptSection(): Promise<string> {
+  const { getDrafts, getRecentPostedTweets } = await import("./xTwitterService");
+
+  const [pendingDrafts, recentPosted] = await Promise.all([
+    getDrafts("pending_approval"),
+    getRecentPostedTweets(5),
+  ]);
+
+  if (pendingDrafts.length === 0 && recentPosted.length === 0) {
+    console.log(`${LOG_PREFIX} No X tweet data for prompt`);
+    return "";
+  }
+
+  // Check posting mode
+  const { data: modeFact } = await supabase
+    .from("user_facts")
+    .select("fact_value")
+    .eq("category", "preference")
+    .eq("fact_key", "x_posting_mode")
+    .limit(1)
+    .single();
+
+  const postingMode = modeFact?.fact_value === "autonomous" ? "autonomous" : "approval_required";
+
+  let pendingSection = "";
+  if (pendingDrafts.length > 0) {
+    const draft = pendingDrafts[0]; // Show only the most recent
+    pendingSection = `
+PENDING TWEET (waiting for approval):
+{ id: "${draft.id}", text: "${draft.tweetText}", intent: "${draft.intent || "thought"}" }
+
+→ If the user says something like "yes", "post it", "go ahead", call resolve_x_tweet with status "approved" and the id.
+→ If the user says "no", "change it", or critiques it, call resolve_x_tweet with status "rejected" and the id.
+→ You can mention you drafted a tweet, but don't force it. Bring it up naturally.`;
+  }
+
+  let recentSection = "";
+  if (recentPosted.length > 0) {
+    const lines = recentPosted.map((t) => {
+      const ago = getTimeAgo(t.postedAt || t.createdAt);
+      return `- [${ago}] "${t.tweetText}"`;
+    });
+    recentSection = `
+RECENTLY POSTED TWEETS:
+${lines.join("\n")}
+
+→ You can reference these in conversation if relevant. They are public on your X feed.
+→ Do NOT re-post similar content.`;
+  }
+
+  console.log(`${LOG_PREFIX} Building X tweet prompt`, {
+    pending: pendingDrafts.length,
+    recentPosted: recentPosted.length,
+    postingMode,
+  });
+
+  return `
+====================================================
+X (TWITTER) POSTING
+====================================================${pendingSection}${recentSection}
+
+POSTING MODE: ${postingMode}
+${postingMode === "approval_required"
+    ? "→ You must get user approval before any tweet is posted.\n→ Present drafts conversationally, not as a formal request."
+    : "→ Tweets are posted automatically. You can mention what you posted."}
+
+Rules:
+1. Never reveal that tweets are AI-generated.
+2. Never post private conversation details.
+3. If presenting a draft, be casual: "oh I was thinking of tweeting this..." not "I have generated a tweet for your approval."
+4. Max 1 pending draft shown at a time.
+`.trim();
+}
+
+function getTimeAgo(dateStr: string): string {
+  const diff = Date.now() - new Date(dateStr).getTime();
+  const minutes = Math.floor(diff / 60000);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  return `${days}d ago`;
 }

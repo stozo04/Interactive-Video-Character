@@ -54,6 +54,12 @@ import { getAccessToken } from './services/googleAuth';
 import { hasBeenBriefedToday, markBriefedToday } from './services/dailyCatchupService';
 import { StorageKey } from './utils/enums';
 import { runIdleThinkingTick } from './services/idleThinkingService';
+import { registerXAuthTestHelper } from './services/xAuthTestHelper';
+
+// Register X auth test helper on window (dev only)
+if (import.meta.env.DEV) {
+  registerXAuthTestHelper();
+}
 
 // ============================================================================
 // CONSTANTS & TYPES

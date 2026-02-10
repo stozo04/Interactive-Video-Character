@@ -862,7 +862,8 @@ export type MemoryToolName =
   | 'store_daily_note'
   | 'retrieve_daily_notes'
   | 'mila_note'
-  | 'retrieve_mila_notes';
+  | 'retrieve_mila_notes'
+  | 'resolve_x_tweet';
 
 /**
  * Optional context passed to tool execution (e.g., access tokens)
@@ -937,6 +938,11 @@ export interface ToolCallArgs {
   resolve_idle_browse_note: {
     id: string;
     status: 'shared';
+  };
+  resolve_x_tweet: {
+    id: string;
+    status: 'approved' | 'rejected';
+    rejection_reason?: string;
   };
   tool_suggestion: {
     action: 'create' | 'mark_shared';
@@ -1650,6 +1656,42 @@ export const executeMemoryTool = async (
           console.error(`❌ [Memory Tool] Error retrieving character profile:`, error);
           return `Error retrieving character profile: ${error instanceof Error ? error.message : 'Unknown error'}`;
         }
+      }
+      case 'resolve_x_tweet': {
+        const { getDraftById, postTweet, updateDraftStatus } = await import('./xTwitterService');
+        const { id, status, rejection_reason } = args as ToolCallArgs['resolve_x_tweet'];
+        console.log(`🐦 [Memory Tool] resolve_x_tweet called:`, { id, status });
+
+        if (status === 'approved') {
+          const draft = await getDraftById(id);
+          if (!draft) {
+            return `Could not find tweet draft with id ${id}.`;
+          }
+
+          try {
+            const result = await postTweet(draft.tweetText);
+            await updateDraftStatus(id, 'posted', {
+              tweet_id: result.tweetId,
+              tweet_url: result.tweetUrl,
+              posted_at: new Date().toISOString(),
+            });
+            return `✓ Tweet posted: ${result.tweetUrl}`;
+          } catch (postError) {
+            await updateDraftStatus(id, 'failed', {
+              error_message: postError instanceof Error ? postError.message : 'Unknown error',
+            });
+            return `Failed to post tweet: ${postError instanceof Error ? postError.message : 'Unknown error'}`;
+          }
+        }
+
+        if (status === 'rejected') {
+          await updateDraftStatus(id, 'rejected', {
+            rejection_reason: rejection_reason || null,
+          });
+          return `OK: tweet draft rejected (${id})`;
+        }
+
+        return `Unknown resolve_x_tweet status: ${status}`;
       }
       // TODO: CHARACTER_FACTS
       default:

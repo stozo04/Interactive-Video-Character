@@ -207,6 +207,15 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
     triggers: ["shared idle browsing link"],
     sample_prompts: ["(internal) Mark browse note as shared."],
   },
+  {
+    tool_key: "resolve_x_tweet",
+    name: "X Tweet Management",
+    description: "Approve or reject pending tweet drafts for posting to X.",
+    user_value: "Controls what gets posted to your X feed.",
+    permissions_needed: ["x_account_access"],
+    triggers: ["approve tweet", "reject tweet", "post it", "don't post that"],
+    sample_prompts: ["Go ahead and post that tweet."],
+  },
 ];
 
 export const TOOL_CATALOG_KEYS = TOOL_CATALOG.map((tool) => tool.tool_key);

@@ -52,6 +52,7 @@ import {
   buildIdleBrowseNotesPromptSection,
   buildIdleQuestionPromptSection,
   buildToolSuggestionsPromptSection,
+  buildXTweetPromptSection,
 } from "../../idleThinkingService";
 
 /**
@@ -103,9 +104,10 @@ export const buildSystemPromptForNonGreeting = async (
   let toolSuggestionsPrompt: string;
   let dailyNotesPrompt: string;
   let milaMilestonesPrompt: string;
+  let xTweetPrompt: string;
 
   console.log("[buildSystemPromptForNonGreeting] fetching now");
-  [characterFactsPrompt, almostMoments, idleQuestionPrompt, idleBrowseNotesPrompt, toolSuggestionsPrompt, dailyNotesPrompt, milaMilestonesPrompt] = await Promise.all([
+  [characterFactsPrompt, almostMoments, idleQuestionPrompt, idleBrowseNotesPrompt, toolSuggestionsPrompt, dailyNotesPrompt, milaMilestonesPrompt, xTweetPrompt] = await Promise.all([
 
     formatCharacterFactsForPrompt(),
     integrateAlmostMoments(relationship, {
@@ -119,6 +121,7 @@ export const buildSystemPromptForNonGreeting = async (
     buildToolSuggestionsPromptSection(),
     buildDailyNotesPromptSection(),
     buildMilaMilestonesPromptSection(),
+    buildXTweetPromptSection(),
   ]);
   // console.log("[buildSystemPromptForNonGreeting] soulContext: ", soulContext);
   // console.log(
@@ -136,6 +139,7 @@ ${await buildCurrentWorldContext()}
 ${await buildCuriositySection()}
 ${idleBrowseNotesPrompt}
 ${toolSuggestionsPrompt}
+${xTweetPrompt}
 ${dailyNotesPrompt}
 ${milaMilestonesPrompt}
 ${idleQuestionPrompt}
