@@ -49,5 +49,22 @@ export function buildToolStrategySection(): string {
 5. CRITICAL: TASKS vs. CONTEXT:
    - Checklist items ("Buy milk") → 'task_action'
    - Life Projects ("I'm building an app") → 'store_user_info' (context)
+
+6. X (TWITTER) POSTING:
+   - **Approving/rejecting existing drafts:** Use 'resolve_x_tweet' with the draft id and status.
+   - **Posting a new tweet composed in conversation:** Use 'post_x_tweet' with the exact text.
+     - Use this when you and the user collaboratively write a tweet and they approve it ("Love it!", "Post it!").
+     - Do NOT just say you're posting — actually call 'post_x_tweet' with the text.
+   - **Posting a tweet WITH a selfie:** Use 'post_x_tweet' with include_selfie=true and selfie_scene.
+     - Do NOT use 'selfie_action' for X posts — selfie_action only shows a selfie in the chat UI.
+     - When the user asks to "post a selfie on X" or "tweet a pic", call 'post_x_tweet' with include_selfie and selfie_scene.
+   - **Never fabricate a post.** Only call 'post_x_tweet' when the user has explicitly approved the text.
+
+7. X (TWITTER) MENTIONS:
+   - **Approving a drafted reply:** Use 'resolve_x_mention' with status "approve" and the mention id.
+   - **Writing a custom reply:** Use 'resolve_x_mention' with status "reply", the mention id, and reply_text.
+   - **Skipping a mention:** Use 'resolve_x_mention' with status "skip" and the mention id.
+   - Be selective: don't reply to every mention. Prioritize known users and genuine interactions.
+   - Keep replies natural, in-character, and under 280 characters.
 `;
 }

@@ -91,3 +91,98 @@
 5) Verification (if approved): 
 pm test -- --run.
 
+---
+
+## Plan: AI Returns Empty Object Response ({}) Bug
+
+1) Get console log file path and HAR file path (confirm safe to inspect).
+2) Review logs + HAR to capture request/response payloads, HTTP status, and parsing flow.
+3) Identify likely root-cause area(s) in code and note risks/edge cases.
+4) Draft a bug document in `docs/bugs/` with findings, evidence, and next steps.
+5) Verification (if approved): `npm test -- --run`.
+
+## Progress
+- [x] Logs and HAR reviewed.
+- [x] Root cause identified (tool loop hits max iterations, no text output).
+- [x] Bug doc created in `docs/bugs/BUG-2026-02-11-ai-empty-object-response.md`.
+- [ ] Verification not run (requires approval).
+
+## Review Notes
+- Ready for review.
+
+---
+
+## Plan: Fix X Media Upload 403 (Add media.write scope + guardrails)
+
+1) Confirm current upload/auth flow and token scopes in `src/services/xTwitterService.ts`.
+2) Update OAuth scope to include `media.write` and add a clear guardrail if scope is missing.
+3) Ensure upload errors preserve response details for debugging (no behavior change beyond logging).
+4) Verification (if approved): reconnect X account, then `npm run dev` and attempt a tweet with media.
+
+## Progress
+- [ ] Waiting on approval to patch.
+
+## Review Notes
+- Not started.
+
+---
+
+## Plan: Align X Media Upload With X Best Practices (Binary Upload + Size Guard)
+
+1) Adjust `uploadMedia` to send raw binary (`media`) instead of base64 `media_data` to avoid Content-Transfer-Encoding requirements in `src/services/xTwitterService.ts`.
+2) Add explicit size/type checks for images (<= 5 MB; JPG/PNG/GIF/WEBP) with clear errors in `src/services/xTwitterService.ts`.
+3) Make `media_category=tweet_image` explicit in the upload request for clarity.
+4) Verification (if approved): reconnect X account, then `npm run dev` and attempt a tweet with a generated image.
+
+## Progress
+- [ ] Waiting on approval to patch.
+
+## Review Notes
+- Not started.
+
+---
+
+## Plan: Switch Media Upload To X v2 Endpoint (OAuth2-Compatible)
+
+1) Update media upload to call `/api/x/2/media/upload` with `multipart/form-data` or JSON per docs in `src/services/xTwitterService.ts`.
+2) Parse v2 response (`data.id`) and use it as the media id for tweet creation in `src/services/xTwitterService.ts`.
+3) Keep existing size/type guards and scope checks.
+4) Verification (if approved): reconnect X account, then `npm run dev` and attempt a media tweet.
+
+## Progress
+- [ ] Waiting on approval to patch.
+
+## Review Notes
+- Not started.
+
+---
+
+## Plan: X Media Upload UX Guardrail + Tests
+
+1) Add X token scope check for UI in `src/services/xTwitterService.ts`.
+2) Surface a missing `media.write` banner in `src/components/SettingsPanel.tsx`.
+3) Add a focused unit test for media upload response parsing in `src/services/__tests__/xTwitterService.test.ts`.
+4) Verification (if approved): `npm test -- --run -t "xTwitterService"` (or full `npm test -- --run`).
+
+## Progress
+- [ ] Waiting on approval to patch.
+
+## Review Notes
+- Not started.
+
+---
+
+## Plan: X Posting Mode Lookup 406 (Use maybeSingle)
+
+1) Update the `user_facts` lookup for `x_posting_mode` to use `.maybeSingle()` in `src/services/idleThinkingService.ts`.
+2) Update the settings panel lookup to use `.maybeSingle()` in `src/components/SettingsPanel.tsx`.
+3) Confirm no behavior regressions when the row is missing (defaults still apply).
+4) Verification (if approved): `npm test -- --run`.
+
+## Progress
+- [x] Updated `x_posting_mode` lookups to use `.maybeSingle()`.
+- [ ] Verification not run (requires approval).
+
+## Review Notes
+- Ready for review.
+

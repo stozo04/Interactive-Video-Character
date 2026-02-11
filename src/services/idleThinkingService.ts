@@ -26,7 +26,8 @@ const TABLES = {
 
 const DAILY_CAP = 3;
 const TOOL_DISCOVERY_DAILY_CAP = 20;
-const X_POST_DAILY_CAP = 1;
+const X_POST_DAILY_CAP = 5;
+const X_MENTION_POLL_DAILY_CAP = 50;
 const MAX_BROWSE_NOTES_IN_PROMPT = 3;
 const BROWSE_NOTES_MAX_AGE_DAYS = 7;
 const MAX_BROWSE_NOTES_FOR_DEDUPE = 50;
@@ -34,7 +35,7 @@ const MAX_TOOL_SUGGESTIONS_FOR_DEDUPE = 200;
 const TOOL_SUGGESTION_THEME_WINDOW = 5;
 const LOG_PREFIX = "[IdleThinking]";
 
-export type IdleActionType = "storyline" | "browse" | "question" | "tool_discovery" | "x_post";
+export type IdleActionType = "storyline" | "browse" | "question" | "tool_discovery" | "x_post" | "x_mention_poll";
 export type IdleQuestionStatus = "queued" | "asked" | "answered";
 
 export interface IdleQuestion {
@@ -60,6 +61,7 @@ export interface IdleBrowseNote {
 function getDailyCap(actionType: IdleActionType): number {
   if (actionType === "tool_discovery") return TOOL_DISCOVERY_DAILY_CAP;
   if (actionType === "x_post") return X_POST_DAILY_CAP;
+  if (actionType === "x_mention_poll") return X_MENTION_POLL_DAILY_CAP;
   return DAILY_CAP;
 }
 
@@ -801,7 +803,7 @@ async function runToolDiscoveryAction(): Promise<boolean> {
 
 async function runXPostAction(): Promise<boolean> {
   try {
-    const { isXConnected, postTweet, updateDraftStatus } = await import("./xTwitterService");
+    const { isXConnected, postTweet, postTweetWithMedia, uploadMedia, updateDraftStatus } = await import("./xTwitterService");
     const { generateTweet } = await import("./xTweetGenerationService");
 
     const connected = await isXConnected();
@@ -814,6 +816,10 @@ async function runXPostAction(): Promise<boolean> {
     const draft = await generateTweet("pending_approval");
     if (!draft) return false;
 
+    // Extract selfie fields from generation context
+    const includeSelfie = draft.generationContext?.include_selfie === true;
+    const selfieScene = draft.generationContext?.selfie_scene as string | null;
+
     // Check posting mode from user_facts
     const { data: modeFact } = await supabase
       .from("user_facts")
@@ -821,19 +827,47 @@ async function runXPostAction(): Promise<boolean> {
       .eq("category", "preference")
       .eq("fact_key", "x_posting_mode")
       .limit(1)
-      .single();
+      .maybeSingle();
 
     const isAutonomous = modeFact?.fact_value === "autonomous";
 
     if (isAutonomous) {
       try {
-        const result = await postTweet(draft.tweetText);
+        let result: { tweetId: string; tweetUrl: string };
+        let mediaId: string | null = null;
+
+        // Generate selfie if the LLM requested one
+        if (includeSelfie && selfieScene) {
+          try {
+            const { generateCompanionSelfie } = await import("./imageGenerationService");
+            console.log(`${LOG_PREFIX} Generating selfie for tweet`, { selfieScene });
+            const selfie = await generateCompanionSelfie({
+              scene: selfieScene,
+              mood: draft.intent === "humor" ? "playful" : "casual",
+            });
+            if (selfie.success && selfie.imageBase64) {
+              mediaId = await uploadMedia(selfie.imageBase64, selfie.mimeType || "image/jpeg");
+            } else {
+              console.warn(`${LOG_PREFIX} Selfie generation failed, posting without image`);
+            }
+          } catch (selfieError) {
+            console.warn(`${LOG_PREFIX} Selfie error, posting without image:`, selfieError);
+          }
+        }
+
+        if (mediaId) {
+          result = await postTweetWithMedia(draft.tweetText, [mediaId]);
+        } else {
+          result = await postTweet(draft.tweetText);
+        }
+
         await updateDraftStatus(draft.id, "posted", {
           tweet_id: result.tweetId,
           tweet_url: result.tweetUrl,
           posted_at: new Date().toISOString(),
+          ...(mediaId ? { media_id: mediaId } : {}),
         });
-        console.log(`${LOG_PREFIX} Tweet posted autonomously`, { tweetId: result.tweetId });
+        console.log(`${LOG_PREFIX} Tweet posted autonomously`, { tweetId: result.tweetId, hasMedia: !!mediaId });
       } catch (postError) {
         await updateDraftStatus(draft.id, "failed", {
           error_message: postError instanceof Error ? postError.message : "Unknown error",
@@ -848,6 +882,18 @@ async function runXPostAction(): Promise<boolean> {
     return true;
   } catch (error) {
     console.error(`${LOG_PREFIX} X post action failed`, { error });
+    return false;
+  }
+}
+
+async function runXMentionPollAction(): Promise<boolean> {
+  try {
+    const { pollAndProcessMentions } = await import("./xMentionService");
+    const count = await pollAndProcessMentions();
+    console.log(`${LOG_PREFIX} Mention poll completed`, { newMentions: count });
+    return true;
+  } catch (error) {
+    console.error(`${LOG_PREFIX} Mention poll failed`, { error });
     return false;
   }
 }
@@ -868,6 +914,7 @@ export async function runIdleThinkingTick(options?: {
   allowQuestion?: boolean;
   allowToolDiscovery?: boolean;
   allowXPost?: boolean;
+  allowXMentionPoll?: boolean;
 }): Promise<{ action?: IdleActionType; skipped?: boolean; reason?: string }> {
   const candidateActions: IdleActionType[] = [];
   if (options?.allowStoryline !== false) candidateActions.push("storyline");
@@ -875,6 +922,7 @@ export async function runIdleThinkingTick(options?: {
   if (options?.allowQuestion !== false) candidateActions.push("question");
   if (options?.allowToolDiscovery !== false) candidateActions.push("tool_discovery");
   if (options?.allowXPost !== false) candidateActions.push("x_post");
+  if (options?.allowXMentionPoll !== false) candidateActions.push("x_mention_poll");
 
   // Filter out actions that have already hit their daily cap
   const capChecks = await Promise.all(
@@ -912,6 +960,9 @@ export async function runIdleThinkingTick(options?: {
       break;
     case "x_post":
       success = await runXPostAction();
+      break;
+    case "x_mention_poll":
+      success = await runXMentionPollAction();
       break;
   }
 
@@ -1199,7 +1250,7 @@ export async function buildXTweetPromptSection(): Promise<string> {
     .eq("category", "preference")
     .eq("fact_key", "x_posting_mode")
     .limit(1)
-    .single();
+    .maybeSingle();
 
   const postingMode = modeFact?.fact_value === "autonomous" ? "autonomous" : "approval_required";
 
@@ -1219,13 +1270,17 @@ PENDING TWEET (waiting for approval):
   if (recentPosted.length > 0) {
     const lines = recentPosted.map((t) => {
       const ago = getTimeAgo(t.postedAt || t.createdAt);
-      return `- [${ago}] "${t.tweetText}"`;
+      const hasMetrics = t.likeCount > 0 || t.repostCount > 0 || t.replyCount > 0;
+      const metricsStr = hasMetrics
+        ? ` (${t.likeCount} likes, ${t.repostCount} reposts, ${t.replyCount} replies)`
+        : "";
+      return `- [${ago}] "${t.tweetText}"${metricsStr}`;
     });
     recentSection = `
 RECENTLY POSTED TWEETS:
 ${lines.join("\n")}
 
-→ You can reference these in conversation if relevant. They are public on your X feed.
+→ You can reference these in conversation if relevant ("my intro tweet got 12 likes!"). They are public on your X feed.
 → Do NOT re-post similar content.`;
   }
 

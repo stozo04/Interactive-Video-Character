@@ -216,6 +216,24 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
     triggers: ["approve tweet", "reject tweet", "post it", "don't post that"],
     sample_prompts: ["Go ahead and post that tweet."],
   },
+  {
+    tool_key: "post_x_tweet",
+    name: "X Tweet Posting",
+    description: "Post a tweet with specific text the user has approved in conversation.",
+    user_value: "Posts collaboratively crafted tweets to X.",
+    permissions_needed: ["x_account_access"],
+    triggers: ["post this tweet", "tweet this", "post that to X"],
+    sample_prompts: ["Post that intro tweet we just wrote."],
+  },
+  {
+    tool_key: "resolve_x_mention",
+    name: "X Mention Reply",
+    description: "Approve, reply to, or skip an @mention on X.",
+    user_value: "Handles social interactions on X.",
+    permissions_needed: ["x_account_access"],
+    triggers: ["reply to mention", "someone tweeted at me"],
+    sample_prompts: ["Reply to that mention."],
+  },
 ];
 
 export const TOOL_CATALOG_KEYS = TOOL_CATALOG.map((tool) => tool.tool_key);

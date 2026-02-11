@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { ChatMessage, UploadedImage } from '../types';
 import LoadingSpinner from './LoadingSpinner';
 import TypingIndicator from './TypingIndicator';
+import TweetCard, { extractTweetUrls } from './TweetCard';
 import {
   DEFAULT_MAX_IMAGE_BYTES,
   buildImageAttachment,
@@ -237,6 +238,10 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
                 </div>
               )}
               <p>{msg.text}</p>
+              {/* Tweet cards for X URLs in AI messages */}
+              {msg.role === 'model' && extractTweetUrls(msg.text).map((url) => (
+                <TweetCard key={url} tweetUrl={url} />
+              ))}
             </div>
           </div>
         ))}

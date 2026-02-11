@@ -1403,6 +1403,89 @@ export const GeminiMemoryToolDeclarations = [
       required: ["query"],
     },
   },
+  {
+    name: "resolve_x_tweet",
+    description:
+      "Approve or reject a pending tweet draft. " +
+      "Use status='approved' when the user says 'yes', 'post it', 'go ahead'. " +
+      "Use status='rejected' when the user says 'no', 'don't post that', or critiques it.",
+    parameters: {
+      type: "object",
+      properties: {
+        id: {
+          type: "string",
+          description: "The pending draft ID to resolve",
+        },
+        status: {
+          type: "string",
+          enum: ["approved", "rejected"],
+          description: "Whether to approve (post) or reject the draft",
+        },
+        rejection_reason: {
+          type: "string",
+          description: "Why the draft was rejected (optional, for rejected only)",
+        },
+      },
+      required: ["id", "status"],
+    },
+  },
+  {
+    name: "post_x_tweet",
+    description:
+      "Post a tweet to X with specific text. " +
+      "Use this when you and the user have collaborated on tweet text in conversation " +
+      "and the user approves it. This creates a draft and posts it immediately. " +
+      "Do NOT use for auto-generated tweets (those go through the idle pipeline).",
+    parameters: {
+      type: "object",
+      properties: {
+        text: {
+          type: "string",
+          description: "The exact tweet text to post (max 280 characters)",
+        },
+        intent: {
+          type: "string",
+          description: "Tweet intent/category (e.g., 'introduction', 'thought', 'humor', 'update')",
+        },
+        include_selfie: {
+          type: "boolean",
+          description: "Whether to generate and attach a selfie image to the tweet",
+        },
+        selfie_scene: {
+          type: "string",
+          description: "Scene description for selfie generation (e.g., 'cozy home desk with laptop'). Required if include_selfie is true.",
+        },
+      },
+      required: ["text"],
+    },
+  },
+  {
+    name: "resolve_x_mention",
+    description:
+      "Handle an @mention on X. " +
+      "Use status='approve' to send the auto-drafted reply as-is. " +
+      "Use status='reply' to send a custom reply you wrote. " +
+      "Use status='skip' to ignore the mention.",
+    parameters: {
+      type: "object",
+      properties: {
+        id: {
+          type: "string",
+          description: "The mention ID to resolve",
+        },
+        status: {
+          type: "string",
+          enum: ["approve", "reply", "skip"],
+          description: "How to handle the mention",
+        },
+        reply_text: {
+          type: "string",
+          description: "Custom reply text (required when status is 'reply')",
+        },
+      },
+      required: ["id", "status"],
+    },
+  },
 ];
 
 // ============================================
@@ -1433,7 +1516,10 @@ export interface PendingToolCall {
     | "create_life_storyline"
     | "create_open_loop"
     | "recall_character_profile"
-    | "web_search";
+    | "web_search"
+    | "resolve_x_tweet"
+    | "post_x_tweet"
+    | "resolve_x_mention";
   arguments: Record<string, any>;
 }
 

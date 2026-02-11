@@ -863,7 +863,9 @@ export type MemoryToolName =
   | 'retrieve_daily_notes'
   | 'mila_note'
   | 'retrieve_mila_notes'
-  | 'resolve_x_tweet';
+  | 'resolve_x_tweet'
+  | 'post_x_tweet'
+  | 'resolve_x_mention';
 
 /**
  * Optional context passed to tool execution (e.g., access tokens)
@@ -943,6 +945,17 @@ export interface ToolCallArgs {
     id: string;
     status: 'approved' | 'rejected';
     rejection_reason?: string;
+  };
+  post_x_tweet: {
+    text: string;
+    intent?: string;
+    include_selfie?: boolean;
+    selfie_scene?: string;
+  };
+  resolve_x_mention: {
+    id: string;
+    status: 'approve' | 'reply' | 'skip';
+    reply_text?: string;
   };
   tool_suggestion: {
     action: 'create' | 'mark_shared';
@@ -1692,6 +1705,131 @@ export const executeMemoryTool = async (
         }
 
         return `Unknown resolve_x_tweet status: ${status}`;
+      }
+      case 'post_x_tweet': {
+        const { createDraft, postTweet, postTweetWithMedia, uploadMedia, updateDraftStatus } = await import('./xTwitterService');
+        const { text, intent, include_selfie, selfie_scene } = args as ToolCallArgs['post_x_tweet'];
+        console.log(`🐦 [Memory Tool] post_x_tweet called:`, { textLength: text.length, intent, include_selfie });
+
+        if (!text || text.length === 0) {
+          return 'Error: tweet text is required';
+        }
+        if (text.length > 280) {
+          return `Error: tweet text is ${text.length} characters (max 280)`;
+        }
+
+        // Create draft
+        const draft = await createDraft(text, intent || 'user_collaborated', 'User approved in conversation', {
+          include_selfie: !!include_selfie,
+          selfie_scene: selfie_scene || null,
+        });
+        if (!draft) {
+          return 'Error: failed to create tweet draft';
+        }
+
+        try {
+          let result: { tweetId: string; tweetUrl: string };
+
+          // Generate and attach selfie if requested
+          if (include_selfie && selfie_scene) {
+            try {
+              const { generateCompanionSelfie } = await import('./imageGenerationService');
+              console.log(`🐦 [Memory Tool] Generating selfie for tweet:`, { selfie_scene });
+              const selfie = await generateCompanionSelfie({
+                scene: selfie_scene,
+                mood: intent === 'humor' ? 'playful' : 'casual',
+                userMessage: selfie_scene,
+                conversationHistory: [],
+              });
+
+              if (selfie.success && selfie.imageBase64) {
+                const mediaId = await uploadMedia(selfie.imageBase64, selfie.mimeType || 'image/jpeg');
+                result = await postTweetWithMedia(text, [mediaId]);
+                await updateDraftStatus(draft.id, 'posted', {
+                  tweet_id: result.tweetId,
+                  tweet_url: result.tweetUrl,
+                  posted_at: new Date().toISOString(),
+                  media_id: mediaId,
+                });
+                return `Tweet posted with selfie! ${result.tweetUrl}`;
+              } else {
+                console.warn(`🐦 [Memory Tool] Selfie generation failed, posting without image`);
+              }
+            } catch (selfieError) {
+              console.warn(`🐦 [Memory Tool] Selfie error, posting without image:`, selfieError);
+            }
+          }
+
+          // Post without media (or selfie failed)
+          result = await postTweet(text);
+          await updateDraftStatus(draft.id, 'posted', {
+            tweet_id: result.tweetId,
+            tweet_url: result.tweetUrl,
+            posted_at: new Date().toISOString(),
+          });
+          return `Tweet posted! ${result.tweetUrl}`;
+        } catch (postError) {
+          await updateDraftStatus(draft.id, 'failed', {
+            error_message: postError instanceof Error ? postError.message : 'Unknown error',
+          });
+          return `Failed to post tweet: ${postError instanceof Error ? postError.message : 'Unknown error'}`;
+        }
+      }
+      case 'resolve_x_mention': {
+        const { getMentions, updateMentionStatus, postReply } = await import('./xTwitterService');
+        const { id, status, reply_text } = args as ToolCallArgs['resolve_x_mention'];
+        console.log(`🐦 [Memory Tool] resolve_x_mention called:`, { id, status });
+
+        if (status === 'skip') {
+          await updateMentionStatus(id, 'skipped');
+          return `OK: mention skipped (${id})`;
+        }
+
+        if (status === 'approve') {
+          // Send the auto-drafted reply
+          const mentions = await getMentions(undefined, 50);
+          const mention = mentions.find((m) => m.id === id);
+          if (!mention) return `Could not find mention with id ${id}.`;
+          if (!mention.replyText) return `No draft reply found for mention ${id}. Use status='reply' with reply_text instead.`;
+
+          try {
+            const result = await postReply(mention.replyText, mention.tweetId);
+            await updateMentionStatus(id, 'replied', {
+              reply_tweet_id: result.tweetId,
+              replied_at: new Date().toISOString(),
+            });
+            return `Reply sent to @${mention.authorUsername}! ${result.tweetUrl}`;
+          } catch (err) {
+            return `Failed to post reply: ${err instanceof Error ? err.message : 'Unknown error'}`;
+          }
+        }
+
+        if (status === 'reply') {
+          if (!reply_text || reply_text.length === 0) {
+            return 'Error: reply_text is required when status is "reply"';
+          }
+          if (reply_text.length > 280) {
+            return `Error: reply_text is ${reply_text.length} characters (max 280)`;
+          }
+
+          const mentions = await getMentions(undefined, 50);
+          const mention = mentions.find((m) => m.id === id);
+          if (!mention) return `Could not find mention with id ${id}.`;
+
+          try {
+            const result = await postReply(reply_text, mention.tweetId);
+            await updateMentionStatus(id, 'replied', {
+              reply_text: reply_text,
+              reply_tweet_id: result.tweetId,
+              replied_at: new Date().toISOString(),
+            });
+            return `Reply sent to @${mention.authorUsername}! ${result.tweetUrl}`;
+          } catch (err) {
+            return `Failed to post reply: ${err instanceof Error ? err.message : 'Unknown error'}`;
+          }
+        }
+
+        return `Unknown resolve_x_mention status: ${status}`;
       }
       // TODO: CHARACTER_FACTS
       default:

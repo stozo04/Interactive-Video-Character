@@ -42,7 +42,8 @@
       "WebFetch(domain:docs.tavus.io)",
       "WebFetch(domain:www.tavus.io)",
       "WebFetch(domain:ai.meta.com)",
-      "WebSearch"
+      "WebSearch",
+      "Bash(npx vite build)"
     ]
   },
   "enabledPlugins": {

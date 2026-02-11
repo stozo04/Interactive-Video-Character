@@ -54,6 +54,7 @@ import {
   buildToolSuggestionsPromptSection,
   buildXTweetPromptSection,
 } from "../../idleThinkingService";
+import { buildMentionsPromptSection } from "../../xMentionService";
 
 /**
  * Greeting Context - data needed for greeting-specific prompt sections
@@ -105,9 +106,10 @@ export const buildSystemPromptForNonGreeting = async (
   let dailyNotesPrompt: string;
   let milaMilestonesPrompt: string;
   let xTweetPrompt: string;
+  let xMentionsPrompt: string;
 
   console.log("[buildSystemPromptForNonGreeting] fetching now");
-  [characterFactsPrompt, almostMoments, idleQuestionPrompt, idleBrowseNotesPrompt, toolSuggestionsPrompt, dailyNotesPrompt, milaMilestonesPrompt, xTweetPrompt] = await Promise.all([
+  [characterFactsPrompt, almostMoments, idleQuestionPrompt, idleBrowseNotesPrompt, toolSuggestionsPrompt, dailyNotesPrompt, milaMilestonesPrompt, xTweetPrompt, xMentionsPrompt] = await Promise.all([
 
     formatCharacterFactsForPrompt(),
     integrateAlmostMoments(relationship, {
@@ -122,6 +124,7 @@ export const buildSystemPromptForNonGreeting = async (
     buildDailyNotesPromptSection(),
     buildMilaMilestonesPromptSection(),
     buildXTweetPromptSection(),
+    buildMentionsPromptSection(),
   ]);
   // console.log("[buildSystemPromptForNonGreeting] soulContext: ", soulContext);
   // console.log(
@@ -140,6 +143,7 @@ ${await buildCuriositySection()}
 ${idleBrowseNotesPrompt}
 ${toolSuggestionsPrompt}
 ${xTweetPrompt}
+${xMentionsPrompt}
 ${dailyNotesPrompt}
 ${milaMilestonesPrompt}
 ${idleQuestionPrompt}

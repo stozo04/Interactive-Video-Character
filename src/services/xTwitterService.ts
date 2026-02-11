@@ -50,6 +50,11 @@ export interface XTweetDraft {
   errorMessage: string | null;
   postedAt: string | null;
   createdAt: string;
+  likeCount: number;
+  repostCount: number;
+  replyCount: number;
+  impressionCount: number;
+  metricsUpdatedAt: string | null;
 }
 
 // ============================================
@@ -106,7 +111,7 @@ export async function initXAuth(): Promise<string> {
     response_type: "code",
     client_id: X_CLIENT_ID,
     redirect_uri: X_CALLBACK_URL,
-    scope: "tweet.read tweet.write users.read offline.access",
+    scope: "tweet.read tweet.write users.read offline.access media.write",
     state,
     code_challenge: codeChallenge,
     code_challenge_method: "S256",
@@ -300,6 +305,16 @@ export async function isXConnected(): Promise<boolean> {
 }
 
 /**
+ * Returns true if the stored token includes a specific scope.
+ * Returns null when scopes are unavailable.
+ */
+export async function hasXScope(scope: string): Promise<boolean | null> {
+  const tokens = await getStoredTokens();
+  if (!tokens?.scope) return null;
+  return tokens.scope.split(" ").includes(scope);
+}
+
+/**
  * Revokes X access and deletes stored tokens.
  */
 export async function revokeXAuth(): Promise<void> {
@@ -396,6 +411,125 @@ async function getAuthenticatedUsername(accessToken: string): Promise<string> {
 }
 
 // ============================================
+// Media Upload (v2 API)
+// ============================================
+
+/**
+ * Uploads an image to X via the v2 media upload endpoint.
+ * Returns the media id for use in tweet posting.
+ */
+export async function uploadMedia(
+  imageBase64: string,
+  mimeType: string = "image/jpeg"
+): Promise<string> {
+  const accessToken = await getValidAccessToken();
+  if (!accessToken) throw new Error("X account not connected");
+
+  const tokens = await getStoredTokens();
+  if (!tokens?.scope?.includes("media.write")) {
+    console.error(`${LOG_PREFIX} Missing media.write scope`, { scope: tokens?.scope ?? "unknown" });
+    throw new Error("X token missing media.write scope — reconnect X account to grant media permissions");
+  }
+
+  // Clean base64 (remove data URI prefix if present)
+  const cleanedBase64 = imageBase64.replace(/^data:image\/[a-z]+;base64,/, "");
+  const binaryString = atob(cleanedBase64);
+  const binaryLength = binaryString.length;
+
+  // 5 MB max for image uploads
+  const maxBytes = 5 * 1024 * 1024;
+  if (binaryLength > maxBytes) {
+    console.error(`${LOG_PREFIX} Media too large`, { bytes: binaryLength, maxBytes });
+    throw new Error("Media upload failed: image exceeds 5 MB limit");
+  }
+
+  const supportedTypes = new Set(["image/jpeg", "image/png", "image/gif", "image/webp"]);
+  if (!supportedTypes.has(mimeType)) {
+    console.error(`${LOG_PREFIX} Unsupported media type`, { mimeType });
+    throw new Error(`Media upload failed: unsupported image type ${mimeType}`);
+  }
+
+  const bytes = new Uint8Array(binaryLength);
+  for (let i = 0; i < binaryLength; i++) {
+    bytes[i] = binaryString.charCodeAt(i);
+  }
+
+  const blob = new Blob([bytes], { type: mimeType });
+  const formData = new FormData();
+  formData.append("media", blob, "image");
+  formData.append("media_category", "tweet_image");
+
+  console.log(`${LOG_PREFIX} Uploading media`, { mimeType, bytes: binaryLength });
+
+  const response = await fetch("/api/x/2/media/upload", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+    },
+    body: formData,
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    console.error(`${LOG_PREFIX} Media upload failed`, { status: response.status, error: errorText });
+    throw new Error(`Media upload failed: ${response.status} - ${errorText}`);
+  }
+
+  const result = await response.json();
+  const mediaId = parseMediaUploadResponse(result);
+  console.log(`${LOG_PREFIX} Media uploaded`, { mediaId });
+  return mediaId;
+}
+
+export function parseMediaUploadResponse(result: unknown): string {
+  const mediaId = (result as { data?: { id?: string } })?.data?.id;
+  if (!mediaId) {
+    console.error(`${LOG_PREFIX} Media upload response missing id`, { result });
+    throw new Error("Media upload failed: missing media id in response");
+  }
+  return mediaId;
+}
+
+/**
+ * Posts a tweet with media attachments to X via API v2.
+ */
+export async function postTweetWithMedia(
+  text: string,
+  mediaIds: string[]
+): Promise<{ tweetId: string; tweetUrl: string }> {
+  const accessToken = await getValidAccessToken();
+  if (!accessToken) throw new Error("X account not connected");
+
+  console.log(`${LOG_PREFIX} Posting tweet with media`, { length: text.length, mediaCount: mediaIds.length });
+
+  const response = await fetch("/api/x/2/tweets", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      text,
+      media: { media_ids: mediaIds },
+    }),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    console.error(`${LOG_PREFIX} Tweet with media failed`, { status: response.status, error: errorText });
+    throw new Error(`Tweet posting failed: ${response.status} - ${errorText}`);
+  }
+
+  const result = await response.json();
+  const tweetId = result.data.id;
+  const username = await getAuthenticatedUsername(accessToken);
+  const tweetUrl = `https://x.com/${username}/status/${tweetId}`;
+
+  console.log(`${LOG_PREFIX} Tweet with media posted`, { tweetId, tweetUrl });
+  return { tweetId, tweetUrl };
+}
+
+// ============================================
 // Draft Management
 // ============================================
 
@@ -411,6 +545,11 @@ function mapDraftRow(row: Record<string, unknown>): XTweetDraft {
     generationContext: (row.generation_context as Record<string, unknown>) ?? null,
     rejectionReason: (row.rejection_reason as string) ?? null,
     errorMessage: (row.error_message as string) ?? null,
+    likeCount: (row.like_count as number) ?? 0,
+    repostCount: (row.repost_count as number) ?? 0,
+    replyCount: (row.reply_count as number) ?? 0,
+    impressionCount: (row.impression_count as number) ?? 0,
+    metricsUpdatedAt: (row.metrics_updated_at as string) ?? null,
     postedAt: (row.posted_at as string) ?? null,
     createdAt: row.created_at as string,
   };
@@ -533,4 +672,394 @@ export async function getRecentPostedTweets(limit: number = 20): Promise<XTweetD
   }
 
   return data.map(mapDraftRow);
+}
+
+// ============================================
+// Engagement Metrics
+// ============================================
+
+export interface TweetMetrics {
+  likes: number;
+  reposts: number;
+  replies: number;
+  impressions: number;
+}
+
+/**
+ * Fetches public metrics for a single tweet from X API v2.
+ */
+export async function fetchTweetMetrics(tweetId: string): Promise<TweetMetrics | null> {
+  const accessToken = await getValidAccessToken();
+  if (!accessToken) return null;
+
+  try {
+    const response = await fetch(
+      `/api/x/2/tweets/${tweetId}?tweet.fields=public_metrics`,
+      { headers: { Authorization: `Bearer ${accessToken}` } }
+    );
+
+    if (!response.ok) {
+      console.warn(`${LOG_PREFIX} Failed to fetch metrics for tweet ${tweetId}`, { status: response.status });
+      return null;
+    }
+
+    const result = await response.json();
+    const metrics = result.data?.public_metrics;
+    if (!metrics) return null;
+
+    return {
+      likes: metrics.like_count ?? 0,
+      reposts: metrics.retweet_count ?? 0,
+      replies: metrics.reply_count ?? 0,
+      impressions: metrics.impression_count ?? 0,
+    };
+  } catch (error) {
+    console.error(`${LOG_PREFIX} Error fetching metrics for tweet ${tweetId}`, { error });
+    return null;
+  }
+}
+
+/**
+ * Refreshes engagement metrics for all posted tweets from the last 7 days.
+ * Updates the DB rows in place.
+ */
+export async function refreshRecentTweetMetrics(): Promise<number> {
+  const sevenDaysAgo = new Date();
+  sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+
+  const { data: recentTweets, error } = await supabase
+    .from(TABLES.TWEET_DRAFTS)
+    .select("id, tweet_id")
+    .eq("status", "posted")
+    .not("tweet_id", "is", null)
+    .gte("posted_at", sevenDaysAgo.toISOString())
+    .order("posted_at", { ascending: false });
+
+  if (error || !recentTweets || recentTweets.length === 0) {
+    return 0;
+  }
+
+  console.log(`${LOG_PREFIX} Refreshing metrics for ${recentTweets.length} tweets`);
+  let updated = 0;
+
+  for (const tweet of recentTweets) {
+    const metrics = await fetchTweetMetrics(tweet.tweet_id);
+    if (!metrics) continue;
+
+    const { error: updateError } = await supabase
+      .from(TABLES.TWEET_DRAFTS)
+      .update({
+        like_count: metrics.likes,
+        repost_count: metrics.reposts,
+        reply_count: metrics.replies,
+        impression_count: metrics.impressions,
+        metrics_updated_at: new Date().toISOString(),
+      })
+      .eq("id", tweet.id);
+
+    if (!updateError) updated++;
+  }
+
+  console.log(`${LOG_PREFIX} Metrics refreshed for ${updated}/${recentTweets.length} tweets`);
+  return updated;
+}
+
+// ============================================
+// User Identity
+// ============================================
+
+let cachedUserId: string | null = null;
+
+/**
+ * Returns the authenticated user's X user ID.
+ */
+export async function getAuthenticatedUserId(): Promise<string | null> {
+  if (cachedUserId) return cachedUserId;
+
+  const accessToken = await getValidAccessToken();
+  if (!accessToken) return null;
+
+  try {
+    const response = await fetch("/api/x/2/users/me", {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+
+    if (!response.ok) {
+      console.warn(`${LOG_PREFIX} Failed to fetch user ID`, { status: response.status });
+      return null;
+    }
+
+    const data = await response.json();
+    cachedUserId = data.data.id;
+    if (!cachedUsername) cachedUsername = data.data.username;
+    return cachedUserId;
+  } catch (error) {
+    console.error(`${LOG_PREFIX} Error fetching user ID`, { error });
+    return null;
+  }
+}
+
+// ============================================
+// Mentions
+// ============================================
+
+export interface XMention {
+  tweetId: string;
+  authorId: string;
+  authorUsername: string;
+  text: string;
+  conversationId: string | null;
+  inReplyToTweetId: string | null;
+  createdAt: string;
+}
+
+/**
+ * Fetches recent @mentions for the authenticated user.
+ * Returns only new mentions since the given sinceId.
+ */
+export async function fetchMentions(sinceId?: string): Promise<XMention[]> {
+  const accessToken = await getValidAccessToken();
+  if (!accessToken) return [];
+
+  const userId = await getAuthenticatedUserId();
+  if (!userId) return [];
+
+  let url = `/api/x/2/users/${userId}/mentions?tweet.fields=created_at,conversation_id,in_reply_to_user_id,author_id&expansions=author_id&user.fields=username&max_results=10`;
+  if (sinceId) url += `&since_id=${sinceId}`;
+
+  try {
+    const response = await fetch(url, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+
+    if (!response.ok) {
+      console.warn(`${LOG_PREFIX} Mentions fetch failed`, { status: response.status });
+      return [];
+    }
+
+    const result = await response.json();
+    const tweets = result.data || [];
+    const users = result.includes?.users || [];
+
+    // Build username lookup
+    const userMap = new Map<string, string>();
+    for (const user of users) {
+      userMap.set(user.id, user.username);
+    }
+
+    return tweets.map((tweet: Record<string, unknown>) => ({
+      tweetId: tweet.id as string,
+      authorId: tweet.author_id as string,
+      authorUsername: userMap.get(tweet.author_id as string) || "unknown",
+      text: tweet.text as string,
+      conversationId: (tweet.conversation_id as string) || null,
+      inReplyToTweetId: (tweet.in_reply_to_user_id as string) || null,
+      createdAt: (tweet.created_at as string) || new Date().toISOString(),
+    }));
+  } catch (error) {
+    console.error(`${LOG_PREFIX} Error fetching mentions`, { error });
+    return [];
+  }
+}
+
+/**
+ * Posts a reply to a specific tweet.
+ */
+export async function postReply(
+  text: string,
+  inReplyToTweetId: string,
+): Promise<{ tweetId: string; tweetUrl: string }> {
+  const accessToken = await getValidAccessToken();
+  if (!accessToken) throw new Error("X account not connected");
+
+  console.log(`${LOG_PREFIX} Posting reply`, { length: text.length, inReplyTo: inReplyToTweetId });
+
+  const response = await fetch("/api/x/2/tweets", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      text,
+      reply: { in_reply_to_tweet_id: inReplyToTweetId },
+    }),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    console.error(`${LOG_PREFIX} Reply posting failed`, { status: response.status, error: errorText });
+    throw new Error(`Reply posting failed: ${response.status} - ${errorText}`);
+  }
+
+  const result = await response.json();
+  const tweetId = result.data.id;
+  const username = await getAuthenticatedUsername(accessToken);
+  const tweetUrl = `https://x.com/${username}/status/${tweetId}`;
+
+  console.log(`${LOG_PREFIX} Reply posted`, { tweetId, tweetUrl });
+  return { tweetId, tweetUrl };
+}
+
+// ============================================
+// Mention Storage (x_mentions table)
+// ============================================
+
+export interface StoredMention {
+  id: string;
+  tweetId: string;
+  authorId: string;
+  authorUsername: string;
+  text: string;
+  conversationId: string | null;
+  inReplyToTweetId: string | null;
+  status: "pending" | "reply_drafted" | "replied" | "ignored" | "skipped";
+  replyText: string | null;
+  replyTweetId: string | null;
+  isKnownUser: boolean;
+  createdAt: string;
+  repliedAt: string | null;
+}
+
+function mapMentionRow(row: Record<string, unknown>): StoredMention {
+  return {
+    id: row.id as string,
+    tweetId: row.tweet_id as string,
+    authorId: row.author_id as string,
+    authorUsername: row.author_username as string,
+    text: row.text as string,
+    conversationId: (row.conversation_id as string) ?? null,
+    inReplyToTweetId: (row.in_reply_to_tweet_id as string) ?? null,
+    status: row.status as StoredMention["status"],
+    replyText: (row.reply_text as string) ?? null,
+    replyTweetId: (row.reply_tweet_id as string) ?? null,
+    isKnownUser: (row.is_known_user as boolean) ?? false,
+    createdAt: row.created_at as string,
+    repliedAt: (row.replied_at as string) ?? null,
+  };
+}
+
+/**
+ * Stores new mentions in the DB, skipping duplicates.
+ * Returns the number of newly stored mentions.
+ */
+export async function storeMentions(
+  mentions: XMention[],
+  knownUsernames: Set<string>,
+): Promise<number> {
+  if (mentions.length === 0) return 0;
+
+  let stored = 0;
+  for (const mention of mentions) {
+    const isKnown = knownUsernames.has(mention.authorUsername.toLowerCase());
+
+    const { error } = await supabase
+      .from("x_mentions")
+      .upsert(
+        {
+          tweet_id: mention.tweetId,
+          author_id: mention.authorId,
+          author_username: mention.authorUsername,
+          text: mention.text,
+          conversation_id: mention.conversationId,
+          in_reply_to_tweet_id: mention.inReplyToTweetId,
+          is_known_user: isKnown,
+          status: "pending",
+        },
+        { onConflict: "tweet_id", ignoreDuplicates: true },
+      );
+
+    if (!error) stored++;
+  }
+
+  console.log(`${LOG_PREFIX} Stored ${stored}/${mentions.length} new mentions`);
+  return stored;
+}
+
+/**
+ * Fetches mentions by status.
+ */
+export async function getMentions(
+  status?: StoredMention["status"],
+  limit: number = 10,
+): Promise<StoredMention[]> {
+  let query = supabase
+    .from("x_mentions")
+    .select("*")
+    .order("created_at", { ascending: false })
+    .limit(limit);
+
+  if (status) {
+    query = query.eq("status", status);
+  }
+
+  const { data, error } = await query;
+
+  if (error || !data) {
+    if (error) console.error(`${LOG_PREFIX} Failed to fetch mentions`, { error });
+    return [];
+  }
+
+  return data.map(mapMentionRow);
+}
+
+/**
+ * Updates a mention's status and optional fields.
+ */
+export async function updateMentionStatus(
+  id: string,
+  status: StoredMention["status"],
+  extra?: Record<string, unknown>,
+): Promise<boolean> {
+  const updates: Record<string, unknown> = { status, ...extra };
+
+  const { error } = await supabase
+    .from("x_mentions")
+    .update(updates)
+    .eq("id", id);
+
+  if (error) {
+    console.error(`${LOG_PREFIX} Failed to update mention`, { id, status, error });
+    return false;
+  }
+
+  console.log(`${LOG_PREFIX} Mention status updated`, { id, status });
+  return true;
+}
+
+/**
+ * Gets the most recent mention tweet_id for use as since_id in polling.
+ */
+export async function getLatestMentionTweetId(): Promise<string | null> {
+  const { data, error } = await supabase
+    .from("x_mentions")
+    .select("tweet_id")
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error || !data) return null;
+  return data.tweet_id as string;
+}
+
+/**
+ * Returns the set of known X usernames from user_facts.
+ */
+export async function getKnownXUsernames(): Promise<Set<string>> {
+  const { data } = await supabase
+    .from("user_facts")
+    .select("fact_value")
+    .eq("category", "preference")
+    .eq("fact_key", "x_known_users")
+    .limit(1)
+    .maybeSingle();
+
+  if (!data?.fact_value) return new Set();
+
+  return new Set(
+    (data.fact_value as string)
+      .split(",")
+      .map((u) => u.trim().toLowerCase())
+      .filter((u) => u.length > 0),
+  );
 }

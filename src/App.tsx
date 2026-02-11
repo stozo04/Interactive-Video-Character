@@ -55,6 +55,8 @@ import { hasBeenBriefedToday, markBriefedToday } from './services/dailyCatchupSe
 import { StorageKey } from './utils/enums';
 import { runIdleThinkingTick } from './services/idleThinkingService';
 import { registerXAuthTestHelper } from './services/xAuthTestHelper';
+import { handleXAuthCallback, refreshRecentTweetMetrics } from './services/xTwitterService';
+import { pollAndProcessMentions } from './services/xMentionService';
 
 // Register X auth test helper on window (dev only)
 if (import.meta.env.DEV) {
@@ -83,6 +85,36 @@ const App: React.FC = () => {
   // --------------------------------------------------------------------------
   const { session, status: authStatus, signOut, refreshSession } = useGoogleAuth();
   const activeService = useAIService();
+
+  // --------------------------------------------------------------------------
+  // X OAUTH CALLBACK HANDLER
+  // --------------------------------------------------------------------------
+  const [xAuthStatus, setXAuthStatus] = useState<'idle' | 'processing' | 'success' | 'error'>('idle');
+
+  useEffect(() => {
+    const url = new URL(window.location.href);
+    if (url.pathname === '/auth/x/callback') {
+      const code = url.searchParams.get('code');
+      const state = url.searchParams.get('state');
+      if (code && state) {
+        setXAuthStatus('processing');
+        handleXAuthCallback(code, state)
+          .then(() => {
+            console.log('X OAuth callback succeeded — account connected');
+            setXAuthStatus('success');
+            window.history.replaceState({}, '', '/');
+          })
+          .catch((error) => {
+            console.error('X OAuth callback failed:', error);
+            setXAuthStatus('error');
+            window.history.replaceState({}, '', '/');
+          });
+      } else {
+        // Callback URL missing required params — redirect home
+        window.history.replaceState({}, '', '/');
+      }
+    }
+  }, []);
 
   // --------------------------------------------------------------------------
   // UI STATE
@@ -334,6 +366,52 @@ const App: React.FC = () => {
       console.error('📖 [Storylines] Error in startup processing:', error);
     });
   }, []); // Run once on mount
+
+  // X Tweet Metrics: Refresh engagement metrics every 30 minutes
+  useEffect(() => {
+    const METRICS_INTERVAL = 30 * 60 * 1000; // 30 minutes
+
+    // Initial refresh after a short delay
+    const initialTimeout = setTimeout(() => {
+      refreshRecentTweetMetrics().catch(e =>
+        console.warn('[X Metrics] Initial refresh failed:', e)
+      );
+    }, 10000);
+
+    const interval = setInterval(() => {
+      refreshRecentTweetMetrics().catch(e =>
+        console.warn('[X Metrics] Periodic refresh failed:', e)
+      );
+    }, METRICS_INTERVAL);
+
+    return () => {
+      clearTimeout(initialTimeout);
+      clearInterval(interval);
+    };
+  }, []);
+
+  // X Mentions: Poll for @mentions every 5 minutes
+  useEffect(() => {
+    const MENTION_INTERVAL = 5 * 60 * 1000; // 5 minutes
+
+    // Initial poll after 15s delay
+    const initialTimeout = setTimeout(() => {
+      pollAndProcessMentions().catch(e =>
+        console.warn('[X Mentions] Initial poll failed:', e)
+      );
+    }, 15000);
+
+    const interval = setInterval(() => {
+      pollAndProcessMentions().catch(e =>
+        console.warn('[X Mentions] Periodic poll failed:', e)
+      );
+    }, MENTION_INTERVAL);
+
+    return () => {
+      clearTimeout(initialTimeout);
+      clearInterval(interval);
+    };
+  }, []);
 
   // ==========================================================================
   // UTILITY FUNCTIONS
