@@ -31,6 +31,8 @@
 
 - **Autonomous Selfies** - Your AI knows when to send selfies based on context and mood, with consistent character appearance powered by AI image generation.
 
+- **X (Twitter) Integration** - Your AI autonomously drafts and posts tweets, including photo posts with AI-generated selfies. It monitors mentions, drafts contextual replies, and tracks engagement — all with your approval before anything goes live.
+
 - **Dynamic Video Responses** - Generate videos based on moods, events, and conversation context with consistent character representation.
 
 - **Promise Tracking** - Your AI can make promises and commitments, then remember to follow through on them later.
