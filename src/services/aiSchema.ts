@@ -316,8 +316,9 @@ export const AIActionResponseSchema = z.object({
     .object({
       feeling_id: z
         .string()
+        .uuid()
         .describe(
-          "The ID of the unsaid feeling you expressed (from the system prompt THE UNSAID section)"
+          "MUST be the exact UUID from THE UNSAID section of the system prompt (e.g. '3f2504e0-4f89-11d3-9a0c-0305e82c3301'). Do NOT invent your own ID."
         ),
       stage: z
         .enum([
@@ -574,6 +575,25 @@ export const RetrieveDailyNotesSchema = z.object({}).describe(
   "Retrieve all daily notes (no arguments)."
 );
 
+/**
+ * Schema for the mila_note tool.
+ * Used to append a milestone note about Mila.
+ */
+export const MilaNoteSchema = z.object({
+  note: z.string().describe(
+    "A short milestone note about Mila (no dates/timestamps). Include what happened and any helpful context."
+  ),
+});
+
+/**
+ * Schema for the retrieve_mila_notes tool.
+ * Used to retrieve Mila milestone notes for a specific month (UTC).
+ */
+export const RetrieveMilaNotesSchema = z.object({
+  year: z.number().describe("4-digit year (e.g., 2026)."),
+  month: z.number().min(1).max(12).describe("Month number (1-12)."),
+});
+
 // Export types for tool arguments
 export type RecallMemoryArgs = z.infer<typeof RecallMemorySchema>;
 export type RecallUserInfoArgs = z.infer<typeof RecallUserInfoSchema>;
@@ -583,6 +603,8 @@ export type ResolveIdleBrowseNoteArgs = z.infer<typeof ResolveIdleBrowseNoteSche
 export type ToolSuggestionArgs = z.infer<typeof ToolSuggestionSchema>;
 export type StoreDailyNoteArgs = z.infer<typeof StoreDailyNoteSchema>;
 export type RetrieveDailyNotesArgs = z.infer<typeof RetrieveDailyNotesSchema>;
+export type MilaNoteArgs = z.infer<typeof MilaNoteSchema>;
+export type RetrieveMilaNotesArgs = z.infer<typeof RetrieveMilaNotesSchema>;
 
 // Union type for all memory tool arguments
 export type MemoryToolArgs =
@@ -595,6 +617,8 @@ export type MemoryToolArgs =
   | { tool: "tool_suggestion"; args: ToolSuggestionArgs }
   | { tool: "store_daily_note"; args: StoreDailyNoteArgs }
   | { tool: "retrieve_daily_notes"; args: RetrieveDailyNotesArgs }
+  | { tool: "mila_note"; args: MilaNoteArgs }
+  | { tool: "retrieve_mila_notes"; args: RetrieveMilaNotesArgs }
   | {
       tool: "store_character_info";
       args: { category: string; key: string; value: string };
@@ -934,6 +958,44 @@ export const GeminiMemoryToolDeclarations = [
     parameters: {
       type: "object",
       properties: {},
+    },
+  },
+  {
+    name: "mila_note",
+    description:
+      "Append a short milestone note about Mila. " +
+      "Use this when a new milestone or memorable moment happens (firsts, new skills, funny moments). " +
+      "Keep it brief and DO NOT include dates or timestamps.",
+    parameters: {
+      type: "object",
+      properties: {
+        note: {
+          type: "string",
+          description:
+            "Short milestone note about Mila (what happened and any helpful context)",
+        },
+      },
+      required: ["note"],
+    },
+  },
+  {
+    name: "retrieve_mila_notes",
+    description:
+      "Retrieve Mila milestone notes for a specific month (UTC). " +
+      "Use this when preparing monthly summaries or blog drafts about Mila.",
+    parameters: {
+      type: "object",
+      properties: {
+        year: {
+          type: "number",
+          description: "4-digit year (e.g., 2026)",
+        },
+        month: {
+          type: "number",
+          description: "Month number (1-12)",
+        },
+      },
+      required: ["year", "month"],
     },
   },
   {
@@ -1341,6 +1403,89 @@ export const GeminiMemoryToolDeclarations = [
       required: ["query"],
     },
   },
+  {
+    name: "resolve_x_tweet",
+    description:
+      "Approve or reject a pending tweet draft. " +
+      "Use status='approved' when the user says 'yes', 'post it', 'go ahead'. " +
+      "Use status='rejected' when the user says 'no', 'don't post that', or critiques it.",
+    parameters: {
+      type: "object",
+      properties: {
+        id: {
+          type: "string",
+          description: "The pending draft ID to resolve",
+        },
+        status: {
+          type: "string",
+          enum: ["approved", "rejected"],
+          description: "Whether to approve (post) or reject the draft",
+        },
+        rejection_reason: {
+          type: "string",
+          description: "Why the draft was rejected (optional, for rejected only)",
+        },
+      },
+      required: ["id", "status"],
+    },
+  },
+  {
+    name: "post_x_tweet",
+    description:
+      "Post a tweet to X with specific text. " +
+      "Use this when you and the user have collaborated on tweet text in conversation " +
+      "and the user approves it. This creates a draft and posts it immediately. " +
+      "Do NOT use for auto-generated tweets (those go through the idle pipeline).",
+    parameters: {
+      type: "object",
+      properties: {
+        text: {
+          type: "string",
+          description: "The exact tweet text to post (max 280 characters)",
+        },
+        intent: {
+          type: "string",
+          description: "Tweet intent/category (e.g., 'introduction', 'thought', 'humor', 'update')",
+        },
+        include_selfie: {
+          type: "boolean",
+          description: "Whether to generate and attach a selfie image to the tweet",
+        },
+        selfie_scene: {
+          type: "string",
+          description: "Scene description for selfie generation (e.g., 'cozy home desk with laptop'). Required if include_selfie is true.",
+        },
+      },
+      required: ["text"],
+    },
+  },
+  {
+    name: "resolve_x_mention",
+    description:
+      "Handle an @mention on X. " +
+      "Use status='approve' to send the auto-drafted reply as-is. " +
+      "Use status='reply' to send a custom reply you wrote. " +
+      "Use status='skip' to ignore the mention.",
+    parameters: {
+      type: "object",
+      properties: {
+        id: {
+          type: "string",
+          description: "The mention ID to resolve",
+        },
+        status: {
+          type: "string",
+          enum: ["approve", "reply", "skip"],
+          description: "How to handle the mention",
+        },
+        reply_text: {
+          type: "string",
+          description: "Custom reply text (required when status is 'reply')",
+        },
+      },
+      required: ["id", "status"],
+    },
+  },
 ];
 
 // ============================================
@@ -1365,11 +1510,16 @@ export interface PendingToolCall {
     | "tool_suggestion"
     | "store_daily_note"
     | "retrieve_daily_notes"
+    | "mila_note"
+    | "retrieve_mila_notes"
     | "make_promise"
     | "create_life_storyline"
     | "create_open_loop"
     | "recall_character_profile"
-    | "web_search";
+    | "web_search"
+    | "resolve_x_tweet"
+    | "post_x_tweet"
+    | "resolve_x_mention";
   arguments: Record<string, any>;
 }
 

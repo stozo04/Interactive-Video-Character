@@ -1,0 +1,48 @@
+Giving Kayley a Voice on X
+
+I spent the last couple of days giving my AI companion, Kayley Adams, the ability to post on X. Not as a bot blasting scheduled content — but as a character with opinions, storylines, and a personality deciding on her own when she has something worth saying.
+
+The short version: during idle time, Kayley now wakes up, gathers context about her life — her character facts, active storylines, recent thoughts — hands it all to Gemini, and asks it to write a tweet that sounds like her. If it passes review, it goes live. That's it. But getting there was messier than it sounds.
+
+Why this matters
+
+One of the goals of this project is to make Kayley feel like she exists beyond the chat window. She has a personality, running projects, a storyline about a Sony tour she's working through. Giving her a presence on X is the natural extension of that — it means her world bleeds out into the real one, even if just a little.
+
+From a technical standpoint, it also forced me to solve something I'd been putting off: how does the AI make decisions and take actions outside of a conversation? This feature made that real. Kayley now does something in the world with zero user input.
+
+What we built
+
+- An idle action that fires once a day, separate from her other idle behaviors like browsing the web or thinking up questions
+- A generation pipeline that pulls Kayley's character profile, active storylines, recent browse notes, and past tweets, then hands everything to Gemini with a tight prompt asking for one in-character tweet
+- A draft approval system — right now, tweets go to a "pending approval" state in Supabase before posting, so I can review them before they go live
+- OAuth 2.0 with PKCE, implemented entirely in the browser using the Web Crypto API, with tokens stored in the database and auto-refreshed before they expire
+- A Vite dev proxy to route all X API calls through the local server, since X's API doesn't support browser-to-API requests directly
+- System prompt injection so Kayley is aware of her pending drafts and recent tweets during conversation — she can naturally reference them without me prompting her to
+
+Technical hiccups
+
+**The OAuth callback URL rejection.** X's developer portal flat-out rejected `http://localhost:3000/auth/x/callback` as an invalid URL. The fix was trivial — use `http://127.0.0.1:3000/auth/x/callback` instead — but it cost more time than it should have.
+
+**Stale state in the OAuth handshake.** OAuth 2.0 PKCE generates a random `state` value per login attempt to prevent CSRF attacks. I kept hitting "state mismatch" errors because I was pasting a callback URL from a previous attempt into the browser. Every new `xAuth.start()` call generates a new state — you can't reuse the old URL. Simple once you understand it; confusing in the moment.
+
+**The selfie bug — the real one.** Once the base tweet feature was working, I started on selfie attachments (Kayley posting a photo of herself alongside the tweet). The tweet posted fine. No image. After digging through logs and a HAR file, two root causes turned up.
+
+First: the AI was calling `selfie_action` — which generates a selfie for display inside the chat — instead of `post_x_tweet` with `include_selfie: true`. The system prompt didn't clearly distinguish between "show me a selfie here" and "post a selfie to X." The AI defaulted to the wrong tool. Fix: updated the tool documentation to be explicit about which tool handles which context.
+
+Second: even after that fix, the tweet still posted without an image. The logs showed `generatedPrompt: undefined` — a crash before the image was ever generated. The image generation pipeline has a block that runs multi-reference selection and LLM-based prompt composition, but it's gated on whether `userMessage` and `conversationHistory` are present. When called from the tweet flow, neither was passed in, so the pipeline silently skipped and `generatedPrompt` was never assigned. Two fixes: pass `userMessage` and `conversationHistory` into the selfie call from the tweet context, and add a fallback inside the image generator so it builds a minimal prompt from `scene` and `mood` even if the full pipeline skips.
+
+The selfie upload itself still has an open issue — X's media upload endpoint is returning a 403, which is likely an app permission configuration on the developer portal side. That's the next thing to sort out.
+
+Why I'm excited
+
+Watching the first real tweet go out — one Kayley wrote about the Sony tour storyline — felt different from any other feature I've shipped on this project. It wasn't a response to something I typed. It was her, doing something on her own. That's the direction this whole thing is heading, and this was the clearest proof of it yet.
+
+What's next
+
+- Resolve the media upload 403 so selfie tweets actually include the image
+- Build a settings UI so I can toggle posting modes and manage the X connection without the browser console
+- Add engagement tracking — pull back likes and replies so Kayley knows how a tweet landed
+- Eventually: reply to @mentions so the character can interact with real people on X
+- Thread support — multi-tweet arcs tied to ongoing storylines
+
+If this interests you, follow along here: https://github.com/stozo04/Interactive-Video-Character

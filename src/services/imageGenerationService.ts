@@ -287,8 +287,27 @@ export async function generateCompanionSelfie(
     // ====================================
     // IMAGE GENERATION
     // ====================================
-    console.log("gates!!!!!!!!!!!!!!!!!!!!!!!!");
-    console.log("generatedPrompt : ", generatedPrompt);
+
+    // Fallback: if multi-reference system was skipped or errored,
+    // build a minimal GeneratedImagePrompt from request params
+    if (!generatedPrompt) {
+      console.log("📸 [ImageGen] No LLM prompt generated — building fallback from request params");
+      generatedPrompt = {
+        scene: { location: request.scene || "indoor setting", background: "" },
+        type: "selfie",
+        proportions: "upper body",
+        pose: "natural, relaxed pose",
+        moodExpression: request.mood || "casual",
+        hairstyleGuidance: { preference: "any" },
+        seductionLevelGuidance: { preference: "playful" },
+        skinExposuresGuidance: { preference: "minimal" },
+        wardrobe: { top: "casual top", bottom: "", accessories: "None" },
+        lighting: { style: "natural", quality: "soft", direction: "front", setup: "ambient" },
+        camera: { type: "smartphone", angle: "eye level", lens: "standard", focus: "face", aspect_ratio: "9:16" },
+      };
+    }
+
+    console.log("📸 [ImageGen] generatedPrompt:", generatedPrompt);
 
     let fullPrompt = `Use the provided reference image to match the woman's face, hairstyle, and overall look as closely as possible.`;
     fullPrompt += buildImagePrompt(generatedPrompt);
