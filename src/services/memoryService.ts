@@ -42,6 +42,7 @@ export type FactCategory = 'identity' | 'preference' | 'relationship' | 'context
 const CONVERSATION_HISTORY_TABLE = 'conversation_history';
 const USER_FACTS_TABLE = 'user_facts';
 const KAYLEY_DAILY_NOTES_TABLE = 'kayley_daily_notes';
+const MILA_MILESTONE_NOTES_TABLE = 'mila_milestone_notes';
 
 // Default limits to prevent context overflow
 const DEFAULT_MEMORY_LIMIT = 5;
@@ -96,6 +97,17 @@ function getTodayCstDateString(): string {
 }
 
 function normalizeDailyNoteInput(note: string): string {
+  return note.replace(/^\s*-\s*/, '').trim();
+}
+
+/**
+ * Get today's date string in UTC (YYYY-MM-DD)
+ */
+function getTodayUtcDateString(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function normalizeMilaNoteInput(note: string): string {
   return note.replace(/^\s*-\s*/, '').trim();
 }
 
@@ -293,6 +305,186 @@ export const getAllDailyNotes = async (): Promise<string[]> => {
     return lines;
   } catch (error) {
     console.error('❌ [Daily Notes] Error retrieving notes:', error);
+    return [];
+  }
+};
+
+// ============================================
+// Mila Milestone Notes Functions
+// ============================================
+
+/**
+ * Ensure the Mila milestone notes row exists for a UTC date.
+ */
+export const ensureMilaMilestoneRowForDate = async (
+  utcDate: string
+): Promise<boolean> => {
+  try {
+    console.log(`🗓️ [Mila Notes] Ensuring milestone row exists for UTC date: ${utcDate}`);
+
+    const { error } = await supabase
+      .from(MILA_MILESTONE_NOTES_TABLE)
+      .upsert(
+        {
+          note_entry_date: utcDate,
+        },
+        {
+          onConflict: 'note_entry_date',
+        },
+      );
+
+    if (error) {
+      console.error('❌ [Mila Notes] Failed to ensure milestone row:', error);
+      return false;
+    }
+
+    console.log('✅ [Mila Notes] Milestone row is ready');
+    return true;
+  } catch (error) {
+    console.error('❌ [Mila Notes] Error ensuring milestone row:', error);
+    return false;
+  }
+};
+
+/**
+ * Append a milestone note for Mila to today's UTC row.
+ */
+export const appendMilaMilestoneNote = async (note: string): Promise<boolean> => {
+  const normalizedNote = normalizeMilaNoteInput(note);
+
+  if (!normalizedNote) {
+    console.warn('⚠️ [Mila Notes] Skipping empty milestone note');
+    return false;
+  }
+
+  try {
+    const utcDate = getTodayUtcDateString();
+    console.log(`🗒️ [Mila Notes] Appending milestone note for UTC date: ${utcDate}`);
+    console.log(`🗒️ [Mila Notes] Note content: "${normalizedNote}"`);
+
+    const ensured = await ensureMilaMilestoneRowForDate(utcDate);
+    if (!ensured) {
+      console.warn('⚠️ [Mila Notes] Could not ensure milestone row; aborting append');
+      return false;
+    }
+
+    const { data, error } = await supabase
+      .from(MILA_MILESTONE_NOTES_TABLE)
+      .select('note')
+      .eq('note_entry_date', utcDate)
+      .maybeSingle();
+
+    if (error) {
+      console.error('❌ [Mila Notes] Failed to fetch existing milestone note:', error);
+      return false;
+    }
+
+    const existingNotes = (data?.note || '').trim();
+    const updatedNotes = existingNotes
+      ? `${existingNotes}\n- ${normalizedNote}`
+      : `- ${normalizedNote}`;
+
+    const { error: updateError } = await supabase
+      .from(MILA_MILESTONE_NOTES_TABLE)
+      .update({ note: updatedNotes, updated_at: new Date().toISOString() })
+      .eq('note_entry_date', utcDate);
+
+    if (updateError) {
+      console.error('❌ [Mila Notes] Failed to append milestone note:', updateError);
+      return false;
+    }
+
+    console.log('✅ [Mila Notes] Milestone note appended successfully');
+    return true;
+  } catch (error) {
+    console.error('❌ [Mila Notes] Error appending milestone note:', error);
+    return false;
+  }
+};
+
+function formatMilaNoteLines(noteText: string, noteDate: string): string[] {
+  return (noteText || '')
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0)
+    .map((line) => line.replace(/^\s*-\s*/, ''))
+    .map((line) => `- ${noteDate}: ${line}`);
+}
+
+/**
+ * Retrieve all Mila milestone notes for a specific month (UTC).
+ */
+export const getMilaMilestonesForMonth = async (
+  year: number,
+  month: number
+): Promise<string[]> => {
+  try {
+    console.log('📚 [Mila Notes] Retrieving milestones for month', { year, month });
+
+    const safeYear = Number.isFinite(year) ? Math.floor(year) : NaN;
+    if (!Number.isFinite(safeYear) || safeYear < 1970 || safeYear > 2100) {
+      console.warn('⚠️ [Mila Notes] Invalid year for milestone retrieval', { year });
+      return [];
+    }
+
+    const monthIndex = Math.max(1, Math.min(12, Math.floor(month)));
+    const startDate = new Date(Date.UTC(safeYear, monthIndex - 1, 1));
+    const endDate = new Date(Date.UTC(safeYear, monthIndex, 0));
+    const startDateStr = startDate.toISOString().slice(0, 10);
+    const endDateStr = endDate.toISOString().slice(0, 10);
+
+    const { data, error } = await supabase
+      .from(MILA_MILESTONE_NOTES_TABLE)
+      .select('note, note_entry_date')
+      .gte('note_entry_date', startDateStr)
+      .lte('note_entry_date', endDateStr)
+      .order('note_entry_date', { ascending: true });
+
+    if (error) {
+      console.error('❌ [Mila Notes] Failed to retrieve month milestones:', error);
+      return [];
+    }
+
+    const lines = (data || [])
+      .flatMap((row) => formatMilaNoteLines(row.note, row.note_entry_date));
+
+    console.log('📚 [Mila Notes] Retrieved month milestone line(s)', {
+      count: lines.length,
+      startDate: startDateStr,
+      endDate: endDateStr,
+    });
+
+    return lines;
+  } catch (error) {
+    console.error('❌ [Mila Notes] Error retrieving month milestones:', error);
+    return [];
+  }
+};
+
+/**
+ * Retrieve all Mila milestone notes as dated bullet lines.
+ */
+export const getAllMilaMilestoneNotes = async (): Promise<string[]> => {
+  try {
+    console.log('📚 [Mila Notes] Retrieving all milestone notes');
+
+    const { data, error } = await supabase
+      .from(MILA_MILESTONE_NOTES_TABLE)
+      .select('note, note_entry_date')
+      .order('note_entry_date', { ascending: true });
+
+    if (error) {
+      console.error('❌ [Mila Notes] Failed to retrieve milestones:', error);
+      return [];
+    }
+
+    const lines = (data || [])
+      .flatMap((row) => formatMilaNoteLines(row.note, row.note_entry_date));
+
+    console.log(`📚 [Mila Notes] Retrieved ${lines.length} milestone line(s)`);
+    return lines;
+  } catch (error) {
+    console.error('❌ [Mila Notes] Error retrieving milestones:', error);
     return [];
   }
 };
@@ -668,7 +860,12 @@ export type MemoryToolName =
   | 'create_open_loop'
   | 'recall_character_profile'
   | 'store_daily_note'
-  | 'retrieve_daily_notes';
+  | 'retrieve_daily_notes'
+  | 'mila_note'
+  | 'retrieve_mila_notes'
+  | 'resolve_x_tweet'
+  | 'post_x_tweet'
+  | 'resolve_x_mention';
 
 /**
  * Optional context passed to tool execution (e.g., access tokens)
@@ -700,6 +897,13 @@ export interface ToolCallArgs {
     note: string;
   };
   retrieve_daily_notes: Record<string, never>;
+  mila_note: {
+    note: string;
+  };
+  retrieve_mila_notes: {
+    year: number;
+    month: number;
+  };
   task_action: {
     action: 'create' | 'complete' | 'delete' | 'list';
     task_text?: string;
@@ -736,6 +940,22 @@ export interface ToolCallArgs {
   resolve_idle_browse_note: {
     id: string;
     status: 'shared';
+  };
+  resolve_x_tweet: {
+    id: string;
+    status: 'approved' | 'rejected';
+    rejection_reason?: string;
+  };
+  post_x_tweet: {
+    text: string;
+    intent?: string;
+    include_selfie?: boolean;
+    selfie_scene?: string;
+  };
+  resolve_x_mention: {
+    id: string;
+    status: 'approve' | 'reply' | 'skip';
+    reply_text?: string;
   };
   tool_suggestion: {
     action: 'create' | 'mark_shared';
@@ -898,6 +1118,14 @@ export const executeMemoryTool = async (
           ? '✓ Daily note stored.'
           : 'Failed to store daily note.';
       }
+      case 'mila_note': {
+        const { note } = args as ToolCallArgs['mila_note'];
+        console.log('[Memory Tool] Storing Mila milestone note');
+        const success = await appendMilaMilestoneNote(note);
+        return success
+          ? 'Mila milestone note stored.'
+          : 'Failed to store Mila milestone note.';
+      }
       case 'retrieve_daily_notes': {
         console.log('📚 [Memory Tool] Retrieving daily notes');
         const lines = await getAllDailyNotes();
@@ -905,6 +1133,16 @@ export const executeMemoryTool = async (
           return 'No daily notes recorded yet.';
         }
         return `Daily notes:\n${lines.join('\n')}`;
+      }
+      case 'retrieve_mila_notes': {
+        const { year, month } = args as ToolCallArgs['retrieve_mila_notes'];
+        const monthLabel = `${year}-${String(month).padStart(2, '0')}`;
+        console.log('[Memory Tool] Retrieving Mila milestone notes', { year, month });
+        const lines = await getMilaMilestonesForMonth(year, month);
+        if (lines.length === 0) {
+          return `No Mila milestones recorded for ${monthLabel}.`;
+        }
+        return `Mila milestones for ${monthLabel}:\n${lines.join('\n')}`;
       }
       case 'task_action': {
         // Import taskService functions dynamically to avoid circular dependency
@@ -1432,6 +1670,167 @@ export const executeMemoryTool = async (
           return `Error retrieving character profile: ${error instanceof Error ? error.message : 'Unknown error'}`;
         }
       }
+      case 'resolve_x_tweet': {
+        const { getDraftById, postTweet, updateDraftStatus } = await import('./xTwitterService');
+        const { id, status, rejection_reason } = args as ToolCallArgs['resolve_x_tweet'];
+        console.log(`🐦 [Memory Tool] resolve_x_tweet called:`, { id, status });
+
+        if (status === 'approved') {
+          const draft = await getDraftById(id);
+          if (!draft) {
+            return `Could not find tweet draft with id ${id}.`;
+          }
+
+          try {
+            const result = await postTweet(draft.tweetText);
+            await updateDraftStatus(id, 'posted', {
+              tweet_id: result.tweetId,
+              tweet_url: result.tweetUrl,
+              posted_at: new Date().toISOString(),
+            });
+            return `✓ Tweet posted: ${result.tweetUrl}`;
+          } catch (postError) {
+            await updateDraftStatus(id, 'failed', {
+              error_message: postError instanceof Error ? postError.message : 'Unknown error',
+            });
+            return `Failed to post tweet: ${postError instanceof Error ? postError.message : 'Unknown error'}`;
+          }
+        }
+
+        if (status === 'rejected') {
+          await updateDraftStatus(id, 'rejected', {
+            rejection_reason: rejection_reason || null,
+          });
+          return `OK: tweet draft rejected (${id})`;
+        }
+
+        return `Unknown resolve_x_tweet status: ${status}`;
+      }
+      case 'post_x_tweet': {
+        const { createDraft, postTweet, postTweetWithMedia, uploadMedia, updateDraftStatus } = await import('./xTwitterService');
+        const { text, intent, include_selfie, selfie_scene } = args as ToolCallArgs['post_x_tweet'];
+        console.log(`🐦 [Memory Tool] post_x_tweet called:`, { textLength: text.length, intent, include_selfie });
+
+        if (!text || text.length === 0) {
+          return 'Error: tweet text is required';
+        }
+        if (text.length > 280) {
+          return `Error: tweet text is ${text.length} characters (max 280)`;
+        }
+
+        // Create draft
+        const draft = await createDraft(text, intent || 'user_collaborated', 'User approved in conversation', {
+          include_selfie: !!include_selfie,
+          selfie_scene: selfie_scene || null,
+        });
+        if (!draft) {
+          return 'Error: failed to create tweet draft';
+        }
+
+        try {
+          let result: { tweetId: string; tweetUrl: string };
+
+          // Generate and attach selfie if requested
+          if (include_selfie && selfie_scene) {
+            try {
+              const { generateCompanionSelfie } = await import('./imageGenerationService');
+              console.log(`🐦 [Memory Tool] Generating selfie for tweet:`, { selfie_scene });
+              const selfie = await generateCompanionSelfie({
+                scene: selfie_scene,
+                mood: intent === 'humor' ? 'playful' : 'casual',
+                userMessage: selfie_scene,
+                conversationHistory: [],
+              });
+
+              if (selfie.success && selfie.imageBase64) {
+                const mediaId = await uploadMedia(selfie.imageBase64, selfie.mimeType || 'image/jpeg');
+                result = await postTweetWithMedia(text, [mediaId]);
+                await updateDraftStatus(draft.id, 'posted', {
+                  tweet_id: result.tweetId,
+                  tweet_url: result.tweetUrl,
+                  posted_at: new Date().toISOString(),
+                  media_id: mediaId,
+                });
+                return `Tweet posted with selfie! ${result.tweetUrl}`;
+              } else {
+                console.warn(`🐦 [Memory Tool] Selfie generation failed, posting without image`);
+              }
+            } catch (selfieError) {
+              console.warn(`🐦 [Memory Tool] Selfie error, posting without image:`, selfieError);
+            }
+          }
+
+          // Post without media (or selfie failed)
+          result = await postTweet(text);
+          await updateDraftStatus(draft.id, 'posted', {
+            tweet_id: result.tweetId,
+            tweet_url: result.tweetUrl,
+            posted_at: new Date().toISOString(),
+          });
+          return `Tweet posted! ${result.tweetUrl}`;
+        } catch (postError) {
+          await updateDraftStatus(draft.id, 'failed', {
+            error_message: postError instanceof Error ? postError.message : 'Unknown error',
+          });
+          return `Failed to post tweet: ${postError instanceof Error ? postError.message : 'Unknown error'}`;
+        }
+      }
+      case 'resolve_x_mention': {
+        const { getMentions, updateMentionStatus, postReply } = await import('./xTwitterService');
+        const { id, status, reply_text } = args as ToolCallArgs['resolve_x_mention'];
+        console.log(`🐦 [Memory Tool] resolve_x_mention called:`, { id, status });
+
+        if (status === 'skip') {
+          await updateMentionStatus(id, 'skipped');
+          return `OK: mention skipped (${id})`;
+        }
+
+        if (status === 'approve') {
+          // Send the auto-drafted reply
+          const mentions = await getMentions(undefined, 50);
+          const mention = mentions.find((m) => m.id === id);
+          if (!mention) return `Could not find mention with id ${id}.`;
+          if (!mention.replyText) return `No draft reply found for mention ${id}. Use status='reply' with reply_text instead.`;
+
+          try {
+            const result = await postReply(mention.replyText, mention.tweetId);
+            await updateMentionStatus(id, 'replied', {
+              reply_tweet_id: result.tweetId,
+              replied_at: new Date().toISOString(),
+            });
+            return `Reply sent to @${mention.authorUsername}! ${result.tweetUrl}`;
+          } catch (err) {
+            return `Failed to post reply: ${err instanceof Error ? err.message : 'Unknown error'}`;
+          }
+        }
+
+        if (status === 'reply') {
+          if (!reply_text || reply_text.length === 0) {
+            return 'Error: reply_text is required when status is "reply"';
+          }
+          if (reply_text.length > 280) {
+            return `Error: reply_text is ${reply_text.length} characters (max 280)`;
+          }
+
+          const mentions = await getMentions(undefined, 50);
+          const mention = mentions.find((m) => m.id === id);
+          if (!mention) return `Could not find mention with id ${id}.`;
+
+          try {
+            const result = await postReply(reply_text, mention.tweetId);
+            await updateMentionStatus(id, 'replied', {
+              reply_text: reply_text,
+              reply_tweet_id: result.tweetId,
+              replied_at: new Date().toISOString(),
+            });
+            return `Reply sent to @${mention.authorUsername}! ${result.tweetUrl}`;
+          } catch (err) {
+            return `Failed to post reply: ${err instanceof Error ? err.message : 'Unknown error'}`;
+          }
+        }
+
+        return `Unknown resolve_x_mention status: ${status}`;
+      }
       // TODO: CHARACTER_FACTS
       default:
         return `Unknown tool: ${toolName}`;
@@ -1946,6 +2345,10 @@ export const memoryService = {
   ensureDailyNotesRowForToday,
   appendDailyNote,
   getAllDailyNotes,
+  ensureMilaMilestoneRowForDate,
+  appendMilaMilestoneNote,
+  getMilaMilestonesForMonth,
+  getAllMilaMilestoneNotes,
 };
 
 export default memoryService;

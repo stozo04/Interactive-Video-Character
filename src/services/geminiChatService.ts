@@ -604,7 +604,7 @@ export class GeminiService implements IAIChatService {
     options?: AIChatOptions,
   ): Promise<{ response: AIActionResponse; session: AIChatSession }> {
     // const ai = getAiClient();
-    console.log("system prompt!!: ", systemPrompt);
+   // console.log("system prompt!!: ", systemPrompt);
     console.log("session!!: ", session);
     console.log("options!!: ", options);
     // Format user message for Interactions API
@@ -733,7 +733,7 @@ export class GeminiService implements IAIChatService {
         fetchedContext.upcomingEvents,
         fetchedContext.characterContext
       );
-      console.log("systemPrompt: ", systemPrompt);
+     // console.log("systemPrompt: ", systemPrompt);
       // ============================================
       // CALL GEMINI API
       // ============================================
@@ -849,11 +849,11 @@ export class GeminiService implements IAIChatService {
       kayleyLifeUpdates: [], // TODO: fetch from storyline service if needed
     };
 
-    console.log("greetingContext: ", greetingContext);
+    // console.log("greetingContext: ", greetingContext);
     const systemPrompt = await buildSystemPromptForGreeting(greetingContext);
-    console.log("systemPrompt: ", systemPrompt);
+   // console.log("systemPrompt: ", systemPrompt);
     const greetingPrompt = buildGreetingPrompt(fetchedContext.relationship);
-    console.log("greetingPrompt: ", greetingPrompt);
+   // console.log("greetingPrompt: ", greetingPrompt);
     // Build interaction config
     const interactionConfig: any = {
       model: this.model,

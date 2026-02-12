@@ -1,7 +1,9 @@
 // src/components/SettingsPanel.tsx
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { GmailConnectButton } from './GmailConnectButton';
 import { useGoogleAuth } from '../contexts/GoogleAuthContext';
+import { hasXScope, isXConnected, initXAuth, revokeXAuth } from '../services/xTwitterService';
+import { supabase } from '../services/supabaseClient';
 import type { ProactiveSettings } from '../types';
 
 interface SettingsPanelProps {
@@ -33,6 +35,96 @@ export function SettingsPanel({
       setIsOpen(false);
     } catch (error) {
       console.error('Error signing out:', error);
+    }
+  };
+
+  // --------------------------------------------------------------------------
+  // X (Twitter) Integration State
+  // --------------------------------------------------------------------------
+  const [xConnected, setXConnected] = useState<boolean | null>(null); // null = checking
+  const [xLoading, setXLoading] = useState(false);
+  const [xPostingMode, setXPostingMode] = useState<'approval' | 'autonomous'>('approval');
+  const [xMissingMediaScope, setXMissingMediaScope] = useState<boolean>(false);
+
+  const checkXConnection = useCallback(async () => {
+    try {
+      const connected = await isXConnected();
+      setXConnected(connected);
+      if (connected) {
+        const hasMediaWrite = await hasXScope('media.write');
+        setXMissingMediaScope(hasMediaWrite === false);
+      } else {
+        setXMissingMediaScope(false);
+      }
+    } catch {
+      setXConnected(false);
+      setXMissingMediaScope(false);
+    }
+  }, []);
+
+  const loadXPostingMode = useCallback(async () => {
+    try {
+      const { data } = await supabase
+        .from('user_facts')
+        .select('fact_value')
+        .eq('category', 'preference')
+        .eq('fact_key', 'x_posting_mode')
+        .limit(1)
+        .maybeSingle();
+      if (data?.fact_value === 'autonomous') {
+        setXPostingMode('autonomous');
+      }
+    } catch {
+      // No preference set yet — default to approval
+    }
+  }, []);
+
+  // Check X status when panel opens
+  useEffect(() => {
+    if (isOpen) {
+      checkXConnection();
+      loadXPostingMode();
+    }
+  }, [isOpen, checkXConnection, loadXPostingMode]);
+
+  const handleConnectX = async () => {
+    setXLoading(true);
+    try {
+      const authUrl = await initXAuth();
+      // Same-tab redirect — user authorizes on X, then App.tsx handles the callback
+      window.location.href = authUrl;
+    } catch (error) {
+      console.error('Failed to start X OAuth:', error);
+      setXLoading(false);
+    }
+  };
+
+  const handleDisconnectX = async () => {
+    setXLoading(true);
+    try {
+      await revokeXAuth();
+      setXConnected(false);
+    } catch (error) {
+      console.error('Failed to disconnect X:', error);
+    } finally {
+      setXLoading(false);
+    }
+  };
+
+  const handleTogglePostingMode = async () => {
+    const newMode = xPostingMode === 'approval' ? 'autonomous' : 'approval';
+    setXPostingMode(newMode);
+    try {
+      await supabase
+        .from('user_facts')
+        .upsert(
+          { category: 'preference', fact_key: 'x_posting_mode', fact_value: newMode },
+          { onConflict: 'category,fact_key' }
+        );
+    } catch (error) {
+      console.error('Failed to save X posting mode:', error);
+      // Revert on failure
+      setXPostingMode(xPostingMode);
     }
   };
 
@@ -203,6 +295,85 @@ export function SettingsPanel({
                   Gmail Integration
                 </h3>
                 <GmailConnectButton onConnectionChange={onGmailConnectionChange} />
+              </div>
+
+              {/* X (Twitter) Integration Section */}
+              <div className="border-t border-gray-700 pt-3">
+                <h3 className="text-sm font-medium text-gray-300 mb-3">
+                  X (Twitter) Integration
+                </h3>
+
+                {xConnected === null ? (
+                  <p className="text-xs text-gray-500">Checking connection...</p>
+                ) : xConnected ? (
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-green-400 font-medium">Connected</span>
+                      <button
+                        onClick={handleDisconnectX}
+                        disabled={xLoading}
+                        className="text-xs px-3 py-1 bg-red-600/60 hover:bg-red-600 disabled:opacity-50 text-white rounded transition-colors"
+                      >
+                        {xLoading ? 'Disconnecting...' : 'Disconnect'}
+                      </button>
+                    </div>
+
+                    {xMissingMediaScope && (
+                      <div className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2">
+                        <p className="text-xs text-amber-200">
+                          Media uploads are disabled. Reconnect X to grant `media.write`.
+                        </p>
+                      </div>
+                    )}
+
+                    {/* Posting Mode Toggle */}
+                    <div className="flex items-center justify-between py-2">
+                      <div>
+                        <span className="text-sm text-gray-300">Auto-post</span>
+                        <p className="text-xs text-gray-500">
+                          {xPostingMode === 'autonomous'
+                            ? 'Posts automatically'
+                            : 'Asks for approval first'}
+                        </p>
+                      </div>
+                      <button
+                        onClick={handleTogglePostingMode}
+                        className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                          xPostingMode === 'autonomous' ? 'bg-purple-600' : 'bg-gray-600'
+                        }`}
+                      >
+                        <span
+                          className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                            xPostingMode === 'autonomous' ? 'translate-x-6' : 'translate-x-1'
+                          }`}
+                        />
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <button
+                    onClick={handleConnectX}
+                    disabled={xLoading}
+                    className="w-full px-4 py-2 bg-gray-700 hover:bg-gray-600 disabled:opacity-50 text-white rounded-lg transition-colors font-medium flex items-center justify-center gap-2"
+                  >
+                    {xLoading ? (
+                      <>
+                        <svg className="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                        </svg>
+                        <span>Connecting...</span>
+                      </>
+                    ) : (
+                      <>
+                        <svg className="h-4 w-4" viewBox="0 0 24 24" fill="currentColor">
+                          <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z" />
+                        </svg>
+                        <span>Connect X Account</span>
+                      </>
+                    )}
+                  </button>
+                )}
               </div>
 
               {/* Admin Dashboard Section */}

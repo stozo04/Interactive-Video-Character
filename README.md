@@ -31,6 +31,8 @@
 
 - **Autonomous Selfies** - Your AI knows when to send selfies based on context and mood, with consistent character appearance powered by AI image generation.
 
+- **X (Twitter) Integration** - Your AI autonomously drafts and posts tweets, including photo posts with AI-generated selfies. It monitors mentions, drafts contextual replies, and tracks engagement — all with your approval before anything goes live.
+
 - **Dynamic Video Responses** - Generate videos based on moods, events, and conversation context with consistent character representation.
 
 - **Promise Tracking** - Your AI can make promises and commitments, then remember to follow through on them later.
@@ -183,6 +185,7 @@ See `.env.example` for the complete list of available configuration options.
 
 | Document | Description |
 |----------|-------------|
+| [Docs Index](docs/README.md) | Master documentation index (start here) |
 | [Character Profile](docs/features/Kayley_Adams_Character_Profile.md) | Example AI personality configuration |
 | [Google OAuth Setup](docs/GOOGLE_OAUTH_SETUP.md) | Authentication configuration guide |
 | [System Prompt Guidelines](docs/System_Prompt_Guidelines.md) | How to modify AI behavior |

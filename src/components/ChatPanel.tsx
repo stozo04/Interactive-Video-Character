@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { ChatMessage, UploadedImage } from '../types';
 import LoadingSpinner from './LoadingSpinner';
 import TypingIndicator from './TypingIndicator';
+import TweetCard, { extractTweetUrls } from './TweetCard';
 import {
   DEFAULT_MAX_IMAGE_BYTES,
   buildImageAttachment,
@@ -29,6 +30,7 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
   const [isEmojiOpen, setIsEmojiOpen] = useState(false);
   const [pendingImage, setPendingImage] = useState<UploadedImage | null>(null);
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
+  const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -56,6 +58,16 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
   useEffect(() => {
     autoResizeTextarea();
   }, [input]);
+
+  // Close lightbox on Escape key
+  useEffect(() => {
+    if (!lightboxSrc) return;
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setLightboxSrc(null);
+    };
+    window.addEventListener('keydown', handleKey);
+    return () => window.removeEventListener('keydown', handleKey);
+  }, [lightboxSrc]);
 
   const textBeforeRef = useRef('');
 
@@ -197,8 +209,9 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
                   <img
                     src={`data:${msg.assistantImageMimeType || 'image/png'};base64,${msg.assistantImage}`}
                     alt="selfie"
-                    className="max-w-full rounded-lg border border-pink-400/30 shadow-lg shadow-pink-500/20"
+                    className="max-w-full rounded-lg border border-pink-400/30 shadow-lg shadow-pink-500/20 cursor-pointer hover:brightness-110 transition-all"
                     style={{ maxHeight: '400px', objectFit: 'contain' }}
+                    onClick={() => setLightboxSrc(`data:${msg.assistantImageMimeType || 'image/png'};base64,${msg.assistantImage}`)}
                   />
                   <div className="text-xs text-gray-400 mt-1 flex items-center gap-1">
                     <span className="inline-block w-2 h-2 bg-pink-400 rounded-full animate-pulse"></span>
@@ -225,6 +238,10 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
                 </div>
               )}
               <p>{msg.text}</p>
+              {/* Tweet cards for X URLs in AI messages */}
+              {msg.role === 'model' && extractTweetUrls(msg.text).map((url) => (
+                <TweetCard key={url} tweetUrl={url} />
+              ))}
             </div>
           </div>
         ))}
@@ -401,6 +418,30 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
           )}
         </button>
       </form>
+
+      {/* Fullscreen lightbox */}
+      {lightboxSrc && (
+        <div
+          className="fixed inset-0 bg-black/90 flex items-center justify-center z-[100] cursor-pointer backdrop-blur-sm"
+          onClick={() => setLightboxSrc(null)}
+        >
+          <button
+            onClick={() => setLightboxSrc(null)}
+            className="absolute top-4 right-4 text-white/70 hover:text-white transition-colors z-10"
+            aria-label="Close"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+          <img
+            src={lightboxSrc}
+            alt="selfie full size"
+            className="max-w-[90vw] max-h-[90vh] object-contain rounded-lg shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          />
+        </div>
+      )}
     </div>
   );
 };

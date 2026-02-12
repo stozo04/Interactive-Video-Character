@@ -18,6 +18,16 @@ export default defineConfig(({ mode }) => {
             changeOrigin: true,
             rewrite: (path) => path.replace(/^\/api\/google/, ''),
           },
+          '/api/x-upload': {
+            target: 'https://upload.twitter.com',
+            changeOrigin: true,
+            rewrite: (path) => path.replace(/^\/api\/x-upload/, ''),
+          },
+          '/api/x': {
+            target: 'https://api.x.com',
+            changeOrigin: true,
+            rewrite: (path) => path.replace(/^\/api\/x/, ''),
+          },
         },
       },
       plugins: [

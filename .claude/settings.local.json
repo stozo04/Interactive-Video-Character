@@ -38,7 +38,12 @@
       "Bash(powershell -Command \"npx vitest run src/services/tests/systemPrompt.test.ts 2>&1 | Select-Object -Last 20\")",
       "Bash(powershell -Command \"npx vitest run src/services/tests/systemPrompt.test.ts 2>&1 | Select-Object -Last 40\")",
       "Bash(powershell -Command \"npx vitest run src/services/tests/systemPrompt.test.ts 2>&1 | Select-Object -Last 30\")",
-      "Bash(PYTHONIOENCODING=utf-8 python:*)"
+      "Bash(PYTHONIOENCODING=utf-8 python:*)",
+      "WebFetch(domain:docs.tavus.io)",
+      "WebFetch(domain:www.tavus.io)",
+      "WebFetch(domain:ai.meta.com)",
+      "WebSearch",
+      "Bash(npx vite build)"
     ]
   },
   "enabledPlugins": {

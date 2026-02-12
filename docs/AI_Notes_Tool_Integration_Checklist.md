@@ -368,6 +368,14 @@ You add resolve_open_loop tool → Build passes → LLM sees tool exists
 
 **Fix**: Run `npm test -- --run -t "snapshot" -u` to update
 
+### ❌ Mistake 6: Using `.single()` When Rows Might Not Exist
+
+**Symptom**: Supabase throws "JSON object requested, multiple (or no) rows returned" when a row is missing.
+
+**Cause**: `.single()` hard-fails if zero rows are returned.
+
+**Fix**: Use `.maybeSingle()` for optional rows, or `select().limit(1)` and handle `data === null`.
+
 ---
 
 ## Example: Adding a Hypothetical `manage_habits` Tool

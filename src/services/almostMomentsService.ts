@@ -155,6 +155,15 @@ export async function recordAlmostMoment(
   expressionUsed: string,
   context: string
 ): Promise<void> {
+  const uuidRegex =
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  if (!uuidRegex.test(feelingId)) {
+    console.warn(
+      `[AlmostMoments] Ignoring non-UUID feeling_id from LLM: "${feelingId}"`
+    );
+    return;
+  }
+
   await supabase.from("kayley_almost_moment_log").insert({
     unsaid_feeling_id: feelingId,
     stage,
@@ -687,7 +696,7 @@ If it emerges naturally, you could say something like:
 ${atTheEdge}
 Or find your own version—a meaningful pause, trailing off mid-thought, unexpected warmth.
 
-If you use an almost-moment, set almost_moment_used:
+If you use an almost-moment, set almost_moment_used using the EXACT UUID below — do NOT make up your own ID:
 { "feeling_id": "${primaryFeeling.id}", "stage": "${context.currentStage}", "expression_used": "[your actual text]" }
 `;
 }
