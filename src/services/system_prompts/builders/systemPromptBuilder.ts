@@ -111,6 +111,7 @@ export const buildSystemPromptForNonGreeting = async (
   characterContext?: string,
   interactionId?: string | null,
   currentUserMessage?: string, // NEW: for active recall
+  messageCount: number = 0,
 ): Promise<string> => {
   console.log("[buildSystemPromptForNonGreeting] fetching now");
 
@@ -173,6 +174,7 @@ ${xMentionsPrompt}
 ${idleQuestionPrompt}
 ${buildOpinionsAndPushbackSection()}
 ${buildCurrentContextSection(characterContext)}
+${await getStorylinePromptContext(messageCount)}
 ${await buildPromisesContext()}
 ${buildSelfieRulesPrompt(relationship)}
 ${buildVideoRulesPrompt(relationship)}
@@ -188,7 +190,6 @@ ${buildStandardOutputSection()}
   // ====================================================================
   // FALLBACK PATH — identical to original behavior (no synthesis available)
   // ====================================================================
-  // TODO: ${await getStorylinePromptContext(0)}
   const [
     almostMoments,
     characterFactsPrompt,
@@ -207,7 +208,7 @@ ${buildStandardOutputSection()}
     buildDailyNotesPromptSection(),
     buildMilaMilestonesPromptSection(),
     buildConversationAnchorPromptSection(interactionId),
-    buildActiveRecallPromptSection(currentUserMessage), // NEW: per-turn relevant facts
+    buildActiveRecallPromptSection(currentUserMessage)
   ]);
 
   let prompt = `
@@ -225,6 +226,7 @@ ${dailyNotesPrompt}
 ${milaMilestonesPrompt}
 ${idleQuestionPrompt}
 ${characterFactsPrompt}
+${await getStorylinePromptContext(messageCount)}
 ${buildRelationshipTierPrompt(relationship, almostMoments.promptSection)}
 ${buildOpinionsAndPushbackSection()}
 ${buildCurrentContextSection(characterContext)}

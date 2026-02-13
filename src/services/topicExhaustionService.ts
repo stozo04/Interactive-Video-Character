@@ -11,6 +11,22 @@
  */
 
 import { supabase } from "./supabaseClient";
+import { GoogleGenAI } from "@google/genai";
+
+const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
+const GEMINI_MODEL = import.meta.env.VITE_GEMINI_MODEL;
+
+let geminiClient: GoogleGenAI | null = null;
+
+function getGeminiClient(): GoogleGenAI {
+  if (!geminiClient) {
+    if (!GEMINI_API_KEY) {
+      throw new Error("VITE_GEMINI_API_KEY is not set");
+    }
+    geminiClient = new GoogleGenAI({ apiKey: GEMINI_API_KEY });
+  }
+  return geminiClient;
+}
 
 const LOG_PREFIX = "[TopicExhaustion]";
 const TABLE = "topic_exhaustion";
@@ -226,21 +242,41 @@ export async function extractAndRecordTopics(
   const trackedTopics = await getTrackedTopicKeys();
   if (trackedTopics.length === 0) return;
 
-  const aiLower = aiResponse.toLowerCase();
-  const userLower = userMessage.toLowerCase();
+  let aiMentioned: string[] = [];
+  let userMentioned: string[] = [];
 
-  const aiMentioned: string[] = [];
-  const userMentioned: string[] = [];
+  try {
 
-  for (const topic of trackedTopics) {
-    // Convert topic_key (snake_case) to words for matching
-    const words = topic.replace(/_/g, " ");
-    if (aiLower.includes(words) || aiLower.includes(topic)) {
-      aiMentioned.push(topic);
-    }
-    if (userLower.includes(words) || userLower.includes(topic)) {
-      userMentioned.push(topic);
-    }
+    const systemPrompt = "You are a topic matcher. Given a list of tracked topic keys and two messages, identify which topics are actually being discussed."
+    const prompt = `Tracked topics: ${JSON.stringify(trackedTopics)}
+                    AI message: "${aiResponse}"
+                    User message: "${userMessage}"
+
+                    Return JSON only: { "ai_topics": [...], "user_topics": [...] }
+                    Only include topics clearly and directly discussed. Do not match incidental word overlaps.`;
+
+
+    const ai = getGeminiClient();
+    const response = await ai.models.generateContent({
+      model: GEMINI_MODEL,
+      contents: [{ role: "user", parts: [{ text: prompt }] }],
+      config: {
+        systemInstruction: systemPrompt,
+        responseMimeType: "application/json",
+      },
+    });
+
+    console.log('TopicExhaustion RESPONSE: ', response)
+    const responseText = response.text || "{}";
+    const cleaned = responseText.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
+    const parsed = JSON.parse(cleaned);
+
+    const trackedSet = new Set(trackedTopics);
+    aiMentioned = (parsed.ai_topics || []).filter((t: string) => trackedSet.has(t));
+    userMentioned = (parsed.user_topics || []).filter((t: string) => trackedSet.has(t));
+  } catch (err) {
+    console.warn(`${LOG_PREFIX} LLM topic extraction failed, skipping recording`, { err });
+    return;
   }
 
   // Record user-mentioned topics first (they take priority / can lift cooldowns)
@@ -255,7 +291,7 @@ export async function extractAndRecordTopics(
   }
 
   if (aiMentioned.length > 0 || userMentioned.length > 0) {
-    console.log(`${LOG_PREFIX} Topics extracted`, {
+    console.log(`${LOG_PREFIX} Topics extracted via LLM`, {
       aiTopics: aiOnly.length,
       userTopics: userMentioned.length,
     });

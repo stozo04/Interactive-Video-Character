@@ -198,6 +198,7 @@ export interface LifeStoryline {
 
   // Lifecycle
   createdAt: Date;
+  updatedAt: Date;
   resolvedAt: Date | null;
 
   // Metadata
@@ -277,6 +278,7 @@ interface StorylineRow {
   last_mentioned_at: string | null;
   should_mention_by: string | null;
   created_at: string;
+  updated_at: string;
   resolved_at: string | null;
   initial_announcement: string | null;
   stakes: string | null;
@@ -316,6 +318,7 @@ function mapRowToStoryline(row: StorylineRow): LifeStoryline {
     lastMentionedAt: row.last_mentioned_at ? new Date(row.last_mentioned_at) : null,
     shouldMentionBy: row.should_mention_by ? new Date(row.should_mention_by) : null,
     createdAt: new Date(row.created_at),
+    updatedAt: row.updated_at ? new Date(row.updated_at) : new Date(row.created_at),
     resolvedAt: row.resolved_at ? new Date(row.resolved_at) : null,
     initialAnnouncement: row.initial_announcement,
     stakes: row.stakes,

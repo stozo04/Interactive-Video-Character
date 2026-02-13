@@ -252,7 +252,7 @@ export async function upsertStorylineEmbedding(storyline: LifeStoryline): Promis
     sourceId: storyline.id,
     sourceKey: `${storyline.category}.${storyline.title}`,
     sourceValue: buildStorylineEmbeddingText(storyline),
-    sourceUpdatedAt: storyline.phaseStartedAt.toISOString(),
+    sourceUpdatedAt: storyline.updatedAt.toISOString(),
     confidence: 0.6,
     pinned: false,
   });

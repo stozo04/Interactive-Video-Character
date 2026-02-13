@@ -99,7 +99,7 @@ export async function getConversationAnchor(
       .from(TABLE)
       .select("*")
       .eq("interaction_id", interactionId)
-      .single();
+      .maybeSingle();
 
     if (error) {
       if (error.code === "PGRST116") {

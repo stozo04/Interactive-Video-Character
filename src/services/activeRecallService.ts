@@ -126,7 +126,7 @@ function mapStorylines(storylines: LifeStoryline[]): RecallCandidate[] {
     sourceType: RecallSourceType.STORYLINE,
     key: storyline.title,
     value: buildStorylineValue(storyline),
-    updatedAt: storyline.phaseStartedAt.toISOString(),
+    updatedAt: storyline.updatedAt.toISOString(),
     confidence: 0.6,
     pinned: false,
   }));
@@ -608,14 +608,28 @@ export async function buildActiveRecallPromptSection(
 
             candidates = winner.result;
             if (winner.source === "semantic") {
-              fallbackUsed = "none";
-              timedOut = false;
-              console.log(`${LOG_PREFIX} Semantic retrieval recovered after timeout window`, {
-                mode: config.mode,
-                featureEnabled: config.enabled,
-                fallbackUsed,
-                timedOut,
-              });
+              if (winner.result.length === 0) {
+                // Semantic recovered but empty — prefer lexical
+                try {
+                  candidates = await lexicalPromise;
+                  fallbackUsed = "lexical";
+                } catch {
+                  // lexical also failed, keep empty
+                }
+                console.log(`${LOG_PREFIX} Semantic won race but empty, used lexical fallback`, {
+                  mode: config.mode,
+                  lexicalCount: candidates.length,
+                });
+              } else {
+                fallbackUsed = "none";
+                timedOut = false;
+                console.log(`${LOG_PREFIX} Semantic retrieval recovered after timeout window`, {
+                  mode: config.mode,
+                  featureEnabled: config.enabled,
+                  fallbackUsed,
+                  timedOut,
+                });
+              }
             } else {
               console.warn(`${LOG_PREFIX} Semantic timeout; using lexical fallback winner`, {
                 mode: config.mode,

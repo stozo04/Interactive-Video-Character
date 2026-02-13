@@ -36,10 +36,6 @@ const GEMINI_MODEL = import.meta.env.VITE_GEMINI_MODEL; // The Brain (e.g. gemin
 const GEMINI_VIDEO_MODEL = import.meta.env.VITE_GEMINI_VIDEO_MODEL;
 const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
 const VITE_PROXY_BASE = "/api/google"; // Matches vite.config.ts proxy path
-const NON_GREETING_RETURN_CONTEXT_KEY = "kayley_non_greeting_return_context_v1";
-const RAPID_RESUME_WINDOW_MINUTES = 15;
-const RAPID_RESUME_WINDOW_MS = RAPID_RESUME_WINDOW_MINUTES * 60 * 1000;
-const ONE_ACTIVE_STORYLINE_TOOL = "create_life_storyline";
 if (!GEMINI_MODEL || !GEMINI_VIDEO_MODEL || !GEMINI_API_KEY) {
   console.error("Missing env vars. Ensure VITE_GEMINI_MODEL is set.");
   // throw new Error("Missing environment variables for Gemini chat service.");
@@ -412,13 +408,15 @@ export class GeminiService implements IAIChatService {
     try {
       const activeStorylines = await getActiveStorylines();
       if (activeStorylines.length > 0) {
-        tools = tools.filter((tool) => tool.name !== ONE_ACTIVE_STORYLINE_TOOL);
-        console.log("[GeminiService] Tool gating applied", {
-          gatedTool: ONE_ACTIVE_STORYLINE_TOOL,
+        activeStorylines.forEach(element => {
+          console.log("[GeminiService] Tool gating applied", {
+          gatedTool: element.title,
           activeStorylineCount: activeStorylines.length,
           toolCount: tools.length,
+          
         });
-      }
+      });
+     }
     } catch (err) {
       console.warn("[GeminiService] Failed to apply tool gating", { err });
     }
@@ -536,15 +534,6 @@ export class GeminiService implements IAIChatService {
                 : undefined,
           });
           executedToolSignatures.add(callSignature);
-
-          if (
-            toolName === ONE_ACTIVE_STORYLINE_TOOL &&
-            typeof toolResult === "string" &&
-            /active storyline already exists|resolve it before creating/i.test(toolResult)
-          ) {
-            blockedToolsForTurn.add(toolName);
-            console.warn(`⚠️ [Gemini Interactions] Blocking further ${toolName} calls this turn`);
-          }
 
           return {
             type: "function_result",
@@ -824,9 +813,10 @@ export class GeminiService implements IAIChatService {
         fetchedContext.upcomingEvents,
         fetchedContext.characterContext,
         session?.interactionId,
-        currentUserMessage // NEW: for active recall
+        currentUserMessage, // NEW: for active recall
+        0 // GATES: TODO
       );
-     // console.log("systemPrompt: ", systemPrompt);
+     console.log("systemPrompt: ", systemPrompt);
       // ============================================
       // CALL GEMINI API
       // ============================================
@@ -1038,7 +1028,8 @@ export class GeminiService implements IAIChatService {
       fetchedContext.upcomingEvents,
       fetchedContext.characterContext,
       session.interactionId,
-      undefined // No active recall for idle thinking
+      undefined, // No active recall for idle thinking
+      0 // GATES: TODO
     );
 
     // ============================================
