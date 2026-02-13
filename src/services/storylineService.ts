@@ -869,7 +869,14 @@ export async function createStoryline(input: CreateStorylineInput): Promise<Life
       return null;
     }
 
-    return mapRowToStoryline(data as StorylineRow);
+    const storyline = mapRowToStoryline(data as StorylineRow);
+
+    // Phase 2B: keep semantic embedding index in sync (fire-and-forget)
+    import("./factEmbeddingsService")
+      .then(({ upsertStorylineEmbedding }) => upsertStorylineEmbedding(storyline))
+      .catch((err) => console.warn("[Storylines] Failed to sync storyline embedding:", err));
+
+    return storyline;
   } catch (error) {
     console.error("[Storylines] Unexpected error creating storyline:", error);
     return null;
@@ -960,7 +967,14 @@ export async function updateStoryline(id: string, input: UpdateStorylineInput): 
       return null;
     }
 
-    return mapRowToStoryline(data as StorylineRow);
+    const storyline = mapRowToStoryline(data as StorylineRow);
+
+    // Phase 2B: keep semantic embedding index in sync (fire-and-forget)
+    import("./factEmbeddingsService")
+      .then(({ upsertStorylineEmbedding }) => upsertStorylineEmbedding(storyline))
+      .catch((err) => console.warn("[Storylines] Failed to sync storyline embedding:", err));
+
+    return storyline;
   } catch (error) {
     console.error("[Storylines] Unexpected error updating storyline:", error);
     return null;
@@ -972,6 +986,8 @@ export async function updateStoryline(id: string, input: UpdateStorylineInput): 
  */
 export async function deleteStoryline(id: string): Promise<boolean> {
   try {
+    const existing = await getStorylineById(id);
+
     const { error } = await supabase
       .from(STORYLINES_TABLE)
       .delete()
@@ -980,6 +996,13 @@ export async function deleteStoryline(id: string): Promise<boolean> {
     if (error) {
       console.error("[Storylines] Error deleting storyline:", error);
       return false;
+    }
+
+    // Phase 2B: keep semantic embedding index in sync (fire-and-forget)
+    if (existing?.id) {
+      import("./factEmbeddingsService")
+        .then(({ deleteFactEmbedding }) => deleteFactEmbedding("storyline", existing.id))
+        .catch((err) => console.warn("[Storylines] Failed to delete storyline embedding:", err));
     }
 
     return true;

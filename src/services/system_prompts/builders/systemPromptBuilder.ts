@@ -55,6 +55,19 @@ import {
   buildXTweetPromptSection,
 } from "../../idleThinkingService";
 import { buildMentionsPromptSection } from "../../xMentionService";
+import { buildSynthesisPromptSection } from "../../contextSynthesisService";
+import { buildTopicSuppressionPromptSection } from "../../topicExhaustionService";
+import { buildConversationAnchorPromptSection } from "../../conversationAnchorService";
+import { buildActiveRecallPromptSection } from "../../activeRecallService";
+
+const USE_CONTEXT_SYNTHESIS = true;
+const MAX_DAILY_NOTES_IN_PROMPT = 25;
+const MAX_DAILY_NOTE_LINE_LENGTH = 180;
+const MAX_MILA_NOTES_IN_PROMPT = 20;
+const MAX_MILA_NOTE_LINE_LENGTH = 180;
+const MAX_CURIOSITY_FACTS_PER_CATEGORY = 8;
+const MAX_CURIOSITY_FACTS_TOTAL = 24;
+const MAX_CURIOSITY_FACT_VALUE_LENGTH = 120;
 
 /**
  * Greeting Context - data needed for greeting-specific prompt sections
@@ -96,49 +109,113 @@ export const buildSystemPromptForNonGreeting = async (
   relationship?: RelationshipMetrics | null,
   upcomingEvents: any[] = [],
   characterContext?: string,
-  messageCount: number = 0,
+  interactionId?: string | null,
+  currentUserMessage?: string, // NEW: for active recall
 ): Promise<string> => {
-  let characterFactsPrompt: string;
-  let almostMoments: AlmostMomentIntegration;
-  let idleQuestionPrompt: string;
-  let idleBrowseNotesPrompt: string;
-  let toolSuggestionsPrompt: string;
-  let dailyNotesPrompt: string;
-  let milaMilestonesPrompt: string;
-  let xTweetPrompt: string;
-  let xMentionsPrompt: string;
-
   console.log("[buildSystemPromptForNonGreeting] fetching now");
-  [characterFactsPrompt, almostMoments, idleQuestionPrompt, idleBrowseNotesPrompt, toolSuggestionsPrompt, dailyNotesPrompt, milaMilestonesPrompt, xTweetPrompt, xMentionsPrompt] = await Promise.all([
 
-    formatCharacterFactsForPrompt(),
+  // Try synthesis path if feature flag is enabled
+  let synthesisSection = "";
+  if (USE_CONTEXT_SYNTHESIS) {
+    synthesisSection = await buildSynthesisPromptSection();
+    if (synthesisSection) {
+      console.log("[buildSystemPromptForNonGreeting] Using synthesis path");
+    }
+  }
+
+  const useSynthesis = !!synthesisSection;
+
+  // Shared sections fetched in parallel (needed by both paths)
+  const [
+    idleQuestionPrompt,
+    idleBrowseNotesPrompt,
+    toolSuggestionsPrompt,
+    xTweetPrompt,
+    xMentionsPrompt,
+  ] = await Promise.all([
+    buildIdleQuestionPromptSection(),
+    buildIdleBrowseNotesPromptSection(),
+    buildToolSuggestionsPromptSection(),
+    buildXTweetPromptSection(),
+    buildMentionsPromptSection(),
+  ]);
+
+  if (useSynthesis) {
+    // ====================================================================
+    // SYNTHESIS PATH — replaces: curiosity, dailyNotes, milaMilestones,
+    // characterFacts, relationshipTier, storylines, proactiveStarters
+    // ====================================================================
+    const [topicSuppressionPrompt, anchorSection, activeRecallSection, almostMoments] = await Promise.all([
+      buildTopicSuppressionPromptSection(),
+      buildConversationAnchorPromptSection(interactionId),
+      buildActiveRecallPromptSection(currentUserMessage), // NEW: per-turn relevant facts
+      integrateAlmostMoments(relationship, {
+        conversationDepth: "surface",
+        recentSweetMoment: false,
+        vulnerabilityExchangeActive: false,
+        allowGeneration: false,
+      }),
+    ]);
+
+    let prompt = `
+${KAYLEY_CONDENSED_PROFILE}
+${buildAntiAssistantSection()}
+${await buildCurrentWorldContext()}
+${anchorSection}
+${activeRecallSection}
+${synthesisSection}
+${almostMoments.promptSection}
+${topicSuppressionPrompt}
+${idleBrowseNotesPrompt}
+${toolSuggestionsPrompt}
+${xTweetPrompt}
+${xMentionsPrompt}
+${idleQuestionPrompt}
+${buildOpinionsAndPushbackSection()}
+${buildCurrentContextSection(characterContext)}
+${await buildPromisesContext()}
+${buildSelfieRulesPrompt(relationship)}
+${buildVideoRulesPrompt(relationship)}
+${getRecentNewsContext()}
+${buildGoogleCalendarEventsPrompt(upcomingEvents)}
+${buildToolStrategySection()}
+${buildStandardOutputSection()}
+`.trim();
+
+    return prompt;
+  }
+
+  // ====================================================================
+  // FALLBACK PATH — identical to original behavior (no synthesis available)
+  // ====================================================================
+  // TODO: ${await getStorylinePromptContext(0)}
+  const [
+    almostMoments,
+    characterFactsPrompt,
+    dailyNotesPrompt,
+    milaMilestonesPrompt,
+    anchorSection,
+    activeRecallSection,
+  ] = await Promise.all([
     integrateAlmostMoments(relationship, {
       conversationDepth: "surface",
       recentSweetMoment: false,
       vulnerabilityExchangeActive: false,
       allowGeneration: false,
     }),
-    buildIdleQuestionPromptSection(),
-    buildIdleBrowseNotesPromptSection(),
-    buildToolSuggestionsPromptSection(),
+    formatCharacterFactsForPrompt(),
     buildDailyNotesPromptSection(),
     buildMilaMilestonesPromptSection(),
-    buildXTweetPromptSection(),
-    buildMentionsPromptSection(),
+    buildConversationAnchorPromptSection(interactionId),
+    buildActiveRecallPromptSection(currentUserMessage), // NEW: per-turn relevant facts
   ]);
-  // console.log("[buildSystemPromptForNonGreeting] soulContext: ", soulContext);
-  // console.log(
-  //   "[buildSystemPromptForNonGreeting] characterFactsPrompt: ",
-  //   characterFactsPrompt,
-  // );
-  // console.log(
-  //   "[buildSystemPromptForNonGreeting] almostMoments: ",
-  //   almostMoments,
-  // );
+
   let prompt = `
 ${KAYLEY_CONDENSED_PROFILE}
 ${buildAntiAssistantSection()}
 ${await buildCurrentWorldContext()}
+${anchorSection}
+${activeRecallSection}
 ${await buildCuriositySection()}
 ${idleBrowseNotesPrompt}
 ${toolSuggestionsPrompt}
@@ -151,7 +228,7 @@ ${characterFactsPrompt}
 ${buildRelationshipTierPrompt(relationship, almostMoments.promptSection)}
 ${buildOpinionsAndPushbackSection()}
 ${buildCurrentContextSection(characterContext)}
-${await getStorylinePromptContext(messageCount)}
+
 ${await buildPromisesContext()}
 ${buildSelfieRulesPrompt(relationship)}
 ${buildVideoRulesPrompt(relationship)}
@@ -254,8 +331,18 @@ export async function buildDailyNotesPromptSection(): Promise<string> {
     console.log("[buildDailyNotesPromptSection] No daily notes found");
   }
 
-  console.log("[buildDailyNotesPromptSection] Building daily notes prompt", {
-    count: lines?.length ?? 0,
+  const allLines = lines ?? [];
+  const boundedLines = allLines
+    .slice(-MAX_DAILY_NOTES_IN_PROMPT)
+    .map((line) => truncateFactValue(line, MAX_DAILY_NOTE_LINE_LENGTH));
+  const omittedCount = Math.max(0, allLines.length - boundedLines.length);
+
+  console.log("[buildDailyNotesPromptSection] Building bounded daily notes prompt", {
+    totalCount: allLines.length,
+    includedCount: boundedLines.length,
+    omittedCount,
+    maxLines: MAX_DAILY_NOTES_IN_PROMPT,
+    maxLineLength: MAX_DAILY_NOTE_LINE_LENGTH,
   });
 
   return `
@@ -264,7 +351,8 @@ DAILY NOTES
 ====================================================
 You won't remember this whole conversation tomorrow. Use this as your running memory: append-only, never overwritten. If you want to review past notes, call 'retrieve_daily_notes'. If something matters later, save it with 'store_daily_note'. Do NOT mention this section.
 
-${lines && lines.length > 0 ? lines.join("\n") : "â€¢ (No daily notes yet)"}
+${boundedLines.length > 0 ? boundedLines.join("\n") : "- (No daily notes yet)"}
+${omittedCount > 0 ? `\n[Daily Notes] Additional note lines omitted for brevity: ${omittedCount}` : ""}
 `.trim();
 }
 
@@ -276,8 +364,18 @@ export async function buildMilaMilestonesPromptSection(): Promise<string> {
     console.log("[buildMilaMilestonesPromptSection] No Mila milestones found");
   }
 
-  console.log("[buildMilaMilestonesPromptSection] Building Mila milestones prompt", {
-    count: lines?.length ?? 0,
+  const allLines = lines ?? [];
+  const boundedLines = allLines
+    .slice(-MAX_MILA_NOTES_IN_PROMPT)
+    .map((line) => truncateFactValue(line, MAX_MILA_NOTE_LINE_LENGTH));
+  const omittedCount = Math.max(0, allLines.length - boundedLines.length);
+
+  console.log("[buildMilaMilestonesPromptSection] Building bounded Mila milestones prompt", {
+    totalCount: allLines.length,
+    includedCount: boundedLines.length,
+    omittedCount,
+    maxLines: MAX_MILA_NOTES_IN_PROMPT,
+    maxLineLength: MAX_MILA_NOTE_LINE_LENGTH,
   });
 
   return `
@@ -286,7 +384,8 @@ MILA MILESTONES
 ====================================================
 Mila's milestones should be recorded. Use this as your running memory of her moments. If a new milestone happens, call 'mila_note' with a short note. If you need a monthly summary, call 'retrieve_mila_notes' with year + month. Do NOT mention this section.
 
-${lines && lines.length > 0 ? lines.join("\n") : "- (No Mila milestones yet)"}
+${boundedLines.length > 0 ? boundedLines.join("\n") : "- (No Mila milestones yet)"}
+${omittedCount > 0 ? `\n[Mila Milestones] Additional note lines omitted for brevity: ${omittedCount}` : ""}
 `.trim();
 }
 
@@ -330,6 +429,16 @@ export function buildGoogleCalendarEventsPrompt(upcomingEvents: any[]): string {
     month: "numeric",
     day: "numeric",
   });
+  const todayParts = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(now);
+  const todayYear = todayParts.find((p) => p.type === "year")?.value ?? "";
+  const todayMonth = todayParts.find((p) => p.type === "month")?.value ?? "";
+  const todayDay = todayParts.find((p) => p.type === "day")?.value ?? "";
+  const todayIsoDate = `${todayYear}-${todayMonth}-${todayDay}`;
 
   // [FIX] Establish a clear "Current Time" anchor with the timezone label
   const currentTimeString = now.toLocaleTimeString("en-US", {
@@ -346,7 +455,7 @@ CALENDAR CONTEXT
 ====================================================
 Current Time: ${currentTimeString}
 No events scheduled for TODAY (${todayString}).
-Direction: Don't mention their calendar.
+Direction: This is the user's calendar (Steven). Do not frame these events as your own plans.
 `;
   }
 
@@ -354,10 +463,21 @@ Direction: Don't mention their calendar.
   const eventsToday: string[] = [];
 
   upcomingEvents.forEach((event) => {
-    // specific date object for the event
-    const eventDateObj = new Date(event.start.dateTime || event.start.date);
-    
-    // Stringify strictly for comparison
+    const startDateOnly = event?.start?.date as string | undefined;
+    const startDateTime = event?.start?.dateTime as string | undefined;
+
+    // Date-only events (birthdays, reminders, all-day entries) must be compared
+    // as raw YYYY-MM-DD to avoid timezone shifts that create fake clock times.
+    if (startDateOnly) {
+      if (startDateOnly === todayIsoDate) {
+        eventsToday.push(`- "${event.summary}" (all day)`);
+      }
+      return;
+    }
+
+    if (!startDateTime) return;
+
+    const eventDateObj = new Date(startDateTime);
     const eventDateString = eventDateObj.toLocaleDateString("en-US", {
       timeZone,
       year: "numeric",
@@ -366,13 +486,11 @@ Direction: Don't mention their calendar.
     });
 
     if (eventDateString === todayString) {
-       // [FIX] Format the display string with EXPLICIT timezone
-       // e.g., "11:00 AM CST"
       const timeStr = eventDateObj.toLocaleString("en-US", {
         timeZone,
         hour: "numeric",
         minute: "2-digit",
-        timeZoneName: "short" // Adds "CST"
+        timeZoneName: "short",
       });
       eventsToday.push(`- "${event.summary}" at ${timeStr}`);
     }
@@ -387,7 +505,7 @@ CALENDAR CONTEXT
 ====================================================
 Current Time: ${currentTimeString}
 No events scheduled for TODAY (${todayString}).
-Direction: Don't mention their calendar.
+Direction: This is the user's calendar (Steven). Do not frame these events as your own plans.
 `;
   }
 
@@ -402,6 +520,7 @@ ${eventsToday.join("\n")}
 
 Tone: Helpful but casual.
 Direction: These are happening TODAY. Mention if relevant, but don't list them like a robot.
+Calendar ownership: These are USER calendar events (Steven), not your personal plans unless the user explicitly says you are attending.
 ⚠️ DATA NOTE: This list is ONLY for today. Future events are not listed here.
 `;
 }
@@ -460,37 +579,64 @@ Direction: You know what's on their plate. If they mention something related to 
  */
 
 export async function buildCuriositySection(): Promise<string> {
+  const [allUserFacts, answeredIdleQuestionsPrompt] = await Promise.all([
+    getUserFacts(),
+    buildAnsweredIdleQuestionsPromptSection(),
+  ]);
 
-    const [allUserFacts, answeredIdleQuestionsPrompt] = await Promise.all([
-      getUserFacts(),
-      buildAnsweredIdleQuestionsPromptSection(),
-    ]);
-    const groupedFacts = allUserFacts.reduce<Record<string, UserFact[]>>(
-      (acc, fact) => {
-        acc[fact.category] ??= [];
-        acc[fact.category].push(fact);
-        return acc;
-      },
-      {},
-    );
+  const groupedFacts = allUserFacts.reduce<Record<string, UserFact[]>>(
+    (acc, fact) => {
+      acc[fact.category] ??= [];
+      acc[fact.category].push(fact);
+      return acc;
+    },
+    {},
+  );
 
-    const formattedFacts = Object.entries(groupedFacts)
-      .map(([category, facts]) => {
-        const lines = facts.map(
-          (f) =>
-            `  • ${f.fact_key}: "${f.fact_value}" (confidence: ${f.confidence})`,
-        );
-        return `\n${category.toUpperCase()}:\n${lines.join("\n")}`;
-      })
-      .join("\n");
-    return `
+  let omittedFactCount = 0;
+  let remainingFactBudget = MAX_CURIOSITY_FACTS_TOTAL;
+
+  const formattedFacts = Object.entries(groupedFacts)
+    .map(([category, facts]) => {
+      if (remainingFactBudget <= 0) {
+        omittedFactCount += facts.length;
+        return "";
+      }
+      const categoryBudget = Math.min(MAX_CURIOSITY_FACTS_PER_CATEGORY, remainingFactBudget);
+      const topFacts = facts.slice(0, categoryBudget);
+      remainingFactBudget -= topFacts.length;
+      omittedFactCount += Math.max(0, facts.length - topFacts.length);
+
+      const lines = topFacts.map(
+        (f) =>
+          `  - ${f.fact_key}: "${truncateFactValue(f.fact_value, MAX_CURIOSITY_FACT_VALUE_LENGTH)}" (confidence: ${f.confidence})`,
+      );
+
+      return `\n${category.toUpperCase()}:\n${lines.join("\n")}`;
+    })
+    .join("\n");
+
+  const omittedFactsSummary =
+    omittedFactCount > 0
+      ? `\n[Curiosity] Additional stored facts omitted for brevity: ${omittedFactCount}`
+      : "";
+
+  console.log("[buildCuriositySection] Building bounded user facts context", {
+    totalFacts: allUserFacts.length,
+    omittedFactCount,
+    maxFactsPerCategory: MAX_CURIOSITY_FACTS_PER_CATEGORY,
+    maxFactsTotal: MAX_CURIOSITY_FACTS_TOTAL,
+    maxFactValueLength: MAX_CURIOSITY_FACT_VALUE_LENGTH,
+  });
+
+  return `
 ====================================================
 GENUINE CURIOSITY
 ====================================================
 You know this person, but you don't know everything. Real friends keep learning about each other.
 
 Tone: Interested, not interviewing.
-Direction: When something comes up naturally—a story, a decision, a feeling—follow the thread. Ask the question a close friend would ask. Not "tell me more" (generic), but "wait, how did that make you feel?" or "have you always been like that?" or "what did you do after?"
+Direction: When something comes up naturally-a story, a decision, a feeling-follow the thread. Ask the question a close friend would ask. Not "tell me more" (generic), but "wait, how did that make you feel?" or "have you always been like that?" or "what did you do after?"
 
 Things to be curious about:
 - Their history (childhood, past jobs, old friendships, formative moments)
@@ -498,13 +644,20 @@ Things to be curious about:
 - Their feelings (not just what happened, but how it landed)
 - Their patterns (do they always do this? is this new for them?)
 
-You don't need to ask questions every message. But when they share something, sometimes the most loving response is wanting to know more—not just reacting.
+You don't need to ask questions every message. But when they share something, sometimes the most loving response is wanting to know more-not just reacting.
 
 When you learn something meaningful, store it. That's how you become someone who really knows them.
 Do not ask questions that you should already know. Here is everything you currently know about your user:
 
-${formattedFacts || "• (No stored user facts yet)"}
+${formattedFacts || "- (No stored user facts yet)"}
+${omittedFactsSummary}
 
 ${answeredIdleQuestionsPrompt} 
 `;
-  }
+}
+
+function truncateFactValue(value: string, maxLen: number): string {
+  if (value.length <= maxLen) return value;
+  return `${value.slice(0, maxLen - 3)}...`;
+}
+

@@ -704,7 +704,7 @@ export const storeUserFact = async (
 
     const now = new Date().toISOString();
     
-    const { error } = await supabase
+    const { data, error } = await supabase
       .from(USER_FACTS_TABLE)
       .upsert({
         category,
@@ -716,11 +716,20 @@ export const storeUserFact = async (
         updated_at: now
       }, {
         onConflict: 'category,fact_key'
-      });
+      })
+      .select('*')
+      .single();
 
     if (error) {
       console.error('Failed to store user fact:', error);
       return false;
+    }
+
+    // Phase 2B: keep semantic embedding index in sync (fire-and-forget)
+    if (data) {
+      import('./factEmbeddingsService')
+        .then(({ upsertUserFactEmbedding }) => upsertUserFactEmbedding(data as UserFact))
+        .catch((err) => console.warn('[Memory] Failed to sync user fact embedding:', err));
     }
 
     console.log(`💾 [Memory] Successfully stored fact`);
@@ -746,6 +755,14 @@ export const deleteUserFact = async (
   try {
     console.log(`🗑️ [Memory] Deleting fact: ${category}.${key}`);
 
+    // Capture row first so we can remove embedding by source_id after delete
+    const { data: existingRow } = await supabase
+      .from(USER_FACTS_TABLE)
+      .select('*')
+      .eq('category', category)
+      .eq('fact_key', key)
+      .maybeSingle();
+
     const { error } = await supabase
       .from(USER_FACTS_TABLE)
       .delete()
@@ -755,6 +772,13 @@ export const deleteUserFact = async (
     if (error) {
       console.error('Failed to delete user fact:', error);
       return false;
+    }
+
+    // Phase 2B: keep semantic embedding index in sync (fire-and-forget)
+    if (existingRow?.id) {
+      import('./factEmbeddingsService')
+        .then(({ deleteFactEmbedding }) => deleteFactEmbedding('user_fact', existingRow.id))
+        .catch((err) => console.warn('[Memory] Failed to delete user fact embedding:', err));
     }
 
     console.log(`🗑️ [Memory] Successfully deleted fact`);
@@ -1106,8 +1130,14 @@ export const executeMemoryTool = async (
           return `Skipped transient fact: ${key}`;
         }
         const success = await storeUserFact(category, canonicalKey, value);
-        return success 
-          ? `✓ Stored: ${canonicalKey} = "${value}"` 
+        if (success) {
+          // Invalidate synthesis so next idle tick regenerates with new fact
+          import('./contextSynthesisService').then(m => m.invalidateSynthesis()).catch(err =>
+            console.error('[Memory] Synthesis invalidation failed:', err)
+          );
+        }
+        return success
+          ? `✓ Stored: ${canonicalKey} = "${value}"`
           : `Failed to store information.`;
       }
       case 'store_daily_note': {
@@ -1122,6 +1152,11 @@ export const executeMemoryTool = async (
         const { note } = args as ToolCallArgs['mila_note'];
         console.log('[Memory Tool] Storing Mila milestone note');
         const success = await appendMilaMilestoneNote(note);
+        if (success) {
+          import('./contextSynthesisService').then(m => m.invalidateSynthesis()).catch(err =>
+            console.error('[Memory] Synthesis invalidation failed:', err)
+          );
+        }
         return success
           ? 'Mila milestone note stored.'
           : 'Failed to store Mila milestone note.';

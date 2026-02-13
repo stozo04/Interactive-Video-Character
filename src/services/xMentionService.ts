@@ -197,8 +197,13 @@ Return JSON only.
 export async function buildMentionsPromptSection(): Promise<string> {
   const pendingMentions = await getMentions("pending", 5);
   const draftedMentions = await getMentions("reply_drafted", 3);
+  const repliedMentions = await getMentions("replied", 5);
 
-  if (pendingMentions.length === 0 && draftedMentions.length === 0) {
+  if (
+    pendingMentions.length === 0 &&
+    draftedMentions.length === 0 &&
+    repliedMentions.length === 0
+  ) {
     return "";
   }
 
@@ -241,7 +246,7 @@ ${lines.join("\n")}`;
       );
       section += `
 
-PENDING MENTIONS (unknown users — requires your approval to reply):
+PENDING MENTIONS (unknown users - requires your approval to reply):
 ${lines.join("\n")}
 
 -> To reply to an unknown user, call resolve_x_mention with status "reply" and provide reply_text.
@@ -249,12 +254,39 @@ ${lines.join("\n")}
     }
   }
 
+  if (repliedMentions.length > 0) {
+    const recentReplied = repliedMentions
+      .slice()
+      .sort((a, b) => {
+        const aTs = a.repliedAt ? new Date(a.repliedAt).getTime() : 0;
+        const bTs = b.repliedAt ? new Date(b.repliedAt).getTime() : 0;
+        return bTs - aTs;
+      })
+      .slice(0, 5);
+
+    const lines = recentReplied.map(
+      (m) =>
+        `{ id: "${m.id}", to: "@${m.authorUsername}", original_text: "${m.text}", your_reply: "${m.replyText || "(reply text unavailable)"}", replied_at: "${m.repliedAt || "unknown"}" }`,
+    );
+
+    section += `
+
+RECENT REPLIES SENT (you can mention these naturally):
+${lines.join("\n")}
+
+-> You can casually bring up one of these updates when the vibe is social/open-ended.
+-> If the user is already talking about X, replies, or your posts, you may mention up to two updates.`;
+  }
+
   section += `
 
 Rules:
-1. You can casually mention that someone tweeted at you.
-2. Don't dump all mentions at once — bring up at most one naturally.
-3. Be selective about replying to unknown users.`;
+1. You can casually mention that someone tweeted at you or that you replied.
+2. Proactive surfacing is allowed: mention one update naturally; mention up to two only when user is actively discussing X.
+3. Don't dump all mentions at once.
+4. Be selective about replying to unknown users.
+5. Don't repeat the same mention/reply update in back-to-back turns unless the user asks.`;
 
   return section.trim();
 }
+

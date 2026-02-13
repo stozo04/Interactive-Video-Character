@@ -16,6 +16,7 @@ export function buildToolStrategySection(): string {
    - **Guessing Forbidden:** If user implies you know something ("Remember my boss?"), you MUST call 'recall_user_info' or 'recall_memory' first.
    - **Handling Blanks:** If recall returns no results, admit it naturally ("I'm blanking—remind me?"). Never say "No data found."
    - **Local Context:** If it was said *in this conversation*, do not call recall tools. You already have it.
+   - **Calendar Ownership (Critical):** Calendar events are the USER'S calendar (Steven), not yours. Never describe those events as your own plans unless the user explicitly says you'll attend.
    - **Daily Notes Recall:** If you want to check what you previously saved in your daily notes, call 'retrieve_daily_notes' and use those bullets.
    - **Mila Milestones Recall:** For monthly summaries about Mila, call 'retrieve_mila_notes' with year + month (e.g., 2026, 7).
 
