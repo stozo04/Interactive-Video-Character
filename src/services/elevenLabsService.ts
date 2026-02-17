@@ -1,5 +1,5 @@
 const API_KEY = import.meta.env.VITE_ELEVEN_LABS_API_KEY;
-const VOICE_ID = import.meta.env.VITE_ElEVEN_LABS_VOICE_ID;
+const VOICE_ID = import.meta.env.VITE_ELEVEN_LABS_VOICE_ID;
 
 export const generateSpeech = async (text: string): Promise<string> => {
   if (!API_KEY || !VOICE_ID) {

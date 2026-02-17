@@ -36,6 +36,8 @@ import {
   type TaskAction,
 } from '../handlers/messageActions';
 import { appendConversationHistory } from './conversationHistoryService';
+import { extractAndRecordTopics } from './topicExhaustionService';
+import { refreshConversationAnchor } from './conversationAnchorService';
 
 // ============================================================================
 // CALENDAR QUERY DETECTION
@@ -184,9 +186,9 @@ export async function processUserMessage(input: OrchestratorInput): Promise<Orch
     // Build message with calendar context if needed
     let textToSend = userMessage;
     if (calendarContext && calendarQueryType === CalendarQueryType.WRITE) {
-      textToSend = `${userMessage}\n\n[LIVE CALENDAR DATA - ${upcomingEvents.length} EVENTS:\n${calendarContext}]\n\n⚠️ DELETE REMINDER: Use calendar_action with exact event_id from above.`;
+      textToSend = `${userMessage}\n\n[LIVE USER CALENDAR DATA (STEVEN) - ${upcomingEvents.length} EVENTS:\n${calendarContext}]\n\n⚠️ DELETE REMINDER: Use calendar_action with exact event_id from above.`;
     } else if (calendarContext) {
-      textToSend = `${userMessage}\n\n[LIVE CALENDAR DATA - ${upcomingEvents.length} EVENTS:\n${calendarContext}]`;
+      textToSend = `${userMessage}\n\n[LIVE USER CALENDAR DATA (STEVEN) - ${upcomingEvents.length} EVENTS:\n${calendarContext}]`;
     }
 
     // Build input and options for AI service
@@ -367,6 +369,38 @@ export async function processUserMessage(input: OrchestratorInput): Promise<Orch
       console.error("❌ [Orchestrator] Failed to append history:", err)
     );
 
+    // Background post-processing: topic tracking + anchor refresh — zero latency impact
+    // Turn index = current user turn number (historical user messages + current turn)
+    // This matches human/log meaning of "turn number" and avoids "turn 0" on first write
+    const turnIndex = chatHistory.filter((m) => m.role === "user").length + 1;
+
+    // Build recent turns including current exchange (so anchor captures THIS turn's asks/commitments)
+    const recentHistory = chatHistory.slice(-8).map((msg) => ({
+      role: msg.role === "assistant" ? "model" : (msg.role as "user" | "model"),
+      text: msg.text,
+    }));
+    const recentTurnsWithCurrent = [
+      ...recentHistory,
+      { role: "user" as const, text: userMessage },
+      { role: "model" as const, text: response.text_response },
+    ].slice(-10); // Cap at 10 messages (5 turns)
+
+    Promise.all([
+      extractAndRecordTopics(response.text_response, userMessage),
+
+      // Anchor refresh (skip if missing interactionId)
+      aiResult.session?.interactionId
+        ? refreshConversationAnchor({
+            interactionId: aiResult.session.interactionId,
+            turnIndex,
+            userMessage,
+            recentTurns: recentTurnsWithCurrent,
+          })
+        : Promise.resolve(),
+    ]).catch((err) =>
+      console.error("❌ [Orchestrator] Background post-processing failed:", err)
+    );
+
     // ========================================================================
     // PHASE 5: BUILD RESULT
     // ========================================================================
@@ -414,3 +448,4 @@ export async function processUserMessage(input: OrchestratorInput): Promise<Orch
     };
   }
 }
+

@@ -1,4 +1,9 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
+
+// Mock supabaseClient before any imports that trigger its initialization
+vi.mock("../supabaseClient", () => ({
+  supabase: { from: vi.fn() },
+}));
 
 import { parseMediaUploadResponse } from "../xTwitterService";
 

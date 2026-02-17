@@ -25,6 +25,7 @@ const TABLES = {
 } as const;
 
 const DAILY_CAP = 3;
+const SYNTHESIS_DAILY_CAP = 4;
 const TOOL_DISCOVERY_DAILY_CAP = 20;
 const X_POST_DAILY_CAP = 5;
 const X_MENTION_POLL_DAILY_CAP = 50;
@@ -33,9 +34,12 @@ const BROWSE_NOTES_MAX_AGE_DAYS = 7;
 const MAX_BROWSE_NOTES_FOR_DEDUPE = 50;
 const MAX_TOOL_SUGGESTIONS_FOR_DEDUPE = 200;
 const TOOL_SUGGESTION_THEME_WINDOW = 5;
+const MAX_ANSWERED_IDLE_QUESTIONS_IN_PROMPT = 5;
+const MAX_ANSWERED_IDLE_QUESTION_LENGTH = 180;
+const MAX_ANSWERED_IDLE_ANSWER_LENGTH = 220;
 const LOG_PREFIX = "[IdleThinking]";
 
-export type IdleActionType = "storyline" | "browse" | "question" | "tool_discovery" | "x_post" | "x_mention_poll";
+export type IdleActionType = "storyline" | "browse" | "question" | "tool_discovery" | "x_post" | "x_mention_poll" | "synthesis";
 export type IdleQuestionStatus = "queued" | "asked" | "answered";
 
 export interface IdleQuestion {
@@ -59,6 +63,7 @@ export interface IdleBrowseNote {
 }
 
 function getDailyCap(actionType: IdleActionType): number {
+  if (actionType === "synthesis") return SYNTHESIS_DAILY_CAP;
   if (actionType === "tool_discovery") return TOOL_DISCOVERY_DAILY_CAP;
   if (actionType === "x_post") return X_POST_DAILY_CAP;
   if (actionType === "x_mention_poll") return X_MENTION_POLL_DAILY_CAP;
@@ -390,6 +395,11 @@ function isValidUrl(value: string | null): boolean {
   } catch {
     return false;
   }
+}
+
+function truncatePromptText(value: string, maxLen: number): string {
+  if (value.length <= maxLen) return value;
+  return `${value.slice(0, maxLen - 3)}...`;
 }
 
 async function generateBrowseNote(): Promise<IdleBrowseNote | null> {
@@ -898,6 +908,23 @@ async function runXMentionPollAction(): Promise<boolean> {
   }
 }
 
+async function runSynthesisAction(): Promise<boolean> {
+  try {
+    console.log(`${LOG_PREFIX} Running synthesis action`);
+    const { generateSynthesis } = await import("./contextSynthesisService");
+    const { decayOldMentions } = await import("./topicExhaustionService");
+
+    // Housekeeping: decay old topic mentions before regenerating
+    await decayOldMentions();
+
+    const result = await generateSynthesis();
+    return !!result;
+  } catch (error) {
+    console.error(`${LOG_PREFIX} Synthesis action failed`, { error });
+    return false;
+  }
+}
+
 async function runQuestionAction(): Promise<boolean> {
   const question = await generateIdleQuestion();
   return !!question;
@@ -915,7 +942,31 @@ export async function runIdleThinkingTick(options?: {
   allowToolDiscovery?: boolean;
   allowXPost?: boolean;
   allowXMentionPoll?: boolean;
+  allowSynthesis?: boolean;
 }): Promise<{ action?: IdleActionType; skipped?: boolean; reason?: string }> {
+
+  // Priority check: if synthesis is stale and allowed, run it first
+  if (options?.allowSynthesis !== false) {
+    const canSynthesize = await canRunAction("synthesis");
+    if (canSynthesize) {
+      try {
+        const { isSynthesisStale } = await import("./contextSynthesisService");
+        const stale = await isSynthesisStale();
+        if (stale) {
+          console.log(`${LOG_PREFIX} Synthesis is stale, prioritizing`);
+          const success = await runSynthesisAction();
+          if (success) {
+            await recordActionRun("synthesis");
+            console.log(`${LOG_PREFIX} Priority synthesis completed`);
+            return { action: "synthesis" };
+          }
+        }
+      } catch (err) {
+        console.error(`${LOG_PREFIX} Synthesis priority check failed`, { err });
+      }
+    }
+  }
+
   const candidateActions: IdleActionType[] = [];
   if (options?.allowStoryline !== false) candidateActions.push("storyline");
   if (options?.allowBrowse !== false) candidateActions.push("browse");
@@ -923,6 +974,7 @@ export async function runIdleThinkingTick(options?: {
   if (options?.allowToolDiscovery !== false) candidateActions.push("tool_discovery");
   if (options?.allowXPost !== false) candidateActions.push("x_post");
   if (options?.allowXMentionPoll !== false) candidateActions.push("x_mention_poll");
+  // synthesis is handled above via priority scheduling, not random selection
 
   // Filter out actions that have already hit their daily cap
   const capChecks = await Promise.all(
@@ -963,6 +1015,9 @@ export async function runIdleThinkingTick(options?: {
       break;
     case "x_mention_poll":
       success = await runXMentionPollAction();
+      break;
+    case "synthesis":
+      success = await runSynthesisAction();
       break;
   }
 
@@ -1072,16 +1127,26 @@ export async function buildAnsweredIdleQuestionsPromptSection(): Promise<string>
     return "";
   }
 
-  console.log(`${LOG_PREFIX} Building answered idle questions prompt`, {
-    answered: answered.length,
+  const boundedAnswered = answered.slice(-MAX_ANSWERED_IDLE_QUESTIONS_IN_PROMPT).reverse();
+  const omittedCount = Math.max(0, answered.length - boundedAnswered.length);
+
+  console.log(`${LOG_PREFIX} Building bounded answered idle questions prompt`, {
+    totalAnswered: answered.length,
+    includedCount: boundedAnswered.length,
+    omittedCount,
+    maxItems: MAX_ANSWERED_IDLE_QUESTIONS_IN_PROMPT,
   });
 
-  const answeredList = answered                                                                              
-    .map((q) => {                                                                                            
-      const answer = q.answerText ? q.answerText : "(no summary recorded)";                                  
-      return `- (${q.id}) Q: ${q.question}\n  A: ${answer}`;                                                 
-    })                                                                                                       
-    .join("\n");   
+  const answeredList = boundedAnswered
+    .map((q) => {
+      const question = truncatePromptText(q.question, MAX_ANSWERED_IDLE_QUESTION_LENGTH);
+      const answer = truncatePromptText(
+        q.answerText ? q.answerText : "(no summary recorded)",
+        MAX_ANSWERED_IDLE_ANSWER_LENGTH
+      );
+      return `- (${q.id}) Q: ${question}\n  A: ${answer}`;
+    })
+    .join("\n");
 
   return `
 ====================================================
@@ -1091,6 +1156,7 @@ These idle questions were already answered by the user. Do not ask them again.
 If relevant, treat the answers as part of your knowledge context.
 
 ${answeredList}
+${omittedCount > 0 ? `\n[Idle Questions] Additional answered items omitted for brevity: ${omittedCount}` : ""}
 
 `.trim();
 }

@@ -29,15 +29,13 @@ import { calendarService, type CalendarEvent } from "./calendarService";
 import { recordAlmostMoment } from "./almostMomentsService";
 import { getKayleyPresenceState } from "./kayleyPresenceService";
 import { getLastInteractionDate } from "./conversationHistoryService";
+import { getActiveStorylines } from "./storylineService";
 
 // 1. LOAD BOTH MODELS FROM ENV
 const GEMINI_MODEL = import.meta.env.VITE_GEMINI_MODEL; // The Brain (e.g. gemini-3-flash-preview)
 const GEMINI_VIDEO_MODEL = import.meta.env.VITE_GEMINI_VIDEO_MODEL;
 const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
 const VITE_PROXY_BASE = "/api/google"; // Matches vite.config.ts proxy path
-const NON_GREETING_RETURN_CONTEXT_KEY = "kayley_non_greeting_return_context_v1";
-const RAPID_RESUME_WINDOW_MINUTES = 15;
-const RAPID_RESUME_WINDOW_MS = RAPID_RESUME_WINDOW_MINUTES * 60 * 1000;
 if (!GEMINI_MODEL || !GEMINI_VIDEO_MODEL || !GEMINI_API_KEY) {
   console.error("Missing env vars. Ensure VITE_GEMINI_MODEL is set.");
   // throw new Error("Missing environment variables for Gemini chat service.");
@@ -397,13 +395,33 @@ export class GeminiService implements IAIChatService {
   /**
    * Build memory tools array for Interactions API
    */
-  private buildMemoryTools(): any[] {
-    return GeminiMemoryToolDeclarations.map((func) => ({
+  private async buildMemoryTools(): Promise<any[]> {
+    let tools = GeminiMemoryToolDeclarations.map((func) => ({
       type: "function",
       name: func.name,
       description: func.description,
       parameters: func.parameters,
     }));
+
+    // Guardrail: if storyline creation is blocked by policy (one active storyline),
+    // hide the tool for this turn to prevent failed-call loops.
+    try {
+      const activeStorylines = await getActiveStorylines();
+      if (activeStorylines.length > 0) {
+        activeStorylines.forEach(element => {
+          console.log("[GeminiService] Tool gating applied", {
+          gatedTool: element.title,
+          activeStorylineCount: activeStorylines.length,
+          toolCount: tools.length,
+          
+        });
+      });
+     }
+    } catch (err) {
+      console.warn("[GeminiService] Failed to apply tool gating", { err });
+    }
+
+    return tools;
   }
 
   /**
@@ -411,13 +429,19 @@ export class GeminiService implements IAIChatService {
    */
   private async createInteraction(config: any): Promise<any> {
     try {
-      console.log("GATES - createInteraction  config: ", config);
-      const proxyUrl = `${VITE_PROXY_BASE}/v1beta/interactions?key=${GEMINI_API_KEY}`;
+      console.log("[GeminiService] createInteraction request", {
+        model: config?.model,
+        hasPreviousInteractionId: !!config?.previous_interaction_id,
+        inputCount: Array.isArray(config?.input) ? config.input.length : 0,
+        toolCount: Array.isArray(config?.tools) ? config.tools.length : 0,
+        store: !!config?.store,
+      });
+      const proxyUrl = `${VITE_PROXY_BASE}/v1beta/interactions`;
       const response = await fetch(proxyUrl, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "x-goog-api-key": GEMINI_API_KEY, // Using a header is often safer for API keys through proxies
+          "x-goog-api-key": GEMINI_API_KEY,
         },
         body: JSON.stringify(config),
       });
@@ -428,7 +452,6 @@ export class GeminiService implements IAIChatService {
       }
 
       return await response.json();
-      return;
     } catch (error: any) {
       if (this.isConnectionError(error)) {
         this.logConnectionError();
@@ -451,6 +474,8 @@ export class GeminiService implements IAIChatService {
     maxIterations: number = 10,
   ): Promise<any> {
     let iterations = 0;
+    const executedToolSignatures = new Set<string>();
+    const blockedToolsForTurn = new Set<string>();
 
     while (interaction.outputs && iterations < maxIterations) {
       const functionCalls = interaction.outputs.filter(
@@ -470,6 +495,30 @@ export class GeminiService implements IAIChatService {
         functionCalls.map(async (functionCall: any) => {
           const toolName = functionCall.name as MemoryToolName;
           const toolArgs = functionCall.arguments || {};
+          const callSignature = `${toolName}:${JSON.stringify(toolArgs)}`;
+
+          if (blockedToolsForTurn.has(toolName)) {
+            console.warn(`⚠️ [Gemini Interactions] Skipping blocked tool for this turn: ${toolName}`);
+            return {
+              type: "function_result",
+              name: toolName,
+              call_id: functionCall.id,
+              result: `Skipped ${toolName}: blocked for this turn after prior failure.`,
+            };
+          }
+
+          if (executedToolSignatures.has(callSignature)) {
+            console.warn(`⚠️ [Gemini Interactions] Skipping duplicate tool call`, {
+              toolName,
+              callSignature,
+            });
+            return {
+              type: "function_result",
+              name: toolName,
+              call_id: functionCall.id,
+              result: `Skipped duplicate ${toolName} call in same turn to prevent loops.`,
+            };
+          }
 
           console.log(
             `🔧 [Gemini Interactions] Executing tool: ${toolName}`,
@@ -484,6 +533,7 @@ export class GeminiService implements IAIChatService {
                 ? options.chatHistory?.[options.chatHistory.length - 1]?.text
                 : undefined,
           });
+          executedToolSignatures.add(callSignature);
 
           return {
             type: "function_result",
@@ -605,8 +655,14 @@ export class GeminiService implements IAIChatService {
   ): Promise<{ response: AIActionResponse; session: AIChatSession }> {
     // const ai = getAiClient();
    // console.log("system prompt!!: ", systemPrompt);
-    console.log("session!!: ", session);
-    console.log("options!!: ", options);
+    console.log("[GeminiService] callProviderWithInteractions context", {
+      hasSession: !!session,
+      hasInteractionId: !!session?.interactionId,
+      hasOptions: !!options,
+      chatHistoryCount: options?.chatHistory?.length || 0,
+      hasGoogleAccessToken: !!options?.googleAccessToken,
+      userMessageType: userMessage.type,
+    });
     // Format user message for Interactions API
     const userInput = formatInteractionInput(userMessage);
     const input = [...userInput];
@@ -643,7 +699,7 @@ export class GeminiService implements IAIChatService {
     }
 
     // Interactions API requires each function to have type: 'function' directly in tools array
-    interactionConfig.tools = this.buildMemoryTools();
+    interactionConfig.tools = await this.buildMemoryTools();
 
     // Create interaction - with fallback for expired turn tokens
     let interaction;
@@ -661,7 +717,11 @@ export class GeminiService implements IAIChatService {
         throw error;
       }
     }
-    console.log("INERACTIONS:: ", interaction);
+    console.log("[GeminiService] Interaction created", {
+      interactionId: interaction?.id,
+      outputCount: Array.isArray(interaction?.outputs) ? interaction.outputs.length : 0,
+      model: interaction?.model,
+    });
     // Handle tool calling loop (pass history for context)
     const finalInteraction = await this.continueInteractionWithTools(
       interaction,
@@ -670,7 +730,11 @@ export class GeminiService implements IAIChatService {
       options,
       3, // MAX_TOOL_ITERATIONS
     );
-    console.log("FINAL INTERACTIONS: ", finalInteraction);
+    console.log("[GeminiService] Interaction finalized", {
+      interactionId: finalInteraction?.id,
+      outputCount: Array.isArray(finalInteraction?.outputs) ? finalInteraction.outputs.length : 0,
+      model: finalInteraction?.model,
+    });
     // Parse response
     const structuredResponse = this.parseInteractionResponse(finalInteraction);
 
@@ -718,22 +782,41 @@ export class GeminiService implements IAIChatService {
     audioData?: string;
   }> {
     try {
-      console.log("generateResponse - input:", input);
+      console.log("[GeminiService] generateResponse", {
+        inputType: input.type,
+        textLength: input.type === "text" || input.type === "image_text" ? input.text.length : 0,
+      });
       const fetchedContext = await this.fetchUserContext(
         options.googleAccessToken,
       );
-      console.log("fetchedContext: ", fetchedContext);
+      console.log("[GeminiService] Context fetched", {
+        hasRelationship: !!fetchedContext.relationship,
+        upcomingEventsCount: fetchedContext.upcomingEvents?.length || 0,
+        tasksCount: fetchedContext.tasks?.length || 0,
+        hasCharacterContext: !!fetchedContext.characterContext,
+      });
       // ============================================
       // BUILD SYSTEM PROMPT
       // ============================================
+
+      // Extract user message text for active recall (skip for audio input)
+      const currentUserMessage =
+        input.type === "text"
+          ? input.text
+          : input.type === "image_text"
+          ? input.text
+          : undefined; // audio has no text to match
 
       // Move 37: Intent detection removed - main LLM reads messages directly
       const systemPrompt = await buildSystemPromptForNonGreeting(
         fetchedContext.relationship,
         fetchedContext.upcomingEvents,
-        fetchedContext.characterContext
+        fetchedContext.characterContext,
+        session?.interactionId,
+        currentUserMessage, // NEW: for active recall
+        0 // GATES: TODO
       );
-     // console.log("systemPrompt: ", systemPrompt);
+     console.log("systemPrompt: ", systemPrompt);
       // ============================================
       // CALL GEMINI API
       // ============================================
@@ -745,8 +828,16 @@ export class GeminiService implements IAIChatService {
       // ============================================
 
       // Log almost moment usage
-      console.log("aiResponse: ", aiResponse);
-      console.log("updatedSession: ", updatedSession);
+      console.log("[GeminiService] Response received", {
+        textLength: aiResponse?.text_response?.length || 0,
+        hasToolAction:
+          !!aiResponse?.calendar_action ||
+          !!aiResponse?.news_action ||
+          !!aiResponse?.selfie_action ||
+          !!aiResponse?.video_action ||
+          !!aiResponse?.store_self_info,
+        interactionId: updatedSession?.interactionId,
+      });
       logAlmostMomentIfUsed(aiResponse).catch((err) => {
         console.warn("[GeminiService] Failed to log almost moment:", err);
       });
@@ -822,14 +913,19 @@ export class GeminiService implements IAIChatService {
       getImportantDateFacts(),
     ]);
 
-    console.log("fetchedContext: ", fetchedContext);
-    console.log("importantDateFacts: ", importantDateFacts);
+    console.log("[GeminiService] Greeting context fetched", {
+      upcomingEventsCount: fetchedContext.upcomingEvents?.length || 0,
+      tasksCount: fetchedContext.tasks?.length || 0,
+      importantDateFactsCount: importantDateFacts?.length || 0,
+    });
     // Filter tasks to incomplete only for greeting prompt
     const incompleteTasks = (fetchedContext.tasks || []).filter(
       (t) => !t.completed && t.priority === "high",
     );
 
-    console.log("incompleteTasks: ", incompleteTasks);
+    console.log("[GeminiService] Greeting task filter", {
+      incompleteHighPriorityCount: incompleteTasks.length,
+    });
 
     // Build greeting context from parallel-fetched data
     let greetingContext: DailyLogisticsContext | null = null;
@@ -866,13 +962,22 @@ export class GeminiService implements IAIChatService {
         temperature: 1.0
       },
       // Combined your custom memory tools with Google Search
-      tools: [...this.buildMemoryTools()],
+      tools: await this.buildMemoryTools(),
     };
 
-    console.log("interactionConfig: ", interactionConfig);
+    console.log("[GeminiService] Greeting interaction request", {
+      model: interactionConfig.model,
+      inputCount: interactionConfig.input.length,
+      toolCount: interactionConfig.tools.length,
+      store: interactionConfig.store,
+    });
     // Create the interaction via your proxy
     const interaction = await this.createInteraction(interactionConfig);
-    console.log("INERACTIONS:: ", interaction);
+    console.log("[GeminiService] Greeting interaction created", {
+      interactionId: interaction?.id,
+      outputCount: Array.isArray(interaction?.outputs) ? interaction.outputs.length : 0,
+      model: interaction?.model,
+    });
     // Handle tool calling loop (pass history for context)
     const finalInteraction = await this.continueInteractionWithTools(
       interaction,
@@ -917,10 +1022,14 @@ export class GeminiService implements IAIChatService {
     // Fetch context internally
     const fetchedContext = await this.fetchUserContext(googleAccessToken);
 
+    // No user message for idle thinking / non-greeting generation
     let systemPrompt = await buildSystemPromptForNonGreeting(
       fetchedContext.relationship,
       fetchedContext.upcomingEvents,
-      fetchedContext.characterContext
+      fetchedContext.characterContext,
+      session.interactionId,
+      undefined, // No active recall for idle thinking
+      0 // GATES: TODO
     );
 
     // ============================================
@@ -989,7 +1098,7 @@ ${pendingSuggestion.reasoning}
       }
 
       // Add memory tools
-      interactionConfig.tools = this.buildMemoryTools();
+      interactionConfig.tools = await this.buildMemoryTools();
 
       // Create interaction - with fallback for expired turn tokens
       let interaction;

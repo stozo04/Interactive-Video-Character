@@ -833,7 +833,8 @@ export async function fetchMentions(sinceId?: string): Promise<XMention[]> {
     });
 
     if (!response.ok) {
-      console.warn(`${LOG_PREFIX} Mentions fetch failed`, { status: response.status });
+      const errorBody = await response.text().catch(() => "(unreadable)");
+      console.warn(`${LOG_PREFIX} Mentions fetch failed`, { status: response.status, body: errorBody });
       return [];
     }
 
@@ -1034,7 +1035,7 @@ export async function getLatestMentionTweetId(): Promise<string | null> {
   const { data, error } = await supabase
     .from("x_mentions")
     .select("tweet_id")
-    .order("created_at", { ascending: false })
+    .order("tweet_id", { ascending: false })
     .limit(1)
     .maybeSingle();
 
