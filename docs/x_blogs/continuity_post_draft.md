@@ -391,14 +391,121 @@ So the state is:
 Proof it improved behavior
 
 From runtime validation/live sessions:
-- Active recall now appears in non-greeting turns
-- Semantic zero-candidate cases no longer break replies
-- Lexical fallback recovers useful context when semantic is sparse
-- Relevance improved after stricter filters/scoring gates
-- Prompt dilution reduced via bounded fallback sections
+- Observed: Active recall appears in non-greeting turns
+- Observed: Hybrid retrieval is active with semantic gating
+- Observed: Synthesis fallback to raw sections occurs when stale/missing
+- Observed: Prompt sections are bounded (daily notes, facts)
+- Expected but not demonstrated in this run: Semantic zero-candidate cases do not break replies
+- Expected but not demonstrated in this run: Lexical fallback recovers useful context when semantic is sparse
+- Expected but not demonstrated in this run: Stale anchor is skipped when outdated
+- Observed: Prompt dilution reduced via bounded fallback sections
 
 In short: recall moved from "best effort" to engineered behavior.
 
 If this interests you, follow along:
 https://github.com/stozo04/Interactive-Video-Character
+
+====================================================
+Observed Results (from real session logs + HAR)
+====================================================
+
+Below is what we can directly verify from the Feb 13–14, 2026 session logs and the matching HAR:
+
+- Hybrid retrieval is active per turn (Observed).
+  - Evidence: `ActiveRecall` runs in `mode: "hybrid"` with `semanticSelectionMinSim: 0.55`.
+  - Evidence: recall section built with `selectedCount: 6` and `fallbackUsed: "none"` when semantic succeeds.
+
+- Context synthesis stale handling is working (Observed).
+  - Evidence: `Synthesis stale or missing, falling back to raw sections`.
+
+- Conversation anchor refresh happens on live turns (Observed).
+  - Evidence: `ConversationAnchor Refreshing anchor ... reason: 'new'`
+  - Evidence: `ConversationAnchor Anchor stored ...`
+
+- Prompt bloat is bounded (Observed).
+  - Evidence: `buildDailyNotesPromptSection ... includedCount: 25, omittedCount: 113`
+  - Evidence: `buildCuriositySection ... maxFactsTotal: 24, omittedFactCount: 134`
+
+- Topic exhaustion is active (Observed).
+  - Evidence: `TopicExhaustion Topics extracted via LLM ...`
+  - Evidence: `TopicExhaustion Seeded 3 new topics ...`
+
+- Tools + memory writes are wired to retrieval (Observed).
+  - Evidence: `store_user_info` and `store_daily_note` executed from the interaction.
+  - Evidence: `ContextSynthesis Synthesis invalidated (all active rows expired)` after memory writes.
+
+What this run did not demonstrate (no evidence in these specific logs):
+
+- Lexical-only fallback (because semantic succeeded with `fallbackUsed: "none"`).
+- Semantic timeouts (logs show `timedOut: false`).
+- Stale anchor skipping (we only saw anchor refresh + store).
+
+If you want stronger proof for those paths, capture a run where:
+- the message is short/vague (to trigger low semantic scores), or
+- the semantic retrieval intentionally times out, or
+- an older conversation anchor is present after a long pause.
+
+====================================================
+Evidence Excerpts (sanitized)
+====================================================
+
+Hybrid retrieval + semantic gating:
+- `ActiveRecall Retrieved semantic candidates {mode: 'hybrid', semanticTopK: 30, semanticCandidates: 30, semanticEligibleCount: 30, semanticSelectionMinSim: 0.55, timedOut: false}`
+- `ActiveRecall Built recall section {mode: 'hybrid', selectedCount: 6, fallbackUsed: 'none', timedOut: false}`
+
+Synthesis fallback behavior:
+- `ContextSynthesis Synthesis stale or missing, falling back to raw sections`
+
+Conversation anchor refresh:
+- `ConversationAnchor Refreshing anchor {interactionId: ..., turnIndex: 146, reason: 'new'}`
+- `ConversationAnchor Anchor stored {interactionId: ..., turnIndex: 146}`
+
+Prompt bounding:
+- `buildDailyNotesPromptSection {totalCount: 138, includedCount: 25, omittedCount: 113, maxLines: 25, maxLineLength: 180}`
+- `buildCuriositySection {totalFacts: 158, omittedFactCount: 134, maxFactsPerCategory: 8, maxFactsTotal: 24}`
+
+Topic exhaustion:
+- `TopicExhaustion Topics extracted via LLM {aiTopics: 1, userTopics: 1}`
+- `TopicExhaustion Seeded 3 new topics`
+
+Write-path integration:
+- `Executing tool: store_user_info {...}`
+- `Executing tool: store_daily_note {...}`
+- `ContextSynthesis Synthesis invalidated (all active rows expired)`
+
+====================================================
+Observed vs Expected (explicit mapping)
+====================================================
+
+Observed in logs:
+- Active recall executed for non-greeting turn
+- Hybrid retrieval enabled
+- Semantic min similarity gate enforced (`0.55`)
+- Synthesis fallback triggered on stale/missing
+- Conversation anchor refresh stored
+- Prompt sections bounded (daily notes, curiosity facts)
+- Topic exhaustion extraction and seeding
+- Memory writes invalidate synthesis
+
+Expected but not observed in this run:
+- Semantic timeout fallback to lexical
+- Lexical-only recall (semantic failure path)
+- Stale anchor skip path
+- Final score threshold enforcement (e.g., `>= 18`) visible in logs
+
+====================================================
+How to capture missing proof next
+====================================================
+
+To demonstrate lexical fallback:
+- Use a vague or very short user message (e.g., "yeah that one") after a context-heavy turn.
+- Expect: semantic candidates low or none, `fallbackUsed: 'lexical'`.
+
+To demonstrate semantic timeout:
+- Artificially slow semantic RPC or reduce timeout budget.
+- Expect: `timedOut: true` and lexical fallback selected or empty recall.
+
+To demonstrate stale anchor skip:
+- Leave a long idle gap, then switch topics.
+- Expect: stale anchor skipped in prompt build (log should show skip).
 
