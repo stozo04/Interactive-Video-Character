@@ -173,7 +173,7 @@ export const storeCharacterFact = async (
     
     const now = new Date().toISOString();
     
-    const { error } = await supabase
+    const { data, error } = await supabase
       .from(CHARACTER_FACTS_TABLE)
       .upsert({
         character_id: DEFAULT_CHARACTER_ID,
@@ -185,11 +185,24 @@ export const storeCharacterFact = async (
         updated_at: now
       }, {
         onConflict: 'character_id,category,fact_key'
-      });
+      })
+      .select('*')
+      .single();
     
     if (error) {
       console.error('Failed to store character fact:', error);
       return false;
+    }
+
+    // Phase 2B: keep semantic embedding index in sync (fire-and-forget)
+    if (data) {
+      import('./factEmbeddingsService')
+        .then(({ upsertCharacterFactEmbedding }) =>
+          upsertCharacterFactEmbedding(data as CharacterFact)
+        )
+        .catch((err) =>
+          console.warn('[CharacterFacts] Failed to sync character fact embedding:', err)
+        );
     }
     
     console.log(`✅ [CharacterFacts] Successfully stored fact: ${key} = "${value}"`);

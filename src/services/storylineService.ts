@@ -198,6 +198,7 @@ export interface LifeStoryline {
 
   // Lifecycle
   createdAt: Date;
+  updatedAt: Date;
   resolvedAt: Date | null;
 
   // Metadata
@@ -277,6 +278,7 @@ interface StorylineRow {
   last_mentioned_at: string | null;
   should_mention_by: string | null;
   created_at: string;
+  updated_at: string;
   resolved_at: string | null;
   initial_announcement: string | null;
   stakes: string | null;
@@ -316,6 +318,7 @@ function mapRowToStoryline(row: StorylineRow): LifeStoryline {
     lastMentionedAt: row.last_mentioned_at ? new Date(row.last_mentioned_at) : null,
     shouldMentionBy: row.should_mention_by ? new Date(row.should_mention_by) : null,
     createdAt: new Date(row.created_at),
+    updatedAt: row.updated_at ? new Date(row.updated_at) : new Date(row.created_at),
     resolvedAt: row.resolved_at ? new Date(row.resolved_at) : null,
     initialAnnouncement: row.initial_announcement,
     stakes: row.stakes,
@@ -869,7 +872,14 @@ export async function createStoryline(input: CreateStorylineInput): Promise<Life
       return null;
     }
 
-    return mapRowToStoryline(data as StorylineRow);
+    const storyline = mapRowToStoryline(data as StorylineRow);
+
+    // Phase 2B: keep semantic embedding index in sync (fire-and-forget)
+    import("./factEmbeddingsService")
+      .then(({ upsertStorylineEmbedding }) => upsertStorylineEmbedding(storyline))
+      .catch((err) => console.warn("[Storylines] Failed to sync storyline embedding:", err));
+
+    return storyline;
   } catch (error) {
     console.error("[Storylines] Unexpected error creating storyline:", error);
     return null;
@@ -960,7 +970,14 @@ export async function updateStoryline(id: string, input: UpdateStorylineInput): 
       return null;
     }
 
-    return mapRowToStoryline(data as StorylineRow);
+    const storyline = mapRowToStoryline(data as StorylineRow);
+
+    // Phase 2B: keep semantic embedding index in sync (fire-and-forget)
+    import("./factEmbeddingsService")
+      .then(({ upsertStorylineEmbedding }) => upsertStorylineEmbedding(storyline))
+      .catch((err) => console.warn("[Storylines] Failed to sync storyline embedding:", err));
+
+    return storyline;
   } catch (error) {
     console.error("[Storylines] Unexpected error updating storyline:", error);
     return null;
@@ -972,6 +989,8 @@ export async function updateStoryline(id: string, input: UpdateStorylineInput): 
  */
 export async function deleteStoryline(id: string): Promise<boolean> {
   try {
+    const existing = await getStorylineById(id);
+
     const { error } = await supabase
       .from(STORYLINES_TABLE)
       .delete()
@@ -980,6 +999,13 @@ export async function deleteStoryline(id: string): Promise<boolean> {
     if (error) {
       console.error("[Storylines] Error deleting storyline:", error);
       return false;
+    }
+
+    // Phase 2B: keep semantic embedding index in sync (fire-and-forget)
+    if (existing?.id) {
+      import("./factEmbeddingsService")
+        .then(({ deleteFactEmbedding }) => deleteFactEmbedding("storyline", existing.id))
+        .catch((err) => console.warn("[Storylines] Failed to delete storyline embedding:", err));
     }
 
     return true;
