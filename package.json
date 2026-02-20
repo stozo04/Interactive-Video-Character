@@ -12,15 +12,20 @@
     "preview": "vite preview",
     "test": "vitest",
     "test:ui": "vitest --ui",
-    "test:coverage": "vitest --coverage"
+    "test:coverage": "vitest --coverage",
+    "whatsapp:dev": "npx tsx --import ./server/envShim.ts server/whatsapp/index.ts"
   },
   "dependencies": {
     "@ai-sdk/xai": "^2.0.55",
     "@elevenlabs/elevenlabs-js": "^2.25.0",
     "@google/genai": "^1.33.0",
     "@supabase/supabase-js": "^2.46.1",
+    "@whiskeysockets/baileys": "6.6.0",
     "ai": "^5.0.93",
+    "dotenv": "^16.4.7",
     "openai": "^6.9.1",
+    "qrcode": "^1.5.4",
+    "qrcode-terminal": "^0.12.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "zod": "^3.22.4"

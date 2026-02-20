@@ -23,6 +23,9 @@ lerna-debug.log*
 
 node_modules
 dist
+
+# WhatsApp Baileys auth session
+.whatsapp-auth/
 dist-ssr
 *.local
 

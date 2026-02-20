@@ -894,3 +894,48 @@ pm test -- --run.
 Update: Scoped pending-message delivery to cron source and added cron success/failure text queueing so cron outputs surface in chat without draining unrelated backlog.
 
 Update: Pending cron delivery now uses fetch-then-ack (ack only after chat append success) to prevent silent drops.
+
+---
+
+## Plan: WhatsApp Reply JID (LID vs PN)
+
+1) Confirm current reply routing in:
+- `server/whatsapp/whatsappHandler.ts`
+2) Decide desired behavior for self-chat LID:
+- reply to `WHATSAPP_PHONE_JID` only, or send to both `@lid` and `@s.whatsapp.net`
+3) Implement reply JID selection + logging (minimal change):
+- `server/whatsapp/whatsappHandler.ts`
+4) Optional: log local account JID on connect to help set env var:
+- `server/whatsapp/baileyClient.ts`
+5) Verification (if approved):
+- Manual: send self-chat message and confirm delivery appears on phone and (optionally) UI dashboard.
+
+## Progress
+- [x] Plan added to `tasks/todo.md`.
+- [x] Normalization helper added in `server/whatsapp/baileyClient.ts`.
+- [x] Reply JID plumbed through `server/whatsapp/whatsappHandler.ts`.
+- [ ] Verification pending approval.
+
+## Review Notes
+- Goal: ensure WhatsApp replies appear on the phone when inbound JID is `@lid`.
+
+---
+
+## Plan: WhatsApp US JID Normalization (SenderPn/LID)
+
+1) Add a small normalization helper to prefer `senderPn`/`participantPn` when available:
+- `server/whatsapp/baileyClient.ts`
+2) If inbound `remoteJid` ends with `@lid`, map to `@s.whatsapp.net` using:
+- `remoteJidAlt` or `participantPn` when present
+3) Pass the normalized reply JID into the handler so replies land on the phone:
+- `server/whatsapp/whatsappHandler.ts`
+4) Add structured logs for normalization decisions (US numbers only, no BR fixes).
+5) Verification (if approved):
+- Manual: send a self-chat message and confirm the reply appears on the phone and in the intended thread.
+
+## Progress
+- [x] Plan added to `tasks/todo.md`.
+- [ ] Waiting on approval to patch.
+
+## Review Notes
+- Scope: US numbers only; avoid Brazil-specific digit correction or contact merge logic.

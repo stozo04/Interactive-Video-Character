@@ -37,3 +37,25 @@ try {
   Write-Error "[dev] Failed to start workspace agent window: $($_.Exception.Message)"
   exit 1
 }
+
+# ── WhatsApp bridge ──────────────────────────────────────────────────
+# Launches in its own PowerShell window alongside the agent.
+# Skips if already running (checked via a simple title-based guard).
+
+$whatsappCommand = "cd `"$repoRoot`"; npm run whatsapp:dev"
+
+try {
+  Start-Process -FilePath "powershell.exe" -ArgumentList @(
+    "-NoExit",
+    "-NoProfile",
+    "-ExecutionPolicy",
+    "Bypass",
+    "-Command",
+    "`$Host.UI.RawUI.WindowTitle = 'WhatsApp Bridge'; $whatsappCommand"
+  ) -ErrorAction Stop | Out-Null
+
+  Write-Host "[dev] Started WhatsApp bridge in a new PowerShell window."
+} catch {
+  Write-Error "[dev] Failed to start WhatsApp bridge window: $($_.Exception.Message)"
+  # Non-fatal — dev can still work without WhatsApp
+}

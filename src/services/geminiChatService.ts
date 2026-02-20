@@ -35,7 +35,7 @@ import { getActiveStorylines } from "./storylineService";
 const GEMINI_MODEL = import.meta.env.VITE_GEMINI_MODEL; // The Brain (e.g. gemini-3-flash-preview)
 const GEMINI_VIDEO_MODEL = import.meta.env.VITE_GEMINI_VIDEO_MODEL;
 const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
-const VITE_PROXY_BASE = "/api/google"; // Matches vite.config.ts proxy path
+const VITE_PROXY_BASE = import.meta.env.VITE_GEMINI_PROXY_URL || "/api/google"; // Server uses direct URL; browser uses Vite proxy
 if (!GEMINI_MODEL || !GEMINI_VIDEO_MODEL || !GEMINI_API_KEY) {
   console.error("Missing env vars. Ensure VITE_GEMINI_MODEL is set.");
   // throw new Error("Missing environment variables for Gemini chat service.");
