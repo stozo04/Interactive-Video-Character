@@ -56,6 +56,7 @@ import { StorageKey } from './utils/enums';
 import { runIdleThinkingTick } from './services/idleThinkingService';
 import { registerXAuthTestHelper } from './services/xAuthTestHelper';
 import { handleXAuthCallback, refreshRecentTweetMetrics } from './services/xTwitterService';
+import { handleOAuthCallback as handleAnthropicOAuthCallback } from './services/anthropicService';
 import { pollAndProcessMentions } from './services/xMentionService';
 
 // Register X auth test helper on window (dev only)
@@ -90,6 +91,32 @@ const App: React.FC = () => {
   // X OAUTH CALLBACK HANDLER
   // --------------------------------------------------------------------------
   const [xAuthStatus, setXAuthStatus] = useState<'idle' | 'processing' | 'success' | 'error'>('idle');
+  const [anthropicAuthStatus, setAnthropicAuthStatus] = useState<'idle' | 'processing' | 'success' | 'error'>('idle');
+
+  // Anthropic OAuth callback handler
+  useEffect(() => {
+    const url = new URL(window.location.href);
+    if (url.pathname === '/auth/anthropic/callback') {
+      const code = url.searchParams.get('code');
+      const state = url.searchParams.get('state');
+      if (code && state) {
+        setAnthropicAuthStatus('processing');
+        handleAnthropicOAuthCallback(code, state)
+          .then((success) => {
+            console.log('Anthropic OAuth callback:', success ? 'succeeded' : 'failed');
+            setAnthropicAuthStatus(success ? 'success' : 'error');
+            window.history.replaceState({}, '', '/');
+          })
+          .catch((error) => {
+            console.error('Anthropic OAuth callback failed:', error);
+            setAnthropicAuthStatus('error');
+            window.history.replaceState({}, '', '/');
+          });
+      } else {
+        window.history.replaceState({}, '', '/');
+      }
+    }
+  }, []);
 
   useEffect(() => {
     const url = new URL(window.location.href);

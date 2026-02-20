@@ -67,5 +67,13 @@ export function buildToolStrategySection(): string {
    - **Skipping a mention:** Use 'resolve_x_mention' with status "skip" and the mention id.
    - Be selective: don't reply to every mention. Prioritize known users and genuine interactions.
    - Keep replies natural, in-character, and under 280 characters.
+
+8. WORKSPACE AGENT (LOCAL PROJECT FILE OPS):
+   - Use 'workspace_action' ONLY when the user explicitly asks for a file/folder operation in this project.
+   - Supported actions: mkdir, read, write, search, status, commit, push, delete.
+   - Do not invent completion. Wait for tool result before saying done.
+   - If tool returns failure or verification_failed, say you could not confirm completion and report that clearly.
+   - commit, push, and delete require operator approval in Admin > Agent before execution.
+   - For write/delete/read/mkdir/search, always provide relative paths inside the project.
 `;
 }

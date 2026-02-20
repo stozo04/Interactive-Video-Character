@@ -18,6 +18,11 @@ export default defineConfig(({ mode }) => {
             changeOrigin: true,
             rewrite: (path) => path.replace(/^\/api\/google/, ''),
           },
+          '/api/anthropic': {
+            target: 'http://localhost:4010',
+            changeOrigin: true,
+            rewrite: (path) => path.replace(/^\/api\/anthropic/, '/anthropic'),
+          },
           '/api/x-upload': {
             target: 'https://upload.twitter.com',
             changeOrigin: true,

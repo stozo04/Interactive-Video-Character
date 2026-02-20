@@ -73,6 +73,17 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
     sample_prompts: ["Open Spotify."],
   },
   {
+    tool_key: "workspace_action",
+    name: "Workspace Agent",
+    description:
+      "Run local project operations via the workspace agent (files + git with policy checks).",
+    user_value:
+      "Lets Kayley manage project files and git workflows with verification and approval gates.",
+    permissions_needed: ["local_workspace_agent"],
+    triggers: ["create folder", "read file", "write file", "git status", "commit", "push", "search"],
+    sample_prompts: ["Create a folder called docs/notes."],
+  },
+  {
     tool_key: "recall_memory",
     name: "Conversation Recall",
     description: "Search past conversation history for context.",

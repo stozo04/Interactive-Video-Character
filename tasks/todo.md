@@ -1,3 +1,247 @@
+## Plan: Workspace Agent Expanded Actions + Live Updates (Option B Config)
+
+1) Keep current gateway startup config path per user choice (Option B), but enforce action-level guardrails in runtime policy.
+2) Expand `workspace_action` scope to support:
+- `mkdir`
+- `read`
+- `write`
+- `status`
+- `search`
+- `commit`
+- `push`
+- `delete`
+3) Enforce stricter safety rule:
+- `commit`, `push`, and `delete` must never execute without verification checks.
+- `delete` requires approval.
+- `commit` and `push` require approval.
+4) Add run states for approval and verification outcomes:
+- `requires_approval`
+- `verification_failed`
+5) Add live update transport:
+- SSE endpoint for run updates
+- frontend EventSource subscription in Admin -> Agent mode
+ - 20s heartbeat events to avoid radio silence
+ - serial run queue (single active run)
+6) Keep dashboard as main operator surface:
+- run timeline
+- pending approvals
+- verification evidence
+
+## Progress
+- [x] Plan added to `tasks/todo.md`.
+- [x] Finalize approval policy for `commit`/`push` (user confirmation).
+- [x] Backend action engine expansion.
+- [x] SSE live updates.
+- [x] Frontend tool/schema updates.
+- [x] 20s heartbeat updates added to SSE stream and Admin Agent panel.
+- [x] Single-run queue enforced at gateway (next run starts after terminal state).
+- [ ] Verification run (if approved).
+
+## Review Notes
+- User selected Option B startup config and requested no commit/push/delete execution without verification.
+- User confirmed `commit`, `push`, and `delete` all require approval.
+
+---
+
+## Plan: Workspace Agent Supabase Persistence (No In-Memory Fallback)
+
+1) Add Supabase schema for agent runs and run steps in:
+- `supabase/migrations/20260220_workspace_agent_runs.sql`
+2) Add Supabase-backed run store in:
+- `server/agent/supabaseRunStore.ts`
+3) Switch gateway to require Supabase env and remove in-memory fallback in:
+- `server/index.ts`
+4) Update gateway execution + routes to use async run store interface in:
+- `server/agent/runStore.ts`
+- `server/agent/executor.ts`
+- `server/routes/agentRoutes.ts`
+5) Verification (if approved):
+- `npm run agent:dev`
+- `npm run dev`
+
+## Progress
+- [x] Plan added to `tasks/todo.md`.
+- [x] Supabase migration added.
+- [x] Supabase run store added.
+- [x] Gateway switched to required Supabase persistence (no fallback).
+- [x] Async run store integration completed.
+- [ ] Verification run (if approved).
+
+## Review Notes
+- User explicitly requested no in-memory fallback.
+- Agent process now fails fast at startup if required Supabase env vars are missing.
+
+---
+
+## Plan: Admin Dashboard Agent Monitor (Health + Runs)
+
+1) Expose gateway read endpoints for dashboard visibility:
+- `GET /agent/health`
+- `GET /agent/runs?limit=...`
+2) Extend in-memory run store to support run listing/count for UI.
+3) Add frontend read APIs in `src/services/projectAgentService.ts`.
+4) Integrate an `Agent` mode into `src/components/AdminDashboardView.tsx`:
+- health badge
+- recent runs list
+- step/evidence detail panel
+- refresh and auto-refresh controls
+5) Keep `Settings` navigation unchanged:
+- use existing `Admin Dashboard` entry (no new separate settings button)
+6) Verification (if approved):
+- `npm run agent:dev`
+- `npm run dev`
+
+## Progress
+- [x] Plan added to `tasks/todo.md`.
+- [x] Endpoint + store updates.
+- [x] Frontend service updates.
+- [x] Admin dashboard UI integration.
+- [ ] Verification run (if approved).
+
+## Review Notes
+- User correction captured: avoid a separate dashboard route in settings; agent monitor should live inside Admin Dashboard.
+
+---
+
+## Plan: Gateway-First Async Run Lifecycle (mkdir)
+
+1) Change workspace run creation to async:
+- `POST /agent/runs` returns `202 accepted` immediately.
+2) Execute mkdir run in background worker on gateway.
+3) Keep `GET /agent/runs/:id` as poll endpoint for current status.
+4) Update frontend agent bridge to poll until terminal status:
+- `success`
+- `failed`
+- `verification_failed`
+5) Keep scope small:
+- action remains `mkdir` only
+- no process write/kill endpoints yet
+6) Verification (if approved):
+- `npm run build`
+- `npm test -- --run`
+
+## Progress
+- [x] Plan added to `tasks/todo.md`.
+- [x] Run lifecycle switched to `accepted -> background execution`.
+- [x] Frontend polling flow implemented.
+- [ ] Verification run (if approved).
+
+## Review Notes
+- Purpose: move privileged local changes into gateway-managed lifecycle before adding more actions.
+
+---
+
+## Plan: OpenClaw Tool Configuration Parity Audit (Docs)
+
+1) Compare current tool architecture to OpenClaw tool model:
+- tool policy (`allow`/`deny`)
+- profiles and provider overrides
+- runtime (`exec` + `process`)
+- approval/security knobs
+- loop detection policy
+2) Document gaps and required migrations in:
+- `docs/features/Kayley_Workspace_Agent_Implementation_Plan.md`
+3) Keep this docs-only; no code/runtime changes in this step.
+
+## Progress
+- [x] Plan added to `tasks/todo.md`.
+- [x] Parity audit documented.
+
+## Review Notes
+- Goal is implementation guidance only: what to change and in what order.
+
+---
+
+## Plan: OpenClaw-Aligned Runtime Docs Update
+
+1) Update workspace agent feature plan with OpenClaw-style runtime concepts:
+- asynchronous run lifecycle
+- background process management controls
+- approval/security mode matrix
+- service supervision runbook
+2) Keep update docs-only in:
+- `docs/features/Kayley_Workspace_Agent_Implementation_Plan.md`
+3) Verification (if approved): docs review only (no command execution needed).
+
+## Progress
+- [x] Plan added to `tasks/todo.md`.
+- [x] Feature plan doc updated.
+
+## Review Notes
+- This update refines implementation sequencing; no runtime code changes in this step.
+
+---
+
+## Plan: Workspace Agent Chat Wiring (Phase 2 - mkdir tool only)
+
+1) Add frontend bridge service for workspace agent API:
+- `src/services/projectAgentService.ts`
+2) Add `workspace_action` tool schema (mkdir-only) in:
+- `src/services/aiSchema.ts`
+3) Add `workspace_action` runtime execution path in:
+- `src/services/memoryService.ts`
+4) Add prompt/tool-catalog guidance so LLM knows when to call it:
+- `src/services/system_prompts/tools/toolsAndCapabilities.ts`
+- `src/services/toolCatalog.ts`
+5) Keep scope strict:
+- only `action="mkdir"`
+- no read/write/git/search in this phase
+6) Verification (if approved):
+- `npm run build`
+- `npm test -- --run`
+
+## Progress
+- [x] Plan added to `tasks/todo.md`.
+- [x] Frontend bridge service added.
+- [x] Tool schema declarations updated.
+- [x] Runtime execution path updated.
+- [x] Prompt/catalog guidance updated.
+- [ ] Verification run (if approved).
+
+## Review Notes
+- Goal is end-to-end chat-triggered folder creation with policy + verification from backend run status.
+
+---
+
+## Plan: Workspace Agent Vertical Slice (Phase 1 - mkdir only)
+
+1) Create backend skeleton for agent runs with minimal endpoints:
+- `POST /agent/runs`
+- `GET /agent/runs/:id`
+2) Implement in-memory run store and deterministic run lifecycle state.
+3) Add root-jail path guard and policy gate for `mkdir` action only.
+4) Execute safe `mkdir` operation with verification (`directory exists` check).
+5) Wire initial TypeScript modules:
+- `server/index.ts`
+- `server/routes/agentRoutes.ts`
+- `server/agent/runStore.ts`
+- `server/agent/pathGuard.ts`
+- `server/agent/policyEngine.ts`
+- `server/agent/fsOps.ts`
+6) Keep this slice backend-only (no frontend tool wiring yet).
+7) Verification (if approved):
+- `npm run build`
+- `npm test -- --run`
+
+## Progress
+- [x] Plan added to `tasks/todo.md`.
+- [x] Backend skeleton created.
+- [x] Path guard + mkdir policy implemented.
+- [x] mkdir execution + verification implemented.
+- [ ] Verification run (if approved).
+
+## Review Notes
+- Scope intentionally limited to a single safe action (`mkdir`) to validate architecture before adding write/search/git operations.
+- Added files:
+- `server/index.ts`
+- `server/routes/agentRoutes.ts`
+- `server/agent/runStore.ts`
+- `server/agent/pathGuard.ts`
+- `server/agent/policyEngine.ts`
+- `server/agent/fsOps.ts`
+
+---
+
 ## Plan: Runtime Stability Fixes (Phase 2B Follow-Up)
 
 1) Fix context synthesis watermark query to use valid timestamp columns per table in `src/services/contextSynthesisService.ts`.

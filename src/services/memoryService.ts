@@ -869,6 +869,7 @@ export const formatFactsForAI = (facts: UserFact[]): string => {
 
 export type MemoryToolName =
   | 'web_search'
+  | 'workspace_action'
   | 'recall_memory'
   | 'recall_user_info'
   | 'store_user_info'
@@ -903,6 +904,29 @@ export interface ToolExecutionContext {
 export interface ToolCallArgs {
   web_search: {
     query: string;
+  };
+  workspace_action: {
+    action:
+      | 'mkdir'
+      | 'read'
+      | 'write'
+      | 'search'
+      | 'status'
+      | 'commit'
+      | 'push'
+      | 'delete';
+    path?: string;
+    content?: string;
+    append?: boolean;
+    query?: string;
+    rootPath?: string;
+    caseSensitive?: boolean;
+    message?: string;
+    addAll?: boolean;
+    paths?: string[];
+    remote?: string;
+    branch?: string;
+    recursive?: boolean;
   };
   recall_memory: {
     query: string;
@@ -1091,6 +1115,46 @@ export const executeMemoryTool = async (
       } catch (error) {
         console.error("❌ Tavily Search Failed:", error);
         return "I tried to check the internet, but my internal browser is acting up!";
+      }
+      case 'workspace_action': {
+        const { requestWorkspaceAction } = await import('./projectAgentService');
+        const actionArgs = args as ToolCallArgs['workspace_action'];
+        console.log('[Memory Tool] workspace_action called:', actionArgs);
+        const { action, ...rawArgs } = actionArgs;
+        const filteredArgs = Object.fromEntries(
+          Object.entries(rawArgs).filter(([, value]) => value !== undefined),
+        );
+
+        const result = await requestWorkspaceAction({
+          action,
+          args: filteredArgs,
+          prompt: context?.userMessage,
+        });
+
+        if (!result.run) {
+          return `Workspace action failed: ${
+            result.error || 'No run details returned from workspace agent.'
+          }`;
+        }
+
+        const run = result.run;
+        const stepSummary = run.steps
+          .map((step) => `${step.stepId}:${step.type}:${step.status}`)
+          .join(', ');
+
+        if (run.status === 'success') {
+          return `Workspace action success (${run.id}): ${run.summary}. Steps: ${stepSummary}`;
+        }
+
+        if (run.status === 'requires_approval') {
+          return `Workspace action requires approval (${run.id}): ${run.summary}. Use Admin > Agent to approve or reject. Steps: ${stepSummary}`;
+        }
+
+        if (run.status === 'verification_failed') {
+          return `Workspace action verification failed (${run.id}): ${run.summary}. Steps: ${stepSummary}`;
+        }
+
+        return `Workspace action failed (${run.id}): ${run.summary}. Steps: ${stepSummary}`;
       }
       case 'recall_memory': {
         const { query, timeframe } = args as ToolCallArgs['recall_memory'];

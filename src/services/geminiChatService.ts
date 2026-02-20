@@ -654,7 +654,7 @@ export class GeminiService implements IAIChatService {
     options?: AIChatOptions,
   ): Promise<{ response: AIActionResponse; session: AIChatSession }> {
     // const ai = getAiClient();
-   // console.log("system prompt!!: ", systemPrompt);
+     console.log("system prompt!!: ", systemPrompt);
     console.log("[GeminiService] callProviderWithInteractions context", {
       hasSession: !!session,
       hasInteractionId: !!session?.interactionId,

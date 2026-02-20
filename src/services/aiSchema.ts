@@ -594,6 +594,73 @@ export const RetrieveMilaNotesSchema = z.object({
   month: z.number().min(1).max(12).describe("Month number (1-12)."),
 });
 
+/**
+ * Schema for the workspace_action tool.
+ * Expanded scope: filesystem + git actions through workspace agent.
+ */
+export const WorkspaceActionSchema = z.object({
+  action: z
+    .enum([
+      "mkdir",
+      "read",
+      "write",
+      "search",
+      "status",
+      "commit",
+      "push",
+      "delete",
+    ])
+    .describe("Workspace action to execute through the local agent."),
+  path: z
+    .string()
+    .optional()
+    .describe("Relative path for mkdir/read/write/delete actions."),
+  content: z
+    .string()
+    .optional()
+    .describe("Text content for write action."),
+  append: z
+    .boolean()
+    .optional()
+    .describe("For write action: true appends, false overwrites."),
+  query: z
+    .string()
+    .optional()
+    .describe("Search query for search action."),
+  rootPath: z
+    .string()
+    .optional()
+    .describe("Optional relative root path for search action."),
+  caseSensitive: z
+    .boolean()
+    .optional()
+    .describe("Optional case-sensitive search flag."),
+  message: z
+    .string()
+    .optional()
+    .describe("Commit message for commit action."),
+  addAll: z
+    .boolean()
+    .optional()
+    .describe("Commit action: stage all changes before commit (default true)."),
+  paths: z
+    .array(z.string())
+    .optional()
+    .describe("Optional list of paths to stage for commit when addAll=false."),
+  remote: z
+    .string()
+    .optional()
+    .describe("Push action remote (defaults to origin)."),
+  branch: z
+    .string()
+    .optional()
+    .describe("Push action branch (defaults to current branch)."),
+  recursive: z
+    .boolean()
+    .optional()
+    .describe("Delete action: recursive deletion for directories."),
+});
+
 // Export types for tool arguments
 export type RecallMemoryArgs = z.infer<typeof RecallMemorySchema>;
 export type RecallUserInfoArgs = z.infer<typeof RecallUserInfoSchema>;
@@ -605,11 +672,13 @@ export type StoreDailyNoteArgs = z.infer<typeof StoreDailyNoteSchema>;
 export type RetrieveDailyNotesArgs = z.infer<typeof RetrieveDailyNotesSchema>;
 export type MilaNoteArgs = z.infer<typeof MilaNoteSchema>;
 export type RetrieveMilaNotesArgs = z.infer<typeof RetrieveMilaNotesSchema>;
+export type WorkspaceActionArgs = z.infer<typeof WorkspaceActionSchema>;
 
 // Union type for all memory tool arguments
 export type MemoryToolArgs =
   | { tool: "recall_memory"; args: RecallMemoryArgs }
   | { tool: "web_search"; args: { query: string } }
+  | { tool: "workspace_action"; args: WorkspaceActionArgs }
   | { tool: "recall_user_info"; args: RecallUserInfoArgs }
   | { tool: "store_user_info"; args: StoreUserInfoArgs }
   | { tool: "resolve_idle_question"; args: ResolveIdleQuestionArgs }
@@ -1091,6 +1160,83 @@ export const GeminiMemoryToolDeclarations = [
     },
   },
   {
+    name: "workspace_action",
+    description:
+      "Execute a safe local workspace action through the background workspace agent. " +
+      "Supports filesystem and git actions with policy checks and verification.",
+    parameters: {
+      type: "object",
+      properties: {
+        action: {
+          type: "string",
+          enum: [
+            "mkdir",
+            "read",
+            "write",
+            "search",
+            "status",
+            "commit",
+            "push",
+            "delete",
+          ],
+          description: "Workspace action to execute.",
+        },
+        path: {
+          type: "string",
+          description: "Relative path for mkdir/read/write/delete actions.",
+        },
+        content: {
+          type: "string",
+          description: "Text content for write action.",
+        },
+        append: {
+          type: "boolean",
+          description: "For write action: true appends, false overwrites.",
+        },
+        query: {
+          type: "string",
+          description: "Search query for search action.",
+        },
+        rootPath: {
+          type: "string",
+          description: "Optional relative root path for search action.",
+        },
+        caseSensitive: {
+          type: "boolean",
+          description: "Optional case-sensitive search flag.",
+        },
+        message: {
+          type: "string",
+          description: "Commit message for commit action.",
+        },
+        addAll: {
+          type: "boolean",
+          description:
+            "Commit action: stage all changes before commit (default true).",
+        },
+        paths: {
+          type: "array",
+          items: { type: "string" },
+          description:
+            "Optional list of paths to stage for commit when addAll=false.",
+        },
+        remote: {
+          type: "string",
+          description: "Push remote (defaults to origin).",
+        },
+        branch: {
+          type: "string",
+          description: "Push branch (defaults to current branch).",
+        },
+        recursive: {
+          type: "boolean",
+          description: "Delete action: recursive deletion for directories.",
+        },
+      },
+      required: ["action"],
+    },
+  },
+  {
     name: "resolve_open_loop",
     description:
       "Mark an open loop as resolved (user answered) or dismissed (user doesn't want to discuss). " +
@@ -1517,6 +1663,7 @@ export interface PendingToolCall {
     | "create_open_loop"
     | "recall_character_profile"
     | "web_search"
+    | "workspace_action"
     | "resolve_x_tweet"
     | "post_x_tweet"
     | "resolve_x_mention";
