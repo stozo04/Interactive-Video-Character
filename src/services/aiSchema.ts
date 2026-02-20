@@ -661,6 +661,63 @@ export const WorkspaceActionSchema = z.object({
     .describe("Delete action: recursive deletion for directories."),
 });
 
+/**
+ * Schema for the cron_job_action tool.
+ * Creates, edits, and manages scheduled cron jobs for Kayley.
+ */
+export const CronJobActionSchema = z.object({
+  action: z
+    .enum([
+      "create",
+      "list",
+      "update",
+      "delete",
+      "pause",
+      "resume",
+      "run_now",
+      "mark_summary_delivered",
+    ])
+    .describe("Cron job action to perform."),
+  id: z.string().optional().describe("Cron job id (required for update/delete/pause/resume/run_now)."),
+  run_id: z
+    .string()
+    .optional()
+    .describe("Run id for mark_summary_delivered."),
+  title: z.string().optional().describe("Job title for create/update."),
+  search_query: z
+    .string()
+    .optional()
+    .describe("Web search query for the cron job."),
+  summary_instruction: z
+    .string()
+    .optional()
+    .describe("How Kayley should summarize results."),
+  schedule_type: z
+    .enum(["daily", "one_time"])
+    .optional()
+    .describe("Schedule type for create/update."),
+  timezone: z
+    .string()
+    .optional()
+    .describe("IANA timezone (e.g., America/Chicago)."),
+  hour: z
+    .number()
+    .min(0)
+    .max(23)
+    .optional()
+    .describe("Local hour for daily schedule (0-23)."),
+  minute: z
+    .number()
+    .min(0)
+    .max(59)
+    .optional()
+    .describe("Local minute for daily schedule (0-59)."),
+  one_time_at: z
+    .string()
+    .optional()
+    .describe("ISO datetime for one-time schedule."),
+});
+
 // Export types for tool arguments
 export type RecallMemoryArgs = z.infer<typeof RecallMemorySchema>;
 export type RecallUserInfoArgs = z.infer<typeof RecallUserInfoSchema>;
@@ -673,12 +730,14 @@ export type RetrieveDailyNotesArgs = z.infer<typeof RetrieveDailyNotesSchema>;
 export type MilaNoteArgs = z.infer<typeof MilaNoteSchema>;
 export type RetrieveMilaNotesArgs = z.infer<typeof RetrieveMilaNotesSchema>;
 export type WorkspaceActionArgs = z.infer<typeof WorkspaceActionSchema>;
+export type CronJobActionArgs = z.infer<typeof CronJobActionSchema>;
 
 // Union type for all memory tool arguments
 export type MemoryToolArgs =
   | { tool: "recall_memory"; args: RecallMemoryArgs }
   | { tool: "web_search"; args: { query: string } }
   | { tool: "workspace_action"; args: WorkspaceActionArgs }
+  | { tool: "cron_job_action"; args: CronJobActionArgs }
   | { tool: "recall_user_info"; args: RecallUserInfoArgs }
   | { tool: "store_user_info"; args: StoreUserInfoArgs }
   | { tool: "resolve_idle_question"; args: ResolveIdleQuestionArgs }
@@ -1237,6 +1296,79 @@ export const GeminiMemoryToolDeclarations = [
     },
   },
   {
+    name: "cron_job_action",
+    description:
+      "Create, update, delete, pause, resume, or run scheduled cron jobs. " +
+      "Use this when the user asks Kayley to schedule recurring or one-time news digests. " +
+      "Use mark_summary_delivered after you share a queued scheduled digest summary.",
+    parameters: {
+      type: "object",
+      properties: {
+        action: {
+          type: "string",
+          enum: [
+            "create",
+            "list",
+            "update",
+            "delete",
+            "pause",
+            "resume",
+            "run_now",
+            "mark_summary_delivered",
+          ],
+          description: "Cron job action to perform.",
+        },
+        id: {
+          type: "string",
+          description:
+            "Cron job id (required for update/delete/pause/resume/run_now).",
+        },
+        run_id: {
+          type: "string",
+          description:
+            "Run id for mark_summary_delivered.",
+        },
+        title: {
+          type: "string",
+          description: "Job title for create/update.",
+        },
+        search_query: {
+          type: "string",
+          description: "Web search query to run on schedule.",
+        },
+        summary_instruction: {
+          type: "string",
+          description: "How Kayley should summarize results.",
+        },
+        schedule_type: {
+          type: "string",
+          enum: ["daily", "one_time"],
+          description: "Schedule type for create/update.",
+        },
+        timezone: {
+          type: "string",
+          description: "IANA timezone (e.g., America/Chicago).",
+        },
+        hour: {
+          type: "number",
+          description:
+            "Local hour for daily schedule (0-23).",
+        },
+        minute: {
+          type: "number",
+          description:
+            "Local minute for daily schedule (0-59).",
+        },
+        one_time_at: {
+          type: "string",
+          description:
+            "ISO datetime for one-time schedule.",
+        },
+      },
+      required: ["action"],
+    },
+  },
+  {
     name: "resolve_open_loop",
     description:
       "Mark an open loop as resolved (user answered) or dismissed (user doesn't want to discuss). " +
@@ -1664,6 +1796,7 @@ export interface PendingToolCall {
     | "recall_character_profile"
     | "web_search"
     | "workspace_action"
+    | "cron_job_action"
     | "resolve_x_tweet"
     | "post_x_tweet"
     | "resolve_x_mention";

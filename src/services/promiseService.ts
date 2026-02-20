@@ -64,6 +64,11 @@ export interface KayleyPromise {
 // ============================================================================
 
 const PROMISES_TABLE = "promises";
+const CRON_JOBS_TABLE = "cron_jobs";
+const DEFAULT_PROMISE_DELAY_MINUTES = 10;
+const PROMISE_CRON_QUERY_PREFIX = "promise_reminder:";
+const PROMISE_CRON_CREATED_BY = "promise_migration";
+let hasAttemptedPromiseCronMigration = false;
 
 // ============================================================================
 // Core Functions
@@ -130,11 +135,36 @@ export async function createPromise(
       `[Promises] Created: ${promiseType} - "${description}" at ${estimatedTiming.toLocaleTimeString()}`
     );
 
-    return mapRowToPromise(data);
+    const createdPromise = mapRowToPromise(data);
+
+    const parsedTiming = parseExplicitTriggerTiming(triggerEvent);
+    if (parsedTiming.isExplicit) {
+      await ensureCronMirrorForPromise(createdPromise);
+    }
+
+    return createdPromise;
   } catch (error) {
     console.error("[Promises] Error in createPromise:", error);
     return null;
   }
+}
+
+export function resolvePromiseTimingFromTrigger(triggerEvent: string): {
+  estimatedTiming: Date;
+  isExplicit: boolean;
+} {
+  const parsed = parseExplicitTriggerTiming(triggerEvent);
+  if (parsed.isExplicit) {
+    return {
+      estimatedTiming: parsed.timing,
+      isExplicit: true,
+    };
+  }
+
+  return {
+    estimatedTiming: new Date(Date.now() + DEFAULT_PROMISE_DELAY_MINUTES * 60 * 1000),
+    isExplicit: false,
+  };
 }
 
 /**
@@ -186,11 +216,47 @@ export async function getPendingPromises(): Promise<KayleyPromise[]> {
       return [];
     }
 
-    return (data || []).map(mapRowToPromise);
+    const promises = (data || []).map(mapRowToPromise);
+
+    if (!hasAttemptedPromiseCronMigration) {
+      hasAttemptedPromiseCronMigration = true;
+      void migrateTimedPromisesToCronJobs(promises).catch((error) => {
+        console.warn("[Promises] Timed promise migration to cron failed:", error);
+      });
+    }
+
+    return promises;
   } catch (error) {
     console.error("[Promises] Error in getPendingPromises:", error);
     return [];
   }
+}
+
+export async function migrateTimedPromisesToCronJobs(
+  pendingPromises?: KayleyPromise[],
+): Promise<number> {
+  const promisesToCheck =
+    pendingPromises ||
+    (await getPendingPromises());
+
+  let migratedCount = 0;
+  for (const promise of promisesToCheck) {
+    const parsed = parseExplicitTriggerTiming(promise.triggerEvent);
+    if (!parsed.isExplicit) {
+      continue;
+    }
+
+    const created = await ensureCronMirrorForPromise(promise);
+    if (created) {
+      migratedCount += 1;
+    }
+  }
+
+  if (migratedCount > 0) {
+    console.log(`[Promises] Migrated ${migratedCount} timed promise(s) into one-time cron jobs.`);
+  }
+
+  return migratedCount;
 }
 
 /**
@@ -437,4 +503,113 @@ function mapRowToPromise(row: any): KayleyPromise {
     createdAt: new Date(row.created_at),
     fulfilledAt: row.fulfilled_at ? new Date(row.fulfilled_at) : undefined,
   };
+}
+
+function parseExplicitTriggerTiming(triggerEvent: string): {
+  timing: Date;
+  isExplicit: boolean;
+} {
+  const lower = triggerEvent.toLowerCase();
+  const now = new Date();
+  const normalized = triggerEvent.trim();
+
+  // ISO-style datetime first
+  if (/\d{4}-\d{2}-\d{2}t\d{2}:\d{2}/i.test(normalized)) {
+    const parsed = new Date(normalized);
+    if (!Number.isNaN(parsed.getTime())) {
+      return {
+        timing: parsed,
+        isExplicit: true,
+      };
+    }
+  }
+
+  // "11:30am", "11am", etc.
+  const timeMatch = lower.match(/\b(\d{1,2})(?::(\d{2}))?\s*(am|pm)\b/);
+  if (!timeMatch) {
+    return {
+      timing: new Date(Date.now() + DEFAULT_PROMISE_DELAY_MINUTES * 60 * 1000),
+      isExplicit: false,
+    };
+  }
+
+  let hour = Number(timeMatch[1]);
+  const minute = Number(timeMatch[2] || "0");
+  const meridian = timeMatch[3];
+
+  if (meridian === "pm" && hour < 12) hour += 12;
+  if (meridian === "am" && hour === 12) hour = 0;
+
+  let dayOffset = 0;
+  if (lower.includes("tomorrow")) {
+    dayOffset = 1;
+  } else if (lower.includes("today")) {
+    dayOffset = 0;
+  }
+
+  const timing = new Date(now);
+  timing.setSeconds(0, 0);
+  timing.setDate(timing.getDate() + dayOffset);
+  timing.setHours(hour, minute, 0, 0);
+
+  // If no explicit day and time already passed, treat as next day.
+  if (!lower.includes("today") && !lower.includes("tomorrow") && timing <= now) {
+    timing.setDate(timing.getDate() + 1);
+  }
+
+  return {
+    timing,
+    isExplicit: true,
+  };
+}
+
+async function ensureCronMirrorForPromise(promise: KayleyPromise): Promise<boolean> {
+  const searchQuery = `${PROMISE_CRON_QUERY_PREFIX}${promise.id}`;
+
+  const { data: existingCron, error: existingError } = await supabase
+    .from(CRON_JOBS_TABLE)
+    .select("id")
+    .eq("search_query", searchQuery)
+    .maybeSingle();
+
+  if (existingError) {
+    console.warn("[Promises] Failed to check cron mirror existence:", existingError);
+    return false;
+  }
+
+  if (existingCron?.id) {
+    return false;
+  }
+
+  const cronTitle = `Promise reminder: ${promise.description}`;
+  const summaryInstruction =
+    `Promise reminder for ${promise.promiseType}. Trigger: ${promise.triggerEvent}.`;
+
+  const { error } = await supabase
+    .from(CRON_JOBS_TABLE)
+    .insert({
+      title: cronTitle,
+      search_query: searchQuery,
+      summary_instruction: summaryInstruction,
+      schedule_type: "one_time",
+      timezone: "America/Chicago",
+      one_time_run_at: promise.estimatedTiming.toISOString(),
+      next_run_at: promise.estimatedTiming.toISOString(),
+      status: "active",
+      created_by: PROMISE_CRON_CREATED_BY,
+    });
+
+  if (error) {
+    console.warn("[Promises] Failed to create cron mirror for promise:", {
+      promiseId: promise.id,
+      error,
+    });
+    return false;
+  }
+
+  console.log("[Promises] Created cron mirror for timed promise", {
+    promiseId: promise.id,
+    runAt: promise.estimatedTiming.toISOString(),
+  });
+  return true;
 }

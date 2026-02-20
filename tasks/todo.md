@@ -1,3 +1,133 @@
+## Plan: Cron Jobs for Kayley (Server Scheduler + Chat Tool + Admin UI)
+
+1) Add Supabase schema for scheduled jobs and run history:
+- `supabase/migrations/20260220_cron_jobs.sql`
+- Tables for jobs + run logs with status, schedule, timezone, and delivery state.
+2) Add frontend cron service for CRUD + scheduling calculations + pending digest delivery state:
+- `src/services/cronJobService.ts`
+3) Add server-side scheduler worker (background loop) that:
+- Claims due jobs safely
+- Executes web search
+- Summarizes results with LLM (with fallback if key missing)
+- Stores run logs + next run timestamp
+- `server/scheduler/cronScheduler.ts`
+- wire startup in `server/index.ts`
+4) Add LLM tool for Kayley-managed cron jobs:
+- `src/services/aiSchema.ts`
+- `src/services/memoryService.ts`
+- `src/services/toolCatalog.ts`
+- `src/services/system_prompts/tools/toolsAndCapabilities.ts`
+5) Add prompt context for pending scheduled digests and a tool action to mark delivered:
+- `src/services/system_prompts/builders/systemPromptBuilder.ts`
+- `src/services/system_prompts/context/scheduledDigestsContext.ts`
+6) Add Admin UI for manual view/edit/delete/pause/resume/run-now:
+- `src/components/AdminDashboardView.tsx`
+7) Verification (if approved):
+- `npm run build`
+- `npm test -- --run`
+- Manual: create one-time near-future job, confirm run record + summary, confirm pending digest appears and can be marked delivered.
+
+## Progress
+- [x] Plan added to `tasks/todo.md`.
+- [x] Migration added.
+- [x] Frontend cron service added.
+- [x] Server scheduler added and wired.
+- [x] Tool schema/runtime/prompt updates added.
+- [x] Admin UI cron management added.
+- [ ] Verification run (if approved).
+
+## Review Notes
+- Goal: Kayley can create/manage cron jobs in chat, server executes jobs on schedule, and UI provides manual controls.
+
+---
+
+## Plan: Auto-Launch Agent On npm run dev
+
+1) Add a PowerShell helper script to open `npm run agent:dev` in a separate terminal window when needed.
+2) Prevent duplicate agent windows by checking if port `4010` is already listening.
+3) Update npm scripts in `package.json`:
+- add `dev:web` for Vite
+- add `dev:ensure-agent` for the helper
+- make `dev` run helper first, then Vite
+4) Verification (if approved):
+- `npm run dev`
+- confirm one new PowerShell window opens with `npm run agent:dev`
+- rerun `npm run dev` and confirm no extra agent window opens when agent is already running
+
+## Progress
+- [x] Plan added to `tasks/todo.md`.
+- [x] Helper script added.
+- [x] Package scripts updated.
+- [ ] Verification run (if approved).
+
+## Review Notes
+- Goal: reduce startup mistakes by making `npm run dev` bootstrap the local agent automatically.
+
+---
+
+## Plan: Workspace Action Immediate Ack (Option 2)
+
+1) Keep gateway run submission async and keep SSE status updates in chat.
+2) Short-circuit workspace-only tool turns in:
+- `src/services/geminiChatService.ts`
+- Return deterministic immediate assistant response from tool result without waiting for the second model continuation.
+3) Preserve interaction continuity best-effort:
+- fire tool-result continuation in background
+- record interaction-id redirect map and use it on next turn when available
+4) Keep all non-workspace tools on existing synchronous loop behavior.
+5) Verification (if approved):
+- `npm run dev`
+- `npm run agent:dev`
+- Manual: ask for write action, confirm immediate ack appears before final model continuation delay window.
+
+## Progress
+- [x] Plan added to `tasks/todo.md`.
+- [x] Workspace-only immediate-ack short-circuit.
+- [x] Background continuation + interaction redirect mapping.
+- [ ] Verification run (if approved).
+
+## Review Notes
+- Goal: remove wait on second Gemini continuation call for workspace-only tool turns.
+- Continuity uses best-effort interaction-id redirects after background continuation resolves.
+
+---
+
+## Plan: Async Workspace Tool Flow In Chat (Non-Blocking)
+
+1) Keep workspace action execution on gateway, but make chat tool calls return immediately after run acceptance.
+2) Update workspace action client in:
+- `src/services/projectAgentService.ts`
+- Add optional non-blocking mode (`waitForTerminal: false`) to skip polling.
+3) Update tool runtime bridge in:
+- `src/services/memoryService.ts`
+- Return clear queued/running/approval messages with run id (instead of waiting for final success/failure).
+4) Stream run lifecycle updates into chat in:
+- `src/App.tsx`
+- Subscribe to workspace SSE events and post plain-English progress/completion bubbles.
+- Backfill on reconnect using recent run list so terminal outcomes are not missed.
+5) Update policy prompt wording in:
+- `src/services/system_prompts/tools/toolsAndCapabilities.ts`
+- Instruct Kayley to announce start/queue and only confirm completion on terminal success.
+6) Verification (if approved):
+- `npm run agent:dev`
+- `npm run dev`
+- `npm run build`
+- `npm test -- --run`
+
+## Progress
+- [x] Plan added to `tasks/todo.md`.
+- [x] Non-blocking workspace request mode.
+- [x] Tool runtime async response update.
+- [x] Chat SSE progress/completion updates.
+- [x] Prompt guidance update.
+- [ ] Verification run (if approved).
+
+## Review Notes
+- Goal: remove “typing lock” caused by waiting for workspace runs to finish before chat can continue.
+- Chat now receives workspace run lifecycle updates over SSE with reconnect backfill.
+
+---
+
 ## Plan: Workspace Agent Expanded Actions + Live Updates (Option B Config)
 
 1) Keep current gateway startup config path per user choice (Option B), but enforce action-level guardrails in runtime policy.
@@ -704,3 +834,63 @@ pm test -- --run.
 - Step 3 semantic tuning is implemented; runtime verification is required to confirm higher semantic contribution rate.
 - Step 4 fallback prompt bloat reduction is implemented; runtime verification is required to confirm improved prompt focus.
 
+
+---
+
+## Plan: Cron Failure Visibility + Cron Activity Log
+
+1) Add cron activity event storage:
+- `supabase/migrations/20260220_cron_job_events.sql`
+- table for lifecycle logs (created/updated/deleted/paused/resumed/run-triggered/run-success/run-failed/etc.)
+2) Add cron event and failure queue support in service:
+- `src/services/cronJobService.ts`
+- add event types + list API + write helper
+- add query for pending failed cron alerts
+3) Add scheduled prompt context for failed runs:
+- `src/services/system_prompts/context/scheduledDigestsContext.ts`
+- include failed-run alerts alongside successful digests and use mark action after sharing
+4) Add immediate failure chat message from scheduler:
+- `server/scheduler/cronScheduler.ts`
+- on execution failure, insert model message row into `conversation_history` and mark failed run delivered
+5) Add admin Cron Jobs activity log panel:
+- `src/components/AdminDashboardView.tsx`
+- show event timeline including create/edit/delete and run success/failure
+6) Verification (if approved):
+- `npm run build`
+- `npm test -- --run`
+
+## Progress
+- [x] Plan added to `tasks/todo.md`.
+- [x] Migration added.
+- [x] Cron service updates.
+- [x] Prompt context updates.
+- [x] Scheduler failure notification updates.
+- [x] Admin Cron activity log UI updates.
+- [ ] Verification run (if approved).
+
+## Review Notes
+- Goal: avoid silent cron failures and provide visible lifecycle logs in chat + admin UI.
+
+---
+
+## Plan: Fix Timed Promise Selfie Delivery
+
+1) Ensure promise mirror cron execution queues a real pending promise delivery (not summary-only).
+2) Mark source promise fulfilled when queued by scheduler.
+3) Add client pending-message consumption loop in chat to deliver queued messages (including selfie generation).
+4) Verification (if approved):
+- `npm run build`
+- Manual timed promise test at near-future time.
+
+## Progress
+- [x] Scheduler queues pending promise deliveries for `promise_reminder:*` cron jobs.
+- [x] Scheduler marks corresponding promise as fulfilled.
+- [x] Chat consumes pending messages every 30s in `chat` view and renders selfie messages with image when applicable.
+- [ ] Verification run (if approved).
+
+## Review Notes
+- Root cause: cron mirror previously logged reminder success but did not execute fulfillment path.
+
+Update: Scoped pending-message delivery to cron source and added cron success/failure text queueing so cron outputs surface in chat without draining unrelated backlog.
+
+Update: Pending cron delivery now uses fetch-then-ack (ack only after chat append success) to prevent silent drops.

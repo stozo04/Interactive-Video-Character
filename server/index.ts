@@ -6,6 +6,7 @@ import { WorkspaceRunQueue } from "./agent/runQueue";
 import { SupabaseRunStore } from "./agent/supabaseRunStore";
 import { routeAgentRequest } from "./routes/agentRoutes";
 import { routeAnthropicRequest } from "./routes/anthropicRoutes";
+import { startCronScheduler } from "./scheduler/cronScheduler";
 
 const LOG_PREFIX = "[WorkspaceAgent]";
 const DEFAULT_PORT = 4010;
@@ -27,6 +28,13 @@ const runStore = new ObservableRunStore(
   }),
   eventHub,
 );
+
+const cronScheduler = startCronScheduler({
+  supabaseUrl,
+  supabaseServiceRoleKey,
+  tickMs: Number(process.env.CRON_TICK_MS || 60_000),
+  schedulerId: process.env.CRON_SCHEDULER_ID || `scheduler_${process.pid}`,
+});
 
 const server = createServer(async (req, res) => {
   try {
@@ -68,3 +76,18 @@ server.listen(port, () => {
     queue: "serial_single_run",
   });
 });
+
+function shutdown(signal: string): void {
+  console.log(`${LOG_PREFIX} Shutdown requested`, { signal });
+  cronScheduler.stop();
+  server.close(() => {
+    process.exit(0);
+  });
+
+  setTimeout(() => {
+    process.exit(1);
+  }, 5_000).unref();
+}
+
+process.on("SIGINT", () => shutdown("SIGINT"));
+process.on("SIGTERM", () => shutdown("SIGTERM"));

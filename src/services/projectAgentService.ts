@@ -83,6 +83,10 @@ export interface WorkspaceActionRequest {
   prompt?: string;
 }
 
+export interface WorkspaceActionRequestOptions {
+  waitForTerminal?: boolean;
+}
+
 export interface WorkspaceActionResult {
   ok: boolean;
   httpStatus: number | null;
@@ -212,7 +216,9 @@ async function parseHealthResponse(
 
 export async function requestWorkspaceAction(
   request: WorkspaceActionRequest,
+  options?: WorkspaceActionRequestOptions,
 ): Promise<WorkspaceActionResult> {
+  const waitForTerminal = options?.waitForTerminal ?? true;
   const baseUrl = getWorkspaceAgentBaseUrl();
   const endpoint = `${baseUrl}/agent/runs`;
   const payload = buildCreateRunPayload(request);
@@ -254,7 +260,7 @@ export async function requestWorkspaceAction(
     }
 
     const initialRun = createRunBody.run;
-    if (WAITING_STATUSES.has(initialRun.status)) {
+    if (!waitForTerminal || WAITING_STATUSES.has(initialRun.status)) {
       return {
         ok: true,
         httpStatus: createRunResponse.status,

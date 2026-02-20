@@ -299,6 +299,7 @@ function normalizeAiResponse(rawJson: any, rawText: string): AIActionResponse {
 
 export class GeminiService implements IAIChatService {
   model = GEMINI_MODEL;
+  private readonly interactionIdRedirects = new Map<string, string>();
 
   // ============================================
   // INTERNAL CONTEXT FETCHING
@@ -390,6 +391,124 @@ export class GeminiService implements IAIChatService {
     console.warn(
       "⚠️ [Gemini Interactions] Falling back to old Chat API (works reliably from browser).",
     );
+  }
+
+  private resolveInteractionId(interactionId?: string): string | undefined {
+    if (!interactionId) {
+      return undefined;
+    }
+
+    let resolvedInteractionId = interactionId;
+    const visitedIds = new Set<string>();
+
+    while (!visitedIds.has(resolvedInteractionId)) {
+      visitedIds.add(resolvedInteractionId);
+      const redirectedId = this.interactionIdRedirects.get(
+        resolvedInteractionId,
+      );
+      if (!redirectedId) {
+        break;
+      }
+      resolvedInteractionId = redirectedId;
+    }
+
+    return resolvedInteractionId;
+  }
+
+  private rememberInteractionRedirect(fromId: string, toId: string): void {
+    if (!fromId || !toId || fromId === toId) {
+      return;
+    }
+
+    this.interactionIdRedirects.set(fromId, toId);
+
+    const maxRedirectEntries = 300;
+    while (this.interactionIdRedirects.size > maxRedirectEntries) {
+      const oldestKey = this.interactionIdRedirects.keys().next().value as
+        | string
+        | undefined;
+      if (!oldestKey) {
+        break;
+      }
+      this.interactionIdRedirects.delete(oldestKey);
+    }
+  }
+
+  private buildWorkspaceImmediateAck(toolResults: any[]): string {
+    const textResults = toolResults
+      .filter(
+        (toolResult) =>
+          typeof toolResult?.result === "string" &&
+          toolResult.result.trim().length > 0,
+      )
+      .map((toolResult) => toolResult.result.trim());
+
+    if (textResults.length === 1) {
+      return textResults[0];
+    }
+
+    if (textResults.length > 1) {
+      return textResults.join("\n");
+    }
+
+    return "Workspace action started. I will keep you posted in chat.";
+  }
+
+  private buildSyntheticInteraction(
+    interactionId: string,
+    textResponse: string,
+  ): any {
+    return {
+      id: interactionId,
+      outputs: [
+        {
+          type: "text",
+          text: JSON.stringify({
+            text_response: textResponse,
+          }),
+        },
+      ],
+    };
+  }
+
+  private queueToolContinuationInBackground(
+    sourceInteractionId: string,
+    toolInteractionConfig: any,
+  ): void {
+    void this.createInteraction(toolInteractionConfig)
+      .then((continuationInteraction) => {
+        const hasUnresolvedFunctionCalls = Array.isArray(
+          continuationInteraction?.outputs,
+        )
+          ? continuationInteraction.outputs.some(
+              (output: any) => output?.type === "function_call",
+            )
+          : false;
+
+        if (
+          !hasUnresolvedFunctionCalls &&
+          continuationInteraction &&
+          typeof continuationInteraction.id === "string" &&
+          continuationInteraction.id.length > 0
+        ) {
+          this.rememberInteractionRedirect(
+            sourceInteractionId,
+            continuationInteraction.id,
+          );
+        }
+
+        console.log("[GeminiService] Background tool continuation finished", {
+          sourceInteractionId,
+          continuationInteractionId: continuationInteraction?.id || null,
+          hasUnresolvedFunctionCalls,
+        });
+      })
+      .catch((error) => {
+        console.warn("[GeminiService] Background tool continuation failed", {
+          sourceInteractionId,
+          error,
+        });
+      });
   }
 
   /**
@@ -561,6 +680,31 @@ export class GeminiService implements IAIChatService {
         },
       };
 
+      const isWorkspaceOnlyToolTurn = functionCalls.every(
+        (functionCall: any) => functionCall.name === "workspace_action",
+      );
+
+      if (
+        isWorkspaceOnlyToolTurn &&
+        typeof interaction?.id === "string" &&
+        interaction.id.length > 0
+      ) {
+        const immediateWorkspaceAck = this.buildWorkspaceImmediateAck(
+          toolResults,
+        );
+
+        this.queueToolContinuationInBackground(
+          interaction.id,
+          toolInteractionConfig,
+        );
+
+        interaction = this.buildSyntheticInteraction(
+          interaction.id,
+          immediateWorkspaceAck,
+        );
+        break;
+      }
+
       // Make continuation call
       interaction = await this.createInteraction(toolInteractionConfig);
     }
@@ -668,7 +812,10 @@ export class GeminiService implements IAIChatService {
     const input = [...userInput];
 
     // Determine if this is first message (no previous interaction)
-    const isFirstMessage = !session?.interactionId;
+    const resolvedPreviousInteractionId = this.resolveInteractionId(
+      session?.interactionId,
+    );
+    const isFirstMessage = !resolvedPreviousInteractionId;
     // console.log("🔗 [Gemini Interactions] SESSION DEBUG:");
     // console.log("   - isFirstMessage:", isFirstMessage);
     // console.log("   - Incoming session.interactionId:", session?.interactionId || "NONE");
@@ -695,7 +842,7 @@ export class GeminiService implements IAIChatService {
         "🔄 [Gemini Interactions] Continuing conversation - using previous_interaction_id + system prompt",
       );
       // Chain to previous conversation history
-      interactionConfig.previous_interaction_id = session.interactionId;
+      interactionConfig.previous_interaction_id = resolvedPreviousInteractionId;
     }
 
     // Interactions API requires each function to have type: 'function' directly in tools array
@@ -746,7 +893,8 @@ export class GeminiService implements IAIChatService {
 
     const updatedSession: AIChatSession = {
       model: this.model,
-      interactionId: finalInteraction.id, // Store for next message!
+      interactionId:
+        this.resolveInteractionId(finalInteraction.id) || finalInteraction.id, // Store for next message!
     };
 
     return {

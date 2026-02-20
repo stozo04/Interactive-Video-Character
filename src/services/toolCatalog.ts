@@ -46,6 +46,19 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
     sample_prompts: ["Schedule lunch tomorrow at 12:30."],
   },
   {
+    tool_key: "cron_job_action",
+    name: "Scheduled Jobs",
+    description:
+      "Create and manage one-time/daily background cron jobs (web search + summaries).",
+    user_value:
+      "Lets Kayley proactively run scheduled updates like daily news digests.",
+    permissions_needed: ["scheduled_jobs"],
+    triggers: ["every day", "daily reminder", "schedule this for later", "run at noon"],
+    sample_prompts: [
+      "Every day at 12pm, read the news and summarize what matters.",
+    ],
+  },
+  {
     tool_key: "selfie_action",
     name: "Selfies",
     description: "Generate an image of Kayley in a requested scene.",

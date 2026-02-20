@@ -4,7 +4,9 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
+    "dev": "npm run dev:ensure-agent && npm run dev:web",
+    "dev:web": "vite",
+    "dev:ensure-agent": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/start-agent-window.ps1",
     "agent:dev": "npx tsx server/index.ts",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",

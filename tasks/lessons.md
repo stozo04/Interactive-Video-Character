@@ -17,3 +17,14 @@
 - Pattern: I proposed replacing a changed Agent tab layout, but user requested keeping the existing tab structure and integrating within one tab.
 - Prevention Rule:
 - When UI structure is user-directed, preserve that structure and attach new functionality within it unless explicitly told to refactor.
+
+### 2026-02-20 - Promise mirror cron jobs must execute fulfillment, not only reminder summaries
+- Pattern: Timed selfie promise was mirrored into cron and marked as a successful cron run, but no actual fulfillment payload was queued/delivered to chat.
+- Prevention Rule:
+- For `promise_reminder:*` cron jobs, scheduler must queue a concrete pending delivery artifact (`pending_messages`) and mark the source promise fulfilled atomically.
+- Verification should include: cron run success + pending message row + visible chat delivery (text/photo) path.
+
+### 2026-02-20 - Pending message consumers must scope by source to avoid backlog spam
+- Pattern: Global polling consumed unrelated historical `pending_messages` rows, causing repeated unsolicited promise/thought texts every ~30s.
+- Prevention Rule:
+- Any automated consumer must filter by explicit `metadata.source` and a freshness window; never consume the full undelivered queue by default.
