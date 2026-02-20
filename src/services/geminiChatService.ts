@@ -798,15 +798,15 @@ export class GeminiService implements IAIChatService {
     options?: AIChatOptions,
   ): Promise<{ response: AIActionResponse; session: AIChatSession }> {
     // const ai = getAiClient();
-     console.log("system prompt!!: ", systemPrompt);
-    console.log("[GeminiService] callProviderWithInteractions context", {
-      hasSession: !!session,
-      hasInteractionId: !!session?.interactionId,
-      hasOptions: !!options,
-      chatHistoryCount: options?.chatHistory?.length || 0,
-      hasGoogleAccessToken: !!options?.googleAccessToken,
-      userMessageType: userMessage.type,
-    });
+    // console.log("system prompt!!: ", systemPrompt);
+    // console.log("[GeminiService] callProviderWithInteractions context", {
+    //   hasSession: !!session,
+    //   hasInteractionId: !!session?.interactionId,
+    //   hasOptions: !!options,
+    //   chatHistoryCount: options?.chatHistory?.length || 0,
+    //   hasGoogleAccessToken: !!options?.googleAccessToken,
+    //   userMessageType: userMessage.type,
+    // });
     // Format user message for Interactions API
     const userInput = formatInteractionInput(userMessage);
     const input = [...userInput];
