@@ -1,4 +1,5 @@
-import baileysPkg, { DisconnectReason, useMultiFileAuthState } from '@whiskeysockets/baileys';
+import baileysPkg, { DisconnectReason, useMultiFileAuthState, downloadMediaMessage } from '@whiskeysockets/baileys';
+
 import { Boom } from '@hapi/boom';
 // 1. Import the QR code library!
 import qrcode from 'qrcode-terminal';
@@ -57,8 +58,25 @@ export async function startWhatsAppClient(
             if (m.key.fromMe && m.key.id?.startsWith("BAE5")) {
                 continue;
             }
+            // --- MEDIA DETECTION ---
+            const isSticker = !!m.message?.stickerMessage;
+            // GIFs are just videoMessages with the gifPlayback flag set to true
+            const isGif = !!m.message?.videoMessage?.gifPlayback; 
+            const isImage = !!m.message?.imageMessage;
 
-            const text = m.message?.conversation || m.message?.extendedTextMessage?.text;
+            // Extract normal text if it exists
+            let text = m.message?.conversation || m.message?.extendedTextMessage?.text || "";
+
+            // If it's a sticker or GIF without text, give the AI some context
+            if (isSticker && !text) {
+                text = "[User sent a sticker]";
+                // Optional: Download the WebP to pass to Gemini Vision
+                // const mediaBuffer = await downloadMediaMessage(m, 'buffer', { }, { logger: console as any });
+            } else if (isGif && !text) {
+                text = "[User sent a GIF]";
+            } else if (isImage && !text) {
+                text = "[User sent an image]";
+            }
 
             if (text) {
                 // NATIVE V7 ROUTING

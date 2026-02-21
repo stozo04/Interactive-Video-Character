@@ -177,6 +177,13 @@ export interface OrchestratorResult {
 
   /** Detected task action for App.tsx to execute (Phase 6) */
   detectedTaskAction?: TaskAction;
+
+  // --- ADD THESE NEW PROPERTIES ---
+  gifUrl?: string;
+  gifMessageText?: string;
+  stickerBuffer?: Buffer;
+  rawGeneratedStickerBase64?: string; // Add this if you went with Scenario A from earlier!
+
 }
 
 // ============================================================================

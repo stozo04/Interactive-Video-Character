@@ -905,13 +905,14 @@ const App: React.FC = () => {
     console.log("[IdleThinking] User is idle. Running idle thinking tick...");
 
     try {
-      idleThinkingInFlightRef.current = true;
-      const result = await runIdleThinkingTick({
-        allowStoryline: proactiveSettings.checkins,
-        allowQuestion: proactiveSettings.checkins,
-        allowBrowse: proactiveSettings.news,
-      });
-      console.log("[IdleThinking] Idle thinking result:", result);
+      // idleThinkingInFlightRef.current = true;
+      // const result = await runIdleThinkingTick({
+      //   allowStoryline: proactiveSettings.checkins,
+      //   allowQuestion: proactiveSettings.checkins,
+      //   allowBrowse: proactiveSettings.news,
+      // });
+      // console.log("[IdleThinking] Idle thinking result:", result);
+      console.log("IDLE THINK COMMENTED OUT")
     } catch (error) {
       console.error("[IdleThinking] Error:", error);
     } finally {

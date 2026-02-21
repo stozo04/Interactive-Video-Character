@@ -7,7 +7,7 @@ import {
 } from "../../src/services/conversationHistoryService";
 import type { OrchestratorResult } from "../../src/handlers/messageActions/types";
 import { generateSpeechBuffer } from "./serverAudio";
-
+import { createWhatsAppSticker } from "./serverSticker";
 const LOG_PREFIX = "[WhatsApp]";
 
 function isFetchableUrl(url: string): boolean {
@@ -84,6 +84,55 @@ async function sendOrchestratorResult(
       text: result.error || "Something went wrong processing that.",
     });
     return;
+  }
+
+  if (result.rawGeneratedStickerBase64) {
+      try {
+          // 1. Convert it using your new utility
+          const webpBuffer = await createWhatsAppSticker(result.rawGeneratedStickerBase64);
+          
+          // 2. Send the compliant buffer
+          await sendAndTrack(sock, jid, {
+              sticker: webpBuffer 
+          });
+          console.log(`${LOG_PREFIX} Sent generated Sticker`);
+      } catch (err) {
+          console.error(`${LOG_PREFIX} Failed to send Sticker:`, err);
+      }
+  }
+  // --- Sending a GIF ---
+  // Note: result.gifUrl MUST be a link to an .mp4 file, not a .gif!
+  // Services like Tenor and Giphy provide MP4 versions of all their GIFs for this exact reason.
+  if (result.gifUrl && isFetchableUrl(result.gifUrl)) {
+    try {
+        const gifResponse = await fetch(result.gifUrl);
+        if (gifResponse.ok) {
+            const gifArrayBuffer = await gifResponse.arrayBuffer();
+            const gifBuffer = Buffer.from(gifArrayBuffer);
+            
+            await sendAndTrack(sock, jid, {
+                video: gifBuffer,
+                gifPlayback: true, // THIS FLAG IS THE MAGIC TRICK
+                caption: result.gifMessageText || undefined,
+            });
+            console.log(`${LOG_PREFIX} Sent GIF`);
+        }
+    } catch (err) {
+        console.error(`${LOG_PREFIX} Failed to send GIF:`, err);
+    }
+  }
+
+  // --- Sending a Sticker ---
+  // Note: result.stickerBuffer MUST be a valid .webp file buffer!
+  if (result.stickerBuffer) {
+      try {
+          await sendAndTrack(sock, jid, {
+              sticker: result.stickerBuffer 
+          });
+          console.log(`${LOG_PREFIX} Sent Sticker`);
+      } catch (err) {
+          console.error(`${LOG_PREFIX} Failed to send Sticker:`, err);
+      }
   }
 
   const textResponse = result.chatMessages?.[0]?.text;
