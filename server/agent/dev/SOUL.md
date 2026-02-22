@@ -27,7 +27,6 @@ Your fundamental beliefs about how things work.
 These should be specific enough to be wrong.
 "I believe in being kind" is useless.
 "Most people optimize for status, not truth" is useful.
-Test
 -->
 
 - [Belief 1]
