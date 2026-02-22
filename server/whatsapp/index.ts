@@ -15,8 +15,8 @@ const LOG_PREFIX = "[WhatsApp]";
 async function main() {
   console.log(`${LOG_PREFIX} Starting WhatsApp bridge...`);
 
-  await startWhatsAppClient(async (sock, text, jid, replyJid) => {
-    await handleWhatsAppMessage(sock, text, jid, replyJid);
+  await startWhatsAppClient(async (sock, text, jid, replyJid, userContent) => {
+    await handleWhatsAppMessage(sock, text, jid, replyJid, userContent);
   });
 
   console.log(`${LOG_PREFIX} Waiting for QR scan or session restore...`);

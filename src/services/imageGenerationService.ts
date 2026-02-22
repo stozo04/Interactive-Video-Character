@@ -24,7 +24,10 @@ import {
   getCurrentSeason,
   getTimeOfDay,
 } from "./imageGeneration/referenceSelector";
-import { getReferenceMetadata } from "../utils/referenceImages";
+import {
+  getReferenceMetadata,
+  getRandomReferenceImageForGrok,
+} from "../utils/referenceImages";
 import type {
   ReferenceSelectionContext,
   ImagePromptContext,
@@ -369,23 +372,25 @@ export async function generateCompanionSelfie(
         );
       }
 
-      // --- AUTO-SAVE TO LOCAL FILESYSTEM (Development only) ---
-      try {
-        fetch("/api/save-selfie", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            imageBase64: generatedPart.inlineData.data,
-            scene: request.scene,
-          }),
-        }).catch((e) =>
-          console.warn(
-            "📸 [ImageGen] Auto-save failed (expected if not in dev):",
-            e,
-          ),
-        );
-      } catch (e) {
-        console.warn("📸 [ImageGen] Auto-save error:", e);
+      // --- AUTO-SAVE TO LOCAL FILESYSTEM (Development only / browser runtime) ---
+      if (typeof window !== "undefined") {
+        try {
+          fetch("/api/save-selfie", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              imageBase64: generatedPart.inlineData.data,
+              scene: request.scene,
+            }),
+          }).catch((e) =>
+            console.warn(
+              "📸 [ImageGen] Auto-save failed (expected if not in dev):",
+              e,
+            ),
+          );
+        } catch (e) {
+          console.warn("📸 [ImageGen] Auto-save error:", e);
+        }
       }
 
       // ====================================
@@ -420,6 +425,14 @@ export async function generateCompanionSelfie(
       };
     } else {
       console.log("USING GROK FOR IMAGE GENERATION");
+      if (!selectedReferenceURL) {
+        const fallback = getRandomReferenceImageForGrok();
+        selectedReferenceURL = fallback.url;
+        selectedReferenceId = selectedReferenceId || fallback.referenceId;
+        console.warn("⚠️ [ImageGen] Missing Grok reference URL; using random fallback", {
+          fallbackReferenceId: fallback.referenceId,
+        });
+      }
       const result = await generateImageEdit(GROK_API_KEY, {
         model: GROK_IMAGEN_MODEL,
         prompt: fullPrompt,
@@ -439,23 +452,25 @@ export async function generateCompanionSelfie(
         );
       }
 
-      // --- AUTO-SAVE TO LOCAL FILESYSTEM (Development only) ---
-      try {
-        fetch("/api/save-selfie", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            imageBase64: result.data[0].b64_json,
-            scene: request.scene,
-          }),
-        }).catch((e) =>
-          console.warn(
-            "📸 [ImageGen] Auto-save failed (expected if not in dev):",
-            e,
-          ),
-        );
-      } catch (e) {
-        console.warn("📸 [ImageGen] Auto-save error:", e);
+      // --- AUTO-SAVE TO LOCAL FILESYSTEM (Development only / browser runtime) ---
+      if (typeof window !== "undefined") {
+        try {
+          fetch("/api/save-selfie", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              imageBase64: result.data[0].b64_json,
+              scene: request.scene,
+            }),
+          }).catch((e) =>
+            console.warn(
+              "📸 [ImageGen] Auto-save failed (expected if not in dev):",
+              e,
+            ),
+          );
+        } catch (e) {
+          console.warn("📸 [ImageGen] Auto-save error:", e);
+        }
       }
 
       // ====================================

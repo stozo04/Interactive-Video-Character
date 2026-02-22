@@ -31,6 +31,23 @@ type FolderConfig = {
 // Config structure: folder -> { defaults, images[] }
 type ConfigData = Record<string, FolderConfig>;
 
+function buildRegistryFromConfig(): ReferenceImageMetadata[] {
+  const registry: ReferenceImageMetadata[] = [];
+  const config = configData as ConfigData;
+  for (const [folder, folderConfig] of Object.entries(config)) {
+    for (const imageEntry of folderConfig.images || []) {
+      registry.push({
+        id: imageEntry.id,
+        url: imageEntry.url,
+        fileName: `${folder}/${imageEntry.fileName}`,
+        hairstyle: imageEntry.hairstyle || folderConfig.hairstyle,
+        outfitStyle: imageEntry.outfit || folderConfig.outfit,
+      });
+    }
+  }
+  return registry;
+}
+
 // Build the registry from discovered images + config
 function buildRegistry(): ReferenceImageMetadata[] {
   const registry: ReferenceImageMetadata[] = [];
@@ -66,6 +83,11 @@ function buildRegistry(): ReferenceImageMetadata[] {
     });
   }
 
+  if (registry.length === 0) {
+    console.warn("[ReferenceImages] No Vite image modules found; falling back to config registry.");
+    return buildRegistryFromConfig();
+  }
+
   return registry;
 }
 
@@ -78,15 +100,27 @@ function buildContentMapForGemini(): Record<string, string> {
     contentMap[configKey] = base64Content;
   }
 
+  if (Object.keys(contentMap).length === 0) {
+    console.warn("[ReferenceImages] No Gemini base64 content available in this runtime.");
+  }
   return contentMap;
 }
 
 function buildContentMapForGrok(): Record<string, string> {
   const contentMap: Record<string, string> = {};
 
-  for (const [importPath, url] of Object.entries(imageModules)) {
-    const configKey = importPath.replace('./', '');
-    contentMap[configKey] = url;
+  if (Object.keys(imageModules).length > 0) {
+    for (const [importPath, url] of Object.entries(imageModules)) {
+      const configKey = importPath.replace('./', '');
+      contentMap[configKey] = url;
+    }
+  } else {
+    for (const [folder, folderConfig] of Object.entries(configData as ConfigData)) {
+      for (const imageEntry of folderConfig.images || []) {
+        const configKey = `${folder}/${imageEntry.fileName}`;
+        contentMap[configKey] = imageEntry.url;
+      }
+    }
   }
 
   return contentMap;
@@ -122,6 +156,39 @@ export function getReferenceImageContentForGrok(referenceId: string): string | n
  */
 export function getReferenceMetadata(referenceId: string): ReferenceImageMetadata | null {
   return REFERENCE_IMAGE_REGISTRY.find(r => r.id === referenceId) || null;
+}
+
+function getAllConfigImages(): ImageEntry[] {
+  const config = configData as ConfigData;
+  const entries: ImageEntry[] = [];
+  for (const folderConfig of Object.values(config)) {
+    entries.push(...(folderConfig.images || []));
+  }
+  return entries;
+}
+
+/**
+ * Get a random reference image URL for Grok.
+ * Falls back to config.json if the registry is empty.
+ */
+export function getRandomReferenceImageForGrok(): {
+  referenceId: string;
+  url: string;
+} {
+  if (REFERENCE_IMAGE_REGISTRY.length > 0) {
+    const index = Math.floor(Math.random() * REFERENCE_IMAGE_REGISTRY.length);
+    const item = REFERENCE_IMAGE_REGISTRY[index];
+    return { referenceId: item.id, url: item.url };
+  }
+
+  const configImages = getAllConfigImages();
+  if (configImages.length === 0) {
+    throw new Error("[ReferenceImages] No reference images available for Grok");
+  }
+
+  const index = Math.floor(Math.random() * configImages.length);
+  const item = configImages[index];
+  return { referenceId: item.id, url: item.url };
 }
 
 /**

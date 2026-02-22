@@ -11,6 +11,7 @@ import {
   REFERENCE_IMAGE_REGISTRY,
   getReferenceImageContentForGemini,
   getReferenceImageContentForGrok,
+  getRandomReferenceImageForGrok,
 } from "../../utils/referenceImages";
 import { shouldUnlockCurrentLook } from "./temporalDetection";
 
@@ -191,6 +192,16 @@ export function selectReferenceImageForGrok(context: ReferenceSelectionContext):
   reasoning: string[];
 } {
   const reasoning: string[] = [];
+  if (REFERENCE_IMAGE_REGISTRY.length === 0) {
+    console.warn("⚠️ [ReferenceSelector] Empty registry; using random Grok reference");
+    const fallback = getRandomReferenceImageForGrok();
+    reasoning.push("⚠️ REGISTRY_EMPTY: random Grok reference " + fallback.referenceId);
+    return {
+      referenceId: fallback.referenceId,
+      url: fallback.url,
+      reasoning,
+    };
+  }
 
   // DEBUG: Force a specific reference image for testing
   if (DEBUG_FORCE_REFERENCE) {

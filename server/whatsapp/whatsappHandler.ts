@@ -6,12 +6,91 @@ import {
   getTodaysInteractionId,
 } from "../../src/services/conversationHistoryService";
 import type { OrchestratorResult } from "../../src/handlers/messageActions/types";
+import type { UserContent } from "../../src/services/aiService";
 import { generateSpeechBuffer } from "./serverAudio";
 import { createWhatsAppSticker } from "./serverSticker";
+import fs from "fs";
+import path from "path";
 const LOG_PREFIX = "[WhatsApp]";
 
 function isFetchableUrl(url: string): boolean {
   return url.startsWith("http://") || url.startsWith("https://");
+}
+
+const ALLOWED_MEDIA_HOSTS = new Set([
+  "media.giphy.com",
+  "giphy.com",
+  "media.tenor.com",
+  "tenor.com",
+]);
+
+function isAllowedMediaUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    return ALLOWED_MEDIA_HOSTS.has(parsed.hostname);
+  } catch (err) {
+    return false;
+  }
+}
+
+async function fetchAndValidateVideo(
+  url: string,
+  options: { label: string; requireMp4: boolean }
+): Promise<{ ok: boolean; buffer?: Buffer; contentType?: string; reason?: string }> {
+  if (!isFetchableUrl(url)) {
+    return { ok: false, reason: "non_fetchable_url" };
+  }
+
+  if (!isAllowedMediaUrl(url)) {
+    console.error(`${LOG_PREFIX} [MEDIA] ${options.label} blocked (host not allowed):`, { url });
+    return { ok: false, reason: "host_not_allowed" };
+  }
+
+  let response: Response;
+  try {
+    response = await fetch(url);
+  } catch (err) {
+    console.error(`${LOG_PREFIX} [MEDIA] ${options.label} fetch failed:`, err);
+    return { ok: false, reason: "fetch_error" };
+  }
+
+  if (!response.ok) {
+    console.error(`${LOG_PREFIX} [MEDIA] ${options.label} fetch status:`, {
+      status: response.status,
+      statusText: response.statusText,
+      url,
+    });
+    return { ok: false, reason: "bad_status" };
+  }
+
+  const contentType = response.headers.get("content-type") || "";
+  const isMp4 = contentType.toLowerCase().includes("video/mp4");
+  const isVideo = contentType.toLowerCase().startsWith("video/");
+
+  if (options.requireMp4 && !isMp4) {
+    console.error(`${LOG_PREFIX} [MEDIA] ${options.label} invalid content-type (expected mp4):`, {
+      contentType,
+      url,
+    });
+    return { ok: false, reason: "invalid_content_type" };
+  }
+
+  if (!options.requireMp4 && !isVideo) {
+    console.error(`${LOG_PREFIX} [MEDIA] ${options.label} invalid content-type (expected video/*):`, {
+      contentType,
+      url,
+    });
+    return { ok: false, reason: "invalid_content_type" };
+  }
+
+  const arrayBuffer = await response.arrayBuffer();
+  const buffer = Buffer.from(arrayBuffer);
+  if (buffer.length === 0) {
+    console.error(`${LOG_PREFIX} [MEDIA] ${options.label} empty payload:`, { url });
+    return { ok: false, reason: "empty_payload" };
+  }
+
+  return { ok: true, buffer, contentType };
 }
 
 async function sendAndTrack(
@@ -41,7 +120,8 @@ export async function handleWhatsAppMessage(
   sock: WASocket,
   text: string,
   jid: string,
-  replyJid: string
+  replyJid: string,
+  userContent?: UserContent
 ): Promise<void> {
   console.log(`${LOG_PREFIX} Reply JID: ${replyJid} (original: ${jid})`);
   console.log(`${LOG_PREFIX} Processing: "${text.substring(0, 60)}..."`);
@@ -56,6 +136,7 @@ export async function handleWhatsAppMessage(
 
     const result = await processUserMessage({
       userMessage: text,
+      userContent,
       aiService: geminiChatService,
       session,
       accessToken: undefined,
@@ -105,18 +186,26 @@ async function sendOrchestratorResult(
   // Services like Tenor and Giphy provide MP4 versions of all their GIFs for this exact reason.
   if (result.gifUrl && isFetchableUrl(result.gifUrl)) {
     try {
-        const gifResponse = await fetch(result.gifUrl);
-        if (gifResponse.ok) {
-            const gifArrayBuffer = await gifResponse.arrayBuffer();
-            const gifBuffer = Buffer.from(gifArrayBuffer);
-            
-            await sendAndTrack(sock, jid, {
-                video: gifBuffer,
-                gifPlayback: true, // THIS FLAG IS THE MAGIC TRICK
-                caption: result.gifMessageText || undefined,
-            });
-            console.log(`${LOG_PREFIX} Sent GIF`);
+        const validated = await fetchAndValidateVideo(result.gifUrl, {
+          label: "GIF",
+          requireMp4: true,
+        });
+        if (!validated.ok || !validated.buffer) {
+          await sendAndTrack(sock, jid, {
+            text: result.gifMessageText || "I tried to send a GIF, but the link didn't work.",
+          });
+          return;
         }
+
+        await sendAndTrack(sock, jid, {
+            video: validated.buffer,
+            gifPlayback: true, // THIS FLAG IS THE MAGIC TRICK
+            caption: result.gifMessageText || undefined,
+        });
+        console.log(`${LOG_PREFIX} Sent GIF`, {
+          contentType: validated.contentType,
+          sizeBytes: validated.buffer.length,
+        });
     } catch (err) {
         console.error(`${LOG_PREFIX} Failed to send GIF:`, err);
     }
@@ -142,6 +231,23 @@ async function sendOrchestratorResult(
 
   if (result.selfieImage?.base64) {
     try {
+      const selfiesDir = path.join(process.cwd(), "selfies");
+      if (!fs.existsSync(selfiesDir)) {
+        fs.mkdirSync(selfiesDir, { recursive: true });
+      }
+      const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+      const safeScene = result.selfieMessageText
+        ? result.selfieMessageText
+            .substring(0, 30)
+            .replace(/[^a-z0-9]/gi, "_")
+            .toLowerCase()
+        : "selfie";
+      const filename = `selfie_${timestamp}_${safeScene}.jpg`;
+      const filePath = path.join(selfiesDir, filename);
+      const fileBuffer = Buffer.from(result.selfieImage.base64, "base64");
+      fs.writeFileSync(filePath, fileBuffer);
+      console.log(`${LOG_PREFIX} [SELFIE] Saved ${filePath}`);
+
       const imageBuffer = Buffer.from(result.selfieImage.base64, "base64");
       await sendAndTrack(sock, jid, {
         image: imageBuffer,
@@ -160,17 +266,25 @@ async function sendOrchestratorResult(
           text: result.videoMessageText || "I have a video to show you, but I can't send it over WhatsApp right now.",
         });
       } else {
-        const videoResponse = await fetch(result.videoUrl);
-        if (videoResponse.ok) {
-          const videoArrayBuffer = await videoResponse.arrayBuffer();
-          const videoBuffer = Buffer.from(videoArrayBuffer);
+        const validated = await fetchAndValidateVideo(result.videoUrl, {
+          label: "Video",
+          requireMp4: false,
+        });
+        if (!validated.ok || !validated.buffer) {
           await sendAndTrack(sock, jid, {
-            video: videoBuffer,
-            caption: result.videoMessageText || undefined,
+            text: result.videoMessageText || "I have a video to show you, but the link didn't work.",
           });
-        } else {
-          throw new Error(`Fetch failed: ${videoResponse.statusText}`);
+          return;
         }
+
+        await sendAndTrack(sock, jid, {
+          video: validated.buffer,
+          caption: result.videoMessageText || undefined,
+        });
+        console.log(`${LOG_PREFIX} Sent video`, {
+          contentType: validated.contentType,
+          sizeBytes: validated.buffer.length,
+        });
       }
     } catch (err) {
       if (isFetchableUrl(result.videoUrl)) {

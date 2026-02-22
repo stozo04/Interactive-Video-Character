@@ -939,3 +939,84 @@ Update: Pending cron delivery now uses fetch-then-ack (ack only after chat appen
 
 ## Review Notes
 - Scope: US numbers only; avoid Brazil-specific digit correction or contact merge logic.
+
+---
+
+## Plan: Grok Selfie Random Reference Fallback (WhatsApp)
+
+1) Add a Grok-safe reference picker that can return a random URL when selection fails:
+- `src/utils/referenceImages/index.ts`
+2) Use the random URL fallback in Grok selfie generation when `selectedReferenceURL` is missing:
+- `src/services/imageGenerationService.ts`
+3) Add explicit structured logs for missing reference + fallback choice:
+- `src/services/imageGenerationService.ts`
+4) Verification (if approved):
+- Manual: WhatsApp selfie request with Grok enabled
+- `npm test -- --run`
+
+## Progress
+- [ ] Waiting on approval to patch.
+
+## Review Notes
+- Goal: avoid Grok 422 “image.url missing” by always providing a valid reference URL.
+
+---
+
+## Plan: Save WhatsApp Selfies Server-Side (No /api/save-selfie)
+
+1) Skip client-only auto-save when running in Node to avoid invalid relative URL:
+- `src/services/imageGenerationService.ts`
+2) Save WhatsApp selfie images directly in the server handler:
+- `server/whatsapp/whatsappHandler.ts`
+3) Add structured logs for saved file path/filename:
+- `server/whatsapp/whatsappHandler.ts`
+4) Verification (if approved):
+- Manual WhatsApp selfie request
+
+## Progress
+- [ ] Waiting on approval to patch.
+
+## Review Notes
+- Goal: keep dev web auto-save working while persisting WhatsApp selfies in `selfies/`.
+
+---
+
+## Plan: WhatsApp GIF/Video URL Validation + Logging
+
+1) Add a shared media fetch/validation helper to verify URL fetchability, status, content-type, and non-empty payload:
+- `server/whatsapp/whatsappHandler.ts`
+2) Use the validator for GIF MP4 sending with explicit fallback text/logs when invalid:
+- `server/whatsapp/whatsappHandler.ts`
+3) Use the validator for standard video sending with explicit fallback text/logs when invalid:
+- `server/whatsapp/whatsappHandler.ts`
+4) Verification (if approved):
+- Manual: trigger a GIF and video response, confirm either media sends or fallback text with clear logs.
+
+## Progress
+- [ ] Waiting on approval to patch.
+
+## Review Notes
+- Goal: prevent made-up `gifUrl`/`videoUrl` from being sent; only send verified MP4 content.
+
+---
+
+## Plan: WhatsApp Media Understanding (Images + GIF/Video)
+
+1) Inbound media capture:
+- Use `downloadMediaMessage` for images, stickers, and video/GIF in `server/whatsapp/baileyClient.ts`.
+2) Image/sticker understanding:
+- Convert sticker WebP to JPEG via `sharp`.
+- Send `image_text` input to Gemini (text + base64) from `server/whatsapp/baileyClient.ts` → `handleWhatsAppMessage`.
+3) Video/GIF understanding:
+- Option A: Extract first frame using ffmpeg (system dependency) and send as `image_text`.
+- Option B: If no frame extraction, send a text placeholder only (no visual understanding).
+4) Wire messageOrchestrator to accept `image_text` user content for WhatsApp path if needed:
+- `src/services/messageOrchestrator.ts`
+5) Verification (if approved):
+- Manual: send image, sticker, GIF MP4, and video; confirm logs and Kayley’s descriptions.
+
+## Progress
+- [ ] Waiting on approval to patch.
+
+## Review Notes
+- Decision needed: allow ffmpeg dependency for video/GIF frame extraction, or accept text-only understanding for video/GIF.
