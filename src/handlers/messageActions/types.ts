@@ -11,7 +11,7 @@
 
 import type { ChatMessage, Task } from '../../types';
 import type { CalendarEvent } from '../../services/calendarService';
-import type { IAIChatService, AIChatSession } from '../../services/aiService';
+import type { IAIChatService, AIChatSession, UserContent } from '../../services/aiService';
 import type { AIActionResponse } from '../../services/aiSchema';
 import type { TaskAction } from '../messageActions/taskActions';
 
@@ -71,6 +71,9 @@ export enum ProcessingStage {
 export interface OrchestratorInput {
   /** The user's message text */
   userMessage: string;
+
+  /** Optional rich user content (image + text, audio, etc.) */
+  userContent?: UserContent;
 
   /** AI service instance to use */
   aiService: IAIChatService;
@@ -177,6 +180,13 @@ export interface OrchestratorResult {
 
   /** Detected task action for App.tsx to execute (Phase 6) */
   detectedTaskAction?: TaskAction;
+
+  // --- ADD THESE NEW PROPERTIES ---
+  gifUrl?: string;
+  gifMessageText?: string;
+  stickerBuffer?: Buffer;
+  rawGeneratedStickerBase64?: string; // Add this if you went with Scenario A from earlier!
+
 }
 
 // ============================================================================

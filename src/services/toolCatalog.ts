@@ -46,6 +46,19 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
     sample_prompts: ["Schedule lunch tomorrow at 12:30."],
   },
   {
+    tool_key: "cron_job_action",
+    name: "Scheduled Jobs",
+    description:
+      "Create and manage one-time/daily background cron jobs (web search + summaries).",
+    user_value:
+      "Lets Kayley proactively run scheduled updates like daily news digests.",
+    permissions_needed: ["scheduled_jobs"],
+    triggers: ["every day", "daily reminder", "schedule this for later", "run at noon"],
+    sample_prompts: [
+      "Every day at 12pm, read the news and summarize what matters.",
+    ],
+  },
+  {
     tool_key: "selfie_action",
     name: "Selfies",
     description: "Generate an image of Kayley in a requested scene.",
@@ -71,6 +84,17 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
     permissions_needed: ["local_app_launch"],
     triggers: ["open Slack", "launch Spotify"],
     sample_prompts: ["Open Spotify."],
+  },
+  {
+    tool_key: "workspace_action",
+    name: "Workspace Agent",
+    description:
+      "Run local project operations via the workspace agent (files + git with policy checks).",
+    user_value:
+      "Lets Kayley manage project files and git workflows with verification and approval gates.",
+    permissions_needed: ["local_workspace_agent"],
+    triggers: ["create folder", "read file", "write file", "git status", "commit", "push", "search"],
+    sample_prompts: ["Create a folder called docs/notes."],
   },
   {
     tool_key: "recall_memory",

@@ -869,6 +869,8 @@ export const formatFactsForAI = (facts: UserFact[]): string => {
 
 export type MemoryToolName =
   | 'web_search'
+  | 'workspace_action'
+  | 'cron_job_action'
   | 'recall_memory'
   | 'recall_user_info'
   | 'store_user_info'
@@ -903,6 +905,50 @@ export interface ToolExecutionContext {
 export interface ToolCallArgs {
   web_search: {
     query: string;
+  };
+  workspace_action: {
+    action:
+      | 'mkdir'
+      | 'read'
+      | 'write'
+      | 'search'
+      | 'status'
+      | 'commit'
+      | 'push'
+      | 'delete';
+    path?: string;
+    content?: string;
+    append?: boolean;
+    query?: string;
+    rootPath?: string;
+    caseSensitive?: boolean;
+    message?: string;
+    addAll?: boolean;
+    paths?: string[];
+    remote?: string;
+    branch?: string;
+    recursive?: boolean;
+  };
+  cron_job_action: {
+    action:
+      | 'create'
+      | 'list'
+      | 'update'
+      | 'delete'
+      | 'pause'
+      | 'resume'
+      | 'run_now'
+      | 'mark_summary_delivered';
+    id?: string;
+    run_id?: string;
+    title?: string;
+    search_query?: string;
+    summary_instruction?: string;
+    schedule_type?: 'daily' | 'one_time';
+    timezone?: string;
+    hour?: number;
+    minute?: number;
+    one_time_at?: string;
   };
   recall_memory: {
     query: string;
@@ -1091,6 +1137,207 @@ export const executeMemoryTool = async (
       } catch (error) {
         console.error("❌ Tavily Search Failed:", error);
         return "I tried to check the internet, but my internal browser is acting up!";
+      }
+      case 'workspace_action': {
+        const { requestWorkspaceAction } = await import('./projectAgentService');
+        const actionArgs = args as ToolCallArgs['workspace_action'];
+        console.log('[Memory Tool] workspace_action called:', actionArgs);
+        const { action, ...rawArgs } = actionArgs;
+        const filteredArgs = Object.fromEntries(
+          Object.entries(rawArgs).filter(([, value]) => value !== undefined),
+        );
+
+        const result = await requestWorkspaceAction({
+          action,
+          args: filteredArgs,
+          prompt: context?.userMessage,
+        }, {
+          waitForTerminal: false,
+        });
+
+        if (!result.run) {
+          return `Workspace action failed: ${
+            result.error || 'No run details returned from workspace agent.'
+          }`;
+        }
+
+        const run = result.run;
+        const stepSummary = run.steps
+          .map((step) => `${step.stepId}:${step.type}:${step.status}`)
+          .join(', ');
+
+        if (run.status === 'success') {
+          return `Workspace action success (${run.id}): ${run.summary}. Steps: ${stepSummary}`;
+        }
+
+        if (
+          run.status === 'accepted' ||
+          run.status === 'pending' ||
+          run.status === 'running'
+        ) {
+          return `Workspace action started (${run.id}): ${run.summary}. Current status: ${run.status}. I will keep you posted in chat.`;
+        }
+
+        if (run.status === 'requires_approval') {
+          return `Workspace action requires approval (${run.id}): ${run.summary}. Use Admin > Agent to approve or reject. Steps: ${stepSummary}`;
+        }
+
+        if (run.status === 'rejected') {
+          return `Workspace action rejected (${run.id}): ${run.summary}.`;
+        }
+
+        if (run.status === 'verification_failed') {
+          return `Workspace action verification failed (${run.id}): ${run.summary}. Steps: ${stepSummary}`;
+        }
+
+        return `Workspace action failed (${run.id}): ${run.summary}. Steps: ${stepSummary}`;
+      }
+      case 'cron_job_action': {
+        const {
+          createCronJob,
+          listCronJobs,
+          updateCronJob,
+          deleteCronJob,
+          setCronJobStatus,
+          runCronJobNow,
+          markScheduledDigestDelivered,
+          formatCronJobsForTool,
+          CronJobStatus,
+          CronScheduleType,
+        } = await import('./cronJobService');
+        const cronArgs = args as ToolCallArgs['cron_job_action'];
+        const {
+          action,
+          id,
+          run_id,
+          title,
+          search_query,
+          summary_instruction,
+          schedule_type,
+          timezone,
+          hour,
+          minute,
+          one_time_at,
+        } = cronArgs;
+
+        console.log('[Memory Tool] cron_job_action called:', cronArgs);
+
+        if (action === 'list') {
+          const jobs = await listCronJobs();
+          return formatCronJobsForTool(jobs);
+        }
+
+        if (action === 'create') {
+          if (!search_query || search_query.trim().length === 0) {
+            return "Missing search_query for cron job creation.";
+          }
+
+          const normalizedScheduleType =
+            schedule_type === 'one_time'
+              ? CronScheduleType.OneTime
+              : CronScheduleType.Daily;
+          const createdJob = await createCronJob({
+            title:
+              title?.trim() ||
+              `Scheduled news digest (${normalizedScheduleType === CronScheduleType.Daily ? 'daily' : 'one-time'})`,
+            searchQuery: search_query,
+            summaryInstruction:
+              summary_instruction ||
+              'Summarize what matters most in clear, human language.',
+            scheduleType: normalizedScheduleType,
+            timezone,
+            hour,
+            minute,
+            oneTimeAt: one_time_at,
+            createdBy: 'kayley_tool',
+          });
+
+          if (!createdJob) {
+            return "Failed to create cron job.";
+          }
+
+          return `Created cron job "${createdJob.title}" (${createdJob.id}) scheduled ${createdJob.scheduleType}. Next run: ${createdJob.nextRunAt}.`;
+        }
+
+        if (action === 'update') {
+          if (!id) {
+            return 'Missing id for cron job update.';
+          }
+
+          const updatedJob = await updateCronJob(id, {
+            title,
+            searchQuery: search_query,
+            summaryInstruction: summary_instruction,
+            scheduleType:
+              schedule_type === undefined
+                ? undefined
+                : schedule_type === 'one_time'
+                  ? CronScheduleType.OneTime
+                  : CronScheduleType.Daily,
+            timezone,
+            hour,
+            minute,
+            oneTimeAt: one_time_at,
+          });
+
+          if (!updatedJob) {
+            return `Failed to update cron job (${id}).`;
+          }
+
+          return `Updated cron job "${updatedJob.title}" (${updatedJob.id}). Next run: ${updatedJob.nextRunAt}.`;
+        }
+
+        if (action === 'delete') {
+          if (!id) {
+            return 'Missing id for cron job delete.';
+          }
+
+          const deleted = await deleteCronJob(id);
+          return deleted
+            ? `Deleted cron job (${id}).`
+            : `Failed to delete cron job (${id}).`;
+        }
+
+        if (action === 'pause' || action === 'resume') {
+          if (!id) {
+            return `Missing id for cron job ${action}.`;
+          }
+
+          const nextStatus =
+            action === 'pause' ? CronJobStatus.Paused : CronJobStatus.Active;
+          const updated = await setCronJobStatus(id, nextStatus);
+          if (!updated) {
+            return `Failed to ${action} cron job (${id}).`;
+          }
+
+          return `${action === 'pause' ? 'Paused' : 'Resumed'} cron job "${updated.title}" (${updated.id}).`;
+        }
+
+        if (action === 'run_now') {
+          if (!id) {
+            return 'Missing id for cron job run_now.';
+          }
+
+          const updated = await runCronJobNow(id);
+          if (!updated) {
+            return `Failed to trigger cron job now (${id}).`;
+          }
+
+          return `Triggered cron job "${updated.title}" (${updated.id}) to run now.`;
+        }
+
+        if (action === 'mark_summary_delivered') {
+          if (!run_id) {
+            return 'Missing run_id for mark_summary_delivered.';
+          }
+
+          const marked = await markScheduledDigestDelivered(run_id);
+          return marked
+            ? `Marked scheduled digest as delivered (${run_id}).`
+            : `Failed to mark scheduled digest as delivered (${run_id}).`;
+        }
+
+        return `Unknown cron_job_action: ${action}`;
       }
       case 'recall_memory': {
         const { query, timeframe } = args as ToolCallArgs['recall_memory'];
@@ -1553,7 +1800,7 @@ export const executeMemoryTool = async (
           : "Failed to store tool suggestion.";
       }
       case 'make_promise': {
-        const { createPromise } = await import('./promiseService');
+        const { createPromise, resolvePromiseTimingFromTrigger } = await import('./promiseService');
         const { promiseType, description, triggerEvent, fulfillmentData } = args as ToolCallArgs['make_promise'];
 
         console.log(`🤝 [Memory Tool] make_promise called:`);
@@ -1562,8 +1809,10 @@ export const executeMemoryTool = async (
         console.log(`   Trigger: "${triggerEvent}"`);
 
         try {
-          // Fixed 10-minute timing (Phase 1 - extensible for future)
-          const estimatedTiming = new Date(Date.now() + 10 * 60 * 1000);
+          // Explicit times ("11:30 AM today") resolve to that clock time.
+          // Vague timing ("later/soon") falls back to default delay.
+          const timingResolution = resolvePromiseTimingFromTrigger(triggerEvent);
+          const estimatedTiming = timingResolution.estimatedTiming;
 
           const promise = await createPromise(
             promiseType,
@@ -1575,8 +1824,11 @@ export const executeMemoryTool = async (
           );
 
           if (promise) {
-            console.log(`✅ [Memory Tool] Promise created successfully (will fulfill in 10 minutes)`);
-            return `✓ Promise created: ${description} (will fulfill in 10 minutes)`;
+            const timingLabel = timingResolution.isExplicit
+              ? `scheduled for ${estimatedTiming.toLocaleString()}`
+              : `will fulfill in 10 minutes`;
+            console.log(`✅ [Memory Tool] Promise created successfully (${timingLabel})`);
+            return `✓ Promise created: ${description} (${timingLabel})`;
           } else {
             console.error(`❌ [Memory Tool] Failed to create promise`);
             return `Failed to create promise. Please try again.`;

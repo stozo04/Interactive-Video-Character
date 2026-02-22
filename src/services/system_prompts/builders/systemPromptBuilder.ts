@@ -10,6 +10,7 @@ import { KAYLEY_CONDENSED_PROFILE } from "../../../domain/characters/kayleyChara
 import { getRecentNewsContext } from "../../newsService";
 import { formatCharacterFactsForPrompt } from "../../characterFactsService";
 import { buildPromisesContext } from "../context/promisesContext";
+import { buildScheduledDigestsContext } from "../context/scheduledDigestsContext";
 import { buildRelationshipTierPrompt } from "./relationshipPromptBuilders";
 import { buildSelfieRulesPrompt } from "./selfiePromptBuilder";
 import { buildVideoRulesPrompt } from "./videoPromptBuilder";
@@ -133,12 +134,14 @@ export const buildSystemPromptForNonGreeting = async (
     toolSuggestionsPrompt,
     xTweetPrompt,
     xMentionsPrompt,
+    scheduledDigestsPrompt,
   ] = await Promise.all([
     buildIdleQuestionPromptSection(),
     buildIdleBrowseNotesPromptSection(),
     buildToolSuggestionsPromptSection(),
     buildXTweetPromptSection(),
     buildMentionsPromptSection(),
+    buildScheduledDigestsContext(),
   ]);
 
   if (useSynthesis) {
@@ -175,6 +178,7 @@ ${idleQuestionPrompt}
 ${buildOpinionsAndPushbackSection()}
 ${buildCurrentContextSection(characterContext)}
 ${await getStorylinePromptContext(messageCount)}
+${scheduledDigestsPrompt}
 ${await buildPromisesContext()}
 ${buildSelfieRulesPrompt(relationship)}
 ${buildVideoRulesPrompt(relationship)}
@@ -197,6 +201,7 @@ ${buildStandardOutputSection()}
     milaMilestonesPrompt,
     anchorSection,
     activeRecallSection,
+    scheduledDigestsPromptFallback,
   ] = await Promise.all([
     integrateAlmostMoments(relationship, {
       conversationDepth: "surface",
@@ -208,7 +213,8 @@ ${buildStandardOutputSection()}
     buildDailyNotesPromptSection(),
     buildMilaMilestonesPromptSection(),
     buildConversationAnchorPromptSection(interactionId),
-    buildActiveRecallPromptSection(currentUserMessage)
+    buildActiveRecallPromptSection(currentUserMessage),
+    buildScheduledDigestsContext(),
   ]);
 
   let prompt = `
@@ -231,6 +237,7 @@ ${buildRelationshipTierPrompt(relationship, almostMoments.promptSection)}
 ${buildOpinionsAndPushbackSection()}
 ${buildCurrentContextSection(characterContext)}
 
+${scheduledDigestsPromptFallback}
 ${await buildPromisesContext()}
 ${buildSelfieRulesPrompt(relationship)}
 ${buildVideoRulesPrompt(relationship)}

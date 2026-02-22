@@ -532,6 +532,37 @@ function normalizeToTokens(text: string): string[] {
     .filter((token) => token.length > 2 && !stopwords.has(token));
 }
 
+function shouldKeepPendingCommitment(text: string): boolean {
+  const lower = text.toLowerCase();
+  const timeMatch = lower.match(/\b(\d{1,2})(?::(\d{2}))?\s*(am|pm)\b/);
+
+  if (!timeMatch) {
+    return true;
+  }
+
+  let hour = Number(timeMatch[1]);
+  const minute = Number(timeMatch[2] || "0");
+  const meridian = timeMatch[3];
+
+  if (meridian === "pm" && hour < 12) hour += 12;
+  if (meridian === "am" && hour === 12) hour = 0;
+
+  const now = new Date();
+  const target = new Date(now);
+  target.setSeconds(0, 0);
+  target.setHours(hour, minute, 0, 0);
+
+  if (lower.includes("tomorrow")) {
+    return true;
+  }
+
+  if (lower.includes("today")) {
+    return target.getTime() >= now.getTime();
+  }
+
+  return target.getTime() >= now.getTime();
+}
+
 /**
  * Enforce size caps on anchor fields
  */
@@ -551,6 +582,7 @@ function enforceSizeCaps(anchor: {
       SIZE_CAPS.emotional_context
     ),
     pending_commitments: anchor.pending_commitments
+      .filter(shouldKeepPendingCommitment)
       .slice(0, SIZE_CAPS.pending_commitments_count)
       .map((c) => truncate(c, SIZE_CAPS.pending_commitments_item)),
   };
