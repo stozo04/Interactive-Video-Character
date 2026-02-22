@@ -138,6 +138,7 @@ export function formatEventsForContext(events: CalendarEvent[]): string {
 export async function processUserMessage(input: OrchestratorInput): Promise<OrchestratorResult> {
   const {
     userMessage,
+    userContent,
     aiService,
     session,
     accessToken,
@@ -192,7 +193,12 @@ export async function processUserMessage(input: OrchestratorInput): Promise<Orch
     }
 
     // Build input and options for AI service
-    const content: UserContent = { type: "text", text: textToSend };
+    let content: UserContent = userContent || { type: "text", text: textToSend };
+    if (content.type === "image_text") {
+      content = { ...content, text: textToSend };
+    } else if (content.type === "text") {
+      content = { type: "text", text: textToSend };
+    }
     const options: AIChatOptions = {
       // Pass original message to intent detection (keeps payload small)
       // Intent detection doesn't need calendar data - only main chat does

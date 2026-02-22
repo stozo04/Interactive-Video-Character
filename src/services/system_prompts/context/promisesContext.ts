@@ -2,6 +2,18 @@
 
 import { getPendingPromises, type KayleyPromise } from "../../promiseService";
 
+function hasExplicitTimeReference(text: string): boolean {
+  const lower = text.toLowerCase();
+  const isoLike = /\d{4}-\d{2}-\d{2}t\d{2}:\d{2}/i.test(text);
+  const amPm = /\b\d{1,2}(?::\d{2})?\s*(am|pm)\b/i.test(text);
+  return (
+    isoLike ||
+    amPm ||
+    lower.includes("today") ||
+    lower.includes("tomorrow")
+  );
+}
+
 /**
  * Format a single promise with clear behavioral signals (READY vs WAIT).
  */
@@ -32,12 +44,17 @@ function formatPromise(promise: KayleyPromise): string {
  */
 export async function buildPromisesContext(): Promise<string> {
   const pendingPromises = await getPendingPromises();
+  // Explicit-time commitments are owned by cron mirror jobs and should not
+  // remain in conversational "open commitments" once scheduling is active.
+  const conversationalPromises = pendingPromises.filter(
+    (promise) => !hasExplicitTimeReference(promise.triggerEvent),
+  );
 
-  if (pendingPromises.length === 0) {
+  if (conversationalPromises.length === 0) {
     return "";
   }
 
-  const promisesList = pendingPromises.map(formatPromise).join("\n");
+  const promisesList = conversationalPromises.map(formatPromise).join("\n");
 
   return `
 ====================================================OPEN COMMITMENTS====================================================

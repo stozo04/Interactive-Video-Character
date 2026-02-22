@@ -51,7 +51,15 @@ export function buildToolStrategySection(): string {
    - Checklist items ("Buy milk") → 'task_action'
    - Life Projects ("I'm building an app") → 'store_user_info' (context)
 
-6. X (TWITTER) POSTING:
+6. SCHEDULED CRON JOBS:
+   - Use 'cron_job_action' when the user asks for recurring or one-time background updates.
+   - If schedule cadence is ambiguous, ask a quick follow-up before creating the job.
+   - For daily jobs, include timezone + hour/minute.
+   - Use action='list' when the user asks what schedules exist.
+   - Use action='update', 'pause', 'resume', or 'delete' when changing existing schedules.
+   - If you share a queued scheduled digest from context, call action='mark_summary_delivered' with run_id.
+
+7. X (TWITTER) POSTING:
    - **Approving/rejecting existing drafts:** Use 'resolve_x_tweet' with the draft id and status.
    - **Posting a new tweet composed in conversation:** Use 'post_x_tweet' with the exact text.
      - Use this when you and the user collaboratively write a tweet and they approve it ("Love it!", "Post it!").
@@ -61,11 +69,20 @@ export function buildToolStrategySection(): string {
      - When the user asks to "post a selfie on X" or "tweet a pic", call 'post_x_tweet' with include_selfie and selfie_scene.
    - **Never fabricate a post.** Only call 'post_x_tweet' when the user has explicitly approved the text.
 
-7. X (TWITTER) MENTIONS:
+8. X (TWITTER) MENTIONS:
    - **Approving a drafted reply:** Use 'resolve_x_mention' with status "approve" and the mention id.
    - **Writing a custom reply:** Use 'resolve_x_mention' with status "reply", the mention id, and reply_text.
    - **Skipping a mention:** Use 'resolve_x_mention' with status "skip" and the mention id.
    - Be selective: don't reply to every mention. Prioritize known users and genuine interactions.
    - Keep replies natural, in-character, and under 280 characters.
+
+9. WORKSPACE AGENT (LOCAL PROJECT FILE OPS):
+   - Use 'workspace_action' ONLY when the user explicitly asks for a file/folder operation in this project.
+   - Supported actions: mkdir, read, write, search, status, commit, push, delete.
+   - Treat workspace actions as asynchronous: after calling the tool, clearly say the task was started/queued with run status.
+   - Do not claim completion unless a terminal success result is explicitly returned.
+   - If tool returns failure or verification_failed, say you could not confirm completion and report that clearly.
+   - commit, push, and delete require operator approval in Admin > Agent before execution.
+   - For write/delete/read/mkdir/search, always provide relative paths inside the project.
 `;
 }

@@ -1,3 +1,377 @@
+## Plan: Cron Jobs for Kayley (Server Scheduler + Chat Tool + Admin UI)
+
+1) Add Supabase schema for scheduled jobs and run history:
+- `supabase/migrations/20260220_cron_jobs.sql`
+- Tables for jobs + run logs with status, schedule, timezone, and delivery state.
+2) Add frontend cron service for CRUD + scheduling calculations + pending digest delivery state:
+- `src/services/cronJobService.ts`
+3) Add server-side scheduler worker (background loop) that:
+- Claims due jobs safely
+- Executes web search
+- Summarizes results with LLM (with fallback if key missing)
+- Stores run logs + next run timestamp
+- `server/scheduler/cronScheduler.ts`
+- wire startup in `server/index.ts`
+4) Add LLM tool for Kayley-managed cron jobs:
+- `src/services/aiSchema.ts`
+- `src/services/memoryService.ts`
+- `src/services/toolCatalog.ts`
+- `src/services/system_prompts/tools/toolsAndCapabilities.ts`
+5) Add prompt context for pending scheduled digests and a tool action to mark delivered:
+- `src/services/system_prompts/builders/systemPromptBuilder.ts`
+- `src/services/system_prompts/context/scheduledDigestsContext.ts`
+6) Add Admin UI for manual view/edit/delete/pause/resume/run-now:
+- `src/components/AdminDashboardView.tsx`
+7) Verification (if approved):
+- `npm run build`
+- `npm test -- --run`
+- Manual: create one-time near-future job, confirm run record + summary, confirm pending digest appears and can be marked delivered.
+
+## Progress
+- [x] Plan added to `tasks/todo.md`.
+- [x] Migration added.
+- [x] Frontend cron service added.
+- [x] Server scheduler added and wired.
+- [x] Tool schema/runtime/prompt updates added.
+- [x] Admin UI cron management added.
+- [ ] Verification run (if approved).
+
+## Review Notes
+- Goal: Kayley can create/manage cron jobs in chat, server executes jobs on schedule, and UI provides manual controls.
+
+---
+
+## Plan: Auto-Launch Agent On npm run dev
+
+1) Add a PowerShell helper script to open `npm run agent:dev` in a separate terminal window when needed.
+2) Prevent duplicate agent windows by checking if port `4010` is already listening.
+3) Update npm scripts in `package.json`:
+- add `dev:web` for Vite
+- add `dev:ensure-agent` for the helper
+- make `dev` run helper first, then Vite
+4) Verification (if approved):
+- `npm run dev`
+- confirm one new PowerShell window opens with `npm run agent:dev`
+- rerun `npm run dev` and confirm no extra agent window opens when agent is already running
+
+## Progress
+- [x] Plan added to `tasks/todo.md`.
+- [x] Helper script added.
+- [x] Package scripts updated.
+- [ ] Verification run (if approved).
+
+## Review Notes
+- Goal: reduce startup mistakes by making `npm run dev` bootstrap the local agent automatically.
+
+---
+
+## Plan: Workspace Action Immediate Ack (Option 2)
+
+1) Keep gateway run submission async and keep SSE status updates in chat.
+2) Short-circuit workspace-only tool turns in:
+- `src/services/geminiChatService.ts`
+- Return deterministic immediate assistant response from tool result without waiting for the second model continuation.
+3) Preserve interaction continuity best-effort:
+- fire tool-result continuation in background
+- record interaction-id redirect map and use it on next turn when available
+4) Keep all non-workspace tools on existing synchronous loop behavior.
+5) Verification (if approved):
+- `npm run dev`
+- `npm run agent:dev`
+- Manual: ask for write action, confirm immediate ack appears before final model continuation delay window.
+
+## Progress
+- [x] Plan added to `tasks/todo.md`.
+- [x] Workspace-only immediate-ack short-circuit.
+- [x] Background continuation + interaction redirect mapping.
+- [ ] Verification run (if approved).
+
+## Review Notes
+- Goal: remove wait on second Gemini continuation call for workspace-only tool turns.
+- Continuity uses best-effort interaction-id redirects after background continuation resolves.
+
+---
+
+## Plan: Async Workspace Tool Flow In Chat (Non-Blocking)
+
+1) Keep workspace action execution on gateway, but make chat tool calls return immediately after run acceptance.
+2) Update workspace action client in:
+- `src/services/projectAgentService.ts`
+- Add optional non-blocking mode (`waitForTerminal: false`) to skip polling.
+3) Update tool runtime bridge in:
+- `src/services/memoryService.ts`
+- Return clear queued/running/approval messages with run id (instead of waiting for final success/failure).
+4) Stream run lifecycle updates into chat in:
+- `src/App.tsx`
+- Subscribe to workspace SSE events and post plain-English progress/completion bubbles.
+- Backfill on reconnect using recent run list so terminal outcomes are not missed.
+5) Update policy prompt wording in:
+- `src/services/system_prompts/tools/toolsAndCapabilities.ts`
+- Instruct Kayley to announce start/queue and only confirm completion on terminal success.
+6) Verification (if approved):
+- `npm run agent:dev`
+- `npm run dev`
+- `npm run build`
+- `npm test -- --run`
+
+## Progress
+- [x] Plan added to `tasks/todo.md`.
+- [x] Non-blocking workspace request mode.
+- [x] Tool runtime async response update.
+- [x] Chat SSE progress/completion updates.
+- [x] Prompt guidance update.
+- [ ] Verification run (if approved).
+
+## Review Notes
+- Goal: remove “typing lock” caused by waiting for workspace runs to finish before chat can continue.
+- Chat now receives workspace run lifecycle updates over SSE with reconnect backfill.
+
+---
+
+## Plan: Workspace Agent Expanded Actions + Live Updates (Option B Config)
+
+1) Keep current gateway startup config path per user choice (Option B), but enforce action-level guardrails in runtime policy.
+2) Expand `workspace_action` scope to support:
+- `mkdir`
+- `read`
+- `write`
+- `status`
+- `search`
+- `commit`
+- `push`
+- `delete`
+3) Enforce stricter safety rule:
+- `commit`, `push`, and `delete` must never execute without verification checks.
+- `delete` requires approval.
+- `commit` and `push` require approval.
+4) Add run states for approval and verification outcomes:
+- `requires_approval`
+- `verification_failed`
+5) Add live update transport:
+- SSE endpoint for run updates
+- frontend EventSource subscription in Admin -> Agent mode
+ - 20s heartbeat events to avoid radio silence
+ - serial run queue (single active run)
+6) Keep dashboard as main operator surface:
+- run timeline
+- pending approvals
+- verification evidence
+
+## Progress
+- [x] Plan added to `tasks/todo.md`.
+- [x] Finalize approval policy for `commit`/`push` (user confirmation).
+- [x] Backend action engine expansion.
+- [x] SSE live updates.
+- [x] Frontend tool/schema updates.
+- [x] 20s heartbeat updates added to SSE stream and Admin Agent panel.
+- [x] Single-run queue enforced at gateway (next run starts after terminal state).
+- [ ] Verification run (if approved).
+
+## Review Notes
+- User selected Option B startup config and requested no commit/push/delete execution without verification.
+- User confirmed `commit`, `push`, and `delete` all require approval.
+
+---
+
+## Plan: Workspace Agent Supabase Persistence (No In-Memory Fallback)
+
+1) Add Supabase schema for agent runs and run steps in:
+- `supabase/migrations/20260220_workspace_agent_runs.sql`
+2) Add Supabase-backed run store in:
+- `server/agent/supabaseRunStore.ts`
+3) Switch gateway to require Supabase env and remove in-memory fallback in:
+- `server/index.ts`
+4) Update gateway execution + routes to use async run store interface in:
+- `server/agent/runStore.ts`
+- `server/agent/executor.ts`
+- `server/routes/agentRoutes.ts`
+5) Verification (if approved):
+- `npm run agent:dev`
+- `npm run dev`
+
+## Progress
+- [x] Plan added to `tasks/todo.md`.
+- [x] Supabase migration added.
+- [x] Supabase run store added.
+- [x] Gateway switched to required Supabase persistence (no fallback).
+- [x] Async run store integration completed.
+- [ ] Verification run (if approved).
+
+## Review Notes
+- User explicitly requested no in-memory fallback.
+- Agent process now fails fast at startup if required Supabase env vars are missing.
+
+---
+
+## Plan: Admin Dashboard Agent Monitor (Health + Runs)
+
+1) Expose gateway read endpoints for dashboard visibility:
+- `GET /agent/health`
+- `GET /agent/runs?limit=...`
+2) Extend in-memory run store to support run listing/count for UI.
+3) Add frontend read APIs in `src/services/projectAgentService.ts`.
+4) Integrate an `Agent` mode into `src/components/AdminDashboardView.tsx`:
+- health badge
+- recent runs list
+- step/evidence detail panel
+- refresh and auto-refresh controls
+5) Keep `Settings` navigation unchanged:
+- use existing `Admin Dashboard` entry (no new separate settings button)
+6) Verification (if approved):
+- `npm run agent:dev`
+- `npm run dev`
+
+## Progress
+- [x] Plan added to `tasks/todo.md`.
+- [x] Endpoint + store updates.
+- [x] Frontend service updates.
+- [x] Admin dashboard UI integration.
+- [ ] Verification run (if approved).
+
+## Review Notes
+- User correction captured: avoid a separate dashboard route in settings; agent monitor should live inside Admin Dashboard.
+
+---
+
+## Plan: Gateway-First Async Run Lifecycle (mkdir)
+
+1) Change workspace run creation to async:
+- `POST /agent/runs` returns `202 accepted` immediately.
+2) Execute mkdir run in background worker on gateway.
+3) Keep `GET /agent/runs/:id` as poll endpoint for current status.
+4) Update frontend agent bridge to poll until terminal status:
+- `success`
+- `failed`
+- `verification_failed`
+5) Keep scope small:
+- action remains `mkdir` only
+- no process write/kill endpoints yet
+6) Verification (if approved):
+- `npm run build`
+- `npm test -- --run`
+
+## Progress
+- [x] Plan added to `tasks/todo.md`.
+- [x] Run lifecycle switched to `accepted -> background execution`.
+- [x] Frontend polling flow implemented.
+- [ ] Verification run (if approved).
+
+## Review Notes
+- Purpose: move privileged local changes into gateway-managed lifecycle before adding more actions.
+
+---
+
+## Plan: OpenClaw Tool Configuration Parity Audit (Docs)
+
+1) Compare current tool architecture to OpenClaw tool model:
+- tool policy (`allow`/`deny`)
+- profiles and provider overrides
+- runtime (`exec` + `process`)
+- approval/security knobs
+- loop detection policy
+2) Document gaps and required migrations in:
+- `docs/features/Kayley_Workspace_Agent_Implementation_Plan.md`
+3) Keep this docs-only; no code/runtime changes in this step.
+
+## Progress
+- [x] Plan added to `tasks/todo.md`.
+- [x] Parity audit documented.
+
+## Review Notes
+- Goal is implementation guidance only: what to change and in what order.
+
+---
+
+## Plan: OpenClaw-Aligned Runtime Docs Update
+
+1) Update workspace agent feature plan with OpenClaw-style runtime concepts:
+- asynchronous run lifecycle
+- background process management controls
+- approval/security mode matrix
+- service supervision runbook
+2) Keep update docs-only in:
+- `docs/features/Kayley_Workspace_Agent_Implementation_Plan.md`
+3) Verification (if approved): docs review only (no command execution needed).
+
+## Progress
+- [x] Plan added to `tasks/todo.md`.
+- [x] Feature plan doc updated.
+
+## Review Notes
+- This update refines implementation sequencing; no runtime code changes in this step.
+
+---
+
+## Plan: Workspace Agent Chat Wiring (Phase 2 - mkdir tool only)
+
+1) Add frontend bridge service for workspace agent API:
+- `src/services/projectAgentService.ts`
+2) Add `workspace_action` tool schema (mkdir-only) in:
+- `src/services/aiSchema.ts`
+3) Add `workspace_action` runtime execution path in:
+- `src/services/memoryService.ts`
+4) Add prompt/tool-catalog guidance so LLM knows when to call it:
+- `src/services/system_prompts/tools/toolsAndCapabilities.ts`
+- `src/services/toolCatalog.ts`
+5) Keep scope strict:
+- only `action="mkdir"`
+- no read/write/git/search in this phase
+6) Verification (if approved):
+- `npm run build`
+- `npm test -- --run`
+
+## Progress
+- [x] Plan added to `tasks/todo.md`.
+- [x] Frontend bridge service added.
+- [x] Tool schema declarations updated.
+- [x] Runtime execution path updated.
+- [x] Prompt/catalog guidance updated.
+- [ ] Verification run (if approved).
+
+## Review Notes
+- Goal is end-to-end chat-triggered folder creation with policy + verification from backend run status.
+
+---
+
+## Plan: Workspace Agent Vertical Slice (Phase 1 - mkdir only)
+
+1) Create backend skeleton for agent runs with minimal endpoints:
+- `POST /agent/runs`
+- `GET /agent/runs/:id`
+2) Implement in-memory run store and deterministic run lifecycle state.
+3) Add root-jail path guard and policy gate for `mkdir` action only.
+4) Execute safe `mkdir` operation with verification (`directory exists` check).
+5) Wire initial TypeScript modules:
+- `server/index.ts`
+- `server/routes/agentRoutes.ts`
+- `server/agent/runStore.ts`
+- `server/agent/pathGuard.ts`
+- `server/agent/policyEngine.ts`
+- `server/agent/fsOps.ts`
+6) Keep this slice backend-only (no frontend tool wiring yet).
+7) Verification (if approved):
+- `npm run build`
+- `npm test -- --run`
+
+## Progress
+- [x] Plan added to `tasks/todo.md`.
+- [x] Backend skeleton created.
+- [x] Path guard + mkdir policy implemented.
+- [x] mkdir execution + verification implemented.
+- [ ] Verification run (if approved).
+
+## Review Notes
+- Scope intentionally limited to a single safe action (`mkdir`) to validate architecture before adding write/search/git operations.
+- Added files:
+- `server/index.ts`
+- `server/routes/agentRoutes.ts`
+- `server/agent/runStore.ts`
+- `server/agent/pathGuard.ts`
+- `server/agent/policyEngine.ts`
+- `server/agent/fsOps.ts`
+
+---
+
 ## Plan: Runtime Stability Fixes (Phase 2B Follow-Up)
 
 1) Fix context synthesis watermark query to use valid timestamp columns per table in `src/services/contextSynthesisService.ts`.
@@ -460,3 +834,189 @@ pm test -- --run.
 - Step 3 semantic tuning is implemented; runtime verification is required to confirm higher semantic contribution rate.
 - Step 4 fallback prompt bloat reduction is implemented; runtime verification is required to confirm improved prompt focus.
 
+
+---
+
+## Plan: Cron Failure Visibility + Cron Activity Log
+
+1) Add cron activity event storage:
+- `supabase/migrations/20260220_cron_job_events.sql`
+- table for lifecycle logs (created/updated/deleted/paused/resumed/run-triggered/run-success/run-failed/etc.)
+2) Add cron event and failure queue support in service:
+- `src/services/cronJobService.ts`
+- add event types + list API + write helper
+- add query for pending failed cron alerts
+3) Add scheduled prompt context for failed runs:
+- `src/services/system_prompts/context/scheduledDigestsContext.ts`
+- include failed-run alerts alongside successful digests and use mark action after sharing
+4) Add immediate failure chat message from scheduler:
+- `server/scheduler/cronScheduler.ts`
+- on execution failure, insert model message row into `conversation_history` and mark failed run delivered
+5) Add admin Cron Jobs activity log panel:
+- `src/components/AdminDashboardView.tsx`
+- show event timeline including create/edit/delete and run success/failure
+6) Verification (if approved):
+- `npm run build`
+- `npm test -- --run`
+
+## Progress
+- [x] Plan added to `tasks/todo.md`.
+- [x] Migration added.
+- [x] Cron service updates.
+- [x] Prompt context updates.
+- [x] Scheduler failure notification updates.
+- [x] Admin Cron activity log UI updates.
+- [ ] Verification run (if approved).
+
+## Review Notes
+- Goal: avoid silent cron failures and provide visible lifecycle logs in chat + admin UI.
+
+---
+
+## Plan: Fix Timed Promise Selfie Delivery
+
+1) Ensure promise mirror cron execution queues a real pending promise delivery (not summary-only).
+2) Mark source promise fulfilled when queued by scheduler.
+3) Add client pending-message consumption loop in chat to deliver queued messages (including selfie generation).
+4) Verification (if approved):
+- `npm run build`
+- Manual timed promise test at near-future time.
+
+## Progress
+- [x] Scheduler queues pending promise deliveries for `promise_reminder:*` cron jobs.
+- [x] Scheduler marks corresponding promise as fulfilled.
+- [x] Chat consumes pending messages every 30s in `chat` view and renders selfie messages with image when applicable.
+- [ ] Verification run (if approved).
+
+## Review Notes
+- Root cause: cron mirror previously logged reminder success but did not execute fulfillment path.
+
+Update: Scoped pending-message delivery to cron source and added cron success/failure text queueing so cron outputs surface in chat without draining unrelated backlog.
+
+Update: Pending cron delivery now uses fetch-then-ack (ack only after chat append success) to prevent silent drops.
+
+---
+
+## Plan: WhatsApp Reply JID (LID vs PN)
+
+1) Confirm current reply routing in:
+- `server/whatsapp/whatsappHandler.ts`
+2) Decide desired behavior for self-chat LID:
+- reply to `WHATSAPP_PHONE_JID` only, or send to both `@lid` and `@s.whatsapp.net`
+3) Implement reply JID selection + logging (minimal change):
+- `server/whatsapp/whatsappHandler.ts`
+4) Optional: log local account JID on connect to help set env var:
+- `server/whatsapp/baileyClient.ts`
+5) Verification (if approved):
+- Manual: send self-chat message and confirm delivery appears on phone and (optionally) UI dashboard.
+
+## Progress
+- [x] Plan added to `tasks/todo.md`.
+- [x] Normalization helper added in `server/whatsapp/baileyClient.ts`.
+- [x] Reply JID plumbed through `server/whatsapp/whatsappHandler.ts`.
+- [ ] Verification pending approval.
+
+## Review Notes
+- Goal: ensure WhatsApp replies appear on the phone when inbound JID is `@lid`.
+
+---
+
+## Plan: WhatsApp US JID Normalization (SenderPn/LID)
+
+1) Add a small normalization helper to prefer `senderPn`/`participantPn` when available:
+- `server/whatsapp/baileyClient.ts`
+2) If inbound `remoteJid` ends with `@lid`, map to `@s.whatsapp.net` using:
+- `remoteJidAlt` or `participantPn` when present
+3) Pass the normalized reply JID into the handler so replies land on the phone:
+- `server/whatsapp/whatsappHandler.ts`
+4) Add structured logs for normalization decisions (US numbers only, no BR fixes).
+5) Verification (if approved):
+- Manual: send a self-chat message and confirm the reply appears on the phone and in the intended thread.
+
+## Progress
+- [x] Plan added to `tasks/todo.md`.
+- [ ] Waiting on approval to patch.
+
+## Review Notes
+- Scope: US numbers only; avoid Brazil-specific digit correction or contact merge logic.
+
+---
+
+## Plan: Grok Selfie Random Reference Fallback (WhatsApp)
+
+1) Add a Grok-safe reference picker that can return a random URL when selection fails:
+- `src/utils/referenceImages/index.ts`
+2) Use the random URL fallback in Grok selfie generation when `selectedReferenceURL` is missing:
+- `src/services/imageGenerationService.ts`
+3) Add explicit structured logs for missing reference + fallback choice:
+- `src/services/imageGenerationService.ts`
+4) Verification (if approved):
+- Manual: WhatsApp selfie request with Grok enabled
+- `npm test -- --run`
+
+## Progress
+- [ ] Waiting on approval to patch.
+
+## Review Notes
+- Goal: avoid Grok 422 “image.url missing” by always providing a valid reference URL.
+
+---
+
+## Plan: Save WhatsApp Selfies Server-Side (No /api/save-selfie)
+
+1) Skip client-only auto-save when running in Node to avoid invalid relative URL:
+- `src/services/imageGenerationService.ts`
+2) Save WhatsApp selfie images directly in the server handler:
+- `server/whatsapp/whatsappHandler.ts`
+3) Add structured logs for saved file path/filename:
+- `server/whatsapp/whatsappHandler.ts`
+4) Verification (if approved):
+- Manual WhatsApp selfie request
+
+## Progress
+- [ ] Waiting on approval to patch.
+
+## Review Notes
+- Goal: keep dev web auto-save working while persisting WhatsApp selfies in `selfies/`.
+
+---
+
+## Plan: WhatsApp GIF/Video URL Validation + Logging
+
+1) Add a shared media fetch/validation helper to verify URL fetchability, status, content-type, and non-empty payload:
+- `server/whatsapp/whatsappHandler.ts`
+2) Use the validator for GIF MP4 sending with explicit fallback text/logs when invalid:
+- `server/whatsapp/whatsappHandler.ts`
+3) Use the validator for standard video sending with explicit fallback text/logs when invalid:
+- `server/whatsapp/whatsappHandler.ts`
+4) Verification (if approved):
+- Manual: trigger a GIF and video response, confirm either media sends or fallback text with clear logs.
+
+## Progress
+- [ ] Waiting on approval to patch.
+
+## Review Notes
+- Goal: prevent made-up `gifUrl`/`videoUrl` from being sent; only send verified MP4 content.
+
+---
+
+## Plan: WhatsApp Media Understanding (Images + GIF/Video)
+
+1) Inbound media capture:
+- Use `downloadMediaMessage` for images, stickers, and video/GIF in `server/whatsapp/baileyClient.ts`.
+2) Image/sticker understanding:
+- Convert sticker WebP to JPEG via `sharp`.
+- Send `image_text` input to Gemini (text + base64) from `server/whatsapp/baileyClient.ts` → `handleWhatsAppMessage`.
+3) Video/GIF understanding:
+- Option A: Extract first frame using ffmpeg (system dependency) and send as `image_text`.
+- Option B: If no frame extraction, send a text placeholder only (no visual understanding).
+4) Wire messageOrchestrator to accept `image_text` user content for WhatsApp path if needed:
+- `src/services/messageOrchestrator.ts`
+5) Verification (if approved):
+- Manual: send image, sticker, GIF MP4, and video; confirm logs and Kayley’s descriptions.
+
+## Progress
+- [ ] Waiting on approval to patch.
+
+## Review Notes
+- Decision needed: allow ffmpeg dependency for video/GIF frame extraction, or accept text-only understanding for video/GIF.

@@ -56,7 +56,18 @@ import { StorageKey } from './utils/enums';
 import { runIdleThinkingTick } from './services/idleThinkingService';
 import { registerXAuthTestHelper } from './services/xAuthTestHelper';
 import { handleXAuthCallback, refreshRecentTweetMetrics } from './services/xTwitterService';
+import { handleOAuthCallback as handleAnthropicOAuthCallback } from './services/anthropicService';
 import { pollAndProcessMentions } from './services/xMentionService';
+import {
+  ackPendingMessageDelivered,
+  fetchNextPendingMessage,
+} from './services/pendingMessageService';
+import {
+  listWorkspaceAgentRuns,
+  subscribeWorkspaceAgentEvents,
+  type WorkspaceAgentRun,
+  type WorkspaceAgentRunStatus,
+} from './services/projectAgentService';
 
 // Register X auth test helper on window (dev only)
 if (import.meta.env.DEV) {
@@ -76,6 +87,53 @@ interface DisplayCharacter {
   videoUrl: string;
 }
 
+const WORKSPACE_CHAT_ANNOUNCE_STATUSES: ReadonlySet<WorkspaceAgentRunStatus> = new Set([
+  'requires_approval',
+  'rejected',
+  'success',
+  'failed',
+  'verification_failed',
+]);
+
+function getWorkspaceActionTarget(run: WorkspaceAgentRun): string {
+  const path = run.request?.args?.path;
+  if (typeof path === 'string' && path.trim().length > 0) {
+    return ` (${path})`;
+  }
+  return '';
+}
+
+function formatWorkspaceRunStatusMessage(run: WorkspaceAgentRun): string | null {
+  const action = run.request?.action || 'workspace action';
+  const target = getWorkspaceActionTarget(run);
+
+  if (run.status === 'accepted' || run.status === 'pending' || run.status === 'running') {
+    return `[Agent] Started ${action}${target}. Run ${run.id} is ${run.status}.`;
+  }
+
+  if (run.status === 'requires_approval') {
+    return `[Agent] ${action}${target} needs approval in Admin > Agent. Run ${run.id}.`;
+  }
+
+  if (run.status === 'success') {
+    return `[Agent] Completed ${action}${target}. ${run.summary} (Run ${run.id}).`;
+  }
+
+  if (run.status === 'verification_failed') {
+    return `[Agent] ${action}${target} could not be verified. ${run.summary} (Run ${run.id}).`;
+  }
+
+  if (run.status === 'failed') {
+    return `[Agent] ${action}${target} failed. ${run.summary} (Run ${run.id}).`;
+  }
+
+  if (run.status === 'rejected') {
+    return `[Agent] ${action}${target} was rejected. ${run.summary} (Run ${run.id}).`;
+  }
+
+  return null;
+}
+
 // ============================================================================
 // MAIN COMPONENT
 // ============================================================================
@@ -90,6 +148,32 @@ const App: React.FC = () => {
   // X OAUTH CALLBACK HANDLER
   // --------------------------------------------------------------------------
   const [xAuthStatus, setXAuthStatus] = useState<'idle' | 'processing' | 'success' | 'error'>('idle');
+  const [anthropicAuthStatus, setAnthropicAuthStatus] = useState<'idle' | 'processing' | 'success' | 'error'>('idle');
+
+  // Anthropic OAuth callback handler
+  useEffect(() => {
+    const url = new URL(window.location.href);
+    if (url.pathname === '/auth/anthropic/callback') {
+      const code = url.searchParams.get('code');
+      const state = url.searchParams.get('state');
+      if (code && state) {
+        setAnthropicAuthStatus('processing');
+        handleAnthropicOAuthCallback(code, state)
+          .then((success) => {
+            console.log('Anthropic OAuth callback:', success ? 'succeeded' : 'failed');
+            setAnthropicAuthStatus(success ? 'success' : 'error');
+            window.history.replaceState({}, '', '/');
+          })
+          .catch((error) => {
+            console.error('Anthropic OAuth callback failed:', error);
+            setAnthropicAuthStatus('error');
+            window.history.replaceState({}, '', '/');
+          });
+      } else {
+        window.history.replaceState({}, '', '/');
+      }
+    }
+  }, []);
 
   useEffect(() => {
     const url = new URL(window.location.href);
@@ -149,6 +233,14 @@ const App: React.FC = () => {
   const [aiSession, setAiSession] = useState<AIChatSession | null>(null);
   const [lastSavedMessageIndex, setLastSavedMessageIndex] = useState<number>(-1);
   const [relationship, setRelationship] = useState<RelationshipMetrics | null>(null);
+  const chatHistoryRef = useRef<ChatMessage[]>([]);
+  const workspaceRunStatusRef = useRef<Map<string, WorkspaceAgentRunStatus>>(new Map());
+  const workspaceStatusBaselineReadyRef = useRef(false);
+  const pendingMessageInFlightRef = useRef(false);
+
+  useEffect(() => {
+    chatHistoryRef.current = chatHistory;
+  }, [chatHistory]);
 
   // --------------------------------------------------------------------------
   // CHARACTER MANAGEMENT STATE (Partial - rest managed by useCharacterManagement hook)
@@ -523,6 +615,179 @@ const App: React.FC = () => {
     };
   }, [selectedCharacter, media, playAction]);
 
+  const syncWorkspaceRunStatus = useCallback(
+    (run: WorkspaceAgentRun, shouldEmitChatMessage: boolean) => {
+      const previousStatus = workspaceRunStatusRef.current.get(run.id);
+      if (previousStatus === run.status) {
+        return;
+      }
+
+      workspaceRunStatusRef.current.set(run.id, run.status);
+
+      if (!shouldEmitChatMessage) {
+        return;
+      }
+
+      if (!WORKSPACE_CHAT_ANNOUNCE_STATUSES.has(run.status)) {
+        return;
+      }
+
+      const message = formatWorkspaceRunStatusMessage(run);
+      if (!message) {
+        return;
+      }
+
+      setChatHistory((prev) => [...prev, { role: 'system', text: message }]);
+    },
+    [],
+  );
+
+  const backfillWorkspaceRuns = useCallback(
+    async (shouldEmitChatMessage: boolean) => {
+      const result = await listWorkspaceAgentRuns(20);
+      if (!result.ok) {
+        console.warn('[WorkspaceAgentChat] Failed to list runs for backfill', {
+          error: result.error,
+        });
+        return;
+      }
+
+      // API returns newest-first; process oldest-first for natural chat order.
+      [...result.runs]
+        .reverse()
+        .forEach((run) => syncWorkspaceRunStatus(run, shouldEmitChatMessage));
+    },
+    [syncWorkspaceRunStatus],
+  );
+
+  useEffect(() => {
+    if (!session || !selectedCharacter) {
+      return;
+    }
+
+    let isDisposed = false;
+
+    const unsubscribe = subscribeWorkspaceAgentEvents({
+      onEvent: (event) => {
+        if (isDisposed) {
+          return;
+        }
+
+        if (event.type === 'connected') {
+          if (!workspaceStatusBaselineReadyRef.current) {
+            workspaceStatusBaselineReadyRef.current = true;
+            void backfillWorkspaceRuns(false);
+            return;
+          }
+
+          void backfillWorkspaceRuns(true);
+          return;
+        }
+
+        if (event.run) {
+          syncWorkspaceRunStatus(event.run, true);
+        }
+      },
+      onError: () => {
+        console.warn('[WorkspaceAgentChat] Event stream disconnected; waiting to reconnect.');
+      },
+    });
+
+    return () => {
+      isDisposed = true;
+      unsubscribe();
+    };
+  }, [backfillWorkspaceRuns, selectedCharacter, session, syncWorkspaceRunStatus]);
+
+  useEffect(() => {
+    if (view !== 'chat' || !selectedCharacter || !session) {
+      return;
+    }
+
+    let isDisposed = false;
+
+    const tryDeliverPendingMessage = async () => {
+      if (pendingMessageInFlightRef.current || isDisposed) {
+        return;
+      }
+
+      pendingMessageInFlightRef.current = true;
+      try {
+        const pending = await fetchNextPendingMessage();
+        if (!pending || isDisposed) {
+          return;
+        }
+
+        let assistantImage: string | undefined;
+        let assistantImageMimeType: string | undefined;
+
+        if (pending.messageType === 'photo') {
+          const selfieParams = (pending.metadata?.selfieParams || {}) as Record<string, unknown>;
+          const scene =
+            typeof selfieParams.scene === 'string' && selfieParams.scene.trim().length > 0
+              ? selfieParams.scene
+              : 'casual outdoor selfie';
+          const mood =
+            typeof selfieParams.mood === 'string' && selfieParams.mood.trim().length > 0
+              ? selfieParams.mood
+              : 'happy smile';
+          const outfit =
+            typeof selfieParams.outfit === 'string' ? selfieParams.outfit : undefined;
+
+          const selfieResult = await processSelfieAction(
+            { scene, mood, outfit },
+            {
+              userMessage: 'pending message delivery',
+              chatHistory: chatHistoryRef.current,
+              upcomingEvents,
+            },
+          );
+
+          if (selfieResult.success && selfieResult.imageBase64) {
+            assistantImage = selfieResult.imageBase64;
+            assistantImageMimeType = selfieResult.mimeType || 'image/png';
+          } else if (selfieResult.error) {
+            console.error('[PendingMessage] Selfie generation failed', selfieResult.error);
+          }
+        }
+
+        const modelMessage: ChatMessage = {
+          role: 'model',
+          text: pending.messageText,
+          assistantImage,
+          assistantImageMimeType,
+        };
+
+        setChatHistory((prev) => [...prev, modelMessage]);
+        await conversationHistoryService.appendConversationHistory(
+          [{ role: 'model', text: pending.messageText }],
+          aiSession?.interactionId,
+        );
+
+        const acked = await ackPendingMessageDelivered(pending.id);
+        if (!acked) {
+          console.warn('[PendingMessage] Delivery ack skipped or already claimed', {
+            pendingMessageId: pending.id,
+          });
+        }
+      } catch (error) {
+        console.error('[PendingMessage] Delivery failed', error);
+      } finally {
+        pendingMessageInFlightRef.current = false;
+      }
+    };
+
+    void tryDeliverPendingMessage();
+    const intervalId = window.setInterval(() => {
+      void tryDeliverPendingMessage();
+    }, 30_000);
+
+    return () => {
+      isDisposed = true;
+      window.clearInterval(intervalId);
+    };
+  }, [aiSession?.interactionId, selectedCharacter, session, upcomingEvents, view]);
+
   const handleSpeechStart = useCallback(() => {
     setIsSpeaking(true);
     if (!isTalkingActionId(currentActionId || '')) {
@@ -640,13 +905,14 @@ const App: React.FC = () => {
     console.log("[IdleThinking] User is idle. Running idle thinking tick...");
 
     try {
-      idleThinkingInFlightRef.current = true;
-      const result = await runIdleThinkingTick({
-        allowStoryline: proactiveSettings.checkins,
-        allowQuestion: proactiveSettings.checkins,
-        allowBrowse: proactiveSettings.news,
-      });
-      console.log("[IdleThinking] Idle thinking result:", result);
+      // idleThinkingInFlightRef.current = true;
+      // const result = await runIdleThinkingTick({
+      //   allowStoryline: proactiveSettings.checkins,
+      //   allowQuestion: proactiveSettings.checkins,
+      //   allowBrowse: proactiveSettings.news,
+      // });
+      // console.log("[IdleThinking] Idle thinking result:", result);
+      console.log("IDLE THINK COMMENTED OUT")
     } catch (error) {
       console.error("[IdleThinking] Error:", error);
     } finally {

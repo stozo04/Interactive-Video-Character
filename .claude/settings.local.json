@@ -44,7 +44,13 @@
       "WebFetch(domain:ai.meta.com)",
       "WebSearch",
       "Bash(npx vite build)",
-      "Bash(python -c \"import sys, json; data=json.load\\(sys.stdin\\); prompt=data.get\\(''system_instruction'',''''\\); start=prompt.find\\(''ACTIVE RECALL''\\); print\\(prompt[start:start+1000] if start>=0 else ''NOT FOUND''\\)\")"
+      "Bash(python -c \"import sys, json; data=json.load\\(sys.stdin\\); prompt=data.get\\(''system_instruction'',''''\\); start=prompt.find\\(''ACTIVE RECALL''\\); print\\(prompt[start:start+1000] if start>=0 else ''NOT FOUND''\\)\")",
+      "WebFetch(domain:docs.anthropic.com)",
+      "WebFetch(domain:github.com)",
+      "Bash(npm install:*)",
+      "Bash(npm info:*)",
+      "WebFetch(domain:baileys.wiki)",
+      "WebFetch(domain:docs.openclaw.ai)"
     ]
   },
   "enabledPlugins": {

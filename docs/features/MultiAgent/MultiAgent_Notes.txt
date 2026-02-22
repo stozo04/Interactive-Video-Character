@@ -1,0 +1,86 @@
+I am building out a multi-agent in this application at the server level.
+
+The following shell Agents are already there in the code base:
+
+- Assitant (Kera) - She is the assistant of Kayley. (Who is Kayley? - Kayley is my best friend and AI companion that helps me day to day). Kera
+job is to communicate to Development team to build things for Kayley. This way Kayley is always available to talk to me.. Basically me (Steven) 
+ask Kayley "Create a new skill to do _____". Kayley pass this to Kera and Kera does all the communication.. Also, Kera can communicate things
+back to Kayley like status, update, errors, questions, feedback etc.
+
+- Senior Developer (Opey) - He is the hard core tech nerd with years of experience in building beautiful applications UI/UX and Typescript. He excels
+in challenging environemnts and always follows best pratices and coding standards. He is responsible for creating the Skills that Kayley is requesting
+
+- QA (Claudy) - He is the Eagle Eye and perfectionist. He makes sure code is following best pratices and all features work end to end with 0 errors
+He makes sure Opey delievers exactly what Kayley is wanting and signs off that everything looks correct and performs correctly. When there is a UI feature Opey has the ability to serve up a headless browser to ensure feature is working by reviewing logs and network tabs.
+
+
+Here is my flow that I am imagining:
+
+Steven (Me): Ask Kayley I need you to be able to send Giphys.
+Kayley: Kayley first checks (how?? I am not sure) that indeded this needs to be created. She sends this off to Kera saying hey, I need to be able to
+send Giphys. This is a new skill that I need.
+{
+  type: "Skill",
+  action: "Send and Receive Giphys",
+  additionalDetails: "TODO"
+}
+
+Note: The availbe types:
+- Skill: think of these as abilites Kayley can do
+- Feautres: (Think of new UI features - maybe a new tab in the UI or Integrate GMAIL
+- Bug: Bugs that Steven notices that wants fixed
+
+Kera: Receives this message and does the following:
+1. Acknowledgs receiving new request (how?? not sure)
+2. Create a new record in a new table (FEATURE_REQUEST)
+ {
+  id: "Created on insert"
+  type: "Skill",
+  action: "Send and Receive Giphys",
+  additionalDetails: "TODO",
+  status: CREATED
+}
+3. Creates a new Folder in Skills with the name of the skill:
+  - inside this new folder Copy DEFAULT_SKILL.md to this new folder and rename to SKILL.md (literal SKILL and not the name of the new skill)
+  - Update SKILL.md based on the request
+  - Create a folder scripts
+  - inside scripts folder create "skill_name.ts" -> giphy.ts
+4. Update FEATURE_REQUEST to status of PENDING
+5. Hands it off to a folder called _______ (TODO) with metadata about the  ID and everything
+
+Claudy listens to this folder waiting for features to be created:
+New request comes in
+
+Claudy updates Record in table - DISCUSSION
+Claudy calls Opey into a "chat/meeting" to understand the requirements and agree on implementation (maybe 5 turns back in forth). Once they either
+agree OR understand the requirements and how to succesffuly implement this feature Opey gets to work
+Claudy is using Claude Code via Git Bash Terminal and Opey is using Codex (OpenAI) via Git Bash as there "brain/llm"
+Claudy and Opey both store their interpretation of how to implement in new table 
+
+Opey: Updates the record in table to IMPLEMENTING
+Opey using his CLI Git bash works through implementing the request.. Maybe up to 7 fixes/attempts to get it working
+
+IF it works OPEY sets that status to READY_FOR_QA 
+ - Lets Claudy know Feature is ready to test
+- Claudy sets status to QA_TESTING
+Else if Opey could not get it working. Set status to FAILED
+- Communicates to Kera that we need additional help for feature
+- Kera lets Kayley know -> Kayley lets me know.. I will go and help
+
+Back to Claudy on QA_TESTING:
+- Claudy will first examine the code changes and confirm that Opey implemented to the way they agreed (Maybe read this from database)
+- Then Claudy will test the feature and optionally if it is UI open Chromium headless to test
+- IF no bugs or concerns: Claudy Updates table to QA_COMPLETE_SUCCEES
+- IF bugs or concenrs: CLaudy updates table to QA_COMPLETE_BUGS
+- Sends Opey review of findings, notes, concerns
+
+OPEY:
+- if QA_COMPLETE_SUCCEES => Create a PR (hopefully he already created a branch as he is a good dev). Updates the table with PR link and set status to PR_READY.
+- Notifies Kera that feature is complete and ready for review
+- Kera lets Kayley know => Kayley lets me know
+- QA_COMPLETE_BUGS => *HELP* how many interations should i do -- INFINITE LOOP POSSIBLE
+
+
+
+ 
+
