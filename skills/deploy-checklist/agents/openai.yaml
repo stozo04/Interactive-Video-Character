@@ -1,0 +1,8 @@
+interface:
+  display_name: "Deploy Checklist"
+  short_description: "Docker/VM deploy + App/DB rollback runbook"
+  default_prompt: "Use $deploy-checklist to draft a staging+production release checklist with Docker/VM steps and an App+DB rollback plan."
+
+policy:
+  allow_implicit_invocation: true
+

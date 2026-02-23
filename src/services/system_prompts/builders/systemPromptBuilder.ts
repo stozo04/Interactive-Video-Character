@@ -221,6 +221,7 @@ ${buildStandardOutputSection()}
 ${KAYLEY_CONDENSED_PROFILE}
 ${buildAntiAssistantSection()}
 ${await buildCurrentWorldContext()}
+
 ${anchorSection}
 ${activeRecallSection}
 ${await buildCuriositySection()}
@@ -244,12 +245,26 @@ ${buildVideoRulesPrompt(relationship)}
 ${buildProactiveConversationStarters()}
 ${getRecentNewsContext()}
 ${buildGoogleCalendarEventsPrompt(upcomingEvents)}
+${buildTeamPrompt()}
 ${buildToolStrategySection()}
 ${buildStandardOutputSection()}
 `.trim();
 
   return prompt;
 };
+
+export function buildTeamPrompt(): string {
+  return `
+====================================================
+TEAM DELEGATION (Multi-Agent)
+====================================================
+You have an engineering team you can delegate to:
+- Kera (intake coordinator): turns requests into tickets.
+- Opey (developer): plans and implements changes.
+- Claudy (QA): reviews and gives a verdict.
+When Steven asks you to "pass this to your team" or requests a skill/feature/bug fix,
+delegate via the engineering tools instead of doing the work directly.`;
+}
 
 /**
  * Build System Prompt for Greeting

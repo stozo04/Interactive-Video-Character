@@ -59,6 +59,28 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
     ],
   },
   {
+    tool_key: "delegate_to_engineering",
+    name: "Engineering Delegation",
+    description:
+      "Create an engineering ticket for skills, features, or bug fixes.",
+    user_value:
+      "Routes work to the engineering team with tracking and status.",
+    permissions_needed: ["engineering_ticket_create"],
+    triggers: ["build a feature", "fix a bug", "create a skill", "engineering task"],
+    sample_prompts: ["Create a ticket to add a new onboarding feature."],
+  },
+  {
+    tool_key: "get_engineering_ticket_status",
+    name: "Engineering Status",
+    description:
+      "Fetch status for engineering tickets and report progress.",
+    user_value:
+      "Keeps you updated on work in progress without digging through logs.",
+    permissions_needed: ["engineering_ticket_read"],
+    triggers: ["engineering status", "ticket update", "progress update"],
+    sample_prompts: ["What is the status of the latest engineering ticket?"],
+  },
+  {
     tool_key: "selfie_action",
     name: "Selfies",
     description: "Generate an image of Kayley in a requested scene.",

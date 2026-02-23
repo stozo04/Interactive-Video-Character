@@ -441,10 +441,15 @@ async function executeQueuedRun(
   context: AgentRouteContext,
   runId: string,
 ): Promise<void> {
+  const run = await context.runStore.getRun(runId);
+  if (!run) {
+    return;
+  }
+
   await executeRunInBackground({
     runStore: context.runStore,
     runId,
-    workspaceRoot: context.workspaceRoot,
+    workspaceRoot: run.workspaceRoot,
   });
 
   const runAfterExecution = await context.runStore.getRun(runId);

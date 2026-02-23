@@ -11,6 +11,7 @@ export type WorkspaceRunStatus =
 export type WorkspaceRunStepType =
   | "policy_check"
   | "approval"
+  | "command"
   | "mkdir"
   | "read"
   | "write"

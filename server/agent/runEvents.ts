@@ -1,4 +1,5 @@
 import type { WorkspaceRun } from "./runStore";
+import { log } from "./multiAgent/runtimeLogger";
 
 export type WorkspaceRunEventType = "run_created" | "run_updated";
 
@@ -12,6 +13,7 @@ export interface WorkspaceRunEvent {
 type Listener = (event: WorkspaceRunEvent) => void;
 
 export class WorkspaceRunEventHub {
+  private readonly runtimeLog = log.fromContext({ source: "runEvents" });
   private listeners = new Map<number, Listener>();
 
   private sequence = 0;
@@ -21,7 +23,9 @@ export class WorkspaceRunEventHub {
       try {
         listener(event);
       } catch (error) {
-        console.error("[WorkspaceRunEventHub] Listener crashed", { error });
+        this.runtimeLog.error("[WorkspaceRunEventHub] Listener crashed", {
+          error: error instanceof Error ? error.message : String(error),
+        });
       }
     });
   }

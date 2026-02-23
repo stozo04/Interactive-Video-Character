@@ -2,6 +2,7 @@ import path from "node:path";
 import { resolvePathInWorkspace, type ResolvedWorkspacePath } from "./pathGuard";
 
 export type WorkspaceActionType =
+  | "command"
   | "mkdir"
   | "read"
   | "write"
@@ -30,19 +31,114 @@ const PATH_ACTIONS: ReadonlySet<WorkspaceActionType> = new Set([
 ]);
 
 const BLOCKED_SEGMENT_PATTERNS = [/^\.git$/i];
+const SAFE_COMMAND_PREFIXES = [
+  "npm test",
+  "npm run test",
+  "npm run build",
+  "npm run lint",
+  "npm run test:ui",
+  "npm run test:coverage",
+] as const;
+const SHELL_METACHAR_PATTERN = /[|;&><`]/;
 
 export function evaluateWorkspacePolicy(options: {
   workspaceRoot: string;
   action: WorkspaceActionType;
   args: Record<string, unknown>;
+  fullAuto?: boolean;
 }): WorkspacePolicyDecision {
-  const { workspaceRoot, action, args } = options;
+  const { workspaceRoot, action, args, fullAuto } = options;
   const policyNotes: string[] = [];
-  const requiresApproval = action === "delete" || action === "commit" || action === "push";
+  const requiresApproval =
+    !fullAuto &&
+    (action === "delete" ||
+      action === "commit" ||
+      action === "push" ||
+      action === "command");
   const requiresVerification =
     action === "delete" || action === "commit" || action === "push";
 
   try {
+    if (action === "command") {
+      const rawCommand =
+        typeof args.command === "string" ? args.command.trim() : "";
+      if (!rawCommand) {
+        return deny({
+          action,
+          requiresApproval,
+          requiresVerification,
+          policyNotes,
+          denialReason: "args.command is required for command action.",
+        });
+      }
+
+      const normalizedCommand = normalizeCommand(rawCommand);
+      if (!normalizedCommand) {
+        return deny({
+          action,
+          requiresApproval,
+          requiresVerification,
+          policyNotes,
+          denialReason: "args.command is empty after normalization.",
+        });
+      }
+
+      if (SHELL_METACHAR_PATTERN.test(normalizedCommand)) {
+        return deny({
+          action,
+          requiresApproval,
+          requiresVerification,
+          policyNotes,
+          denialReason:
+            "Command contains disallowed shell metacharacters (| ; & > < `).",
+        });
+      }
+
+      const isAllowedCommand = SAFE_COMMAND_PREFIXES.some((prefix) =>
+        normalizedCommand === prefix || normalizedCommand.startsWith(`${prefix} `),
+      );
+      if (!isAllowedCommand) {
+        return deny({
+          action,
+          requiresApproval,
+          requiresVerification,
+          policyNotes,
+          denialReason:
+            `Command not allowlisted: ${normalizedCommand}. Allowed prefixes: ${SAFE_COMMAND_PREFIXES.join(", ")}`,
+        });
+      }
+
+      if (typeof args.timeoutMs !== "undefined") {
+        const timeoutMs = Number(args.timeoutMs);
+        if (!Number.isFinite(timeoutMs) || timeoutMs < 5_000 || timeoutMs > 600_000) {
+          return deny({
+            action,
+            requiresApproval,
+            requiresVerification,
+            policyNotes,
+            denialReason:
+              "args.timeoutMs must be a number between 5000 and 600000 when provided.",
+          });
+        }
+      }
+
+      policyNotes.push("Command matched allowlisted npm script prefix.");
+      policyNotes.push("Command execution is constrained to the workspace root.");
+      if (requiresApproval) {
+        policyNotes.push("Command requires explicit approval outside full-auto mode.");
+      } else {
+        policyNotes.push("Command allowed without approval in full-auto mode.");
+      }
+
+      return {
+        action,
+        allowed: true,
+        requiresApproval,
+        requiresVerification,
+        policyNotes,
+      };
+    }
+
     if (PATH_ACTIONS.has(action)) {
       const pathValue =
         typeof args.path === "string" ? args.path.trim() : "";
@@ -227,6 +323,10 @@ export function evaluateWorkspacePolicy(options: {
         error instanceof Error ? error.message : "Unknown policy evaluation error.",
     });
   }
+}
+
+function normalizeCommand(command: string): string {
+  return command.replace(/\s+/g, " ").trim();
 }
 
 function deny(options: {

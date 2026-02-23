@@ -28,3 +28,31 @@
 - Pattern: Global polling consumed unrelated historical `pending_messages` rows, causing repeated unsolicited promise/thought texts every ~30s.
 - Prevention Rule:
 - Any automated consumer must filter by explicit `metadata.source` and a freshness window; never consume the full undelivered queue by default.
+
+### 2026-02-22 - Confirm provider integration mode (API vs local CLI) before finalizing agent architecture
+- Pattern: I planned Kera/Opey/Claudy around provider API clients, but user intends to run them through local subscriptions via `codex` CLI / `claude` CLI tools (no API calls).
+- Prevention Rule:
+- For multi-agent/provider designs, explicitly confirm the execution mode for each agent role first:
+- local CLI (`codex`, `claude`, etc.) vs SDK/API calls
+- auth source (local logged-in subscription vs API key)
+- process isolation model (worktree/container)
+
+### 2026-02-23 - Confirm exact external diagnostic filenames before log analysis
+- Pattern: A provided external file path included a typo (`convo.txt'l`), which would block or misdirect log inspection.
+- Prevention Rule:
+- Before reading user-provided logs or artifacts, validate/copy the exact path string and ask for a correction when any filename looks malformed.
+- Delay log conclusions until the corrected path is confirmed.
+- Multi-agent action design: keep deterministic workspace executor actions (read/write/search/command) separate from LLM judgment steps. Treat `manualVerify` as a Claudy QA review trigger, not a workspace run action, to avoid false "failed" runs and preserve the Opey↔Claudy feedback loop.
+- Opey planning turns should be treated as discovery/planning, not direct file mutation. If planning emits semantic placeholders (`applyFix`, `inspectUITextSources`), defer them and auto-trigger a separate implementation turn constrained to concrete executor actions (`read/search/write/command/status`).
+- If handled failures (non-zero test exit, policy denial, unsupported action) are important for ops debugging, emit runtime `warning`/`error` logs for those outcomes explicitly; exception-only logging is not enough.
+- Do not run JSON-repair retries for transport/runtime CLI failures (e.g., timeouts). Repair prompts can turn hard failures into misleading valid-but-empty envelopes that incorrectly advance orchestration state.
+- For external CLI agents (Codex/Claude), capture local diagnostic logs on timeout/parse failures and persist structured excerpts to runtime logging with ticket correlation. Process stdout/stderr lengths alone are not enough for root-cause debugging.
+- When Opey uses the same Codex CLI timeout for planning and implementation, implementation turns can fail at the hard cutoff even if planning succeeds. Set purpose-based time budgets (`planning` shorter, `implementation/rework` longer) and log the timeout value in the agent turn context.
+- Codex diagnostic snapshots can be misleading if they tail a shared local CLI log file without checking recency. Guard on log-file mtime vs the run start timestamp and skip/flag stale snapshots instead of persisting unrelated session history as ticket diagnostics.
+- For long-running CLI agent turns, add periodic heartbeat logs with elapsed time and timeout budget. Start/timeout/close logs alone leave a long observability gap that looks like a deadlock during real runs.
+- Opey implementation prompts should stay compact and generic: cap prior-plan excerpts/run summaries/deferred-action details and avoid hardcoded issue text in prompt templates, or prompt bloat can slow turns and leak ticket-specific assumptions across bugs.
+- Patch checkpoints must distinguish workflow artifacts from meaningful implementation changes. Untracked scaffold paths like `bugs/` (and generated `patches/` bundles) can make `git status` non-empty even when `git diff` is empty, causing false-positive QA handoffs unless filtered.
+- Opey action vocab drifts between camelCase and snake_case (`readFile` vs `read_file`, `runChecks` vs `run_project_checks`). Normalize common aliases before executor dispatch, or planning runs will fail as unsupported and starve implementation of useful evidence.
+- When Opey implementation completes with read/search-only actions and patch checkpoint finds no meaningful code changes, use a bounded automatic rework loop with explicit patch-checkpoint feedback (attempt count + ignored artifact paths + write requirement) instead of repeatedly stalling in `implementing`.
+- If the workflow conceptually has a `patch` phase, make it explicit in orchestration (diff/status checkpoint + gating) instead of inferring success from an implementation turn alone.
+- State-machine transitions being allowed is not enough; each lifecycle stage that should auto-progress (for example `qa_approved -> pr_preparing`) also needs an actual trigger path (`processNextStep` and/or a watcher) or it will stall silently.

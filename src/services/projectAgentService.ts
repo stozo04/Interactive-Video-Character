@@ -9,6 +9,7 @@ export type WorkspaceAgentRunStatus =
   | "verification_failed";
 
 export type WorkspaceActionType =
+  | "command"
   | "mkdir"
   | "read"
   | "write"

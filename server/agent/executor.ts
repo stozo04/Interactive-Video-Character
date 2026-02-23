@@ -1,3 +1,4 @@
+import { spawn } from "node:child_process";
 import path from "node:path";
 import {
   createDirectoryWithVerification,
@@ -24,8 +25,10 @@ import {
   type WorkspaceRunStatus,
   type WorkspaceRunStore,
 } from "./runStore";
+import { log } from "./multiAgent/runtimeLogger";
 
 const LOG_PREFIX = "[WorkspaceAgentExecutor]";
+const runtimeLog = log.fromContext({ source: "executor" });
 const TERMINAL_STATUSES: ReadonlySet<WorkspaceRunStatus> = new Set([
   "success",
   "failed",
@@ -34,6 +37,7 @@ const TERMINAL_STATUSES: ReadonlySet<WorkspaceRunStatus> = new Set([
 ]);
 
 const SUPPORTED_ACTIONS: ReadonlySet<WorkspaceActionType> = new Set([
+  "command",
   "mkdir",
   "read",
   "write",
@@ -43,17 +47,23 @@ const SUPPORTED_ACTIONS: ReadonlySet<WorkspaceActionType> = new Set([
   "push",
   "delete",
 ]);
+const DEFAULT_COMMAND_TIMEOUT_MS = 300_000;
+const MAX_COMMAND_OUTPUT_BYTES = 64 * 1024;
 
 interface ExecuteRunOptions {
   runStore: WorkspaceRunStore;
   runId: string;
   workspaceRoot: string;
+  fullAuto?: boolean;
 }
 
 export async function executeRunInBackground(
   options: ExecuteRunOptions,
 ): Promise<void> {
-  const { runStore, runId, workspaceRoot } = options;
+  const { runStore, runId, workspaceRoot, fullAuto } = options;
+  const resolvedFullAuto = typeof fullAuto === "boolean"
+    ? fullAuto
+    : isWorktreeRoot(workspaceRoot);
   const run = await runStore.getRun(runId);
   if (!run) {
     return;
@@ -70,6 +80,12 @@ export async function executeRunInBackground(
         `Unsupported action requested: ${currentRun.request.action}`,
       ]),
     );
+    runtimeLog.error(`${LOG_PREFIX} Run failed (unsupported action)`, {
+      runId,
+      action: run.request.action,
+      status: "failed",
+      summary: "Unsupported action requested.",
+    });
     return;
   }
 
@@ -77,6 +93,7 @@ export async function executeRunInBackground(
     workspaceRoot,
     action,
     args: run.request.args,
+    fullAuto: resolvedFullAuto,
   });
 
   const steps: WorkspaceRunStep[] = [];
@@ -95,6 +112,13 @@ export async function executeRunInBackground(
       summary: policy.denialReason || "Policy denied request.",
       steps: cloneSteps(steps),
     }));
+    runtimeLog.error(`${LOG_PREFIX} Run failed (policy denied)`, {
+      runId,
+      action,
+      status: "failed",
+      summary: policy.denialReason || "Policy denied request.",
+      policyNotes: policy.policyNotes,
+    });
     return;
   }
 
@@ -174,15 +198,36 @@ export async function executeRunInBackground(
       summary: execution.summary,
       steps: cloneSteps(mergedSteps),
     }));
+
+    if (finalStatus !== "success") {
+      const failedStep = [...mergedSteps]
+        .reverse()
+        .find((step) => step.status !== "success");
+      const details = {
+        runId,
+        action,
+        status: finalStatus,
+        summary: execution.summary,
+        stepType: failedStep?.type,
+        stepStatus: failedStep?.status,
+        exitCode: failedStep?.exitCode ?? null,
+        error: failedStep?.error,
+      };
+      if (finalStatus === "verification_failed") {
+        runtimeLog.warning(`${LOG_PREFIX} Run completed with verification failure`, details);
+      } else {
+        runtimeLog.error(`${LOG_PREFIX} Run completed with failure`, details);
+      }
+    }
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "Unknown workspace action error.";
 
-    console.error(`${LOG_PREFIX} Run execution failed`, {
+    runtimeLog.error(`${LOG_PREFIX} Run execution failed`, {
       runId,
       action,
       message,
-      error,
+      error: error instanceof Error ? error.message : String(error),
     });
 
     const failureSteps = [
@@ -255,6 +300,60 @@ async function executeAction(
           ? `mkdir completed for ${resolved.relativePath}`
           : `mkdir executed but verification failed for ${resolved.relativePath}`,
         steps: [step, verify],
+      };
+    }
+    case "command": {
+      const command = typeof args.command === "string" ? args.command.trim() : "";
+      const timeoutCandidate = Number(args.timeoutMs);
+      const timeoutMs =
+        Number.isFinite(timeoutCandidate) &&
+        timeoutCandidate >= 5_000 &&
+        timeoutCandidate <= 600_000
+          ? Math.floor(timeoutCandidate)
+          : DEFAULT_COMMAND_TIMEOUT_MS;
+
+      const commandResult = await runWorkspaceCommand({
+        workspaceRoot,
+        command,
+        timeoutMs,
+      });
+      const succeeded = !commandResult.timedOut && commandResult.exitCode === 0;
+      const outputEvidence = [
+        commandResult.stdout
+          ? `STDOUT:\n${commandResult.stdout}`
+          : "STDOUT: (empty)",
+        commandResult.stderr
+          ? `STDERR:\n${commandResult.stderr}`
+          : "STDERR: (empty)",
+      ];
+
+      return {
+        status: succeeded ? "success" : "failed",
+        summary: succeeded
+          ? `command completed: ${command}`
+          : commandResult.timedOut
+            ? `command timed out after ${timeoutMs}ms: ${command}`
+            : `command failed (exit=${commandResult.exitCode ?? "unknown"}): ${command}`,
+        steps: [
+          buildStep("s_exec", "command", succeeded ? "success" : "failed", {
+            evidence: [
+              `Command: ${command}`,
+              `Timeout ms: ${timeoutMs}`,
+              `Duration ms: ${commandResult.durationMs}`,
+              `Timed out: ${commandResult.timedOut ? "yes" : "no"}`,
+              `Exit code: ${commandResult.exitCode ?? "(none)"}`,
+              `STDOUT truncated: ${commandResult.stdoutTruncated ? "yes" : "no"}`,
+              `STDERR truncated: ${commandResult.stderrTruncated ? "yes" : "no"}`,
+              ...outputEvidence,
+            ],
+            error: succeeded
+              ? undefined
+              : commandResult.timedOut
+                ? `Command timed out after ${timeoutMs}ms.`
+                : commandResult.stderr || `Command exited with code ${commandResult.exitCode}.`,
+            exitCode: commandResult.exitCode,
+          }),
+        ],
       };
     }
     case "read": {
@@ -544,6 +643,122 @@ async function executeAction(
   }
 }
 
+interface WorkspaceCommandResult {
+  exitCode: number | null;
+  stdout: string;
+  stderr: string;
+  timedOut: boolean;
+  durationMs: number;
+  stdoutTruncated: boolean;
+  stderrTruncated: boolean;
+}
+
+async function runWorkspaceCommand(options: {
+  workspaceRoot: string;
+  command: string;
+  timeoutMs: number;
+}): Promise<WorkspaceCommandResult> {
+  const { workspaceRoot, command, timeoutMs } = options;
+  return new Promise((resolve) => {
+    const startedAt = Date.now();
+    const child = spawn(command, {
+      cwd: workspaceRoot,
+      shell: true,
+      windowsHide: true,
+    });
+
+    let stdout = "";
+    let stderr = "";
+    let stdoutTruncated = false;
+    let stderrTruncated = false;
+    let timedOut = false;
+    let settled = false;
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
+
+    const appendChunk = (
+      current: string,
+      chunk: string,
+      limitBytes: number,
+    ): { next: string; truncated: boolean } => {
+      const currentBytes = Buffer.byteLength(current, "utf8");
+      if (currentBytes >= limitBytes) {
+        return { next: current, truncated: true };
+      }
+      const remainingBytes = limitBytes - currentBytes;
+      const chunkBytes = Buffer.byteLength(chunk, "utf8");
+      if (chunkBytes <= remainingBytes) {
+        return { next: current + chunk, truncated: false };
+      }
+
+      // Trim conservatively by character to stay under the byte cap.
+      let slice = chunk;
+      while (slice.length > 0 && Buffer.byteLength(slice, "utf8") > remainingBytes) {
+        slice = slice.slice(0, -1);
+      }
+      return { next: current + slice, truncated: true };
+    };
+
+    const finish = (exitCode: number | null): void => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
+      resolve({
+        exitCode,
+        stdout,
+        stderr,
+        timedOut,
+        durationMs: Date.now() - startedAt,
+        stdoutTruncated,
+        stderrTruncated,
+      });
+    };
+
+    timeoutId = setTimeout(() => {
+      timedOut = true;
+      if (process.platform === "win32" && typeof child.pid === "number") {
+        const killer = spawn("taskkill", ["/PID", String(child.pid), "/T", "/F"], {
+          shell: false,
+          windowsHide: true,
+          stdio: "ignore",
+        });
+        killer.on("error", () => {
+          child.kill("SIGKILL");
+        });
+      } else {
+        child.kill("SIGTERM");
+        setTimeout(() => {
+          child.kill("SIGKILL");
+        }, 2_000).unref();
+      }
+    }, timeoutMs);
+
+    child.stdout?.on("data", (chunk) => {
+      const appended = appendChunk(stdout, chunk.toString(), MAX_COMMAND_OUTPUT_BYTES);
+      stdout = appended.next;
+      stdoutTruncated = stdoutTruncated || appended.truncated;
+    });
+
+    child.stderr?.on("data", (chunk) => {
+      const appended = appendChunk(stderr, chunk.toString(), MAX_COMMAND_OUTPUT_BYTES);
+      stderr = appended.next;
+      stderrTruncated = stderrTruncated || appended.truncated;
+    });
+
+    child.on("error", (error) => {
+      stderr = [stderr, error.message].filter(Boolean).join("\n");
+      finish(1);
+    });
+
+    child.on("close", (exitCode) => {
+      finish(typeof exitCode === "number" ? exitCode : null);
+    });
+  });
+}
+
 function asAction(raw: string): WorkspaceActionType | null {
   if (!SUPPORTED_ACTIONS.has(raw as WorkspaceActionType)) {
     return null;
@@ -565,6 +780,14 @@ function requireResolvedPath(
 
 function normalizeRelativePath(relativePath: string): string {
   return relativePath.split(path.sep).join("/");
+}
+
+function isWorktreeRoot(workspaceRoot: string): boolean {
+  const segments = workspaceRoot
+    .split(path.sep)
+    .flatMap((segment) => segment.split("/"))
+    .filter(Boolean);
+  return segments.includes(".worktrees");
 }
 
 function actionToStepType(action: WorkspaceActionType): WorkspaceRunStepType {

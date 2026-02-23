@@ -32,6 +32,22 @@ import {
   CronJobStatus,
   CronScheduleType,
 } from '../services/cronJobService';
+import {
+  listEngineeringTicketEvents,
+  listEngineeringTicketTurns,
+  listEngineeringTickets,
+  transitionEngineeringTicket,
+  listChatSessions,
+  createChatSession,
+  listChatMessages,
+  postChatMessage,
+  type EngineeringTicket,
+  type EngineeringTicketEvent,
+  type EngineeringAgentTurn,
+  type EngineeringTicketStatus,
+  type EngineeringChatSession,
+  type EngineeringChatMessage,
+} from '../services/multiAgentService';
 import DataTable from './DataTable';
 import FactEditModal from './FactEditModal';
 import AnthropicTab from './AnthropicTab';
@@ -44,7 +60,7 @@ interface AdminDashboardViewProps {
 const USER_CATEGORIES = ['all', 'identity', 'preference', 'relationship', 'context'];
 const CHARACTER_CATEGORIES = ['all', 'quirk', 'relationship', 'experience', 'preference', 'detail', 'other'];
 const AGENT_RUN_LIMIT = 50;
-type AdminDashboardMode = 'facts' | 'agent' | 'cron';
+type AdminDashboardMode = 'facts' | 'agent' | 'cron' | 'multi_agent';
 type AgentTab = 'anthropic' | 'openai' | 'google';
 
 interface CronFormState {
@@ -69,6 +85,30 @@ const DEFAULT_CRON_FORM: CronFormState = {
   oneTimeAt: '',
 };
 type GoogleSubTab = 'api' | 'agent_status';
+const MULTI_AGENT_TICKET_LIMIT = 50;
+const MULTI_AGENT_EVENT_LIMIT = 100;
+const MULTI_AGENT_TURN_LIMIT = 100;
+const MULTI_AGENT_CHAT_LIMIT = 50;
+const MULTI_AGENT_CHAT_MESSAGE_LIMIT = 120;
+const MULTI_AGENT_STATUSES: EngineeringTicketStatus[] = [
+  'created',
+  'intake_acknowledged',
+  'needs_clarification',
+  'requirements_ready',
+  'planning',
+  'implementing',
+  'ready_for_qa',
+  'qa_testing',
+  'qa_changes_requested',
+  'qa_approved',
+  'pr_preparing',
+  'pr_ready',
+  'completed',
+  'failed',
+  'escalated_human',
+  'cancelled',
+];
+type MultiAgentTab = 'tickets' | 'chats';
 
 export default function AdminDashboardView({ onBack }: AdminDashboardViewProps) {
   const [mode, setMode] = useState<AdminDashboardMode>('facts');
@@ -110,6 +150,24 @@ export default function AdminDashboardView({ onBack }: AdminDashboardViewProps) 
   const [cronError, setCronError] = useState<string | null>(null);
   const [editingCronJobId, setEditingCronJobId] = useState<string | null>(null);
   const [cronForm, setCronForm] = useState<CronFormState>({ ...DEFAULT_CRON_FORM });
+
+  // Multi-agent mode state
+  const [multiAgentTickets, setMultiAgentTickets] = useState<EngineeringTicket[]>([]);
+  const [multiAgentEvents, setMultiAgentEvents] = useState<EngineeringTicketEvent[]>([]);
+  const [multiAgentTurns, setMultiAgentTurns] = useState<EngineeringAgentTurn[]>([]);
+  const [selectedTicketId, setSelectedTicketId] = useState<string | null>(null);
+  const [multiAgentError, setMultiAgentError] = useState<string | null>(null);
+  const [isMultiAgentLoading, setIsMultiAgentLoading] = useState(false);
+  const [transitionStatus, setTransitionStatus] = useState<EngineeringTicketStatus>('planning');
+  const [transitionSummary, setTransitionSummary] = useState('');
+  const [multiAgentTab, setMultiAgentTab] = useState<MultiAgentTab>('tickets');
+  const [chatSessions, setChatSessions] = useState<EngineeringChatSession[]>([]);
+  const [chatMessages, setChatMessages] = useState<EngineeringChatMessage[]>([]);
+  const [selectedChatId, setSelectedChatId] = useState<string | null>(null);
+  const [chatTitle, setChatTitle] = useState('');
+  const [chatMode, setChatMode] = useState<'direct_agent' | 'team_room'>('direct_agent');
+  const [chatTicketId, setChatTicketId] = useState('');
+  const [chatMessageText, setChatMessageText] = useState('');
 
   const categories = activeTable === 'user_facts' ? USER_CATEGORIES : CHARACTER_CATEGORIES;
 
@@ -178,6 +236,44 @@ export default function AdminDashboardView({ onBack }: AdminDashboardViewProps) 
     }
   }, []);
 
+  const loadMultiAgentData = useCallback(async () => {
+    setIsMultiAgentLoading(true);
+    setMultiAgentError(null);
+    try {
+      const ticketsResult = await listEngineeringTickets(MULTI_AGENT_TICKET_LIMIT);
+      if (!ticketsResult.ok) {
+        setMultiAgentTickets([]);
+        setMultiAgentError(ticketsResult.error || 'Failed to load engineering tickets.');
+      } else {
+        setMultiAgentTickets(ticketsResult.tickets);
+      }
+    } catch (err) {
+      console.error('[AdminDashboard] Multi-agent load failed', err);
+      setMultiAgentError('Failed to load engineering tickets.');
+    } finally {
+      setIsMultiAgentLoading(false);
+    }
+  }, []);
+
+  const loadChatSessions = useCallback(async () => {
+    setIsMultiAgentLoading(true);
+    setMultiAgentError(null);
+    try {
+      const result = await listChatSessions(MULTI_AGENT_CHAT_LIMIT);
+      if (!result.ok) {
+        setChatSessions([]);
+        setMultiAgentError(result.error || 'Failed to load chat sessions.');
+      } else {
+        setChatSessions(result.sessions);
+      }
+    } catch (err) {
+      console.error('[AdminDashboard] Chat session load failed', err);
+      setMultiAgentError('Failed to load chat sessions.');
+    } finally {
+      setIsMultiAgentLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     if (mode !== 'facts') {
       return;
@@ -201,6 +297,22 @@ export default function AdminDashboardView({ onBack }: AdminDashboardViewProps) 
 
     void loadCronData();
   }, [mode, loadCronData]);
+
+  useEffect(() => {
+    if (mode !== 'multi_agent') {
+      return;
+    }
+
+    void loadMultiAgentData();
+  }, [mode, loadMultiAgentData]);
+
+  useEffect(() => {
+    if (mode !== 'multi_agent') {
+      return;
+    }
+
+    void loadChatSessions();
+  }, [mode, loadChatSessions]);
 
   useEffect(() => {
     if (mode !== 'agent' || agentTab !== 'google') {
@@ -277,6 +389,97 @@ export default function AdminDashboardView({ onBack }: AdminDashboardViewProps) 
       setSelectedRunId(agentRuns[0].id);
     }
   }, [agentRuns, selectedRunId]);
+
+  useEffect(() => {
+    if (multiAgentTickets.length === 0) {
+      setSelectedTicketId(null);
+      return;
+    }
+
+    const ticketExists = selectedTicketId
+      ? multiAgentTickets.some((ticket) => ticket.id === selectedTicketId)
+      : false;
+
+    if (!ticketExists) {
+      setSelectedTicketId(multiAgentTickets[0].id);
+    }
+  }, [multiAgentTickets, selectedTicketId]);
+
+  useEffect(() => {
+    if (chatSessions.length === 0) {
+      setSelectedChatId(null);
+      return;
+    }
+
+    const exists = selectedChatId
+      ? chatSessions.some((session) => session.id === selectedChatId)
+      : false;
+
+    if (!exists) {
+      setSelectedChatId(chatSessions[0].id);
+    }
+  }, [chatSessions, selectedChatId]);
+
+  useEffect(() => {
+    if (!selectedTicketId || mode !== 'multi_agent') {
+      setMultiAgentEvents([]);
+      setMultiAgentTurns([]);
+      return;
+    }
+
+    let cancelled = false;
+    const loadDetails = async () => {
+      const [eventsResult, turnsResult] = await Promise.all([
+        listEngineeringTicketEvents(selectedTicketId, MULTI_AGENT_EVENT_LIMIT),
+        listEngineeringTicketTurns(selectedTicketId, MULTI_AGENT_TURN_LIMIT),
+      ]);
+
+      if (cancelled) {
+        return;
+      }
+
+      setMultiAgentEvents(eventsResult.ok ? eventsResult.events : []);
+      setMultiAgentTurns(turnsResult.ok ? turnsResult.turns : []);
+      if (!eventsResult.ok || !turnsResult.ok) {
+        setMultiAgentError(
+          eventsResult.error || turnsResult.error || 'Failed to load ticket details.',
+        );
+      }
+    };
+
+    void loadDetails();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedTicketId, mode]);
+
+  useEffect(() => {
+    if (!selectedChatId || mode !== 'multi_agent') {
+      setChatMessages([]);
+      return;
+    }
+
+    let cancelled = false;
+    const loadMessages = async () => {
+      const result = await listChatMessages(selectedChatId, MULTI_AGENT_CHAT_MESSAGE_LIMIT);
+      if (cancelled) {
+        return;
+      }
+
+      if (!result.ok) {
+        setChatMessages([]);
+        setMultiAgentError(result.error || 'Failed to load chat messages.');
+        return;
+      }
+
+      setChatMessages(result.messages);
+    };
+
+    void loadMessages();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedChatId, mode]);
 
   const handleCreateFact = () => {
     setEditingFact(null);
@@ -377,6 +580,10 @@ export default function AdminDashboardView({ onBack }: AdminDashboardViewProps) 
   const selectedRun = selectedRunId
     ? agentRuns.find((run) => run.id === selectedRunId) || null
     : agentRuns[0] || null;
+
+  const selectedTicket = selectedTicketId
+    ? multiAgentTickets.find((ticket) => ticket.id === selectedTicketId) || null
+    : multiAgentTickets[0] || null;
 
   const handleApproveRun = async () => {
     if (!selectedRun || selectedRun.status !== 'requires_approval') {
@@ -563,6 +770,108 @@ export default function AdminDashboardView({ onBack }: AdminDashboardViewProps) 
     }
   };
 
+  const handleTransitionTicket = async () => {
+    if (!selectedTicketId) {
+      return;
+    }
+
+    if (!transitionSummary.trim()) {
+      setMultiAgentError('Transition summary is required.');
+      return;
+    }
+
+    setIsMultiAgentLoading(true);
+    try {
+      const result = await transitionEngineeringTicket(
+        selectedTicketId,
+        transitionStatus,
+        transitionSummary.trim(),
+      );
+
+      if (!result.ok || !result.ticket) {
+        setMultiAgentError(result.error || 'Failed to transition ticket.');
+        return;
+      }
+
+      setMultiAgentTickets((current) =>
+        current.map((ticket) =>
+          ticket.id === result.ticket!.id ? result.ticket! : ticket,
+        ),
+      );
+      setTransitionSummary('');
+    } catch (err) {
+      console.error('[AdminDashboard] Transition ticket failed', err);
+      setMultiAgentError('Failed to transition ticket.');
+    } finally {
+      setIsMultiAgentLoading(false);
+    }
+  };
+
+  const handleCreateChatSession = async () => {
+    if (!chatTitle.trim()) {
+      setMultiAgentError('Chat title is required.');
+      return;
+    }
+
+    setIsMultiAgentLoading(true);
+    try {
+      const result = await createChatSession({
+        title: chatTitle.trim(),
+        mode: chatMode,
+        ticketId: chatTicketId.trim() || undefined,
+        createdBy: 'admin_ui',
+      });
+
+      if (!result.ok || !result.session) {
+        setMultiAgentError(result.error || 'Failed to create chat session.');
+        return;
+      }
+
+      setChatSessions((current) => [result.session!, ...current]);
+      setSelectedChatId(result.session!.id);
+      setChatTitle('');
+      setChatTicketId('');
+    } catch (err) {
+      console.error('[AdminDashboard] Create chat session failed', err);
+      setMultiAgentError('Failed to create chat session.');
+    } finally {
+      setIsMultiAgentLoading(false);
+    }
+  };
+
+  const handlePostChatMessage = async () => {
+    if (!selectedChatId) {
+      return;
+    }
+
+    if (!chatMessageText.trim()) {
+      setMultiAgentError('Message text is required.');
+      return;
+    }
+
+    setIsMultiAgentLoading(true);
+    try {
+      const result = await postChatMessage({
+        sessionId: selectedChatId,
+        role: 'human',
+        messageText: chatMessageText.trim(),
+      });
+
+      if (!result.ok) {
+        setMultiAgentError(result.error || 'Failed to post chat message.');
+        return;
+      }
+
+      setChatMessages(result.messages);
+      setChatMessageText('');
+    } catch (err) {
+      console.error('[AdminDashboard] Post chat message failed', err);
+      setMultiAgentError('Failed to post chat message.');
+    } finally {
+      setIsMultiAgentLoading(false);
+    }
+  };
+
   return (
     <div className="flex flex-col h-full bg-gray-900 text-white overflow-hidden">
       {/* Header */}
@@ -577,7 +886,7 @@ export default function AdminDashboardView({ onBack }: AdminDashboardViewProps) 
             </svg>
           </button>
           <div className="flex flex-col">
-            <h1 className="text-2xl font-bold tracking-tight">Admin Dashboard</h1>
+            <h1 className="text-2xl font-bold tracking-tight">Admin Dashboardd</h1>
             <p className="text-sm text-gray-500">Manage facts and system data</p>
           </div>
         </div>
@@ -607,6 +916,14 @@ export default function AdminDashboardView({ onBack }: AdminDashboardViewProps) 
               }`}
             >
               Cron Jobs
+            </button>
+            <button
+              onClick={() => setMode('multi_agent')}
+              className={`px-4 py-1.5 rounded-lg text-sm font-bold transition-all ${
+                mode === 'multi_agent' ? 'bg-purple-600 text-white shadow-lg' : 'text-gray-400 hover:text-white'
+              }`}
+            >
+              Multi-Agent
             </button>
           </div>
 
@@ -1240,6 +1557,307 @@ export default function AdminDashboardView({ onBack }: AdminDashboardViewProps) 
             </section>
           </div>
         )}
+
+        {mode === 'multi_agent' && (
+          <div className="h-full flex flex-col gap-4">
+            {multiAgentError && (
+              <div className="px-4 py-3 border border-red-700/40 bg-red-900/20 rounded-lg text-sm text-red-200">
+                {multiAgentError}
+              </div>
+            )}
+
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => void loadMultiAgentData()}
+                className="px-3 py-1.5 rounded bg-gray-700 hover:bg-gray-600 text-xs text-white"
+              >
+                Refresh
+              </button>
+              <span className="text-xs text-gray-500">
+                {multiAgentTickets.length} tickets
+              </span>
+              <div className="ml-auto flex bg-gray-800 p-1 rounded-xl border border-gray-700">
+                {(['tickets', 'chats'] as MultiAgentTab[]).map((tab) => (
+                  <button
+                    key={tab}
+                    onClick={() => setMultiAgentTab(tab)}
+                    className={`px-3 py-1 rounded-lg text-xs font-bold transition-all ${
+                      multiAgentTab === tab ? 'bg-purple-600 text-white shadow-lg' : 'text-gray-400 hover:text-white'
+                    }`}
+                  >
+                    {tab === 'tickets' ? 'Tickets' : 'Chats'}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {multiAgentTab === 'tickets' && (
+              <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] min-h-0">
+                <section className="min-h-0 border border-gray-700 rounded-xl bg-gray-900/50 overflow-hidden">
+                  <header className="px-4 py-3 border-b border-gray-700 text-sm text-gray-300 font-semibold flex items-center justify-between">
+                    <span>Engineering Tickets</span>
+                    <span className="text-xs text-gray-500">
+                      {isMultiAgentLoading ? 'Loading...' : 'Updated'}
+                    </span>
+                  </header>
+                  <div className="max-h-full overflow-y-auto">
+                    {isMultiAgentLoading && multiAgentTickets.length === 0 && (
+                      <div className="p-4 text-sm text-gray-500">Loading tickets...</div>
+                    )}
+
+                    {!isMultiAgentLoading && multiAgentTickets.length === 0 && (
+                      <div className="p-4 text-sm text-gray-500">No engineering tickets yet.</div>
+                    )}
+
+                    {multiAgentTickets.map((ticket) => (
+                      <button
+                        key={ticket.id}
+                        onClick={() => setSelectedTicketId(ticket.id)}
+                        className={`w-full text-left px-4 py-3 border-b border-gray-800 transition-colors ${
+                          ticket.id === selectedTicketId ? 'bg-gray-800/50' : 'hover:bg-gray-800/30'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between gap-2 mb-1">
+                          <p className="text-sm text-gray-200 font-medium">
+                            {ticket.title || '(untitled)'}
+                          </p>
+                          <span className={`text-[10px] uppercase px-2 py-0.5 rounded-full border ${getTicketStatusClasses(ticket.status)}`}>
+                            {ticket.status.replaceAll('_', ' ')}
+                          </span>
+                        </div>
+                        <p className="text-xs text-gray-500">
+                          {ticket.requestType} · {ticket.id}
+                        </p>
+                        {ticket.requestSummary && (
+                          <p className="text-xs text-gray-400 mt-1 line-clamp-2">
+                            {ticket.requestSummary}
+                          </p>
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                </section>
+
+                <section className="min-h-0 border border-gray-700 rounded-xl bg-gray-900/50 p-4 overflow-y-auto space-y-4">
+                  {!selectedTicket && (
+                    <div className="text-sm text-gray-500">Select a ticket to view details.</div>
+                  )}
+
+                  {selectedTicket && (
+                    <>
+                      <div>
+                        <div className="flex items-center justify-between gap-2 mb-2">
+                          <h3 className="text-sm font-semibold text-gray-300">
+                            {selectedTicket.title || '(untitled)'}
+                          </h3>
+                          <span className={`text-[10px] uppercase px-2 py-0.5 rounded-full border ${getTicketStatusClasses(selectedTicket.status)}`}>
+                            {selectedTicket.status.replaceAll('_', ' ')}
+                          </span>
+                        </div>
+                        <p className="text-xs text-gray-500 mb-2">
+                          Ticket {selectedTicket.id} · {selectedTicket.requestType}
+                        </p>
+                        <p className="text-xs text-gray-400 whitespace-pre-wrap">
+                          {selectedTicket.requestSummary || 'No summary provided.'}
+                        </p>
+                      </div>
+
+                      <div className="border border-gray-700 rounded-lg p-3 bg-gray-800/20">
+                        <h4 className="text-xs font-semibold text-gray-300 mb-2">Manual Transition</h4>
+                        <div className="grid gap-2">
+                          <select
+                            value={transitionStatus}
+                            onChange={(event) =>
+                              setTransitionStatus(event.target.value as EngineeringTicketStatus)
+                            }
+                            className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-xs text-white"
+                          >
+                            {MULTI_AGENT_STATUSES.map((status) => (
+                              <option key={status} value={status}>
+                                {status.replaceAll('_', ' ')}
+                              </option>
+                            ))}
+                          </select>
+                          <textarea
+                            value={transitionSummary}
+                            onChange={(event) => setTransitionSummary(event.target.value)}
+                            placeholder="Why are you changing status?"
+                            className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-xs text-white min-h-[72px]"
+                          />
+                          <button
+                            onClick={handleTransitionTicket}
+                            className="px-3 py-2 rounded bg-blue-700/80 hover:bg-blue-700 text-xs text-white"
+                            disabled={isMultiAgentLoading}
+                          >
+                            Apply Transition
+                          </button>
+                        </div>
+                      </div>
+
+                      <div>
+                        <h4 className="text-xs font-semibold text-gray-300 mb-2">Recent Events</h4>
+                        <div className="space-y-2 max-h-[260px] overflow-y-auto">
+                          {multiAgentEvents.length === 0 && (
+                            <div className="text-xs text-gray-500">No events recorded.</div>
+                          )}
+                          {multiAgentEvents.map((event) => (
+                            <div key={event.id} className="border border-gray-700 rounded-lg p-3 bg-gray-800/20">
+                              <div className="flex items-center justify-between gap-2 mb-1">
+                                <span className="text-[10px] uppercase px-2 py-0.5 rounded-full border bg-gray-800 border-gray-600 text-gray-300">
+                                  {event.eventType.replaceAll('_', ' ')}
+                                </span>
+                                <span className="text-xs text-gray-500">{formatTimestamp(event.createdAt)}</span>
+                              </div>
+                              <p className="text-xs text-gray-300">{event.summary || 'No summary.'}</p>
+                              <p className="text-[11px] text-gray-500 mt-1">
+                                {event.actorType} · {event.actorName}
+                              </p>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div>
+                        <h4 className="text-xs font-semibold text-gray-300 mb-2">Recent Turns</h4>
+                        <div className="space-y-2 max-h-[260px] overflow-y-auto">
+                          {multiAgentTurns.length === 0 && (
+                            <div className="text-xs text-gray-500">No turns recorded.</div>
+                          )}
+                          {multiAgentTurns.map((turn) => (
+                            <div key={turn.id} className="border border-gray-700 rounded-lg p-3 bg-gray-800/20">
+                              <div className="flex items-center justify-between gap-2 mb-1">
+                                <span className="text-[10px] uppercase px-2 py-0.5 rounded-full border bg-gray-800 border-gray-600 text-gray-300">
+                                  {turn.agentRole} · {turn.purpose}
+                                </span>
+                                <span className="text-xs text-gray-500">{formatTimestamp(turn.createdAt)}</span>
+                              </div>
+                              <p className="text-xs text-gray-400">
+                                {turn.responseExcerpt || 'No response excerpt.'}
+                              </p>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </>
+                  )}
+                </section>
+              </div>
+            )}
+
+            {multiAgentTab === 'chats' && (
+              <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] min-h-0">
+                <section className="min-h-0 border border-gray-700 rounded-xl bg-gray-900/50 overflow-hidden">
+                  <header className="px-4 py-3 border-b border-gray-700 text-sm text-gray-300 font-semibold flex items-center justify-between">
+                    <span>Chat Sessions</span>
+                    <span className="text-xs text-gray-500">
+                      {isMultiAgentLoading ? 'Loading...' : 'Updated'}
+                    </span>
+                  </header>
+                  <div className="p-4 border-b border-gray-800 space-y-2">
+                    <input
+                      type="text"
+                      value={chatTitle}
+                      onChange={(event) => setChatTitle(event.target.value)}
+                      placeholder="Chat title"
+                      className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-xs text-white"
+                    />
+                    <div className="grid grid-cols-2 gap-2">
+                      <select
+                        value={chatMode}
+                        onChange={(event) => setChatMode(event.target.value as 'direct_agent' | 'team_room')}
+                        className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-xs text-white"
+                      >
+                        <option value="direct_agent">Direct Agent</option>
+                        <option value="team_room">Team Room</option>
+                      </select>
+                      <input
+                        type="text"
+                        value={chatTicketId}
+                        onChange={(event) => setChatTicketId(event.target.value)}
+                        placeholder="Optional ticket id"
+                        className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-xs text-white"
+                      />
+                    </div>
+                    <button
+                      onClick={handleCreateChatSession}
+                      className="px-3 py-2 rounded bg-blue-700/80 hover:bg-blue-700 text-xs text-white"
+                      disabled={isMultiAgentLoading}
+                    >
+                      Create Chat
+                    </button>
+                  </div>
+                  <div className="max-h-full overflow-y-auto">
+                    {chatSessions.length === 0 && (
+                      <div className="p-4 text-sm text-gray-500">No chat sessions yet.</div>
+                    )}
+                    {chatSessions.map((session) => (
+                      <button
+                        key={session.id}
+                        onClick={() => setSelectedChatId(session.id)}
+                        className={`w-full text-left px-4 py-3 border-b border-gray-800 transition-colors ${
+                          session.id === selectedChatId ? 'bg-gray-800/50' : 'hover:bg-gray-800/30'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between gap-2 mb-1">
+                          <p className="text-sm text-gray-200 font-medium">{session.title}</p>
+                          <span className="text-[10px] uppercase px-2 py-0.5 rounded-full border bg-gray-800 border-gray-600 text-gray-300">
+                            {session.mode.replaceAll('_', ' ')}
+                          </span>
+                        </div>
+                        <p className="text-xs text-gray-500">
+                          {session.id} {session.ticketId ? `· ticket ${session.ticketId}` : ''}
+                        </p>
+                      </button>
+                    ))}
+                  </div>
+                </section>
+
+                <section className="min-h-0 border border-gray-700 rounded-xl bg-gray-900/50 p-4 overflow-y-auto space-y-4">
+                  {!selectedChatId && (
+                    <div className="text-sm text-gray-500">Select a chat to view messages.</div>
+                  )}
+
+                  {selectedChatId && (
+                    <>
+                      <div className="flex flex-col gap-2">
+                        <textarea
+                          value={chatMessageText}
+                          onChange={(event) => setChatMessageText(event.target.value)}
+                          placeholder="Send a message..."
+                          className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-xs text-white min-h-[72px]"
+                        />
+                        <button
+                          onClick={handlePostChatMessage}
+                          className="px-3 py-2 rounded bg-blue-700/80 hover:bg-blue-700 text-xs text-white"
+                          disabled={isMultiAgentLoading}
+                        >
+                          Send Message
+                        </button>
+                      </div>
+
+                      <div className="space-y-2 max-h-[420px] overflow-y-auto">
+                        {chatMessages.length === 0 && (
+                          <div className="text-xs text-gray-500">No messages yet.</div>
+                        )}
+                        {chatMessages.map((message) => (
+                          <div key={message.id} className="border border-gray-700 rounded-lg p-3 bg-gray-800/20">
+                            <div className="flex items-center justify-between gap-2 mb-1">
+                              <span className="text-[10px] uppercase px-2 py-0.5 rounded-full border bg-gray-800 border-gray-600 text-gray-300">
+                                {message.role}
+                              </span>
+                              <span className="text-xs text-gray-500">{formatTimestamp(message.createdAt)}</span>
+                            </div>
+                            <p className="text-xs text-gray-300 whitespace-pre-wrap">{message.messageText}</p>
+                          </div>
+                        ))}
+                      </div>
+                    </>
+                  )}
+                </section>
+              </div>
+            )}
+          </div>
+        )}
       </main>
 
       {/* Modals */}
@@ -1339,6 +1957,28 @@ function getCronEventClasses(eventType: string): string {
     return 'bg-blue-900/30 border-blue-600/40 text-blue-300';
   }
   return 'bg-gray-800 border-gray-600 text-gray-300';
+}
+
+function getTicketStatusClasses(status: EngineeringTicketStatus): string {
+  switch (status) {
+    case 'qa_approved':
+    case 'pr_ready':
+    case 'completed':
+      return 'bg-emerald-900/30 border-emerald-600/40 text-emerald-300';
+    case 'qa_changes_requested':
+    case 'needs_clarification':
+      return 'bg-amber-900/30 border-amber-600/40 text-amber-300';
+    case 'failed':
+    case 'escalated_human':
+    case 'cancelled':
+      return 'bg-red-900/30 border-red-600/40 text-red-300';
+    case 'implementing':
+    case 'qa_testing':
+    case 'pr_preparing':
+      return 'bg-blue-900/30 border-blue-600/40 text-blue-300';
+    default:
+      return 'bg-gray-800 border-gray-600 text-gray-300';
+  }
 }
 
 function sortRunsByTime(runs: WorkspaceAgentRun[]): WorkspaceAgentRun[] {

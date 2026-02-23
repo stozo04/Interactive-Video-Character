@@ -44,6 +44,7 @@ const STEP_STATUSES: ReadonlySet<WorkspaceRunStepStatus> = new Set([
 const STEP_TYPES: ReadonlySet<WorkspaceRunStepType> = new Set([
   "policy_check",
   "approval",
+  "command",
   "mkdir",
   "read",
   "write",
