@@ -183,6 +183,13 @@ export interface MultiAgentChatSessionResult {
   error?: string;
 }
 
+export interface MultiAgentHealthResult {
+  ok: boolean;
+  httpStatus: number | null;
+  latencyMs?: number;
+  error?: string;
+}
+
 export interface MultiAgentCreateTicketResult {
   ok: boolean;
   httpStatus: number | null;
@@ -197,7 +204,15 @@ const DEFAULT_AGENT_BASE_URL = "http://localhost:4010";
 
 function getBaseUrl(): string {
   const configuredUrl = import.meta.env.VITE_WORKSPACE_AGENT_URL as string | undefined;
-  const rawBaseUrl = (configuredUrl || DEFAULT_AGENT_BASE_URL).trim();
+  if (configuredUrl && configuredUrl.trim()) {
+    return configuredUrl.trim().replace(/\/+$/, "");
+  }
+
+  if (import.meta.env.DEV) {
+    return "";
+  }
+
+  const rawBaseUrl = DEFAULT_AGENT_BASE_URL.trim();
   return rawBaseUrl.replace(/\/+$/, "");
 }
 
@@ -245,6 +260,41 @@ export async function listEngineeringTickets(limit = 25): Promise<MultiAgentTick
       ok: false,
       httpStatus: null,
       tickets: [],
+      error: "Multi-agent service is unreachable.",
+    };
+  }
+}
+
+export async function getMultiAgentHealth(): Promise<MultiAgentHealthResult> {
+  const endpoint = `${getBaseUrl()}/multi-agent/health`;
+
+  try {
+    const response = await fetch(endpoint, {
+      method: "GET",
+      headers: { Accept: "application/json" },
+    });
+    const body = await parseResponse<{ ok?: boolean; latencyMs?: number; error?: string }>(
+      response,
+    );
+
+    if (!response.ok) {
+      return {
+        ok: false,
+        httpStatus: response.status,
+        error: body.error || `Health check failed with status ${response.status}.`,
+      };
+    }
+
+    return {
+      ok: true,
+      httpStatus: response.status,
+      latencyMs: typeof body.latencyMs === "number" ? body.latencyMs : undefined,
+    };
+  } catch (error) {
+    console.error(`${LOG_PREFIX} Health check failed`, { error });
+    return {
+      ok: false,
+      httpStatus: null,
       error: "Multi-agent service is unreachable.",
     };
   }

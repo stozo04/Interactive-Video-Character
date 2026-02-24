@@ -33,7 +33,7 @@ function buildTicketPrompt(ticket: any): string {
   return parts.join("\n\n");
 }
 
-export async function runOpeyLoop(ticket: any, workPath: string, log: any) {
+export async function runOpeyLoop(ticket: any, workPath: string, log: any): Promise<string> {
   log.info(`${LOG_PREFIX} Opey loop start`, {
     source: "orchestrator.ts",
     ticketId: ticket?.id,
@@ -106,7 +106,7 @@ export async function runOpeyLoop(ticket: any, workPath: string, log: any) {
         ticketId: ticket?.id,
         outputLength: output.length,
       });
-      return;
+      return output;
     }
 
     const tail = output.slice(-2000);
