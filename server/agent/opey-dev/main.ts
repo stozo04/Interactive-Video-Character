@@ -24,6 +24,23 @@ function hasCommitsAheadOfMain(workPath: string): boolean {
   }
 }
 
+/** Check if the worktree has uncommitted changes (staged or unstaged). */
+function hasUncommittedChanges(workPath: string): boolean {
+  try {
+    const result = execSync("git status --porcelain", { cwd: workPath, ...SHELL_OPTS }).toString().trim();
+    return result.length > 0;
+  } catch {
+    return false;
+  }
+}
+
+/** Commit any uncommitted changes Codex left behind. */
+function commitUnstagedWork(workPath: string, ticketTitle: string): void {
+  execSync("git add -A", { cwd: workPath, ...SHELL_OPTS });
+  const msg = `feat: ${ticketTitle}`;
+  execSync(`git commit -m "${msg}"`, { cwd: workPath, ...SHELL_OPTS });
+}
+
 
 // Choose orchestrator: "claude" or "openai" (default: "claude")
 const ORCHESTRATOR_BACKEND = process.env.OPEY_BACKEND ?? "claude";
@@ -58,11 +75,21 @@ async function processNextTicket(
     const output = await orchestrator(ticket, workPath, log);
 
     // Did Opey actually implement anything?
-    const madeChanges = hasCommitsAheadOfMain(workPath);
+    let madeChanges = hasCommitsAheadOfMain(workPath);
+
+    // Codex sometimes edits files but forgets to commit — commit on its behalf
+    if (!madeChanges && hasUncommittedChanges(workPath)) {
+      log.info(`${LOG_PREFIX} Codex left uncommitted changes — committing on its behalf`, { source: "main.ts", ticketId });
+      try {
+        commitUnstagedWork(workPath, ticket.title ?? "Opey implementation");
+        madeChanges = true;
+      } catch (commitErr) {
+        log.error(`${LOG_PREFIX} Auto-commit failed`, { source: "main.ts", ticketId, error: String(commitErr) });
+      }
+    }
 
     if (!madeChanges) {
-      // No commits — Opey didn't implement. Check if this is a first-pass clarification request.
-      // Raw Supabase row uses snake_case; EngineeringTicket type uses camelCase
+      // No commits AND no uncommitted changes — Opey truly didn't implement.
       const details: string = (ticket as any).additional_details ?? ticket.additionalDetails ?? "";
       const alreadyClarified = details.includes(CLARIFICATION_MARKER);
 
@@ -93,6 +120,8 @@ async function processNextTicket(
       await store.updateStatus(ticketId, "failed", { failureReason: "Commits exist but PR creation failed" });
       log.error(`${LOG_PREFIX} PR creation failed despite commits`, { source: "main.ts", ticketId });
     }
+
+    manager.cleanup(ticketId);
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unknown error";
     log.error(`${LOG_PREFIX} Ticket processing failed`, { source: "main.ts", error: message, ticketId });

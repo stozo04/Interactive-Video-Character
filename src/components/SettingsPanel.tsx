@@ -4,6 +4,7 @@ import { GmailConnectButton } from './GmailConnectButton';
 import { useGoogleAuth } from '../contexts/GoogleAuthContext';
 import { hasXScope, isXConnected, initXAuth, revokeXAuth } from '../services/xTwitterService';
 import { supabase } from '../services/supabaseClient';
+import { getMultiAgentHealth } from '../services/multiAgentService';
 import type { ProactiveSettings } from '../types';
 
 interface SettingsPanelProps {
@@ -46,6 +47,14 @@ export function SettingsPanel({
   const [xPostingMode, setXPostingMode] = useState<'approval' | 'autonomous'>('approval');
   const [xMissingMediaScope, setXMissingMediaScope] = useState<boolean>(false);
 
+  // --------------------------------------------------------------------------
+  // Multi-agent Server Health
+  // --------------------------------------------------------------------------
+  const [serverHealthStatus, setServerHealthStatus] = useState<'ok' | 'unreachable' | null>(null);
+  const [serverHealthLatencyMs, setServerHealthLatencyMs] = useState<number | null>(null);
+  const [isServerHealthLoading, setIsServerHealthLoading] = useState(false);
+  const [serverHealthError, setServerHealthError] = useState<string | null>(null);
+
   const checkXConnection = useCallback(async () => {
     try {
       const connected = await isXConnected();
@@ -79,13 +88,39 @@ export function SettingsPanel({
     }
   }, []);
 
+  const loadServerHealth = useCallback(async () => {
+    setIsServerHealthLoading(true);
+    setServerHealthError(null);
+    try {
+      const result = await getMultiAgentHealth();
+      if (!result.ok) {
+        setServerHealthStatus('unreachable');
+        setServerHealthLatencyMs(null);
+        setServerHealthError(result.error || 'Server health check failed.');
+        return;
+      }
+      setServerHealthStatus('ok');
+      setServerHealthLatencyMs(
+        typeof result.latencyMs === 'number' ? result.latencyMs : null,
+      );
+    } catch (error) {
+      console.error('Server health check failed:', error);
+      setServerHealthStatus('unreachable');
+      setServerHealthLatencyMs(null);
+      setServerHealthError('Server health check failed.');
+    } finally {
+      setIsServerHealthLoading(false);
+    }
+  }, []);
+
   // Check X status when panel opens
   useEffect(() => {
     if (isOpen) {
       checkXConnection();
       loadXPostingMode();
+      loadServerHealth();
     }
-  }, [isOpen, checkXConnection, loadXPostingMode]);
+  }, [isOpen, checkXConnection, loadXPostingMode, loadServerHealth]);
 
   const handleConnectX = async () => {
     setXLoading(true);
@@ -290,6 +325,43 @@ export function SettingsPanel({
 
             {/* Gmail Integration Section */}
             <div className="space-y-3">
+              {/* Server Status Section */}
+              <div className="border-t border-gray-700 pt-3">
+                <div className="flex items-center justify-between mb-2">
+                  <h3 className="text-sm font-medium text-gray-300">Server Status</h3>
+                  <button
+                    onClick={loadServerHealth}
+                    disabled={isServerHealthLoading}
+                    className="text-xs px-2 py-1 rounded bg-gray-700 hover:bg-gray-600 disabled:opacity-50 text-white"
+                  >
+                    {isServerHealthLoading ? 'Checking...' : 'Refresh'}
+                  </button>
+                </div>
+                <div className="flex items-center gap-2 text-xs text-gray-400">
+                  <span
+                    className={`h-2.5 w-2.5 rounded-full ${
+                      serverHealthStatus === 'ok'
+                        ? 'bg-emerald-400'
+                        : serverHealthStatus === 'unreachable'
+                          ? 'bg-red-400'
+                          : 'bg-amber-400'
+                    }`}
+                  />
+                  <span>
+                    {serverHealthStatus
+                      ? `Multi-agent: ${serverHealthStatus}${
+                          serverHealthLatencyMs !== null
+                            ? ` (${serverHealthLatencyMs}ms)`
+                            : ''
+                        }`
+                      : 'Multi-agent: unknown'}
+                  </span>
+                </div>
+                {serverHealthError && (
+                  <p className="text-xs text-red-400 mt-2">{serverHealthError}</p>
+                )}
+              </div>
+
               <div className="border-t border-gray-700 pt-3">
                 <h3 className="text-sm font-medium text-gray-300 mb-3">
                   Gmail Integration
