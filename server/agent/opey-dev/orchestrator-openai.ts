@@ -54,8 +54,11 @@ export async function runOpeyLoop(ticket: any, workPath: string, log: any) {
       fullPrompt,
     ];
 
+    // On Windows, npm global binaries are .cmd wrappers; bare name fails with ENOENT
+    const codexBin = process.platform === "win32" ? "codex.cmd" : "codex";
+
     // Spawn codex directly with args array — bypasses shell escaping entirely
-    child = spawn("codex", args, {
+    child = spawn(codexBin, args, {
       cwd: workPath,
       stdio: ["ignore", "pipe", "pipe"],
     });
