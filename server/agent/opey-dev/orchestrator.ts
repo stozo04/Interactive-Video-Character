@@ -12,7 +12,7 @@ const LOG_PREFIX = "[Orchestrator]";
 // OPEY_MODEL: haiku, sonnet, opus (default: haiku)
 // OPEY_THINKING: brief, normal, detailed, extended (default: detailed)
 const CLAUDE_MODEL = "claude-sonnet-4-6";
-const THINKING_LEVEL = "detailed";
+const THINKING_LEVEL = "enabled";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
