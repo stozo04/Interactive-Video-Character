@@ -1,6 +1,6 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { EngineeringTicket, EngineeringTicketStatus } from './types';
-import { log } from './runtimeLogger';
+import { log } from '../../runtimeLogger';
 
 export class SupabaseTicketStore {
   private supabase: SupabaseClient;

@@ -118,6 +118,23 @@ export interface EngineeringArtifact {
   updatedAt: string;
 }
 
+// Background process session record.
+export interface ProcessSession {
+  sessionId: string;
+  command: string;
+  workdir: string;
+  alive: boolean;
+  exitCode: number | null;
+  startedAt: string;
+}
+
+// Poll result for a background process session.
+export interface ProcessSessionStatus {
+  sessionId: string;
+  alive: boolean;
+  exitCode: number | null;
+}
+
 // Store interface for tickets, events, turns, and artifacts.
 export interface EngineeringTicketStore {
   createTicket(

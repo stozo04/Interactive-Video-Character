@@ -115,17 +115,7 @@ export const buildSystemPromptForNonGreeting = async (
   messageCount: number = 0,
 ): Promise<string> => {
   console.log("[buildSystemPromptForNonGreeting] fetching now");
-
-  // Try synthesis path if feature flag is enabled
-  let synthesisSection = "";
-  if (USE_CONTEXT_SYNTHESIS) {
-    synthesisSection = await buildSynthesisPromptSection();
-    if (synthesisSection) {
-      console.log("[buildSystemPromptForNonGreeting] Using synthesis path");
-    }
-  }
-
-  const useSynthesis = !!synthesisSection;
+  
 
   // Shared sections fetched in parallel (needed by both paths)
   const [
@@ -144,7 +134,7 @@ export const buildSystemPromptForNonGreeting = async (
     buildScheduledDigestsContext(),
   ]);
 
-  if (useSynthesis) {
+
     // ====================================================================
     // SYNTHESIS PATH — replaces: curiosity, dailyNotes, milaMilestones,
     // characterFacts, relationshipTier, storylines, proactiveStarters
@@ -167,7 +157,8 @@ ${buildAntiAssistantSection()}
 ${await buildCurrentWorldContext()}
 ${anchorSection}
 ${activeRecallSection}
-${synthesisSection}
+${await buildSynthesisPromptSection()}
+${buildTeamPrompt()}
 ${almostMoments.promptSection}
 ${topicSuppressionPrompt}
 ${idleBrowseNotesPrompt}
@@ -189,66 +180,7 @@ ${buildStandardOutputSection()}
 `.trim();
 
     return prompt;
-  }
-
-  // ====================================================================
-  // FALLBACK PATH — identical to original behavior (no synthesis available)
-  // ====================================================================
-  const [
-    almostMoments,
-    characterFactsPrompt,
-    dailyNotesPrompt,
-    milaMilestonesPrompt,
-    anchorSection,
-    activeRecallSection,
-    scheduledDigestsPromptFallback,
-  ] = await Promise.all([
-    integrateAlmostMoments(relationship, {
-      conversationDepth: "surface",
-      recentSweetMoment: false,
-      vulnerabilityExchangeActive: false,
-      allowGeneration: false,
-    }),
-    formatCharacterFactsForPrompt(),
-    buildDailyNotesPromptSection(),
-    buildMilaMilestonesPromptSection(),
-    buildConversationAnchorPromptSection(interactionId),
-    buildActiveRecallPromptSection(currentUserMessage),
-    buildScheduledDigestsContext(),
-  ]);
-
-  let prompt = `
-${KAYLEY_CONDENSED_PROFILE}
-${buildAntiAssistantSection()}
-${await buildCurrentWorldContext()}
-${anchorSection}
-${activeRecallSection}
-${await buildCuriositySection()}
-${idleBrowseNotesPrompt}
-${toolSuggestionsPrompt}
-${xTweetPrompt}
-${xMentionsPrompt}
-${dailyNotesPrompt}
-${milaMilestonesPrompt}
-${idleQuestionPrompt}
-${characterFactsPrompt}
-${await getStorylinePromptContext(messageCount)}
-${buildRelationshipTierPrompt(relationship, almostMoments.promptSection)}
-${buildOpinionsAndPushbackSection()}
-${buildCurrentContextSection(characterContext)}
-
-${scheduledDigestsPromptFallback}
-${await buildPromisesContext()}
-${buildSelfieRulesPrompt(relationship)}
-${buildVideoRulesPrompt(relationship)}
-${buildProactiveConversationStarters()}
-${getRecentNewsContext()}
-${buildGoogleCalendarEventsPrompt(upcomingEvents)}
-${buildToolStrategySection()}
-${buildStandardOutputSection()}
-`.trim();
-
-  return prompt;
+  
 };
 
 /**
@@ -312,6 +244,17 @@ export function buildSpontaneousPrompts(
   }
 
   return combinedReturnString;
+}
+
+export function buildTeamPrompt(): string {
+  return `
+====================================================
+TEAM DELEGATION (Multi-Agent)
+====================================================
+You have an engineering team you can delegate to:
+- Opey (developer): plans and implements changes.
+When Steven asks you to "pass this to your team" or requests a skill/feature/bug fix,
+delegate via the engineering tools instead of doing the work directly.`;
 }
 
 export function buildProactiveConversationStarters(): string {

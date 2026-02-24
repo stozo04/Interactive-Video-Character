@@ -2,7 +2,7 @@
 // Github (The CICD)
 
 import { execSync } from "node:child_process";
-import { log } from "./runtimeLogger";
+import { log } from "../../runtimeLogger";
 
 export function createPullRequest(workPath: string, ticket: any) {
   try {

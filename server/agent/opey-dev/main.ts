@@ -4,7 +4,7 @@
 import { SupabaseTicketStore } from "./ticketStore";
 import { WorktreeManager } from "./worktreeManager";
 import { runOpeyLoop } from "./orchestrator";
-import { log } from "./runtimeLogger";
+import { log } from "../../runtimeLogger";
 import { createPullRequest } from "./githubOps";
 
 async function main() {

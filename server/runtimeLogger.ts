@@ -1,4 +1,4 @@
-// ./server/agent/opey-dev/runtimeLogger.ts
+// ./server/runtimeLogger.ts
 // Logging (The Voice)
 
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
@@ -210,5 +210,5 @@ function pickString(
   return undefined;
 }
 
-// Singleton logger for easy usage: import { log } from "./runtimeLogger"
+// Singleton logger — import from "server/runtimeLogger"
 export const log = new RuntimeLogger();

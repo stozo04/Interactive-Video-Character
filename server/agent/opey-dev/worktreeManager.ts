@@ -4,7 +4,7 @@
 import { execSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
-import { log } from "./runtimeLogger";
+import { log } from "../../runtimeLogger";
 
 export class WorktreeManager {
   private baseDir: string;
