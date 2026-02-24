@@ -40,6 +40,7 @@ import {
   listEngineeringTickets,
   transitionEngineeringTicket,
   getMultiAgentHealth,
+  restartServer,
   type EngineeringTicket,
   type EngineeringTicketEvent,
   type EngineeringTicketStatus,
@@ -159,6 +160,7 @@ export default function AdminDashboardView({ onBack }: AdminDashboardViewProps) 
   const [multiAgentHealthStatus, setMultiAgentHealthStatus] = useState<string | null>(null);
   const [multiAgentHealthLatencyMs, setMultiAgentHealthLatencyMs] = useState<number | null>(null);
   const [isMultiAgentHealthLoading, setIsMultiAgentHealthLoading] = useState(false);
+  const [isServerRestarting, setIsServerRestarting] = useState(false);
 
   // Runtime logs mode state
   const [runtimeLogs, setRuntimeLogs] = useState<ServerRuntimeLogRow[]>([]);
@@ -280,6 +282,26 @@ export default function AdminDashboardView({ onBack }: AdminDashboardViewProps) 
     }
   };
 
+  const handleRestartServer = async () => {
+    setIsServerRestarting(true);
+    setMultiAgentError(null);
+    try {
+      const result = await restartServer();
+      if (!result.ok) {
+        setMultiAgentError(result.error || 'Server restart failed.');
+        return;
+      }
+      // Server is restarting — health will go unreachable briefly
+      setMultiAgentHealthStatus(null);
+      setMultiAgentHealthLatencyMs(null);
+    } catch (err) {
+      console.error('[AdminDashboard] Server restart failed', err);
+      setMultiAgentError('Server restart request failed.');
+    } finally {
+      setIsServerRestarting(false);
+    }
+  };
+
   const loadRuntimeLogs = useCallback(async () => {
     setIsRuntimeLogsLoading(true);
     setRuntimeLogsError(null);
@@ -337,6 +359,26 @@ export default function AdminDashboardView({ onBack }: AdminDashboardViewProps) 
 
     void loadMultiAgentData();
   }, [mode, loadMultiAgentData]);
+
+  // Auto-poll health every 15s while on the Server tab
+  useEffect(() => {
+    if (mode !== 'multi_agent') return;
+
+    const pollHealth = async () => {
+      try {
+        const result = await getMultiAgentHealth();
+        setMultiAgentHealthStatus(result.ok ? 'ok' : 'unreachable');
+        setMultiAgentHealthLatencyMs(typeof result.latencyMs === 'number' ? result.latencyMs : null);
+      } catch {
+        setMultiAgentHealthStatus('unreachable');
+        setMultiAgentHealthLatencyMs(null);
+      }
+    };
+
+    void pollHealth();
+    const interval = setInterval(pollHealth, 15_000);
+    return () => clearInterval(interval);
+  }, [mode]);
 
   useEffect(() => {
     if (mode !== 'agent' || agentTab !== 'google') {
@@ -1685,6 +1727,13 @@ export default function AdminDashboardView({ onBack }: AdminDashboardViewProps) 
                 disabled={isMultiAgentHealthLoading}
               >
                 {isMultiAgentHealthLoading ? 'Checking...' : 'Check Health'}
+              </button>
+              <button
+                onClick={handleRestartServer}
+                className="px-3 py-1.5 rounded bg-red-700/80 hover:bg-red-700 text-xs text-white"
+                disabled={isServerRestarting}
+              >
+                {isServerRestarting ? 'Restarting...' : 'Restart Server'}
               </button>
               <span className="inline-flex items-center gap-2 rounded-full bg-purple-600/80 px-3 py-1 text-xs font-semibold text-white">
                 <span

@@ -1,5 +1,7 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import crypto from "node:crypto";
+import fs from "node:fs";
+import path from "node:path";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { REQUEST_TYPES, TICKET_STATUSES } from "../agent/opey-dev/types";
 import { log } from "../runtimeLogger";
@@ -236,6 +238,23 @@ export function createMultiAgentRouter(options: MultiAgentRouterOptions) {
       }
 
       writeJson(res, 200, { ok: true, latencyMs: Date.now() - startedAt });
+      return true;
+    }
+
+    if (segments.length === 2 && segments[1] === "server" && req.method === "POST") {
+      // Sub-routes under /multi-agent/server
+      // Currently there's only restart, but we parse sub-segments for future expansion.
+    }
+
+    if (segments.length === 3 && segments[1] === "server" && segments[2] === "restart" && req.method === "POST") {
+      log.info(`${LOG_PREFIX} Server restart requested via API`, { source: "multiAgentRoutes.ts" });
+      writeJson(res, 200, { ok: true, message: "Server restarting..." });
+
+      // Touch a trigger file so tsx watch detects a change and restarts the process.
+      res.on("finish", () => {
+        const triggerPath = path.join(process.cwd(), "server", ".restart-trigger");
+        fs.writeFileSync(triggerPath, String(Date.now()));
+      });
       return true;
     }
 

@@ -229,6 +229,46 @@ async function parseResponse<T>(response: Response): Promise<T> {
   }
 }
 
+export interface ServerRestartResult {
+  ok: boolean;
+  httpStatus: number | null;
+  message?: string;
+  error?: string;
+}
+
+export async function restartServer(): Promise<ServerRestartResult> {
+  const endpoint = `${getBaseUrl()}/multi-agent/server/restart`;
+
+  try {
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+    });
+    const body = await parseResponse<{ ok?: boolean; message?: string; error?: string }>(response);
+
+    if (!response.ok) {
+      return {
+        ok: false,
+        httpStatus: response.status,
+        error: body.error || `Server restart failed with status ${response.status}.`,
+      };
+    }
+
+    return {
+      ok: true,
+      httpStatus: response.status,
+      message: body.message,
+    };
+  } catch (error) {
+    console.error(`${LOG_PREFIX} Server restart failed`, { error });
+    return {
+      ok: false,
+      httpStatus: null,
+      error: "Multi-agent service is unreachable.",
+    };
+  }
+}
+
 export async function listEngineeringTickets(limit = 25): Promise<MultiAgentTicketsResult> {
   const normalizedLimit = Number.isFinite(limit) && limit > 0 ? Math.floor(limit) : 25;
   const endpoint = `${getBaseUrl()}/multi-agent/tickets?limit=${normalizedLimit}`;

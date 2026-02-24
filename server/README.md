@@ -72,6 +72,16 @@ Optional:
 - `CRON_TICK_MS`
 - `CRON_SCHEDULER_ID`
 
+## Process Management
+
+```bash
+# See all running node processes
+tasklist | grep node
+
+# Kill all node processes
+taskkill //F //IM node.exe
+```
+
 ## Troubleshooting
 
 - If you see CORS errors in the browser console, make sure:
