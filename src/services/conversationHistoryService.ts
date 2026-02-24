@@ -112,6 +112,57 @@ export const appendConversationHistory = async (
   }
 };
 
+/**
+ * Trim conversation history to only recent messages
+ * Keeps only the last N messages for memory efficiency
+ * Older messages should be converted to memories before deletion
+ */
+export const trimConversationHistory = async (
+  userId: string,
+  keepLastN: number = 10
+): Promise<void> => {
+  try {
+    // Get all messages ordered by creation date
+    const { data: allMessages, error: fetchError } = await supabase
+      .from(CONVERSATION_HISTORY_TABLE)
+      .select('id, created_at')
+      .eq('user_id', userId)
+      .order('created_at', { ascending: false });
+
+    if (fetchError) {
+      console.error('Failed to fetch conversation history for trimming:', fetchError);
+      return;
+    }
+
+    if (!allMessages || allMessages.length <= keepLastN) {
+      return; // Nothing to trim
+    }
+
+    // Get IDs of messages to delete (everything except last N)
+    const idsToDelete = allMessages
+      .slice(keepLastN)
+      .map((msg: any) => msg.id);
+
+    if (idsToDelete.length === 0) return;
+
+    // Delete old messages
+    const { error: deleteError } = await supabase
+      .from(CONVERSATION_HISTORY_TABLE)
+      .delete()
+      .in('id', idsToDelete);
+
+    if (deleteError) {
+      console.error('Failed to delete old conversation history:', deleteError);
+      return;
+    }
+
+    console.log(`✂️ Trimmed conversation history: deleted ${idsToDelete.length} old messages, kept last ${keepLastN}`);
+  } catch (error) {
+    console.error('Error trimming conversation history:', error);
+    // Don't throw - allow conversation to continue
+  }
+};
+
 
 /**
  * Get the number of messages sent by or to a user today
