@@ -1,15 +1,15 @@
 // ./server/agent/opey-dev/orchestrator-openai.ts
-// OpenAI version — same interface as Claude, different brain
+// OpenAI Codex CLI version — spawns `codex` as a subprocess, mirrors Claude orchestrator
 
+import { spawn, type ChildProcess } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
-import OpenAI from "openai";
 
-const LOG_PREFIX = "[Orchestrator-OpenAI]";
+const LOG_PREFIX = "[Orchestrator-Codex]";
 
-// Control which OpenAI model to use
-const OPENAI_MODEL = "gpt-5.2-codex";
+// OPEY_MODEL: codex model to use (default: codex)
+const CODEX_MODEL = "gpt-5.2-codex";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -31,59 +31,86 @@ function buildTicketPrompt(ticket: any): string {
 }
 
 export async function runOpeyLoop(ticket: any, workPath: string, log: any) {
-  log.info(`${LOG_PREFIX} Opey loop start (OpenAI)`, {
+  log.info(`${LOG_PREFIX} Opey loop start (Codex CLI)`, {
     source: "orchestrator-openai.ts",
     ticketId: ticket?.id,
     workPath,
-    model: OPENAI_MODEL,
+    model: CODEX_MODEL,
   });
 
-  const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) {
-    throw new Error("OPENAI_API_KEY not set in environment");
-  }
-
-  const client = new OpenAI({ apiKey });
-  const soulPrompt = loadSoulPrompt();
-  const ticketPrompt = buildTicketPrompt(ticket);
+  let child: ChildProcess | null = null;
 
   try {
-    const response = await client.messages.create({
-      model: OPENAI_MODEL,
-      max_tokens: 4096,
-      system: soulPrompt,
-      messages: [
-        {
-          role: "user",
-          content: ticketPrompt,
-        },
-      ],
+    const soulPrompt = loadSoulPrompt();
+    const ticketPrompt = buildTicketPrompt(ticket);
+    const fullPrompt = `${soulPrompt}\n\n${ticketPrompt}`;
+
+    const args = [
+      "exec",
+      "-m", CODEX_MODEL,
+      "--dangerously-bypass-approvals-and-sandbox", // already isolated in a git worktree
+      "--ephemeral",   // don't persist session files
+      "--color", "never", // clean logs
+      fullPrompt,
+    ];
+
+    // Spawn codex directly with args array — bypasses shell escaping entirely
+    child = spawn("codex", args, {
+      cwd: workPath,
+      stdio: ["ignore", "pipe", "pipe"],
     });
 
-    // Extract text response
-    const textContent = response.content.find((block) => block.type === "text");
-    if (!textContent || textContent.type !== "text") {
-      throw new Error("No text response from OpenAI");
+    log.info(`${LOG_PREFIX} Codex CLI spawned`, {
+      source: "orchestrator-openai.ts",
+      ticketId: ticket?.id,
+      pid: child.pid,
+      model: CODEX_MODEL,
+    });
+
+    let output = "";
+
+    child.stdout!.on("data", (chunk: Buffer) => {
+      const text = chunk.toString();
+      output += text;
+      log.info(`${LOG_PREFIX} Codex stdout`, {
+        source: "orchestrator-openai.ts",
+        ticketId: ticket?.id,
+        chunk: text.slice(0, 2000),
+      });
+    });
+
+    child.stderr!.on("data", (chunk: Buffer) => {
+      const text = chunk.toString();
+      output += text;
+      log.info(`${LOG_PREFIX} Codex stderr`, {
+        source: "orchestrator-openai.ts",
+        ticketId: ticket?.id,
+        chunk: text.slice(0, 2000),
+      });
+    });
+
+    const exitCode = await new Promise<number | null>((resolve, reject) => {
+      child!.on("close", (code) => resolve(code));
+      child!.on("error", (err) => reject(err));
+    });
+
+    if (exitCode === 0) {
+      log.info(`${LOG_PREFIX} Codex CLI completed successfully`, {
+        source: "orchestrator-openai.ts",
+        ticketId: ticket?.id,
+        outputLength: output.length,
+      });
+      return;
     }
 
-    const output = textContent.text;
-
-    log.info(`${LOG_PREFIX} OpenAI response`, {
+    const tail = output.slice(-2000);
+    const msg = `Codex CLI exited with code ${exitCode}. Tail:\n${tail}`;
+    log.error(`${LOG_PREFIX} ${msg}`, {
       source: "orchestrator-openai.ts",
       ticketId: ticket?.id,
-      outputLength: output.length,
-      model: OPENAI_MODEL,
+      exitCode,
     });
-
-    // Log the output in chunks for visibility
-    const chunk = output.slice(0, 2000);
-    log.info(`${LOG_PREFIX} OpenAI stdout`, {
-      source: "orchestrator-openai.ts",
-      ticketId: ticket?.id,
-      chunk,
-    });
-
-    return;
+    throw new Error(msg);
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unknown error";
     log.error(`${LOG_PREFIX} Opey loop failed`, {
@@ -92,5 +119,9 @@ export async function runOpeyLoop(ticket: any, workPath: string, log: any) {
       error: message,
     });
     throw err;
+  } finally {
+    if (child && !child.killed) {
+      child.kill();
+    }
   }
 }
