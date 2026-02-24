@@ -4,7 +4,6 @@ import dotenv from "dotenv";
 import { routeAnthropicRequest } from "./routes/anthropicRoutes";
 import { startOpeyDev } from "./agent/opey-dev/main";
 import { startCronScheduler } from "./scheduler/cronScheduler";
-import { initializeRuntimeLogger } from "./runtimeLogger";
 
 const LOG_PREFIX = "[WorkspaceAgent]";
 const DEFAULT_PORT = 4010;
@@ -105,3 +104,7 @@ function shutdown(signal: string): void {
 
 process.on("SIGINT", () => shutdown("SIGINT"));
 process.on("SIGTERM", () => shutdown("SIGTERM"));
+function initializeRuntimeLogger(arg0: { supabaseUrl: string; supabaseKey: string; }) {
+  throw new Error("Function not implemented.");
+}
+
