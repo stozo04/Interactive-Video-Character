@@ -198,12 +198,16 @@ export class MultiAgentOrchestrator {
           hasArtifactService: Boolean(this.artifactService),
         });
       } else {
+        console.log("1 Calling ensureWorktree")
         ticket = await this.ensureWorktree(ticket);
         ticket = await this.ensureInitialScaffoldArtifacts(ticket);
       }
     }
 
     await this.autoTriggerOpeyIfReady(ticket);
+
+    ticket = await this.requireTicket(ticketId);
+    await this.autoTriggerClaudyIfReady(ticket);
 
     ticket = await this.requireTicket(ticketId);
     if (ticket.status === "qa_approved") {
@@ -257,6 +261,7 @@ export class MultiAgentOrchestrator {
       status: ticket.status,
       cycle: ticket.currentCycle,
     });
+    console.log("2 Calling ensureWorktree")
     const ticketWithWorktree = await this.ensureWorktree(ticket);
     console.log(`${LOG_PREFIX} requestOpeyTurn worktree`, {
       ticketId,
@@ -476,6 +481,7 @@ export class MultiAgentOrchestrator {
     });
 
     const ticket = await this.requireTicket(ticketId);
+    console.log("3 Calling ensureWorktree")
     const ticketWithWorktree = await this.ensureWorktree(ticket);
 
     const executionPrompt = buildOpeyExecutionPrompt(rawPrompt);
@@ -647,6 +653,7 @@ export class MultiAgentOrchestrator {
     }
 
     const ticket = await this.requireTicket(ticketId);
+    console.log("6 Calling ensureWorktree")
     const ticketWithWorktree = await this.ensureWorktree(ticket);
 
     const reviewPrompt = buildClaudyExecutionReviewPrompt({
@@ -1423,6 +1430,7 @@ export class MultiAgentOrchestrator {
       status: ticket.status,
       cycle: ticket.currentCycle,
     });
+    console.log("4 Calling ensureWorktree")
     const ticketWithWorktree = await this.ensureWorktree(ticket);
     console.log(`${LOG_PREFIX} requestClaudyTurn worktree`, {
       ticketId,
@@ -1679,16 +1687,20 @@ export class MultiAgentOrchestrator {
       ticketId: ticket.id,
       hasWorktree: Boolean(ticket.worktreePath && ticket.worktreeBranch),
     });
+    console.log("ensureWorkTree 1")
     if (ticket.worktreePath && ticket.worktreeBranch) {
+      console.log("RETURN WORK TREE")
       return ticket;
     }
-
+console.log("ensureWorkTree 2")
     if (!this.worktreeManager) {
       throw new Error(`${LOG_PREFIX} Worktree manager not configured.`);
     }
+    console.log("ensureWorkTree 3")
 
     // Create new worktree and persist its path + branch.
     const worktreeInfo = await this.worktreeManager.createWorktree(ticket.id);
+    console.log("ensureWorkTree 4")
     console.log(`${LOG_PREFIX} ensureWorktree created`, {
       ticketId: ticket.id,
       path: worktreeInfo.path,
@@ -1700,11 +1712,12 @@ export class MultiAgentOrchestrator {
       worktreeBranch: worktreeInfo.branch,
       artifactRootPath: worktreeInfo.path,
     }));
-
+console.log("ensureWorkTree 5")
     if (!updated) {
+      console.log("ERROR WORKTREE")
       throw new Error(`${LOG_PREFIX} Ticket ${ticket.id} not found for worktree update.`);
     }
-
+console.log("ensureWorkTree 6")
     // Log event for audit trail.
     await this.eventLogger.logEvent({
       ticketId: updated.id,
@@ -1717,7 +1730,7 @@ export class MultiAgentOrchestrator {
         worktreeBranch: worktreeInfo.branch,
       },
     });
-
+console.log("ensureWorkTree 7")
     return updated;
   }
 
@@ -2257,8 +2270,149 @@ export class MultiAgentOrchestrator {
     return this.scaffoldArtifacts(ticket.id);
   }
 
+  // Recovery path: if a ticket is already QA-ready when processNextStep runs,
+  // auto-trigger Claudy review. The primary Claudy handoff still happens when
+  // workspace runs settle.
+  private async autoTriggerClaudyIfReady(ticket: EngineeringTicket): Promise<void> {
+    if (ticket.status !== "ready_for_qa") {
+      return;
+    }
+
+    if (!this.claudyAgent) {
+      console.log(`${LOG_PREFIX} autoTriggerClaudyIfReady skip (Claudy not configured)`, {
+        ticketId: ticket.id,
+        status: ticket.status,
+      });
+      return;
+    }
+
+    const turns = await this.ticketStore.listTurns(ticket.id, 200);
+    const cycleTurns = turns.filter((turn) => turn.cycleNumber === ticket.currentCycle);
+    const latestOpeyTurn = [...cycleTurns]
+      .reverse()
+      .find(
+        (turn) =>
+          turn.agentRole === "opey" &&
+          (turn.purpose === "implementation" || turn.purpose === "rework"),
+      );
+
+    if (!latestOpeyTurn) {
+      console.log(`${LOG_PREFIX} autoTriggerClaudyIfReady skip (no Opey implementation/rework turn in current cycle)`, {
+        ticketId: ticket.id,
+        cycle: ticket.currentCycle,
+      });
+      return;
+    }
+
+    const existingClaudyReview = [...cycleTurns]
+      .reverse()
+      .find(
+        (turn) =>
+          turn.agentRole === "claudy" &&
+          turn.purpose === "review" &&
+          new Date(turn.createdAt).getTime() >= new Date(latestOpeyTurn.createdAt).getTime(),
+      );
+    if (existingClaudyReview) {
+      console.log(`${LOG_PREFIX} autoTriggerClaudyIfReady skip (Claudy already reviewed latest Opey turn)`, {
+        ticketId: ticket.id,
+        cycle: ticket.currentCycle,
+        latestOpeyTurnId: latestOpeyTurn.id,
+        claudyTurnId: existingClaudyReview.id,
+      });
+      return;
+    }
+console.log("5 Calling ensureWorktree")
+    const ticketWithWorktree = await this.ensureWorktree(ticket);
+    if (!ticketWithWorktree.worktreePath) {
+      const details = {
+        ticketId: ticket.id,
+        status: ticket.status,
+        cycle: ticket.currentCycle,
+      };
+      console.log(`${LOG_PREFIX} autoTriggerClaudyIfReady skip (missing worktree path)`, details);
+      runtimeLog.error(`${LOG_PREFIX} autoTriggerClaudyIfReady skip (missing worktree path)`, details);
+      return;
+    }
+
+    const patchCheckpoint = await collectPatchCheckpoint({
+      ticketId: ticketWithWorktree.id,
+      worktreePath: ticketWithWorktree.worktreePath,
+    });
+    await this.logPatchCheckpointArtifacts(ticketWithWorktree.id, patchCheckpoint);
+
+    if (!patchCheckpoint.ok) {
+      const details = {
+        ticketId: ticket.id,
+        status: ticket.status,
+        errors: patchCheckpoint.errors,
+      };
+      console.log(`${LOG_PREFIX} autoTriggerClaudyIfReady skip (patch checkpoint failed)`, details);
+      runtimeLog.error(`${LOG_PREFIX} autoTriggerClaudyIfReady skip (patch checkpoint failed)`, details);
+      await this.eventLogger.logEvent({
+        ticketId: ticket.id,
+        eventType: "patch_checkpoint_failed",
+        actorType: "system",
+        actorName: "orchestrator",
+        summary: "Patch checkpoint failed in processNextStep Claudy recovery path; QA handoff blocked.",
+        payload: {
+          ...details,
+          trigger: "processNextStep",
+        },
+      });
+      return;
+    }
+
+    if (!patchCheckpoint.hasChanges) {
+      const details = {
+        ticketId: ticket.id,
+        status: ticket.status,
+        hasAnyChanges: patchCheckpoint.hasAnyChanges,
+        allChangedFiles: patchCheckpoint.allChangedFiles,
+        ignoredArtifactPaths: patchCheckpoint.ignoredArtifactPaths,
+      };
+      console.log(`${LOG_PREFIX} autoTriggerClaudyIfReady skip (no meaningful code changes)`, details);
+      runtimeLog.warning(`${LOG_PREFIX} autoTriggerClaudyIfReady skip (no meaningful code changes)`, details);
+      await this.eventLogger.logEvent({
+        ticketId: ticket.id,
+        eventType: "empty_patch_blocked",
+        actorType: "system",
+        actorName: "orchestrator",
+        summary: "Claudy recovery auto-trigger skipped because no meaningful code changes were detected.",
+        payload: {
+          ...details,
+          trigger: "processNextStep",
+          patchArtifacts: patchCheckpoint.artifacts ?? null,
+        },
+      });
+      return;
+    }
+
+    console.log(`${LOG_PREFIX} autoTriggerClaudyIfReady auto-trigger Claudy execution review`, {
+      ticketId: ticket.id,
+      status: ticket.status,
+      cycle: ticket.currentCycle,
+      latestOpeyTurnId: latestOpeyTurn.id,
+      changedFiles: patchCheckpoint.changedFiles.length,
+    });
+    await this.eventLogger.logEvent({
+      ticketId: ticket.id,
+      eventType: "qa_review_auto_triggered",
+      actorType: "system",
+      actorName: "orchestrator",
+      summary: "Claudy auto-triggered from processNextStep QA-ready recovery path.",
+      payload: {
+        trigger: "processNextStep",
+        latestOpeyTurnId: latestOpeyTurn.id,
+        changedFiles: patchCheckpoint.changedFiles,
+        patchArtifacts: patchCheckpoint.artifacts ?? null,
+      },
+    });
+
+    await this.requestClaudyExecutionTurn(ticketWithWorktree.id, patchCheckpoint);
+  }
+
   // Auto-trigger Opey planning when requirements are ready and no plan exists yet.
-  // Skip planning entirely — go straight to execution-mode implementation.
+  // Skip planning entirely - go straight to execution-mode implementation.
   private async autoTriggerOpeyIfReady(ticket: EngineeringTicket): Promise<void> {
     if (ticket.status !== "requirements_ready") {
       return;

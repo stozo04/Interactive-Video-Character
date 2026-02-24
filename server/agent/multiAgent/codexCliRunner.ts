@@ -187,36 +187,20 @@ export class CodexCliRunner implements AgentCliRunner {
     if (runOptions.cwd) {
       args.push("--cd", runOptions.cwd);
     }
-    // Pass prompt as positional argument so Codex knows the full task upfront
-    // and exits after completion (stdin pipe is closed immediately).
-    args.push(prompt);
+    // On Windows, large multi-line prompts passed as positional args through
+    // `shell: true` (cmd.exe) can fail parsing/quoting. Force stdin mode.
+    args.push("-");
 
     const timeoutMs = runOptions.timeoutMs ?? this.options.timeoutMs ?? 480_000;
-    let heartbeatCount = 0;
-    const heartbeatTimer = timeoutMs >= HEARTBEAT_INTERVAL_MS
-      ? setInterval(() => {
-          heartbeatCount += 1;
-          runtimeLog.info(`${LOG_PREFIX} runExecutionTurn heartbeat`, {
-            ticketId: runOptions.ticketId ?? null,
-            elapsedMs: heartbeatCount * HEARTBEAT_INTERVAL_MS,
-            heartbeatCount,
-          });
-        }, HEARTBEAT_INTERVAL_MS)
-      : null;
-    heartbeatTimer?.unref?.();
 
     const result = await runCliCommand({
       command: "codex",
       args,
-      input: "",
+      input: prompt,
       cwd: runOptions.cwd,
       shell: true,
       timeoutMs,
-    }).finally(() => {
-      if (heartbeatTimer) {
-        clearInterval(heartbeatTimer);
-      }
-    });
+    })
 
     runtimeLog.info(`${LOG_PREFIX} runExecutionTurn result`, {
       exitCode: result.exitCode,

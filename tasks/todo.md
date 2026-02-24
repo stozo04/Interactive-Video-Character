@@ -1,3 +1,50 @@
+## Plan: Claudy QA Recovery Auto-Trigger In `processNextStep`
+
+1) Add a Claudy recovery auto-trigger hook in `processNextStep(...)` similar to Opey, but only for QA-ready tickets:
+- `server/agent/multiAgent/orchestrator.ts`
+2) Make the Claudy recovery trigger idempotent and safe:
+- `server/agent/multiAgent/orchestrator.ts`
+3) Verification (if approved):
+- `npm run agent:dev`
+- Resume/process a ticket already in `ready_for_qa` and confirm Claudy review starts automatically
+- Confirm no duplicate Claudy review turn is recorded when one already exists in the current cycle
+
+## Progress
+- [x] Plan added to `tasks/todo.md`.
+- [x] Read-only diagnosis completed (Claudy is auto-triggered in queue-settled/execution paths, but not from `processNextStep` recovery path).
+- [x] Patch implementation (approved).
+- [ ] Verification run (if approved).
+
+## Review Notes
+- This is a recovery/idempotency gap, not the primary Claudy handoff path. The main auto-trigger currently happens in `handleWorkspaceRunsSettled(...)` and in the Opey execution-mode path after patch checkpoint collection.
+
+---
+
+## Plan: Opey Codex Exec Exit Code 2 (Windows Prompt Argument)
+
+1) Confirm `Codex CLI exited with code 2` root cause in Opey execution mode and compare against installed `codex exec --help` flags:
+- `server/agent/dev/opey.ts`
+- `server/agent/multiAgent/codexCliRunner.ts`
+- `server/agent/multiAgent/cliExec.ts`
+2) Patch Codex execution-mode prompt delivery to avoid passing large multi-line prompts as a shell positional argument on Windows:
+- `server/agent/multiAgent/codexCliRunner.ts`
+3) Verification (if approved):
+- `npm run agent:dev`
+- Trigger the same bug ticket flow and confirm logs show `requestOpeyExecutionTurn agent complete` (or at least a richer Codex stderr than only exit code 2)
+- Confirm the ticket does not immediately transition to `escalated_human` from `implementing` due to `Codex CLI exited with code 2`
+
+## Progress
+- [x] Plan added to `tasks/todo.md`.
+- [x] Read-only diagnosis completed (`codex exec --help` confirms current flags are valid).
+- [x] Patch implementation (approved).
+- [ ] Verification run (if approved).
+
+## Review Notes
+- Likely root cause is Windows `cmd.exe` argument parsing/length issues from `spawn(..., { shell: true })` plus a large multi-line execution prompt passed as a positional `codex exec [PROMPT]` argument.
+- Structured Opey planning turns already send prompt via stdin and do not show this failure signature, which further points to execution-mode prompt transport rather than unsupported flags.
+
+---
+
 ## Plan: Kera Bug Intake Missing BUG.md Scaffold
 
 1) Confirm expected intake/scaffold flow and identify where bug artifact creation should occur:
