@@ -1,96 +1,130 @@
 // ./server/agent/opey-dev/orchestrator.ts
-// The Loop (The Brain)
+// The Loop (The Brain) — spawns Claude Code CLI to do the actual work
 
-import { executeTool } from "./executor";
-import { ProcessManager } from "./processManager";
+import { spawn, type ChildProcess } from "node:child_process";
+import * as fs from "node:fs";
+import * as path from "node:path";
+import { fileURLToPath } from "node:url";
 
-const TOOL_DESCRIPTIONS = `
-## Available Tools
+const LOG_PREFIX = "[Orchestrator]";
 
-### File & Code Tools
-- **read** { path } — Read a file's contents.
-- **write** { path, content } — Write content to a file (creates or overwrites).
-- **search** { query } — Grep recursively for a string in the workspace.
-- **command** { command } — Run a shell command synchronously (60s timeout).
+// Control which Claude model and thinking level to use
+// OPEY_MODEL: haiku, sonnet, opus (default: haiku)
+// OPEY_THINKING: brief, normal, detailed, extended (default: detailed)
+const CLAUDE_MODEL = "claude-sonnet-4-6";
+const THINKING_LEVEL = "detailed";
 
-### Background Process Tools
-- **bash_bg** { command, workdir? } — Spawn a long-running command in a background PTY. Returns { sessionId }. Use for builds, test suites, dev servers, or coding agents.
-- **process_poll** { sessionId } — Check if a background process is still alive. Returns { alive, exitCode }.
-- **process_log** { sessionId, offset?, limit? } — Read stdout/stderr output from a background process buffer.
-- **process_write** { sessionId, data } — Send raw data to a background process's stdin (no newline).
-- **process_submit** { sessionId, data } — Send data + newline to a background process's stdin.
-- **process_kill** { sessionId } — Kill a background process.
-- **process_list** {} — List all tracked background process sessions.
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
-### Control
-- **finish** {} — Signal that your work is complete.
-`;
+function loadSoulPrompt(): string {
+  const soulPath = path.join(__dirname, "SOUL.md");
+  return fs.readFileSync(soulPath, "utf-8");
+}
 
-function buildSystemPrompt(taskDescription: string): string {
-  return `You are Opey, a senior software engineering agent. Resolve the following task:\n\n${taskDescription}\n\n${TOOL_DESCRIPTIONS}`;
+function buildTicketPrompt(ticket: any): string {
+  const parts = [
+    `# Ticket: ${ticket.title ?? "Untitled"}`,
+    ticket.type ? `**Type:** ${ticket.type}` : null,
+    ticket.summary ? `**Summary:** ${ticket.summary}` : null,
+    ticket.details ?? ticket.description ?? null,
+  ].filter(Boolean);
+
+  return parts.join("\n\n");
 }
 
 export async function runOpeyLoop(ticket: any, workPath: string, log: any) {
-  log.info("Opey loop start", {
+  log.info(`${LOG_PREFIX} Opey loop start`, {
     source: "orchestrator.ts",
     ticketId: ticket?.id,
     workPath,
   });
 
-  const processManager = new ProcessManager();
+  let child: ChildProcess | null = null;
 
   try {
-    let isDone = false;
-    const history = [
-      {
-        role: "system",
-        content: buildSystemPrompt(ticket.description),
-      },
+    const soulPrompt = loadSoulPrompt();
+    const ticketPrompt = buildTicketPrompt(ticket);
+
+    const args = [
+      "-p",
+      "--permission-mode", "acceptEdits",
+      "--output-format", "text",
+      "--no-session-persistence",
+      "--model", CLAUDE_MODEL,
+      "--thinking", THINKING_LEVEL,
+      "--append-system-prompt", soulPrompt,
+      ticketPrompt,
     ];
 
-    while (!isDone) {
-      // 1. CALL YOUR LLM HERE (e.g., Claude or OpenAI)
-      const response = {
-        thought: "I need to check the current version.",
-        tool: "read",
-        args: { path: "package.json" },
-      };
+    // Spawn claude directly with args array — bypasses shell escaping entirely
+    child = spawn("claude", args, {
+      cwd: workPath,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
 
-      log.info(`Thought: ${response.thought}`, {
+    log.info(`${LOG_PREFIX} Claude Code spawned`, {
+      source: "orchestrator.ts",
+      ticketId: ticket?.id,
+      pid: child.pid,
+      model: CLAUDE_MODEL,
+    });
+
+    let output = "";
+
+    child.stdout!.on("data", (chunk: Buffer) => {
+      const text = chunk.toString();
+      output += text;
+      log.info(`${LOG_PREFIX} Claude stdout`, {
         source: "orchestrator.ts",
         ticketId: ticket?.id,
-        tool: response.tool,
+        chunk: text.slice(0, 2000),
       });
+    });
 
-      if (response.tool === "finish") {
-        log.info("Opey loop finished", {
-          source: "orchestrator.ts",
-          ticketId: ticket?.id,
-        });
-        isDone = true;
-        break;
-      }
-
-      // 2. Execute and feed back to history
-      const result = await executeTool(response.tool, response.args, workPath, processManager);
-      log.info("Tool execution complete", {
+    child.stderr!.on("data", (chunk: Buffer) => {
+      const text = chunk.toString();
+      output += text;
+      log.info(`${LOG_PREFIX} Claude stderr`, {
         source: "orchestrator.ts",
         ticketId: ticket?.id,
-        tool: response.tool,
-        resultLength: result?.length ?? 0,
+        chunk: text.slice(0, 2000),
       });
-      history.push({ role: "assistant", content: JSON.stringify(response) });
-      history.push({ role: "user", content: `Result: ${result}` });
+    });
+
+    const exitCode = await new Promise<number | null>((resolve, reject) => {
+      child!.on("close", (code) => resolve(code));
+      child!.on("error", (err) => reject(err));
+    });
+
+    if (exitCode === 0) {
+      log.info(`${LOG_PREFIX} Claude Code completed successfully`, {
+        source: "orchestrator.ts",
+        ticketId: ticket?.id,
+        outputLength: output.length,
+      });
+      return;
     }
+
+    const tail = output.slice(-2000);
+    const msg = `Claude Code exited with code ${exitCode}. Tail:\n${tail}`;
+    log.error(`${LOG_PREFIX} ${msg}`, {
+      source: "orchestrator.ts",
+      ticketId: ticket?.id,
+      exitCode,
+    });
+    throw new Error(msg);
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unknown error";
-    log.error("Opey loop failed", {
+    log.error(`${LOG_PREFIX} Opey loop failed`, {
       source: "orchestrator.ts",
       ticketId: ticket?.id,
       error: message,
     });
     throw err;
   } finally {
-    processManager.cleanup();
+    if (child && !child.killed) {
+      child.kill();
+    }
   }
 }

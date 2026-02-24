@@ -9,7 +9,7 @@ import OpenAI from "openai";
 const LOG_PREFIX = "[Orchestrator-OpenAI]";
 
 // Control which OpenAI model to use
-const OPENAI_MODEL = process.env.OPEY_MODEL ?? "gpt-4o";
+const OPENAI_MODEL = "gpt-5.2-codex";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
