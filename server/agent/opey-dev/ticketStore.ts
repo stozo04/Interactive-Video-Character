@@ -18,7 +18,7 @@ export class SupabaseTicketStore {
         .from('engineering_tickets')
         .select('*')
         .eq('status', 'created')
-        .order('createdAt', { ascending: true })
+        .order('created_at', { ascending: true })
         .limit(1)
         .single();
 
@@ -51,12 +51,12 @@ export class SupabaseTicketStore {
     try {
       const updates: any = { 
         status, 
-        updatedAt: new Date().toISOString() 
+        updated_at: new Date().toISOString() 
       };
 
-      if (details?.prUrl) updates.finalPrUrl = details.prUrl;
-      if (details?.failureReason) updates.failureReason = details.failureReason;
-      if (details?.worktreePath) updates.worktreePath = details.worktreePath;
+      if (details?.prUrl) updates.final_pr_url = details.prUrl;
+      if (details?.failureReason) updates.failure_reason = details.failureReason;
+      if (details?.worktreePath) updates.worktree_path = details.worktreePath;
 
       const { error } = await this.supabase
         .from('engineering_tickets')
@@ -91,8 +91,8 @@ export class SupabaseTicketStore {
         .insert([{
           ...ticket,
           status: 'created',
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
         }]);
 
       if (error) throw new Error(`Failed to create ticket: ${error.message}`);
