@@ -48,12 +48,12 @@ export async function createPullRequest(workPath: string, ticket: any) {
       return null;
     }
 
-    // 3. Push the branch to origin
+    // 3. Push the branch to origin (force: remote may exist from a prior run of this ticket)
     log.info("Pushing branch", {
       source: "githubOps.ts",
       ticketId: ticket?.id,
     });
-    run("git push origin HEAD", workPath);
+    run("git push origin HEAD --force", workPath);
 
     // 4. Create the PR via GitHub REST API
     const token = process.env.GITHUB_API_KEY;
