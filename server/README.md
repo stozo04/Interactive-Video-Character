@@ -52,12 +52,14 @@ Base path: `/multi-agent`
 - `POST /multi-agent/tickets`
 - `GET /multi-agent/tickets/:id`
 - `POST /multi-agent/tickets/:id/transition`
+- `POST /multi-agent/tickets/:id/clarify` — relay a clarification answer (resets ticket to `created`)
 - `GET /multi-agent/tickets/:id/events?limit=100`
 - `GET /multi-agent/tickets/:id/turns?limit=100`
 - `GET /multi-agent/chats?limit=25`
 - `POST /multi-agent/chats`
 - `GET /multi-agent/chats/:id/messages?limit=100`
 - `POST /multi-agent/chats/:id/messages`
+- `POST /multi-agent/server/restart` — touch trigger file to restart tsx watch
 
 ## Environment Variables
 
@@ -90,8 +92,33 @@ taskkill //F //IM node.exe
 - If the server exits immediately, confirm `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` are set.
 - If `/multi-agent/*` returns 404, confirm `npm run agent:dev` is running and that the request is not going to a different server on port `4010`.
 
+## Opey Dev Agent
+
+Opey is an autonomous dev agent that polls `engineering_tickets` and implements them in isolated git worktrees.
+
+### Clarification Loop
+
+When Opey produces no commits AND no uncommitted file changes on the first pass, the ticket is set to `needs_clarification` with his output stored in `clarification_questions`. Kayley (the AI companion) polls for this status, relays the questions to the user, and POSTs the answer to `/multi-agent/tickets/:id/clarify`. The ticket resets to `created` with the Q&A appended to `additional_details`. Max 1 clarification loop — on the second pass Opey must ship or fail.
+
+### Auto-Commit
+
+Codex sometimes edits files but forgets to `git commit`. If `hasCommitsAheadOfMain()` is false but `hasUncommittedChanges()` is true, `main.ts` commits on Codex's behalf and proceeds to PR creation.
+
+### Worktree Branching
+
+Worktrees branch from `main`, not `HEAD`. This is critical — if they branched from a dev branch, `git log main..HEAD` would show pre-existing commits and the clarification detection would never fire.
+
+### Worktree Cleanup
+
+After PR creation (success or fail), the worktree is cleaned up. Previously this only happened in the clarification/failure paths, leaving orphaned worktrees that could block future checkouts and cause Vitest to pick up duplicate test files.
+
 ## Lessons Learned
 
 - A Vite proxy avoids CORS in development, but it does not create backend routes. The server still must implement `/multi-agent/*`.
 - A `{"error":"Route not found."}` response means the request reached a server that does not recognize the route (not a browser CORS issue).
 - A lightweight health endpoint (`/multi-agent/health`) is a fast way to confirm server + Supabase connectivity before debugging UI failures.
+- **Closing a terminal on Windows does not kill child processes.** Node processes survive and keep running on the same port. Use `taskkill //F //IM node.exe` to clean up.
+- **`tsx watch` restarts on file changes, not process exit.** To restart the server programmatically, touch a trigger file (`server/.restart-trigger`) instead of calling `process.exit()`.
+- **Worktrees must branch from `main`.** Branching from `HEAD` (which could be any dev branch) means `git log main..HEAD` sees pre-existing commits, breaking any "did the agent make changes?" detection.
+- **Codex doesn't always commit its work.** The agent can edit files and exit 0 without running `git commit`. Always check for uncommitted changes as a fallback before assuming "no changes = clarification."
+- **Vitest picks up test files in worktrees.** Add `.worktrees/**` to `vite.config.ts` `test.exclude` to prevent orphaned worktrees from causing duplicate/stale test failures in CI.
