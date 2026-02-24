@@ -9,14 +9,19 @@ import { log } from "./runtimeLogger";
 const LOG_PREFIX = "[WorkspaceAgent]";
 const DEFAULT_PORT = 4010;
 
-// 1) Load environment variables from .env so local dev keys are available.
+// 1) Load environment variables. Priority (highest→lowest): server/.env.local,
+//    server/.env, root .env. dotenv.config skips keys already set, so load
+//    highest-priority first.
 const port = DEFAULT_PORT;
-const envResult = dotenv.config({ path: path.resolve(process.cwd(), ".env") });
-if (envResult.error) {
-  console.warn(`${LOG_PREFIX} .env load failed`, { error: envResult.error.message });
-} else {
-  console.log(`${LOG_PREFIX} .env loaded`, { parsed: Boolean(envResult.parsed) });
-}
+const serverDir = path.resolve(process.cwd(), "server");
+[
+  path.join(serverDir, ".env.local"),
+  path.join(serverDir, ".env"),
+  path.resolve(process.cwd(), ".env"),
+].forEach((envPath) => {
+  const r = dotenv.config({ path: envPath });
+  if (!r.error) console.log(`${LOG_PREFIX} loaded env`, { file: envPath });
+});
 
 // 2) Decide the root folder the workspace agent is allowed to operate inside.
 // We always use the current working directory (the folder you launched the server from).
