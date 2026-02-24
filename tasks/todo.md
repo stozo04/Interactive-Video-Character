@@ -1020,3 +1020,25 @@ Update: Pending cron delivery now uses fetch-then-ack (ack only after chat appen
 
 ## Review Notes
 - Decision needed: allow ffmpeg dependency for video/GIF frame extraction, or accept text-only understanding for video/GIF.
+## Plan: Opey Runtime Logger (Verbose + File-Scoped)
+
+1) Review logger usage and expected context fields:
+- `server/agent/opey-ev/runtimeLogger.ts`
+- `server/agent/opey-ev/*.ts`
+2) Implement verbose logging with explicit severity, timestamp, and context fields:
+- `server/agent/opey-ev/runtimeLogger.ts`
+3) Add file-scoped logger helpers for each file in `server/agent/opey-ev` (explicit map or factory).
+4) Add try/catch logging wrappers with rethrow semantics as requested.
+5) Verification (if approved):
+- `npm test -- --run`
+
+## Progress
+- [x] Plan added to `tasks/todo.md`.
+- [x] Verbose runtime logger updates and file-level logs added.
+- [ ] Verification not run (requires approval).
+
+## Review Notes
+- Goal: verbose, structured runtime logs with per-file scoping and error capture.
+- Notable change: `executeTool` now logs and rethrows errors instead of returning an error string.
+
+---
