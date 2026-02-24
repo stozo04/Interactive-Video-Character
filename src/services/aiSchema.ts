@@ -718,6 +718,48 @@ export const CronJobActionSchema = z.object({
     .describe("ISO datetime for one-time schedule."),
 });
 
+/**
+ * Schema for the delegate_to_engineering tool.
+ * Creates an engineering ticket for skill/feature/bug requests.
+ */
+export const DelegateToEngineeringSchema = z.object({
+  request_type: z
+    .enum(["skill", "feature", "bug"])
+    .optional()
+    .describe("Ticket request type."),
+  title: z
+    .string()
+    .optional()
+    .describe("Short ticket title."),
+  request_summary: z
+    .string()
+    .optional()
+    .describe("Concise summary of the request."),
+  additional_details: z
+    .string()
+    .optional()
+    .describe("Extra context or constraints."),
+  priority: z
+    .string()
+    .optional()
+    .describe("Priority label (e.g., normal, high)."),
+  is_ui_related: z
+    .boolean()
+    .optional()
+    .describe("True if the request is UI-related."),
+});
+
+/**
+ * Schema for the get_engineering_ticket_status tool.
+ * Fetches ticket status and recent updates.
+ */
+export const EngineeringTicketStatusSchema = z.object({
+  ticket_id: z
+    .string()
+    .optional()
+    .describe("Ticket id to fetch. If omitted, return the latest ticket."),
+});
+
 // Export types for tool arguments
 export type RecallMemoryArgs = z.infer<typeof RecallMemorySchema>;
 export type RecallUserInfoArgs = z.infer<typeof RecallUserInfoSchema>;
@@ -731,6 +773,8 @@ export type MilaNoteArgs = z.infer<typeof MilaNoteSchema>;
 export type RetrieveMilaNotesArgs = z.infer<typeof RetrieveMilaNotesSchema>;
 export type WorkspaceActionArgs = z.infer<typeof WorkspaceActionSchema>;
 export type CronJobActionArgs = z.infer<typeof CronJobActionSchema>;
+export type DelegateToEngineeringArgs = z.infer<typeof DelegateToEngineeringSchema>;
+export type EngineeringTicketStatusArgs = z.infer<typeof EngineeringTicketStatusSchema>;
 
 // Union type for all memory tool arguments
 export type MemoryToolArgs =
@@ -738,6 +782,8 @@ export type MemoryToolArgs =
   | { tool: "web_search"; args: { query: string } }
   | { tool: "workspace_action"; args: WorkspaceActionArgs }
   | { tool: "cron_job_action"; args: CronJobActionArgs }
+  | { tool: "delegate_to_engineering"; args: DelegateToEngineeringArgs }
+  | { tool: "get_engineering_ticket_status"; args: EngineeringTicketStatusArgs }
   | { tool: "recall_user_info"; args: RecallUserInfoArgs }
   | { tool: "store_user_info"; args: StoreUserInfoArgs }
   | { tool: "resolve_idle_question"; args: ResolveIdleQuestionArgs }
@@ -1369,6 +1415,58 @@ export const GeminiMemoryToolDeclarations = [
     },
   },
   {
+    name: "delegate_to_engineering",
+    description:
+      "Create a new engineering ticket for skill, feature, or bug requests. " +
+      "Use this when the user asks for new engineering work to be routed to the dev team.",
+    parameters: {
+      type: "object",
+      properties: {
+        request_type: {
+          type: "string",
+          enum: ["skill", "feature", "bug"],
+          description: "Ticket request type.",
+        },
+        title: {
+          type: "string",
+          description: "Short ticket title.",
+        },
+        request_summary: {
+          type: "string",
+          description: "Concise summary of the request.",
+        },
+        additional_details: {
+          type: "string",
+          description: "Extra context or constraints.",
+        },
+        priority: {
+          type: "string",
+          description: "Priority label (e.g., normal, high).",
+        },
+        is_ui_related: {
+          type: "boolean",
+          description: "True if the request is UI-related.",
+        },
+      },
+      required: ["request_summary"],
+    },
+  },
+  {
+    name: "get_engineering_ticket_status",
+    description:
+      "Fetch status for an engineering ticket. " +
+      "Use this when the user asks for progress, blockers, or status.",
+    parameters: {
+      type: "object",
+      properties: {
+        ticket_id: {
+          type: "string",
+          description: "Ticket id to fetch. If omitted, return the latest ticket.",
+        },
+      },
+    },
+  },
+  {
     name: "resolve_open_loop",
     description:
       "Mark an open loop as resolved (user answered) or dismissed (user doesn't want to discuss). " +
@@ -1797,6 +1895,8 @@ export interface PendingToolCall {
     | "web_search"
     | "workspace_action"
     | "cron_job_action"
+    | "delegate_to_engineering"
+    | "get_engineering_ticket_status"
     | "resolve_x_tweet"
     | "post_x_tweet"
     | "resolve_x_mention";

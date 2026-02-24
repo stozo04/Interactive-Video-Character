@@ -15,7 +15,8 @@ const LOG_PREFIX = "🐦 [X]";
 const X_CLIENT_ID = import.meta.env.VITE_X_CLIENT_ID;
 const X_CLIENT_SECRET = import.meta.env.VITE_X_CLIENT_SECRET;
 // Must match what's registered in the X Developer Portal
-const X_CALLBACK_URL = import.meta.env.VITE_X_CALLBACK_URL || `${window.location.origin}/auth/x/callback`;
+const X_CALLBACK_URL = import.meta.env.VITE_X_CALLBACK_URL ||
+  (typeof window !== "undefined" ? `${window.location.origin}/auth/x/callback` : "");
 
 const TABLES = {
   AUTH_TOKENS: "x_auth_tokens",

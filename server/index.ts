@@ -1,34 +1,53 @@
 import { createServer } from "node:http";
 import path from "node:path";
-import { ObservableRunStore } from "./agent/observableRunStore";
-import { WorkspaceRunEventHub } from "./agent/runEvents";
-import { WorkspaceRunQueue } from "./agent/runQueue";
-import { SupabaseRunStore } from "./agent/supabaseRunStore";
-import { routeAgentRequest } from "./routes/agentRoutes";
+import dotenv from "dotenv";
 import { routeAnthropicRequest } from "./routes/anthropicRoutes";
+import { startOpeyDev } from "./agent/opey-dev/main";
 import { startCronScheduler } from "./scheduler/cronScheduler";
+import { log } from "./runtimeLogger";
 
 const LOG_PREFIX = "[WorkspaceAgent]";
 const DEFAULT_PORT = 4010;
 
-const port =  DEFAULT_PORT;
-const workspaceRoot = process.env.WORKSPACE_AGENT_ROOT
-  ? path.resolve(process.env.WORKSPACE_AGENT_ROOT)
-  : process.cwd();
+// 1) Load environment variables. Priority (highest→lowest): server/.env.local,
+//    server/.env, root .env. dotenv.config skips keys already set, so load
+//    highest-priority first.
+const port = DEFAULT_PORT;
+const serverDir = path.resolve(process.cwd(), "server");
+[
+  path.join(serverDir, ".env.local"),
+  path.join(serverDir, ".env"),
+  path.resolve(process.cwd(), ".env"),
+].forEach((envPath) => {
+  const r = dotenv.config({ path: envPath });
+  if (!r.error) console.log(`${LOG_PREFIX} loaded env`, { file: envPath });
+});
 
-const supabaseUrl = 'https://bqyfplifeyvkilkoneph.supabase.co';
-const supabaseServiceRoleKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJxeWZwbGlmZXl2a2lsa29uZXBoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MzU4MzA2NTQsImV4cCI6MjA1MTQwNjY1NH0.ydowrDwep95J1DlPalzdCIKlk5XAxNWClySjvPn-gVc";
+// 2) Decide the root folder the workspace agent is allowed to operate inside.
+// We always use the current working directory (the folder you launched the server from).
+// Example: if you run `npm run agent:dev` from `C:\\Users\\gates\\Personal\\Interactive-Video-Character`,
+// then `process.cwd()` resolves to that folder and becomes the workspace root.
+const workspaceRoot = process.cwd();
 
-const eventHub = new WorkspaceRunEventHub();
-const runQueue = new WorkspaceRunQueue();
-const runStore = new ObservableRunStore(
-  new SupabaseRunStore({
+// 3) Read Supabase config (these are required for persistence).
+const supabaseUrl = process.env.SUPABASE_URL ?? "";
+const supabaseServiceRoleKey =
+  process.env.SUPABASE_SERVICE_ROLE_KEY ?? process.env.SUPABASE_ANON_KEY ?? "";
+
+if (!supabaseUrl || !supabaseServiceRoleKey) {
+  console.error(`${LOG_PREFIX} Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY env vars.`);
+  process.exit(1);
+}
+
+// 4) Start Opey development agent system.
+const opeyDevHandle = startOpeyDev({
   supabaseUrl,
-  supabaseServiceRoleKey,
-  }),
-  eventHub,
-);
+  supabaseKey: supabaseServiceRoleKey,
+  workspaceRoot,
+});
 
+// 5) Background services.
+// Cron scheduler: handles scheduled “Kayley” digests and promise reminders.
 const cronScheduler = startCronScheduler({
   supabaseUrl,
   supabaseServiceRoleKey,
@@ -36,22 +55,14 @@ const cronScheduler = startCronScheduler({
   schedulerId: process.env.CRON_SCHEDULER_ID || `scheduler_${process.pid}`,
 });
 
+// 6) HTTP server: routes incoming requests to the right handler.
 const server = createServer(async (req, res) => {
   try {
+    // a) Anthropic-specific routes (Claude CLI runner).
     const handledAnthropic = await routeAnthropicRequest(req, res);
     if (handledAnthropic) return;
 
-    const handled = await routeAgentRequest(req, res, {
-      runStore,
-      runEventHub: eventHub,
-      runQueue,
-      workspaceRoot,
-    });
-
-    if (handled) {
-      return;
-    }
-
+    // b) If no route matched, return 404 JSON.
     res.statusCode = 404;
     res.setHeader("Content-Type", "application/json; charset=utf-8");
     res.end(JSON.stringify({ error: "Route not found." }));
@@ -68,17 +79,19 @@ const server = createServer(async (req, res) => {
   }
 });
 
+// 7) Start listening for HTTP requests.
 server.listen(port, () => {
   console.log(`${LOG_PREFIX} Server listening`, {
     port,
     workspaceRoot,
     persistence: "supabase",
-    queue: "serial_single_run",
   });
 });
 
+// 8) Graceful shutdown: stop background loops, then close the HTTP server.
 function shutdown(signal: string): void {
   console.log(`${LOG_PREFIX} Shutdown requested`, { signal });
+  opeyDevHandle.stop();
   cronScheduler.stop();
   server.close(() => {
     process.exit(0);
