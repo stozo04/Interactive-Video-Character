@@ -28,7 +28,8 @@ export class WorktreeManager {
     this.pruneStale(ticketId, workPath, branch);
 
     try {
-      execSync(`git worktree add -b ${branch} ${workPath} main`, { cwd: this.root });
+      // Branch from HEAD (current branch) so the worktree has the latest code
+      execSync(`git worktree add -b ${branch} ${workPath} HEAD`, { cwd: this.root });
       return { workPath, branch };
     } catch (err) {
       const message = err instanceof Error ? err.message : "Unknown error";
