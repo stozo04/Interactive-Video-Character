@@ -2,6 +2,7 @@ import { createServer } from "node:http";
 import path from "node:path";
 import dotenv from "dotenv";
 import { routeAnthropicRequest } from "./routes/anthropicRoutes";
+import { createMultiAgentRouter } from "./routes/multiAgentRoutes";
 import { startOpeyDev } from "./agent/opey-dev/main";
 import { startCronScheduler } from "./scheduler/cronScheduler";
 import { log } from "./runtimeLogger";
@@ -46,6 +47,11 @@ const opeyDevHandle = startOpeyDev({
   workspaceRoot,
 });
 
+const routeMultiAgentRequest = createMultiAgentRouter({
+  supabaseUrl,
+  supabaseServiceRoleKey,
+});
+
 // 5) Background services.
 // Cron scheduler: handles scheduled “Kayley” digests and promise reminders.
 const cronScheduler = startCronScheduler({
@@ -62,7 +68,11 @@ const server = createServer(async (req, res) => {
     const handledAnthropic = await routeAnthropicRequest(req, res);
     if (handledAnthropic) return;
 
-    // b) If no route matched, return 404 JSON.
+    // b) Multi-agent routes (tickets, events, chats).
+    const handledMultiAgent = await routeMultiAgentRequest(req, res);
+    if (handledMultiAgent) return;
+
+    // c) If no route matched, return 404 JSON.
     res.statusCode = 404;
     res.setHeader("Content-Type", "application/json; charset=utf-8");
     res.end(JSON.stringify({ error: "Route not found." }));

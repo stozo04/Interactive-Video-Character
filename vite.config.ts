@@ -33,6 +33,10 @@ export default defineConfig(({ mode }) => {
             changeOrigin: true,
             rewrite: (path) => path.replace(/^\/api\/x/, ''),
           },
+          '/multi-agent': {
+            target: 'http://localhost:4010',
+            changeOrigin: true,
+          },
         },
       },
       plugins: [

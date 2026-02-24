@@ -44,19 +44,20 @@ export class SupabaseTicketStore {
    * Updates the ticket status and handles metadata like PR URLs or errors.
    */
   async updateStatus(
-    ticketId: string, 
-    status: EngineeringTicketStatus, 
-    details?: { prUrl?: string; failureReason?: string; worktreePath?: string }
+    ticketId: string,
+    status: EngineeringTicketStatus,
+    details?: { prUrl?: string; failureReason?: string; worktreePath?: string; clarificationQuestions?: string }
   ): Promise<void> {
     try {
-      const updates: any = { 
-        status, 
-        updated_at: new Date().toISOString() 
+      const updates: any = {
+        status,
+        updated_at: new Date().toISOString()
       };
 
       if (details?.prUrl) updates.final_pr_url = details.prUrl;
       if (details?.failureReason) updates.failure_reason = details.failureReason;
       if (details?.worktreePath) updates.worktree_path = details.worktreePath;
+      if (details?.clarificationQuestions) updates.clarification_questions = details.clarificationQuestions;
 
       const { error } = await this.supabase
         .from('engineering_tickets')

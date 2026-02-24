@@ -22,6 +22,24 @@ export interface FactFilter {
   search?: string;
 }
 
+export type RuntimeLogSeverity = 'info' | 'warning' | 'error' | 'critical';
+
+export interface ServerRuntimeLogRow {
+  id: string;
+  created_at: string;
+  occurred_at: string | null;
+  severity: RuntimeLogSeverity;
+  message: string;
+  details: Record<string, unknown>;
+  agent_name: string | null;
+  ticket_id: string | null;
+  run_id: string | null;
+  request_id: string | null;
+  route: string | null;
+  source: string | null;
+  process_id: number | null;
+}
+
 /**
  * Fetch facts from a specific table with pagination, filtering, and searching.
  */
@@ -60,6 +78,34 @@ export const fetchTableDataAdmin = async (
   } catch (error) {
     console.error(`Error fetching table ${tableName} for admin:`, error);
     return { data: [], count: 0 };
+  }
+};
+
+export const listServerRuntimeLogsAdmin = async (options?: {
+  severity?: RuntimeLogSeverity | 'all';
+  limit?: number;
+}): Promise<ServerRuntimeLogRow[]> => {
+  try {
+    const severity = options?.severity ?? 'all';
+    const limit = options?.limit ?? 200;
+
+    let query = supabase
+      .from('server_runtime_logs')
+      .select('*')
+      .order('created_at', { ascending: false })
+      .limit(limit);
+
+    if (severity !== 'all') {
+      query = query.eq('severity', severity);
+    }
+
+    const { data, error } = await query;
+    if (error) throw error;
+
+    return (data ?? []) as ServerRuntimeLogRow[];
+  } catch (error) {
+    console.error('Error fetching server_runtime_logs for admin:', error);
+    return [];
   }
 };
 
