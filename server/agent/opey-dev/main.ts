@@ -39,7 +39,8 @@ async function processNextTicket(
     await store.updateStatus(ticketId, "implementing", { worktreePath: workPath });
 
     log.info(`${LOG_PREFIX} Starting Opey loop (${ORCHESTRATOR_BACKEND})`, { source: "main.ts", ticketId, workPath });
-    const orchestrator = ORCHESTRATOR_BACKEND === "openai" ? runOpeyLoopOpenAI : runOpeyLoop;
+    // const orchestrator = ORCHESTRATOR_BACKEND === "openai" ? runOpeyLoopOpenAI : runOpeyLoop;
+    const orchestrator = runOpeyLoopOpenAI;
     await orchestrator(ticket, workPath, log);
 
     log.info(`${LOG_PREFIX} Creating pull request`, { source: "main.ts", ticketId });
@@ -49,7 +50,7 @@ async function processNextTicket(
       await store.updateStatus(ticketId, "completed", { prUrl });
       log.info(`${LOG_PREFIX} Mission accomplished! PR: ${prUrl}`, { source: "main.ts", ticketId });
     } else {
-      await store.updateStatus(ticketId, "completed", { note: "No changes made — Claude may need more detail" });
+      await store.updateStatus(ticketId, "completed", { failureReason: "No changes made — Claude may need more detail" });
       log.warning(`${LOG_PREFIX} Completed with no changes`, { source: "main.ts", ticketId });
     }
   } catch (err) {
