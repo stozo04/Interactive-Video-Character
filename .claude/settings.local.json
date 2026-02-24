@@ -58,7 +58,8 @@
       "WebFetch(domain:stackoverflow.com)",
       "Bash(cd /c/Users/gates/Personal/Interactive-Video-Character && python3 -c \"\nwith open\\('server/agent/multiAgent/codexCliRunner.ts', 'rb'\\) as f:\n    data = f.read\\(\\)\n# Check for smart quotes\nfor i, b in enumerate\\(data\\):\n    if b in \\(0xe2,\\):\n        if i+2 < len\\(data\\) and data[i+1] == 0x80 and data[i+2] in \\(0x9c, 0x9d, 0x98, 0x99\\):\n            line = data[:i].count\\(b'\\\\n'\\) + 1\n            print\\(f'Smart quote at byte {i}, line {line}, bytes: {data[i:i+3].hex\\(\\)}'\\)\n\" 2>&1)",
       "Bash(echo not found in shell PATH:*)",
-      "Bash(echo No matching processes:*)"
+      "Bash(echo No matching processes:*)",
+      "Bash(cd:*)"
     ]
   },
   "enabledPlugins": {

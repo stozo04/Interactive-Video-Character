@@ -1,20 +1,25 @@
-// import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 
-// // Mock supabaseClient before any imports that trigger its initialization
-// vi.mock("../supabaseClient", () => ({
-//   supabase: { from: vi.fn() },
-// }));
+// Mock supabaseClient before any imports that trigger its initialization
+vi.mock("../supabaseClient", () => ({
+  supabase: { from: vi.fn() },
+}));
 
-// import { parseMediaUploadResponse } from "../xTwitterService";
+// Stub import.meta.env vars that xTwitterService reads at module load
+vi.stubEnv("VITE_X_CLIENT_ID", "test");
+vi.stubEnv("VITE_X_CLIENT_SECRET", "test");
+vi.stubEnv("VITE_X_CALLBACK_URL", "http://localhost");
 
-// describe("xTwitterService.parseMediaUploadResponse", () => {
-//   it("throws when the v2 response is missing data.id", () => {
-//     expect(() => parseMediaUploadResponse({})).toThrow(
-//       "Media upload failed: missing media id in response"
-//     );
-//   });
+import { parseMediaUploadResponse } from "../xTwitterService";
 
-//   it("returns the media id when present", () => {
-//     expect(parseMediaUploadResponse({ data: { id: "12345" } })).toBe("12345");
-//   });
-// });
+describe("xTwitterService.parseMediaUploadResponse", () => {
+  it("throws when the v2 response is missing data.id", () => {
+    expect(() => parseMediaUploadResponse({})).toThrow(
+      "Media upload failed: missing media id in response"
+    );
+  });
+
+  it("returns the media id when present", () => {
+    expect(parseMediaUploadResponse({ data: { id: "12345" } })).toBe("12345");
+  });
+});
