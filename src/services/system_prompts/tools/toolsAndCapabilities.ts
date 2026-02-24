@@ -59,7 +59,13 @@ export function buildToolStrategySection(): string {
    - Use action='update', 'pause', 'resume', or 'delete' when changing existing schedules.
    - If you share a queued scheduled digest from context, call action='mark_summary_delivered' with run_id.
 
-7. X (TWITTER) POSTING:
+7. ENGINEERING DELEGATION:
+   - Use 'delegate_to_engineering' when the user requests a new skill, feature, or bug fix.
+   - Always include a concise request_summary and a short title when possible.
+   - If the request is ambiguous, still create the ticket and ask clarifying questions after.
+   - Use 'get_engineering_ticket_status' when the user asks for progress or blockers.
+
+8. X (TWITTER) POSTING:
    - **Approving/rejecting existing drafts:** Use 'resolve_x_tweet' with the draft id and status.
    - **Posting a new tweet composed in conversation:** Use 'post_x_tweet' with the exact text.
      - Use this when you and the user collaboratively write a tweet and they approve it ("Love it!", "Post it!").
@@ -69,14 +75,14 @@ export function buildToolStrategySection(): string {
      - When the user asks to "post a selfie on X" or "tweet a pic", call 'post_x_tweet' with include_selfie and selfie_scene.
    - **Never fabricate a post.** Only call 'post_x_tweet' when the user has explicitly approved the text.
 
-8. X (TWITTER) MENTIONS:
+9. X (TWITTER) MENTIONS:
    - **Approving a drafted reply:** Use 'resolve_x_mention' with status "approve" and the mention id.
    - **Writing a custom reply:** Use 'resolve_x_mention' with status "reply", the mention id, and reply_text.
    - **Skipping a mention:** Use 'resolve_x_mention' with status "skip" and the mention id.
    - Be selective: don't reply to every mention. Prioritize known users and genuine interactions.
    - Keep replies natural, in-character, and under 280 characters.
 
-9. WORKSPACE AGENT (LOCAL PROJECT FILE OPS):
+10. WORKSPACE AGENT (LOCAL PROJECT FILE OPS):
    - Use 'workspace_action' ONLY when the user explicitly asks for a file/folder operation in this project.
    - Supported actions: mkdir, read, write, search, status, commit, push, delete.
    - Treat workspace actions as asynchronous: after calling the tool, clearly say the task was started/queued with run status.

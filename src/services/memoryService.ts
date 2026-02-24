@@ -871,6 +871,8 @@ export type MemoryToolName =
   | 'web_search'
   | 'workspace_action'
   | 'cron_job_action'
+  | 'delegate_to_engineering'
+  | 'get_engineering_ticket_status'
   | 'recall_memory'
   | 'recall_user_info'
   | 'store_user_info'
@@ -949,6 +951,17 @@ export interface ToolCallArgs {
     hour?: number;
     minute?: number;
     one_time_at?: string;
+  };
+  delegate_to_engineering: {
+    request_type?: 'skill' | 'feature' | 'bug';
+    title?: string;
+    request_summary?: string;
+    additional_details?: string;
+    priority?: string;
+    is_ui_related?: boolean;
+  };
+  get_engineering_ticket_status: {
+    ticket_id?: string;
   };
   recall_memory: {
     query: string;
@@ -1338,6 +1351,60 @@ export const executeMemoryTool = async (
         }
 
         return `Unknown cron_job_action: ${action}`;
+      }
+      case 'delegate_to_engineering': {
+        const { createEngineeringTicket } = await import('./multiAgentService');
+        const ticketArgs = args as ToolCallArgs['delegate_to_engineering'];
+        console.log('[Memory Tool] delegate_to_engineering called:', ticketArgs);
+
+        if (!ticketArgs.request_summary || !ticketArgs.request_summary.trim()) {
+          return 'Missing request_summary for engineering ticket creation.';
+        }
+
+        const result = await createEngineeringTicket({
+          requestType: ticketArgs.request_type,
+          title: ticketArgs.title,
+          requestSummary: ticketArgs.request_summary,
+          additionalDetails: ticketArgs.additional_details,
+          priority: ticketArgs.priority,
+          isUiRelated: ticketArgs.is_ui_related,
+          source: 'kayley',
+          createdBy: 'kayley',
+        });
+
+        if (!result.ok || !result.ticket) {
+          return `Engineering ticket creation failed: ${result.error || 'Unknown error.'}`;
+        }
+
+        const clarifier = result.needsClarification
+          ? 'Clarification needed before implementation.'
+          : 'Intake acknowledged.';
+
+        return `Engineering ticket ${result.ticket.id} created (${result.ticket.requestType}). Status: ${result.ticket.status}. ${clarifier}`;
+      }
+      case 'get_engineering_ticket_status': {
+        const {
+          getEngineeringTicket,
+          listEngineeringTickets,
+        } = await import('./multiAgentService');
+        const statusArgs = args as ToolCallArgs['get_engineering_ticket_status'];
+        console.log('[Memory Tool] get_engineering_ticket_status called:', statusArgs);
+
+        if (statusArgs.ticket_id) {
+          const ticketResult = await getEngineeringTicket(statusArgs.ticket_id);
+          if (!ticketResult.ok || !ticketResult.ticket) {
+            return `Unable to fetch ticket ${statusArgs.ticket_id}: ${ticketResult.error || 'Unknown error.'}`;
+          }
+
+          return formatTicketStatus(ticketResult.ticket);
+        }
+
+        const listResult = await listEngineeringTickets(1);
+        if (!listResult.ok || listResult.tickets.length === 0) {
+          return listResult.error || 'No engineering tickets found.';
+        }
+
+        return formatTicketStatus(listResult.tickets[0]);
       }
       case 'recall_memory': {
         const { query, timeframe } = args as ToolCallArgs['recall_memory'];
@@ -2223,6 +2290,22 @@ function parseFactValue(value: string): string[] {
 export function formatFactValueForDisplay(value: string): string {
   const values = parseFactValue(value);
   return values.join(', ');
+}
+
+function formatTicketStatus(ticket: {
+  id: string;
+  requestType: string;
+  status: string;
+  requestSummary?: string;
+  failureReason?: string;
+  finalPrUrl?: string;
+}): string {
+  const summary = ticket.requestSummary ? `Summary: ${ticket.requestSummary}` : '';
+  const failure = ticket.failureReason ? `Failure: ${ticket.failureReason}` : '';
+  const pr = ticket.finalPrUrl ? `PR: ${ticket.finalPrUrl}` : '';
+  const details = [summary, failure, pr].filter(Boolean).join(' | ');
+
+  return `Engineering ticket ${ticket.id} (${ticket.requestType}) is ${ticket.status}.${details ? ` ${details}` : ''}`;
 }
 
 /**

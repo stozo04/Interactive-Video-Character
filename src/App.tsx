@@ -13,8 +13,11 @@ import * as conversationHistoryService from './services/conversationHistoryServi
 import * as relationshipService from './services/relationshipService';
 import type { RelationshipMetrics } from './services/relationshipService';
 import { gmailService, type NewEmailPayload } from './services/gmailService';
-import { calendarService } from './services/calendarService';
-import { buildActionKeyMap } from './utils/actionKeyMapper';
+import { 
+  calendarService, 
+  type CalendarEvent,
+  type NewEventPayload 
+} from './services/calendarService';
 import { predictActionFromMessage } from './utils/intentUtils';
 import { prefetchOnIdle, clearPrefetchCache } from './services/prefetchService';
 import ImageUploader from './components/ImageUploader';
@@ -68,6 +71,7 @@ import {
   type WorkspaceAgentRun,
   type WorkspaceAgentRunStatus,
 } from './services/projectAgentService';
+import { buildActionKeyMap } from './utils/actionKeyMapper';
 
 // Register X auth test helper on window (dev only)
 if (import.meta.env.DEV) {
