@@ -4,6 +4,7 @@ import dotenv from "dotenv";
 import { routeAnthropicRequest } from "./routes/anthropicRoutes";
 import { startOpeyDev } from "./agent/opey-dev/main";
 import { startCronScheduler } from "./scheduler/cronScheduler";
+import { log } from "./runtimeLogger";
 
 const LOG_PREFIX = "[WorkspaceAgent]";
 const DEFAULT_PORT = 4010;
@@ -32,12 +33,6 @@ if (!supabaseUrl || !supabaseServiceRoleKey) {
   console.error(`${LOG_PREFIX} Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY env vars.`);
   process.exit(1);
 }
-
-// 3.5) Initialize runtime logger for Supabase log persistence.
-initializeRuntimeLogger({
-  supabaseUrl,
-  supabaseKey: supabaseServiceRoleKey,
-});
 
 // 4) Start Opey development agent system.
 const opeyDevHandle = startOpeyDev({
@@ -104,7 +99,3 @@ function shutdown(signal: string): void {
 
 process.on("SIGINT", () => shutdown("SIGINT"));
 process.on("SIGTERM", () => shutdown("SIGTERM"));
-function initializeRuntimeLogger(arg0: { supabaseUrl: string; supabaseKey: string; }) {
-  throw new Error("Function not implemented.");
-}
-
