@@ -1,7 +1,7 @@
 // ./server/agent/opey-dev/orchestrator-openai.ts
 // OpenAI Codex CLI version — spawns `codex` as a subprocess, mirrors Claude orchestrator
 
-import { spawn, type ChildProcess } from "node:child_process";
+import { spawn, execSync, type ChildProcess } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -54,11 +54,22 @@ export async function runOpeyLoop(ticket: any, workPath: string, log: any) {
       fullPrompt,
     ];
 
-    // On Windows, npm global binaries are .cmd wrappers; bare name fails with ENOENT
-    const codexBin = process.platform === "win32" ? "codex.cmd" : "codex";
+    // On Windows, npm global binaries are .cmd wrappers which Node can't spawn
+    // directly (EINVAL). Instead, resolve the actual JS entry point and run it
+    // with `node`, bypassing the .cmd entirely — no shell, no escaping issues.
+    let spawnCmd: string;
+    let spawnArgs: string[];
+    if (process.platform === "win32") {
+      const npmRoot = execSync("npm root -g").toString().trim();
+      const codexScript = path.join(npmRoot, "@openai", "codex", "bin", "codex.js");
+      spawnCmd = "node";
+      spawnArgs = [codexScript, ...args];
+    } else {
+      spawnCmd = "codex";
+      spawnArgs = args;
+    }
 
-    // Spawn codex directly with args array — bypasses shell escaping entirely
-    child = spawn(codexBin, args, {
+    child = spawn(spawnCmd, spawnArgs, {
       cwd: workPath,
       stdio: ["ignore", "pipe", "pipe"],
     });
