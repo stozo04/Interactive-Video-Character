@@ -38,10 +38,10 @@ export async function createPullRequest(workPath: string, ticket: any) {
       });
     }
 
-    // 2. Check if there are any commits ahead of main
+    // 2. Check if there are any commits ahead of main BEFORE pushing
     const commitsAhead = run("git log main..HEAD --oneline", workPath);
     if (commitsAhead.length === 0) {
-      log.warning("No commits ahead of main — Claude made no changes", {
+      log.warning("No commits ahead of main — nothing to push or PR", {
         source: "githubOps.ts",
         ticketId: ticket?.id,
       });

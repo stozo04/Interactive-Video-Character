@@ -1,6 +1,7 @@
 // ./server/agent/opey-dev/main.ts
 // Entry point (The Boss) — polls for new tickets every 30s
 
+import { execSync } from "node:child_process";
 import { SupabaseTicketStore } from "./ticketStore";
 import { WorktreeManager } from "./worktreeManager";
 import { runOpeyLoop } from "./orchestrator";
@@ -10,6 +11,19 @@ import { createPullRequest } from "./githubOps";
 
 const LOG_PREFIX = "[Opey-Dev]";
 const POLL_INTERVAL_MS = 30_000;
+const SHELL_OPTS = process.platform === "win32" ? { shell: "bash" as const } : {};
+const CLARIFICATION_MARKER = "--- CLARIFICATION ---";
+
+/** Check if the worktree has any commits ahead of main. */
+function hasCommitsAheadOfMain(workPath: string): boolean {
+  try {
+    const result = execSync("git log main..HEAD --oneline", { cwd: workPath, ...SHELL_OPTS }).toString().trim();
+    return result.length > 0;
+  } catch {
+    return false;
+  }
+}
+
 
 // Choose orchestrator: "claude" or "openai" (default: "claude")
 const ORCHESTRATOR_BACKEND = process.env.OPEY_BACKEND ?? "claude";
@@ -41,8 +55,33 @@ async function processNextTicket(
     log.info(`${LOG_PREFIX} Starting Opey loop (${ORCHESTRATOR_BACKEND})`, { source: "main.ts", ticketId, workPath });
     // const orchestrator = ORCHESTRATOR_BACKEND === "openai" ? runOpeyLoopOpenAI : runOpeyLoop;
     const orchestrator = runOpeyLoopOpenAI;
-    await orchestrator(ticket, workPath, log);
+    const output = await orchestrator(ticket, workPath, log);
 
+    // Did Opey actually implement anything?
+    const madeChanges = hasCommitsAheadOfMain(workPath);
+
+    if (!madeChanges) {
+      // No commits — Opey didn't implement. Check if this is a first-pass clarification request.
+      // Raw Supabase row uses snake_case; EngineeringTicket type uses camelCase
+      const details: string = (ticket as any).additional_details ?? ticket.additionalDetails ?? "";
+      const alreadyClarified = details.includes(CLARIFICATION_MARKER);
+
+      if (!alreadyClarified) {
+        // First pass with no changes = clarification request (max 1 loop)
+        log.info(`${LOG_PREFIX} Opey requested clarification (no commits, first pass)`, { source: "main.ts", ticketId });
+        await store.updateStatus(ticketId, "needs_clarification", { clarificationQuestions: output });
+        manager.cleanup(ticketId);
+        return;
+      }
+
+      // Already had a clarification loop — Opey tried but couldn't produce changes
+      await store.updateStatus(ticketId, "completed", { failureReason: "No changes made after clarification" });
+      log.warning(`${LOG_PREFIX} Completed with no changes (post-clarification)`, { source: "main.ts", ticketId });
+      manager.cleanup(ticketId);
+      return;
+    }
+
+    // Opey made changes — create PR
     log.info(`${LOG_PREFIX} Creating pull request`, { source: "main.ts", ticketId });
     const prUrl = await createPullRequest(workPath, ticket);
 
@@ -50,8 +89,9 @@ async function processNextTicket(
       await store.updateStatus(ticketId, "completed", { prUrl });
       log.info(`${LOG_PREFIX} Mission accomplished! PR: ${prUrl}`, { source: "main.ts", ticketId });
     } else {
-      await store.updateStatus(ticketId, "completed", { failureReason: "No changes made — Claude may need more detail" });
-      log.warning(`${LOG_PREFIX} Completed with no changes`, { source: "main.ts", ticketId });
+      // Has commits but PR creation failed
+      await store.updateStatus(ticketId, "failed", { failureReason: "Commits exist but PR creation failed" });
+      log.error(`${LOG_PREFIX} PR creation failed despite commits`, { source: "main.ts", ticketId });
     }
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unknown error";

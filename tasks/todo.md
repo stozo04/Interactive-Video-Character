@@ -1,3 +1,99 @@
+## Global Note: Dev Infra (Workspace Agent + Multi-Agent)
+
+- The UI uses Vite dev proxy for `/multi-agent` to avoid CORS when the external multi-agent server runs on `http://localhost:4010`.
+- In dev, `src/services/multiAgentService.ts` uses same-origin requests (empty base URL) unless `VITE_WORKSPACE_AGENT_URL` is explicitly set.
+- Production still needs a real backend route or proper CORS headers on the external service.
+
+---
+
+## Plan: Multi-Agent API Routes (Workspace Agent Server)
+
+1) Add multi-agent HTTP routes with CORS + JSON parsing:
+- `server/routes/multiAgentRoutes.ts`
+2) Wire multi-agent routes into the server request handler:
+- `server/index.ts`
+3) Map Supabase tables to API payloads for tickets, events, turns, chats:
+- `server/routes/multiAgentRoutes.ts`
+4) Verification (if approved):
+- `npm run agent:dev`
+- `curl -i -X POST http://localhost:4010/multi-agent/tickets -H "Content-Type: application/json" --data "{\"requestSummary\":\"test\"}"`
+
+## Progress
+- [x] Plan added to `tasks/todo.md`.
+- [x] Patch implementation (approved).
+- [ ] Verification run (if approved).
+
+## Review Notes
+- This exposes `/multi-agent/*` routes from the local Workspace Agent server so the Vite dev proxy has a real target.
+
+---
+
+## Plan: Multi-Agent Health Check (Server + Admin UI)
+
+1) Add a lightweight `/multi-agent/health` endpoint:
+- `server/routes/multiAgentRoutes.ts`
+2) Add client helper for the health endpoint:
+- `src/services/multiAgentService.ts`
+3) Add Admin Dashboard trigger + status display:
+- `src/components/AdminDashboardView.tsx`
+4) Verification (if approved):
+- `npm run agent:dev`
+- `npm run dev`
+- `curl -i http://localhost:4010/multi-agent/health`
+
+## Progress
+- [x] Plan added to `tasks/todo.md`.
+- [x] Patch implementation (approved).
+- [ ] Verification run (if approved).
+
+## Review Notes
+- Health check should be lightweight and avoid heavy queries.
+
+---
+
+## Plan: Multi-Agent Admin UI (Disable Chats + Turns)
+
+1) Stop calling chat session and ticket turns endpoints in Admin Dashboard:
+- `src/components/AdminDashboardView.tsx`
+2) Replace chat/turns UI with "coming soon" placeholders:
+- `src/components/AdminDashboardView.tsx`
+3) Verification (if approved):
+- `npm run dev`
+
+## Progress
+- [x] Plan added to `tasks/todo.md`.
+- [x] Patch implementation (approved).
+- [ ] Verification run (if approved).
+
+## Review Notes
+- Tickets + events remain active; chats/turns are disabled until backend is ready.
+
+---
+
+## Plan: Admin Dashboard Runtime Logs View (Descending + Severity Filter)
+
+1) Add admin service query/types for `server_runtime_logs` with descending order and optional severity filter:
+- `src/services/adminService.ts`
+2) Add a `Runtime Logs` mode in the admin dashboard with loading/error state, refresh control, and severity filter UI:
+- `src/components/AdminDashboardView.tsx`
+3) Render runtime logs as a readable card/list view with severity badges, metadata chips, and collapsible JSON details:
+- `src/components/AdminDashboardView.tsx`
+4) Verification (if approved):
+- `npm run dev`
+- Open `AdminDashboardView` and confirm runtime logs load newest-first
+- Change severity filter (`all`, `info`, `warning`, `error`, `critical`) and confirm filtering updates
+
+## Progress
+- [x] Plan added to `tasks/todo.md`.
+- [x] Read-only inspection completed (`AdminDashboardView` has no runtime logs panel yet; `adminService` has no `server_runtime_logs` query helper).
+- [x] Patch implementation (approved; added runtime logs mode + descending query + severity filter UI).
+- [ ] Verification run (if approved).
+
+## Review Notes
+- `server_runtime_logs` already has indexed columns for `created_at` and `severity`, so the requested sort/filter pattern is a good fit for the current schema.
+
+---
+
 ## Plan: Claudy QA Recovery Auto-Trigger In `processNextStep`
 
 1) Add a Claudy recovery auto-trigger hook in `processNextStep(...)` similar to Opey, but only for QA-ready tickets:
