@@ -23,6 +23,8 @@
     "@whiskeysockets/baileys": "^7.0.0-rc.9",
     "ai": "^5.0.93",
     "baileys": "^7.0.0-rc.9",
+    "date-fns": "^4.1.0",
+    "date-fns-tz": "^3.2.0",
     "dotenv": "^16.4.7",
     "link-preview-js": "^3.2.0",
     "openai": "^6.9.1",

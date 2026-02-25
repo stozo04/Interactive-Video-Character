@@ -19,8 +19,28 @@ function loadSoulPrompt(): string {
   return fs.readFileSync(soulPath, "utf-8");
 }
 
+function loadLessonsContext(): string {
+  const lessonsDir = path.join(__dirname, "lessons_learned");
+  if (!fs.existsSync(lessonsDir)) return "";
+
+  const files = fs.readdirSync(lessonsDir)
+    .filter((f) => f.endsWith(".md"))
+    .sort(); // chronological order
+
+  if (files.length === 0) return "";
+
+  const contents = files
+    .map((f) => fs.readFileSync(path.join(lessonsDir, f), "utf-8").trim())
+    .join("\n\n---\n\n");
+
+  return `# Past Lessons (read before doing anything else)\n\n${contents}`;
+}
+
 function buildTicketPrompt(ticket: any): string {
+  const lessonContext = loadLessonsContext();
+
   const parts = [
+    lessonContext || null,
     `# Ticket: ${ticket.title ?? "Untitled"}`,
     ticket.type ? `**Type:** ${ticket.type}` : null,
     ticket.summary ? `**Summary:** ${ticket.summary}` : null,

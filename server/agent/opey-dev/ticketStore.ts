@@ -31,7 +31,13 @@ export class SupabaseTicketStore {
       }
       return data || null;
     } catch (err) {
+      
       const message = err instanceof Error ? err.message : "Unknown error";
+      const isNetworkError = message.includes('fetch failed') || message.includes('ECONNREFUSED');
+      if (isNetworkError) {
+        // Don't spam — emit at most once per N minutes
+        return null; // treat as "no ticket available"
+      }
       log.critical("Failed to fetch next ticket", {
         source: "ticketStore.ts",
         error: message,
