@@ -871,6 +871,7 @@ export type MemoryToolName =
   | 'web_search'
   | 'workspace_action'
   | 'cron_job_action'
+  | 'gif'
   | 'recall_memory'
   | 'recall_user_info'
   | 'store_user_info'
@@ -949,6 +950,16 @@ export interface ToolCallArgs {
     hour?: number;
     minute?: number;
     one_time_at?: string;
+  };
+  gif: {
+    action: 'search' | 'preview' | 'download' | 'extract_stills' | 'extract_sheet';
+    query?: string;
+    source?: 'giphy' | 'tenor' | 'auto';
+    max_results?: number;
+    url?: string;
+    id?: string;
+    gif_path?: string;
+    output_dir?: string;
   };
   recall_memory: {
     query: string;
@@ -1191,6 +1202,68 @@ export const executeMemoryTool = async (
         }
 
         return `Workspace action failed (${run.id}): ${run.summary}. Steps: ${stepSummary}`;
+      }
+      case 'gif': {
+        const { requestWorkspaceAction } = await import('./projectAgentService');
+        const gifArgs = args as ToolCallArgs['gif'];
+        console.log('[Memory Tool] gif called:', gifArgs);
+        const { action, ...rawArgs } = gifArgs;
+        const filteredArgs = Object.fromEntries(
+          Object.entries(rawArgs).filter(([, value]) => value !== undefined),
+        );
+
+        const result = await requestWorkspaceAction({
+          action: 'gif',
+          args: {
+            action,
+            ...filteredArgs,
+          },
+          prompt: context?.userMessage,
+        }, {
+          waitForTerminal: true,
+        });
+
+        if (!result.run) {
+          return `GIF tool failed: ${
+            result.error || 'No run details returned from workspace agent.'
+          }`;
+        }
+
+        const run = result.run;
+        const stepSummary = run.steps
+          .map((step) => `${step.stepId}:${step.type}:${step.status}`)
+          .join(', ');
+        const gifStep = run.steps.find((step) => step.type === 'gif');
+        const evidenceText =
+          gifStep?.evidence && gifStep.evidence.length > 0
+            ? `\n${gifStep.evidence.join('\n')}`
+            : '';
+
+        if (run.status === 'success') {
+          return `GIF action success (${run.id}): ${run.summary}. Steps: ${stepSummary}${evidenceText}`;
+        }
+
+        if (
+          run.status === 'accepted' ||
+          run.status === 'pending' ||
+          run.status === 'running'
+        ) {
+          return `GIF action started (${run.id}): ${run.summary}. Current status: ${run.status}. I will keep you posted in chat.`;
+        }
+
+        if (run.status === 'requires_approval') {
+          return `GIF action requires approval (${run.id}): ${run.summary}. Use Admin > Agent to approve or reject. Steps: ${stepSummary}`;
+        }
+
+        if (run.status === 'rejected') {
+          return `GIF action rejected (${run.id}): ${run.summary}.`;
+        }
+
+        if (run.status === 'verification_failed') {
+          return `GIF action verification failed (${run.id}): ${run.summary}. Steps: ${stepSummary}${evidenceText}`;
+        }
+
+        return `GIF action failed (${run.id}): ${run.summary}. Steps: ${stepSummary}${evidenceText}`;
       }
       case 'cron_job_action': {
         const {

@@ -6,6 +6,7 @@ export interface ToolCatalogEntry {
   permissions_needed: string[];
   triggers: string[];
   sample_prompts: string[];
+  metadata?: Record<string, unknown>;
 }
 
 export const TOOL_CATALOG: ToolCatalogEntry[] = [
@@ -17,6 +18,22 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
     permissions_needed: ["web_access"],
     triggers: ["latest news", "current events", "fact check"],
     sample_prompts: ["What is the latest in AI news?"],
+  },
+  {
+    tool_key: "gif",
+    name: "GIF Search (gifgrep)",
+    description:
+      "Search Tenor/Giphy, preview results, download GIFs, and extract stills/sheets using gifgrep.",
+    user_value: "Finds and inspects GIFs quickly without leaving the chat.",
+    permissions_needed: ["local_workspace_agent"],
+    triggers: ["gif", "giphy", "tenor", "reaction gif", "meme gif"],
+    sample_prompts: ["Find a GIF of an office handshake."],
+    metadata: {
+      clawdbot: {
+        emoji: "\uD83E\uDDF2",
+        requires: { bins: ["gifgrep"] },
+      },
+    },
   },
   {
     tool_key: "news_action",

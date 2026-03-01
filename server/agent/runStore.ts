@@ -19,6 +19,7 @@ export type WorkspaceRunStepType =
   | "commit"
   | "push"
   | "delete"
+  | "gif"
   | "verify";
 
 export type WorkspaceRunStepStatus =

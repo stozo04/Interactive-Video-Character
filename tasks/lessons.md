@@ -28,3 +28,13 @@
 - Pattern: Global polling consumed unrelated historical `pending_messages` rows, causing repeated unsolicited promise/thought texts every ~30s.
 - Prevention Rule:
 - Any automated consumer must filter by explicit `metadata.source` and a freshness window; never consume the full undelivered queue by default.
+
+### 2026-03-01 - Respect no-questions directives
+- Pattern: User explicitly prohibited clarification questions, but I asked anyway.
+- Prevention Rule:
+- When the user says "no questions," proceed with best-effort assumptions and document them instead of asking clarifications.
+
+### 2026-03-01 - Solve the requested root behavior, not a workaround
+- Pattern: I implemented a new tool (gifOps) when the request was to make Opey autonomously execute skill .md instructions like OpenClaw.
+- Prevention Rule:
+- When asked to make the agent execute skills end-to-end, prioritize the orchestration loop, skill ingestion, and tool policy plumbing over adding a one-off tool.

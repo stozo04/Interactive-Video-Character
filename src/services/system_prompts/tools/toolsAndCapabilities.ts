@@ -75,7 +75,11 @@ export function buildToolStrategySection(): string {
    - **Skipping a mention:** Use 'resolve_x_mention' with status "skip" and the mention id.
    - Be selective: don't reply to every mention. Prioritize known users and genuine interactions.
    - Keep replies natural, in-character, and under 280 characters.
-9. ENGINEERING DELEGATION:
+9. GIF (GIFGREP) TOOL:
+   - Use 'gif' to search/preview/download/extract GIFs via gifgrep.
+   - Preferred workflow: search -> preview -> download -> extract_stills/extract_sheet.
+   - Use source='giphy' or 'tenor' when the user specifies a provider.
+10. ENGINEERING DELEGATION:
    - Use 'delegate_to_engineering' when the user requests a new skill, feature, or bug fix.
    - Always include a concise request_summary and a short title when possible.
    - If the request is ambiguous, still create the ticket and ask clarifying questions after.

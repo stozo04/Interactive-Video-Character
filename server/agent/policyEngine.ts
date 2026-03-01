@@ -1,3 +1,4 @@
+import os from "node:os";
 import path from "node:path";
 import { resolvePathInWorkspace, type ResolvedWorkspacePath } from "./pathGuard";
 
@@ -9,7 +10,8 @@ export type WorkspaceActionType =
   | "status"
   | "commit"
   | "push"
-  | "delete";
+  | "delete"
+  | "gif";
 
 export interface WorkspacePolicyDecision {
   action: WorkspaceActionType;
@@ -30,6 +32,13 @@ const PATH_ACTIONS: ReadonlySet<WorkspaceActionType> = new Set([
 ]);
 
 const BLOCKED_SEGMENT_PATTERNS = [/^\.git$/i];
+const GIF_ACTIONS: ReadonlySet<string> = new Set([
+  "search",
+  "preview",
+  "download",
+  "extract_stills",
+  "extract_sheet",
+]);
 
 export function evaluateWorkspacePolicy(options: {
   workspaceRoot: string;
@@ -132,6 +141,94 @@ export function evaluateWorkspacePolicy(options: {
         requiresVerification,
         policyNotes,
         resolvedSearchRoot,
+      };
+    }
+
+    if (action === "gif") {
+      const gifAction = typeof args.action === "string" ? args.action.trim() : "";
+      if (!gifAction || !GIF_ACTIONS.has(gifAction)) {
+        return deny({
+          action,
+          requiresApproval,
+          requiresVerification,
+          policyNotes,
+          denialReason: "args.action must be a supported gif action.",
+        });
+      }
+
+      if (gifAction === "search" || gifAction === "preview") {
+        const query = typeof args.query === "string" ? args.query.trim() : "";
+        if (!query) {
+          return deny({
+            action,
+            requiresApproval,
+            requiresVerification,
+            policyNotes,
+            denialReason: "gif search/preview requires args.query.",
+          });
+        }
+      }
+
+      if (gifAction === "download") {
+        const hasUrl = typeof args.url === "string" && args.url.trim().length > 0;
+        const hasId = typeof args.id === "string" && args.id.trim().length > 0;
+        const hasQuery = typeof args.query === "string" && args.query.trim().length > 0;
+        if (!hasUrl && !hasId && !hasQuery) {
+          return deny({
+            action,
+            requiresApproval,
+            requiresVerification,
+            policyNotes,
+            denialReason: "gif download requires args.url, args.id, or args.query.",
+          });
+        }
+      }
+
+      if (gifAction === "extract_stills" || gifAction === "extract_sheet") {
+        if (typeof args.gif_path !== "string" || !args.gif_path.trim()) {
+          return deny({
+            action,
+            requiresApproval,
+            requiresVerification,
+            policyNotes,
+            denialReason: "gif extract requires args.gif_path.",
+          });
+        }
+      }
+
+      const downloadsRoot = path.join(os.homedir(), "Downloads");
+      const allowedRoots = [workspaceRoot, downloadsRoot];
+
+      const gifPath = resolvePathIfPresent(args.gif_path, workspaceRoot);
+      if (gifPath && !isWithinAllowedRoots(gifPath, allowedRoots)) {
+        return deny({
+          action,
+          requiresApproval,
+          requiresVerification,
+          policyNotes,
+          denialReason: "gif_path must be inside workspace root or ~/Downloads.",
+        });
+      }
+
+      const outputDir = resolvePathIfPresent(args.output_dir, workspaceRoot);
+      if (outputDir && !isWithinAllowedRoots(outputDir, allowedRoots)) {
+        return deny({
+          action,
+          requiresApproval,
+          requiresVerification,
+          policyNotes,
+          denialReason: "output_dir must be inside workspace root or ~/Downloads.",
+        });
+      }
+
+      policyNotes.push(`gif action allowed: ${gifAction}`);
+      policyNotes.push(`Allowed roots: ${allowedRoots.join(", ")}`);
+      return {
+        action,
+        allowed: true,
+        requiresApproval: false,
+        requiresVerification: false,
+        policyNotes,
       };
     }
 
@@ -251,4 +348,46 @@ function splitPathSegments(relativePath: string): string[] {
     .split(path.sep)
     .flatMap((segment) => segment.split("/"))
     .filter((segment) => segment.length > 0 && segment !== ".");
+}
+
+function resolvePathIfPresent(value: unknown, workspaceRoot: string): string | null {
+  if (typeof value !== "string" || !value.trim()) {
+    return null;
+  }
+  const raw = value.trim();
+  const expanded = expandHomePath(raw);
+  const resolved = path.isAbsolute(expanded)
+    ? path.resolve(expanded)
+    : path.resolve(workspaceRoot, expanded);
+  return resolved;
+}
+
+function isWithinAllowedRoots(targetPath: string, allowedRoots: string[]): boolean {
+  const normalizedTarget = normalizePath(targetPath);
+  return allowedRoots.some((root) =>
+    isPathWithin(normalizePath(root), normalizedTarget),
+  );
+}
+
+function normalizePath(value: string): string {
+  const resolved = path.resolve(value);
+  if (process.platform === "win32") {
+    return resolved.toLowerCase();
+  }
+  return resolved;
+}
+
+function isPathWithin(root: string, target: string): boolean {
+  const rootWithSep = root.endsWith(path.sep) ? root : root + path.sep;
+  return target === root || target.startsWith(rootWithSep);
+}
+
+function expandHomePath(value: string): string {
+  if (value === "~") {
+    return os.homedir();
+  }
+  if (value.startsWith("~/") || value.startsWith("~\\")) {
+    return path.join(os.homedir(), value.slice(2));
+  }
+  return value;
 }

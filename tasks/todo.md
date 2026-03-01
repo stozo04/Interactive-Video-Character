@@ -1042,3 +1042,71 @@ Update: Pending cron delivery now uses fetch-then-ack (ack only after chat appen
 - Notable change: `executeTool` now logs and rethrows errors instead of returning an error string.
 
 ---
+
+## Plan: Add gif Tool (gifgrep Integration)
+
+1) Add `gif` tool schema + declarations:
+- `src/services/aiSchema.ts`
+2) Implement tool execution + workspace agent bridge:
+- `src/services/memoryService.ts`
+- `src/services/projectAgentService.ts`
+3) Extend workspace agent with `gif` action + policy + ops:
+- `server/agent/policyEngine.ts`
+- `server/agent/executor.ts`
+- `server/agent/runStore.ts`
+- `server/routes/agentRoutes.ts`
+- `server/agent/gifOps.ts` (new)
+4) Update tool docs + catalog:
+- `src/services/system_prompts/tools/toolsAndCapabilities.ts`
+- `src/services/toolCatalog.ts`
+5) Add migration for workspace agent step type:
+- `supabase/migrations/20260301_workspace_agent_gif.sql`
+6) Verification (if approved):
+- `npm test -- --run`
+
+## Progress
+- [x] Added `gif` tool schema + declarations (`src/services/aiSchema.ts`).
+- [x] Implemented tool execution + workspace agent bridge (`src/services/memoryService.ts`, `src/services/projectAgentService.ts`).
+- [x] Extended workspace agent for `gif` action (`server/agent/policyEngine.ts`, `server/agent/executor.ts`, `server/agent/runStore.ts`, `server/routes/agentRoutes.ts`, `server/agent/gifOps.ts`).
+- [x] Updated tool docs + catalog (`src/services/system_prompts/tools/toolsAndCapabilities.ts`, `src/services/toolCatalog.ts`).
+- [x] Added migration for workspace agent step type (`supabase/migrations/20260301_workspace_agent_gif.sql`).
+- [ ] Verification not run (requires approval).
+
+## Review Notes
+- Goal: Provide gifgrep-backed search/preview/download/extract workflow via a new `gif` tool.
+- Verification not run (requires approval).
+
+---
+
+## Plan: Opey Skill Automation (OpenClaw-like)
+
+1) Research and inventory current Opey loop, skill ingestion, and tool surface:
+- `server/agent/opey-dev/orchestrator.ts`
+- `server/agent/opey-dev/executor.ts`
+- `server/agent/opey-dev/SOUL.md`
+- `server/docs/skill_template.md`
+- `docs/features/MultiAgent/skills.txt`
+2) Implement skill loader and eligibility gating (OpenClaw-style metadata):
+- New `server/agent/opey-dev/skillLoader.ts`
+- Update `server/agent/opey-dev/orchestrator.ts` to load skills and build the prompt
+3) Replace hardcoded response with real LLM loop + tool calls:
+- `server/agent/opey-dev/orchestrator.ts`
+- Add provider client + configurable model
+4) Add “no-questions” compliance + deterministic execution:
+- Use ticket fields to toggle clarification behavior
+- Ensure skill execution is attempted before asking questions
+5) Wire evidence-driven workflow output:
+- Emit structured events/turns + store artifacts for each action
+- `server/agent/opey-dev/ticketStore.ts` (if needed)
+6) Verification (if approved):
+- Simulate with a known skill .md and confirm end-to-end execution
+- `npm test -- --run` (if relevant)
+
+## Progress
+- [ ] Waiting on approval to patch.
+
+## Review Notes
+- Goal: Opey should read a skill .md and execute it without clarification, OpenClaw-style.
+- Must preserve existing gifOps implementation.
+
+---

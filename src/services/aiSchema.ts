@@ -595,6 +595,46 @@ export const RetrieveMilaNotesSchema = z.object({
 });
 
 /**
+ * Schema for the gif tool.
+ * Uses gifgrep to search, preview, download, and extract GIF frames.
+ */
+export const GifToolSchema = z.object({
+  action: z
+    .enum(["search", "preview", "download", "extract_stills", "extract_sheet"])
+    .describe("gifgrep action to run."),
+  query: z
+    .string()
+    .optional()
+    .describe("Search query for gifgrep search/preview."),
+  source: z
+    .enum(["giphy", "tenor", "auto"])
+    .optional()
+    .describe("GIF provider source (default: auto)."),
+  max_results: z
+    .number()
+    .min(1)
+    .max(25)
+    .optional()
+    .describe("Max results to return (default: 5)."),
+  url: z
+    .string()
+    .optional()
+    .describe("Direct or share URL to download."),
+  id: z
+    .string()
+    .optional()
+    .describe("Provider result id to download."),
+  gif_path: z
+    .string()
+    .optional()
+    .describe("Local GIF path for extraction."),
+  output_dir: z
+    .string()
+    .optional()
+    .describe("Optional output directory for downloads or extracts."),
+});
+
+/**
  * Schema for the workspace_action tool.
  * Expanded scope: filesystem + git actions through workspace agent.
  */
@@ -729,6 +769,7 @@ export type StoreDailyNoteArgs = z.infer<typeof StoreDailyNoteSchema>;
 export type RetrieveDailyNotesArgs = z.infer<typeof RetrieveDailyNotesSchema>;
 export type MilaNoteArgs = z.infer<typeof MilaNoteSchema>;
 export type RetrieveMilaNotesArgs = z.infer<typeof RetrieveMilaNotesSchema>;
+export type GifToolArgs = z.infer<typeof GifToolSchema>;
 export type WorkspaceActionArgs = z.infer<typeof WorkspaceActionSchema>;
 export type CronJobActionArgs = z.infer<typeof CronJobActionSchema>;
 
@@ -738,6 +779,7 @@ export type MemoryToolArgs =
   | { tool: "web_search"; args: { query: string } }
   | { tool: "workspace_action"; args: WorkspaceActionArgs }
   | { tool: "cron_job_action"; args: CronJobActionArgs }
+  | { tool: "gif"; args: GifToolArgs }
   | { tool: "recall_user_info"; args: RecallUserInfoArgs }
   | { tool: "store_user_info"; args: StoreUserInfoArgs }
   | { tool: "resolve_idle_question"; args: ResolveIdleQuestionArgs }
@@ -1369,6 +1411,53 @@ export const GeminiMemoryToolDeclarations = [
     },
   },
   {
+    name: "gif",
+    description:
+      "Search, preview, download, and extract frames from GIFs using gifgrep (Giphy/Tenor). " +
+      "Workflow: search -> preview -> download -> extract_stills or extract_sheet. " +
+      "Requires gifgrep CLI on PATH; Giphy search needs GIPHY_API_KEY.",
+    parameters: {
+      type: "object",
+      properties: {
+        action: {
+          type: "string",
+          enum: ["search", "preview", "download", "extract_stills", "extract_sheet"],
+          description: "gifgrep action to run.",
+        },
+        query: {
+          type: "string",
+          description: "Search query for search/preview (or download fallback).",
+        },
+        source: {
+          type: "string",
+          enum: ["giphy", "tenor", "auto"],
+          description: "GIF provider source (default: auto).",
+        },
+        max_results: {
+          type: "number",
+          description: "Max results to return (default: 5).",
+        },
+        url: {
+          type: "string",
+          description: "Direct or share URL to download.",
+        },
+        id: {
+          type: "string",
+          description: "Provider result id to download.",
+        },
+        gif_path: {
+          type: "string",
+          description: "Local GIF path for extraction.",
+        },
+        output_dir: {
+          type: "string",
+          description: "Optional output directory for downloads or extracts.",
+        },
+      },
+      required: ["action"],
+    },
+  },
+  {
     name: "resolve_open_loop",
     description:
       "Mark an open loop as resolved (user answered) or dismissed (user doesn't want to discuss). " +
@@ -1797,6 +1886,7 @@ export interface PendingToolCall {
     | "web_search"
     | "workspace_action"
     | "cron_job_action"
+    | "gif"
     | "resolve_x_tweet"
     | "post_x_tweet"
     | "resolve_x_mention";

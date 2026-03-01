@@ -12,6 +12,7 @@ import {
   pushWithVerification,
   resolveCurrentBranch,
 } from "./gitOps";
+import { executeGifAction } from "./gifOps";
 import {
   evaluateWorkspacePolicy,
   type WorkspaceActionType,
@@ -42,6 +43,7 @@ const SUPPORTED_ACTIONS: ReadonlySet<WorkspaceActionType> = new Set([
   "commit",
   "push",
   "delete",
+  "gif",
 ]);
 
 interface ExecuteRunOptions {
@@ -528,6 +530,42 @@ async function executeAction(
             },
           ),
         ],
+      };
+    }
+    case "gif": {
+      const gifResult = await executeGifAction({
+        args: run.request.args,
+        workspaceRoot,
+      });
+
+      const stepStatus: WorkspaceRunStepStatus =
+        gifResult.status === "success"
+          ? "success"
+          : gifResult.status === "verification_failed"
+            ? "verification_failed"
+            : "failed";
+
+      const steps: WorkspaceRunStep[] = [
+        buildStep("s_exec", "gif", stepStatus, {
+          evidence: gifResult.evidence,
+          error: stepStatus === "failed" ? gifResult.summary : undefined,
+          exitCode: stepStatus === "success" ? 0 : 1,
+        }),
+      ];
+
+      if (gifResult.status === "verification_failed") {
+        steps.push(
+          buildStep("s_verify", "verify", "verification_failed", {
+            evidence: [gifResult.summary],
+            exitCode: 1,
+          }),
+        );
+      }
+
+      return {
+        status: gifResult.status,
+        summary: gifResult.summary,
+        steps,
       };
     }
     default:

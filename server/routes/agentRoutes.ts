@@ -43,6 +43,7 @@ const ACTIONS: ReadonlySet<WorkspaceActionType> = new Set([
   "commit",
   "push",
   "delete",
+  "gif",
 ]);
 
 export async function routeAgentRequest(

@@ -16,7 +16,8 @@ export type WorkspaceActionType =
   | "status"
   | "commit"
   | "push"
-  | "delete";
+  | "delete"
+  | "gif";
 
 export interface WorkspaceAgentRunStep {
   stepId: string;
