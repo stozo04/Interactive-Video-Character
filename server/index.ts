@@ -175,6 +175,16 @@ const server = createServer(async (req, res) => {
       remoteAddress: req.socket.remoteAddress,
     });
 
+    if (req.method === "GET") {
+      const url = new URL(req.url ?? "/", `http://${req.headers.host ?? "localhost"}`);
+      if (url.pathname === "/healthz") {
+        res.statusCode = 200;
+        res.setHeader("Content-Type", "text/plain; charset=utf-8");
+        res.end("ok");
+        return;
+      }
+    }
+
     // a) Anthropic-specific routes (Claude CLI runner).
     runtimeLog.info("Attempting to route through Anthropic handler", {
       source: "serverIndex",
