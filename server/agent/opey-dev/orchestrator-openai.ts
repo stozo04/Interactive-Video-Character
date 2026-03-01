@@ -5,6 +5,7 @@ import { spawn, execSync, type ChildProcess } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
+import { formatSkillContext, loadSkillContext } from "./skillLoader";
 
 const LOG_PREFIX = "[Orchestrator-Codex]";
 
@@ -13,6 +14,12 @@ const CODEX_MODEL = "gpt-5.2-codex";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+const NO_QUESTION_MARKERS = [
+  /no clarifications?/i,
+  /no questions?/i,
+  /do not ask questions/i,
+  /you can not ask questions/i,
+];
 
 function loadSoulPrompt(): string {
   const soulPath = path.join(__dirname, "SOUL.md");
@@ -36,15 +43,25 @@ function loadLessonsContext(): string {
   return `# Past Lessons (read before doing anything else)\n\n${contents}`;
 }
 
-function buildTicketPrompt(ticket: any): string {
+function buildTicketPrompt(ticket: any, workPath: string): string {
   const lessonContext = loadLessonsContext();
+  const normalized = normalizeTicket(ticket);
+  const skillContext = loadSkillContext({
+    ticketType: normalized.type,
+    details: normalized.details,
+    workPath,
+  });
+  const skillBlock = formatSkillContext(skillContext);
+  const clarificationPolicy = buildClarificationPolicy(normalized);
 
   const parts = [
     lessonContext || null,
-    `# Ticket: ${ticket.title ?? "Untitled"}`,
-    ticket.type ? `**Type:** ${ticket.type}` : null,
-    ticket.summary ? `**Summary:** ${ticket.summary}` : null,
-    ticket.details ?? ticket.description ?? null,
+    `# Ticket: ${normalized.title ?? "Untitled"}`,
+    normalized.type ? `**Type:** ${normalized.type}` : null,
+    normalized.summary ? `**Summary:** ${normalized.summary}` : null,
+    normalized.details && !skillBlock ? normalized.details : null,
+    skillBlock || null,
+    clarificationPolicy,
   ].filter(Boolean);
 
   return parts.join("\n\n");
@@ -62,7 +79,7 @@ export async function runOpeyLoop(ticket: any, workPath: string, log: any): Prom
 
   try {
     const soulPrompt = loadSoulPrompt();
-    const ticketPrompt = buildTicketPrompt(ticket);
+    const ticketPrompt = buildTicketPrompt(ticket, workPath);
     const fullPrompt = `${soulPrompt}\n\n${ticketPrompt}`;
 
     const args = [
@@ -158,4 +175,56 @@ export async function runOpeyLoop(ticket: any, workPath: string, log: any): Prom
       child.kill();
     }
   }
+}
+
+function normalizeTicket(ticket: any): {
+  title?: string;
+  type?: string;
+  summary?: string;
+  details?: string;
+} {
+  const type =
+    ticket?.request_type ??
+    ticket?.requestType ??
+    ticket?.type ??
+    undefined;
+
+  const summary =
+    ticket?.request_summary ??
+    ticket?.requestSummary ??
+    ticket?.summary ??
+    undefined;
+
+  const details =
+    ticket?.additional_details ??
+    ticket?.additionalDetails ??
+    ticket?.details ??
+    ticket?.description ??
+    undefined;
+
+  return {
+    title: ticket?.title,
+    type: typeof type === "string" ? type : undefined,
+    summary: typeof summary === "string" ? summary : undefined,
+    details: typeof details === "string" ? details : undefined,
+  };
+}
+
+function buildClarificationPolicy(normalized: {
+  type?: string;
+  details?: string;
+}): string | null {
+  const type = (normalized.type || "").toLowerCase();
+  const details = normalized.details || "";
+  const noQuestions =
+    type === "skill" || NO_QUESTION_MARKERS.some((pattern) => pattern.test(details));
+
+  if (!noQuestions) return null;
+
+  return [
+    "## Clarification Policy",
+    "- Do not ask questions.",
+    "- If any requirement is ambiguous, make reasonable assumptions and proceed.",
+    "- Prefer shipping a best-effort implementation over requesting clarification.",
+  ].join("\n");
 }

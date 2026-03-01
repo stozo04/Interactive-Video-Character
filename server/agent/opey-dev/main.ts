@@ -13,6 +13,12 @@ const LOG_PREFIX = "[Opey-Dev]";
 const POLL_INTERVAL_MS = 30_000;
 const SHELL_OPTS = process.platform === "win32" ? { shell: "bash" as const } : {};
 const CLARIFICATION_MARKER = "--- CLARIFICATION ---";
+const NO_QUESTION_MARKERS = [
+  /no clarifications?/i,
+  /no questions?/i,
+  /do not ask questions/i,
+  /you can not ask questions/i,
+];
 
 /** Check if the worktree has any commits ahead of main. */
 function hasCommitsAheadOfMain(workPath: string): boolean {
@@ -39,6 +45,31 @@ function commitUnstagedWork(workPath: string, ticketTitle: string): void {
   execSync("git add -A", { cwd: workPath, ...SHELL_OPTS });
   const msg = `feat: ${ticketTitle}`;
   execSync(`git commit -m "${msg}"`, { cwd: workPath, ...SHELL_OPTS });
+}
+
+function getTicketType(ticket: any): string {
+  const type =
+    ticket?.request_type ??
+    ticket?.requestType ??
+    ticket?.type ??
+    "";
+  return String(type).toLowerCase();
+}
+
+function getTicketDetails(ticket: any): string {
+  const details =
+    ticket?.additional_details ??
+    ticket?.additionalDetails ??
+    ticket?.details ??
+    ticket?.description ??
+    "";
+  return typeof details === "string" ? details : "";
+}
+
+function shouldAvoidClarification(ticket: any): boolean {
+  const type = getTicketType(ticket);
+  const details = getTicketDetails(ticket);
+  return type === "skill" || NO_QUESTION_MARKERS.some((pattern) => pattern.test(details));
 }
 
 
@@ -73,6 +104,7 @@ async function processNextTicket(
     // const orchestrator = ORCHESTRATOR_BACKEND === "openai" ? runOpeyLoopOpenAI : runOpeyLoop;
     const orchestrator = runOpeyLoopOpenAI;
     const output = await orchestrator(ticket, workPath, log);
+    const avoidClarification = shouldAvoidClarification(ticket);
 
     // Did Opey actually implement anything?
     let madeChanges = hasCommitsAheadOfMain(workPath);
@@ -90,10 +122,10 @@ async function processNextTicket(
 
     if (!madeChanges) {
       // No commits AND no uncommitted changes — Opey truly didn't implement.
-      const details: string = (ticket as any).additional_details ?? ticket.additionalDetails ?? "";
+      const details = getTicketDetails(ticket);
       const alreadyClarified = details.includes(CLARIFICATION_MARKER);
 
-      if (!alreadyClarified) {
+      if (!avoidClarification && !alreadyClarified) {
         // First pass with no changes = clarification request (max 1 loop)
         log.info(`${LOG_PREFIX} Opey requested clarification (no commits, first pass)`, { source: "main.ts", ticketId });
         await store.updateStatus(ticketId, "needs_clarification", { clarificationQuestions: output });
@@ -101,9 +133,12 @@ async function processNextTicket(
         return;
       }
 
-      // Already had a clarification loop — Opey tried but couldn't produce changes
-      await store.updateStatus(ticketId, "completed", { failureReason: "No changes made after clarification" });
-      log.warning(`${LOG_PREFIX} Completed with no changes (post-clarification)`, { source: "main.ts", ticketId });
+      // No clarification path — mark failed or completed with explicit reason
+      const failureReason = avoidClarification
+        ? "No changes made (no-questions mode)."
+        : "No changes made after clarification.";
+      await store.updateStatus(ticketId, "failed", { failureReason });
+      log.warning(`${LOG_PREFIX} Completed with no changes`, { source: "main.ts", ticketId, failureReason });
       manager.cleanup(ticketId);
       return;
     }

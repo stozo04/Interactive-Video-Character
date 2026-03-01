@@ -103,8 +103,8 @@ runtimeLog.info("Supabase configuration validated", {
 });
 
 // 4) Start Opey development agent system.
-runtimeLog.info(“Starting Opey development agent system”, {
-  source: “serverIndex”,
+runtimeLog.info("Starting Opey development agent system", {
+  source: "serverIndex",
   workspaceRoot,
 });
 
@@ -114,13 +114,13 @@ const opeyDevHandle = startOpeyDev({
   workspaceRoot,
 });
 
-runtimeLog.info(“Opey development agent system started”, {
-  source: “serverIndex”,
+runtimeLog.info("Opey development agent system started", {
+  source: "serverIndex",
 });
 
 // Create multi-agent router
-runtimeLog.info(“Creating multi-agent router”, {
-  source: “serverIndex”,
+runtimeLog.info("Creating multi-agent router", {
+  source: "serverIndex",
 });
 
 const routeMultiAgentRequest = createMultiAgentRouter({
@@ -128,20 +128,20 @@ const routeMultiAgentRequest = createMultiAgentRouter({
   supabaseServiceRoleKey,
 });
 
-runtimeLog.info(“Multi-agent router created”, {
-  source: “serverIndex”,
+runtimeLog.info("Multi-agent router created", {
+  source: "serverIndex",
 });
 
 // 5) Background services.
-// Cron scheduler: handles scheduled “Kayley” digests and promise reminders.
+// Cron scheduler: handles scheduled "Kayley" digests and promise reminders.
 const cronTickMs = Number(process.env.CRON_TICK_MS || 60_000);
 const cronSchedulerId = process.env.CRON_SCHEDULER_ID || `scheduler_${process.pid}`;
 
-runtimeLog.info(“Starting cron scheduler for scheduled tasks”, {
-  source: “serverIndex”,
+runtimeLog.info("Starting cron scheduler for scheduled tasks", {
+  source: "serverIndex",
   tickMs: cronTickMs,
   schedulerId: cronSchedulerId,
-  purpose: “scheduled digests and promise reminders”,
+  purpose: "scheduled digests and promise reminders",
 });
 
 const cronScheduler = startCronScheduler({
@@ -151,8 +151,8 @@ const cronScheduler = startCronScheduler({
   schedulerId: cronSchedulerId,
 });
 
-runtimeLog.info(“Cron scheduler started”, {
-  source: “serverIndex”,
+runtimeLog.info("Cron scheduler started", {
+  source: "serverIndex",
   schedulerId: cronSchedulerId,
   tickMs: cronTickMs,
 });

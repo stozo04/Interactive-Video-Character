@@ -596,3 +596,26 @@
 
 ## Review Notes
 - The workflow is now correctly blocking QA when only `bugs/` changes exist. This follow-up targets the remaining root cause: Opey often returns read/search-only implementation turns. The orchestrator now feeds that failure back into a bounded rework loop and explicitly demands a concrete `write` action (or a clear blocked/human escalation).
+
+---
+
+## Plan: Opey Skill Loader + No-Questions Enforcement (Opey-Dev)
+
+1) Add skill loader that parses SKILL.md frontmatter and metadata, supports referenced `skills/<name>/SKILL.md`:
+- `server/agent/opey-dev/skillLoader.ts`
+2) Inject skill context and no-questions policy into Codex/Claude prompt:
+- `server/agent/opey-dev/orchestrator-openai.ts`
+- `server/agent/opey-dev/orchestrator.ts`
+3) Skip clarification fallback when skill tickets forbid questions:
+- `server/agent/opey-dev/main.ts`
+4) Verification (if approved):
+- Run a skill ticket with embedded SKILL.md and confirm no clarification loop
+
+## Progress
+- [x] Skill loader added with requirements detection and SKILL.md reference parsing.
+- [x] Skill context + no-questions policy injected into Opey prompts.
+- [x] Clarification fallback bypassed for skill/no-questions tickets.
+- [ ] Verification not run (requires approval).
+
+## Review Notes
+- Goal: Opey should handle skill tickets without asking questions while keeping bug/feature tickets intact.
