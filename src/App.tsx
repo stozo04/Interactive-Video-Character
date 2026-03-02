@@ -72,6 +72,7 @@ import {
   type WorkspaceAgentRunStatus,
 } from './services/projectAgentService';
 import { buildActionKeyMap } from './utils/actionKeyMapper';
+import { subscribeToTicketUpdates, type TerminatedTicket } from './services/engineeringTicketWatcher';
 
 // Register X auth test helper on window (dev only)
 if (import.meta.env.DEV) {
@@ -379,6 +380,7 @@ const App: React.FC = () => {
 
   const debouncedEmailQueue = useDebounce(emailQueue, 5000);
   const calendarTriggerRef = useRef<(prompt: string) => void>(() => { });
+  const ticketTerminatedRef = useRef<(ticket: TerminatedTicket) => void>(() => { });
 
   // Calendar Hook
   const {
@@ -865,6 +867,30 @@ const App: React.FC = () => {
   useEffect(() => {
     calendarTriggerRef.current = triggerSystemMessage;
   }, [triggerSystemMessage]);
+
+  // Keep ticket handler ref current (same pattern as calendarTriggerRef)
+  useEffect(() => {
+    ticketTerminatedRef.current = (ticket: TerminatedTicket) => {
+      let prompt = '';
+      if (ticket.status === 'completed') {
+        prompt = `[SYSTEM: Opey just finished the engineering ticket "${ticket.title}". Let Steven know it's done — keep it natural and brief.]`;
+      } else if (ticket.status === 'failed') {
+        const reason = ticket.failureReason ? ` Failure reason: ${ticket.failureReason}.` : '';
+        prompt = `[SYSTEM: The engineering ticket "${ticket.title}" has failed.${reason} Let Steven know something went wrong — brief and empathetic.]`;
+      } else if (ticket.status === 'pr_ready') {
+        const prLink = ticket.finalPrUrl ? ` PR: ${ticket.finalPrUrl}` : '';
+        prompt = `[SYSTEM: Opey opened a pull request for "${ticket.title}".${prLink} Let Steven know the PR is ready for review.]`;
+      }
+      if (prompt) void triggerSystemMessage(prompt);
+    };
+  }, [triggerSystemMessage]);
+
+  // Subscribe to engineering ticket terminal status changes via Supabase Realtime
+  // Unsubscribes automatically when session/character goes away
+  useEffect(() => {
+    if (!selectedCharacter || !session) return;
+    return subscribeToTicketUpdates((ticket) => ticketTerminatedRef.current(ticket));
+  }, [selectedCharacter, session]);
 
   const triggerIdleBreaker = useCallback(async () => {
     // UI Layer: Simple validation and trigger
