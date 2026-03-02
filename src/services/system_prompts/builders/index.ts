@@ -31,6 +31,6 @@ export {
 } from "./dailyCatchupBuilder";
 
 // Selfie action builder
-export { buildSelfieRulesPrompt, getSelfieRulesConfig } from "./selfiePromptBuilder";
+export { buildSelfieRulesPrompt } from "./selfiePromptBuilder";
 
 export { buildNonGreetingPrompt, buildGreetingPrompt } from "./greetingPromptBuilders";

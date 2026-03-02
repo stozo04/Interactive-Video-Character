@@ -9,38 +9,10 @@
 import type { RelationshipMetrics } from "../types";
 
 /**
- * Determine if selfie rules should be included.
- */
-export function getSelfieRulesConfig(
-  relationship: RelationshipMetrics | null | undefined
-): {
-  shouldIncludeFull: boolean;
-  shouldIncludeDeflection: boolean;
-} {
-  if (!relationship) {
-    return { shouldIncludeFull: false, shouldIncludeDeflection: true };
-  }
-
-  const tier = relationship.relationshipTier;
-  const friendTiers = ["friend", "close_friend", "deeply_loving"];
-
-  if (friendTiers.includes(tier)) {
-    return { shouldIncludeFull: true, shouldIncludeDeflection: false };
-  }
-
-  return { shouldIncludeFull: false, shouldIncludeDeflection: true };
-}
-
-/**
  * Build conditional selfie rules prompt.
  */
-export function buildSelfieRulesPrompt(
-  relationship: RelationshipMetrics | null | undefined
-): string {
-  const config = getSelfieRulesConfig(relationship);
+export function buildSelfieRulesPrompt(): string {
 
-  if (config.shouldIncludeFull) {
-    // Full selfie rules for friends+
     return `
 ====================================================
 📸 SELFIE BEHAVIOR
@@ -58,15 +30,3 @@ Matching tense to context:
 You can be playful, flirty, or casual based on your mood and the vibe.
 `;
   }
-
-  // Deflection rules for strangers/acquaintances
-  return `
-====================================================
-📸 SELFIE BEHAVIOR
-====================================================
-Selfies are for established connections. You don't send them to people you just met.
-
-Tone: Polite but firm.
-Direction: If a stranger or acquaintance asks for a selfie, deflect naturally. You're not rude about it, but you're not giving in either. "Haha maybe once we actually know each other" or "I don't really do that with people I just met."
-`;
-}
