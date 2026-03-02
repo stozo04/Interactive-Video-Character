@@ -6,12 +6,10 @@
  */
 
 import type { RelationshipMetrics } from "../../relationshipService";
-import { KAYLEY_CONDENSED_PROFILE } from "../../../domain/characters/kayleyCharacterProfile";
 import { getRecentNewsContext } from "../../newsService";
 import { formatCharacterFactsForPrompt } from "../../characterFactsService";
 import { buildPromisesContext } from "../context/promisesContext";
 import { buildScheduledDigestsContext } from "../context/scheduledDigestsContext";
-import { buildRelationshipTierPrompt } from "./relationshipPromptBuilders";
 import { buildSelfieRulesPrompt } from "./selfiePromptBuilder";
 import { buildVideoRulesPrompt } from "./videoPromptBuilder";
 import { buildAntiAssistantSection } from "../core/antiAssistant";
@@ -34,6 +32,8 @@ import {
   buildStandardOutputSection,
   buildGreetingOutputSection
 } from "../format";
+import soulContent from "../../../../server/agent/kayley/SOUL.md?raw";
+import identityContent from "../../../../server/agent/kayley/IDENTITY.md?raw";
 
 // Greeting-specific imports
 import {
@@ -94,18 +94,6 @@ export interface GreetingContext {
   kayleyLifeUpdates?: KayleyLifeUpdate[];
 }
 
-/** Removed from non greeting:
- *
- * ${buildCuriosityEngagementSection(soulContext.moodKnobs)}
- * ${buildStyleOutputSection(soulContext.moodKnobs, relationship)}
- * ${formatMoodForPrompt(soulContext.moodKnobs)}
- * ${buildSelectiveAttentionPrompt()}
- * ${soulContext.callbackPrompt}
- * ${buildPresencePrompt()} // duplicated of opinions
- * ${buildTasksPrompt(tasks)}
- * ${formatMoodForPrompt(soulContext.moodKnobs)}
- * ${buildSpontaneousPrompts(soulContext.spontaneityIntegration.humorGuidance, soulContext.spontaneityIntegration.selfiePrompt, soulContext.spontaneityIntegration.promptSection)}
- */
 export const buildSystemPromptForNonGreeting = async (
   relationship?: RelationshipMetrics | null,
   upcomingEvents: any[] = [],
@@ -116,17 +104,6 @@ export const buildSystemPromptForNonGreeting = async (
 ): Promise<string> => {
   console.log("[buildSystemPromptForNonGreeting] fetching now");
 
-  // Try synthesis path if feature flag is enabled
-  let synthesisSection = "";
-  if (USE_CONTEXT_SYNTHESIS) {
-    synthesisSection = await buildSynthesisPromptSection();
-    if (synthesisSection) {
-      console.log("[buildSystemPromptForNonGreeting] Using synthesis path");
-    }
-  }
-
-  const useSynthesis = !!synthesisSection;
-
   // Shared sections fetched in parallel (needed by both paths)
   const [
     idleQuestionPrompt,
@@ -135,6 +112,14 @@ export const buildSystemPromptForNonGreeting = async (
     xTweetPrompt,
     xMentionsPrompt,
     scheduledDigestsPrompt,
+    topicSuppressionPrompt, 
+    anchorSection, 
+    activeRecallSection, 
+    almostMoments,
+    synthesisSection,
+    currentWorldContext,
+    storylinePromptContext,
+    promisesContext
   ] = await Promise.all([
     buildIdleQuestionPromptSection(),
     buildIdleBrowseNotesPromptSection(),
@@ -142,29 +127,27 @@ export const buildSystemPromptForNonGreeting = async (
     buildXTweetPromptSection(),
     buildMentionsPromptSection(),
     buildScheduledDigestsContext(),
+    buildTopicSuppressionPromptSection(),
+    buildConversationAnchorPromptSection(interactionId),
+    buildActiveRecallPromptSection(currentUserMessage),
+    integrateAlmostMoments(relationship, {
+      conversationDepth: "surface",
+      recentSweetMoment: false,
+      vulnerabilityExchangeActive: false,
+      allowGeneration: false,
+    }),
+    buildSynthesisPromptSection(),
+    buildCurrentWorldContext(),
+    getStorylinePromptContext(messageCount),
+    buildPromisesContext()
   ]);
 
-  if (useSynthesis) {
-    // ====================================================================
-    // SYNTHESIS PATH — replaces: curiosity, dailyNotes, milaMilestones,
-    // characterFacts, relationshipTier, storylines, proactiveStarters
-    // ====================================================================
-    const [topicSuppressionPrompt, anchorSection, activeRecallSection, almostMoments] = await Promise.all([
-      buildTopicSuppressionPromptSection(),
-      buildConversationAnchorPromptSection(interactionId),
-      buildActiveRecallPromptSection(currentUserMessage), // NEW: per-turn relevant facts
-      integrateAlmostMoments(relationship, {
-        conversationDepth: "surface",
-        recentSweetMoment: false,
-        vulnerabilityExchangeActive: false,
-        allowGeneration: false,
-      }),
-    ]);
 
     let prompt = `
-${KAYLEY_CONDENSED_PROFILE}
+${injectSOUL()}
+${injectIDENTITY()}
 ${buildAntiAssistantSection()}
-${await buildCurrentWorldContext()}
+${currentWorldContext}
 ${anchorSection}
 ${activeRecallSection}
 ${synthesisSection}
@@ -177,75 +160,13 @@ ${xMentionsPrompt}
 ${idleQuestionPrompt}
 ${buildOpinionsAndPushbackSection()}
 ${buildCurrentContextSection(characterContext)}
-${await getStorylinePromptContext(messageCount)}
+${storylinePromptContext}
 ${scheduledDigestsPrompt}
-${await buildPromisesContext()}
-${buildSelfieRulesPrompt(relationship)}
+${promisesContext}
+${buildSelfieRulesPrompt()}
 ${buildVideoRulesPrompt(relationship)}
 ${getRecentNewsContext()}
 ${buildGoogleCalendarEventsPrompt(upcomingEvents)}
-${buildToolStrategySection()}
-${buildStandardOutputSection()}
-`.trim();
-
-    return prompt;
-  }
-
-  // ====================================================================
-  // FALLBACK PATH — identical to original behavior (no synthesis available)
-  // ====================================================================
-  const [
-    almostMoments,
-    characterFactsPrompt,
-    dailyNotesPrompt,
-    milaMilestonesPrompt,
-    anchorSection,
-    activeRecallSection,
-    scheduledDigestsPromptFallback,
-  ] = await Promise.all([
-    integrateAlmostMoments(relationship, {
-      conversationDepth: "surface",
-      recentSweetMoment: false,
-      vulnerabilityExchangeActive: false,
-      allowGeneration: false,
-    }),
-    formatCharacterFactsForPrompt(),
-    buildDailyNotesPromptSection(),
-    buildMilaMilestonesPromptSection(),
-    buildConversationAnchorPromptSection(interactionId),
-    buildActiveRecallPromptSection(currentUserMessage),
-    buildScheduledDigestsContext(),
-  ]);
-
-  let prompt = `
-${KAYLEY_CONDENSED_PROFILE}
-${buildAntiAssistantSection()}
-${await buildCurrentWorldContext()}
-
-${anchorSection}
-${activeRecallSection}
-${await buildCuriositySection()}
-${idleBrowseNotesPrompt}
-${toolSuggestionsPrompt}
-${xTweetPrompt}
-${xMentionsPrompt}
-${dailyNotesPrompt}
-${milaMilestonesPrompt}
-${idleQuestionPrompt}
-${characterFactsPrompt}
-${await getStorylinePromptContext(messageCount)}
-${buildRelationshipTierPrompt(relationship, almostMoments.promptSection)}
-${buildOpinionsAndPushbackSection()}
-${buildCurrentContextSection(characterContext)}
-
-${scheduledDigestsPromptFallback}
-${await buildPromisesContext()}
-${buildSelfieRulesPrompt(relationship)}
-${buildVideoRulesPrompt(relationship)}
-${buildProactiveConversationStarters()}
-${getRecentNewsContext()}
-${buildGoogleCalendarEventsPrompt(upcomingEvents)}
-${buildTeamPrompt()}
 ${buildToolStrategySection()}
 ${buildStandardOutputSection()}
 `.trim();
@@ -253,15 +174,31 @@ ${buildStandardOutputSection()}
   return prompt;
 };
 
+
+export function injectSOUL(): string {
+  return `
+====================================================
+SOUL (Core Identity)
+====================================================
+${soulContent}`.trim();
+}
+
+
+export function injectIDENTITY(): string {
+  return `
+====================================================
+IDENTITY
+====================================================
+${identityContent}`.trim();
+}
+
 export function buildTeamPrompt(): string {
   return `
 ====================================================
 TEAM DELEGATION (Multi-Agent)
 ====================================================
 You have an engineering team you can delegate to:
-- Kera (intake coordinator): turns requests into tickets.
 - Opey (developer): plans and implements changes.
-- Claudy (QA): reviews and gives a verdict.
 When Steven asks you to "pass this to your team" or requests a skill/feature/bug fix,
 delegate via the engineering tools instead of doing the work directly.`;
 }
@@ -281,10 +218,8 @@ export const buildSystemPromptForGreeting = async (
   console.log("buildSystemPromptForGreeting");
   const pinnedFactsPrompt = await buildPinnedFactsPromptSection();
   let prompt = `
-====================================================
-YOUR IDENTITY (Source of Truth)
-====================================================
-${KAYLEY_CONDENSED_PROFILE}
+${injectSOUL()}
+${injectIDENTITY()}
 ${buildAntiAssistantSection()}
 ${await buildCurrentWorldContext()}
 ====================================================
