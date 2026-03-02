@@ -10,6 +10,11 @@ import type { UserContent } from "../../src/services/aiService";
 import { generateSpeechBuffer } from "./serverAudio";
 import { createWhatsAppSticker } from "./serverSticker";
 import { log } from "../runtimeLogger";
+import { supabaseAdmin as supabase } from "../services/supabaseAdmin";
+import { gmailService } from "../../src/services/gmailService";
+import type { NewEmailPayload } from "../../src/services/gmailService";
+import { composePolishedReply } from "../../src/services/emailProcessingService";
+import { getValidGoogleToken } from "../services/googleTokenService";
 import fs from "fs";
 import path from "path";
 const LOG_PREFIX = "[WhatsApp]";
@@ -318,6 +323,136 @@ async function sendAndTrack(
   }
 }
 
+// ==========================================================================
+// PENDING EMAIL: Load oldest pending email that has been forwarded to WA
+// ==========================================================================
+
+interface PendingEmailRow {
+  id: string;
+  gmail_message_id: string;
+  gmail_thread_id: string | null;
+  from_address: string | null;
+  subject: string | null;
+}
+
+async function loadPendingEmailFromDB(): Promise<{ row: PendingEmailRow; email: NewEmailPayload } | null> {
+  const { data, error } = await supabase
+    .from('kayley_email_actions')
+    .select('id, gmail_message_id, gmail_thread_id, from_address, subject')
+    .eq('action_taken', 'pending')
+    .not('whatsapp_sent_at', 'is', null)  // must have been sent to WA already
+    .order('announced_at', { ascending: true })
+    .limit(1)
+    .single();
+
+  if (error || !data) return null;
+
+  const email: NewEmailPayload = {
+    id:         data.gmail_message_id,
+    threadId:   data.gmail_thread_id   ?? '',
+    from:       data.from_address      ?? '',
+    subject:    data.subject           ?? '',
+    snippet:    '',
+    body:       '',
+    receivedAt: '',
+  };
+
+  return { row: data as PendingEmailRow, email };
+}
+
+async function executeWAEmailAction(
+  action: 'archive' | 'reply' | 'dismiss',
+  replyBody: string | undefined,
+  row: PendingEmailRow,
+  email: NewEmailPayload
+): Promise<void> {
+  let accessToken: string;
+  try {
+    accessToken = await getValidGoogleToken();
+  } catch (err) {
+    const isExpired = err instanceof Error && err.message === 'GOOGLE_REFRESH_TOKEN_EXPIRED';
+    runtimeLog.error('Could not obtain a valid Google token — email action aborted', {
+      source: 'whatsappHandler',
+      action,
+      gmailMessageId: row.gmail_message_id,
+      isExpired,
+      error: err instanceof Error ? err.message : String(err),
+    });
+    // Tell Steven via the same socket so he knows why it failed
+    try {
+      const sock = (await import('./baileyClient')).getActiveSock();
+      const stevenJid = process.env.WHATSAPP_STEVEN_JID;
+      if (sock && stevenJid) {
+        const msg = isExpired
+          ? `I tried to ${action} that email but my Google connection has expired. Open the app and sign back in — takes 10 seconds!`
+          : `I tried to ${action} that email but hit a Google auth error. You may need to reconnect in the app.`;
+        await sock.sendMessage(stevenJid, { text: msg });
+      }
+    } catch { /* best-effort */ }
+    return;
+  }
+
+  let success = false;
+
+  try {
+    if (action === 'archive') {
+      success = await gmailService.archiveEmail(accessToken, row.gmail_message_id);
+
+    } else if (action === 'reply' && replyBody) {
+      // Polish the reply (no calendar context on server side — pass empty array)
+      const polished = await composePolishedReply(replyBody, email, []);
+
+      const toMatch = email.from.match(/<(.+?)>/);
+      const toAddress = toMatch ? toMatch[1] : email.from;
+
+      success = await gmailService.sendReply(
+        accessToken,
+        row.threadId ?? email.threadId,
+        toAddress,
+        email.subject,
+        polished
+      );
+
+    } else if (action === 'dismiss') {
+      success = true; // dismiss = no Gmail API call needed
+    }
+
+  } catch (err) {
+    runtimeLog.error('Gmail API call failed during WA email action', {
+      source: 'whatsappHandler',
+      action,
+      gmailMessageId: row.gmail_message_id,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+
+  // Update DB regardless — mark actioned so the row stops being injected
+  const dbAction = action === 'dismiss' ? 'dismissed' : action;
+  const { error: updateErr } = await supabase
+    .from('kayley_email_actions')
+    .update({
+      action_taken: dbAction,
+      actioned_at:  new Date().toISOString(),
+    })
+    .eq('id', row.id);
+
+  if (updateErr) {
+    runtimeLog.error('Failed to update email action in DB', {
+      source: 'whatsappHandler',
+      id: row.id,
+      error: updateErr.message,
+    });
+  }
+
+  runtimeLog.info('WA email action executed', {
+    source: 'whatsappHandler',
+    action,
+    dbAction,
+    gmailMessageId: row.gmail_message_id,
+    success,
+  });
+}
+
 export async function handleWhatsAppMessage(
   sock: WASocket,
   text: string,
@@ -365,13 +500,25 @@ export async function handleWhatsAppMessage(
       messageId,
     });
 
-    const chatHistory = await loadTodaysConversationHistory();
+    const [chatHistory, pendingEmailData] = await Promise.all([
+      loadTodaysConversationHistory(),
+      loadPendingEmailFromDB(),
+    ]);
 
     runtimeLog.info("Conversation history loaded", {
       source: "whatsappHandler",
       messageId,
       historyLength: chatHistory?.length ?? 0,
+      hasPendingEmail: !!pendingEmailData,
     });
+
+    if (pendingEmailData) {
+      runtimeLog.info("Injecting pending email context into orchestrator", {
+        source: "whatsappHandler",
+        messageId,
+        gmailMessageId: pendingEmailData.row.gmail_message_id,
+      });
+    }
 
     runtimeLog.info("Processing user message through orchestrator", {
       source: "whatsappHandler",
@@ -390,6 +537,7 @@ export async function handleWhatsAppMessage(
       upcomingEvents: [],
       tasks: [],
       isMuted: true,
+      pendingEmail: pendingEmailData?.email ?? null,
     });
 
     runtimeLog.info("Message processing completed", {
@@ -401,8 +549,21 @@ export async function handleWhatsAppMessage(
       hasSticker: !!result.stickerBuffer || !!result.rawGeneratedStickerBase64,
       hasGif: !!result.gifUrl,
       hasVideo: !!result.videoUrl,
-      hasAudio: !!result.chatMessages?.[0]?.text,
+      hasEmailAction: !!result.detectedEmailAction,
     });
+
+    // Execute email action if orchestrator detected one
+    if (result.detectedEmailAction && pendingEmailData) {
+      const { action, reply_body } = result.detectedEmailAction;
+      runtimeLog.info("Executing WA email action", {
+        source: "whatsappHandler",
+        messageId,
+        action,
+        gmailMessageId: pendingEmailData.row.gmail_message_id,
+      });
+      // Fire-and-forget — don't block sending the text response
+      void executeWAEmailAction(action, reply_body, pendingEmailData.row, pendingEmailData.email);
+    }
 
     await sendOrchestratorResult(sock, replyJid, result);
   } catch (error) {

@@ -382,6 +382,39 @@ export const AIActionResponseSchema = z.object({
         "Set this when your message fulfills a commitment you made earlier (e.g., 'Here's that selfie from my walk!'). " +
         "Leave null if you're not fulfilling a promise."
     ),
+
+  /**
+   * Email action — set this when Steven has told you what to do with a pending email.
+   * The pending email context is injected into the user message as [PENDING EMAIL ACTION].
+   * Only set this when you are resolving an email decision (archive, reply, or dismiss).
+   */
+  email_action: z
+    .object({
+      action: z
+        .enum(['archive', 'reply', 'dismiss'])
+        .describe("What to do: 'archive' removes it from inbox, 'reply' sends a response, 'dismiss' leaves it alone"),
+      message_id: z
+        .string()
+        .describe("Gmail message ID from the pending email context"),
+      thread_id: z
+        .string()
+        .optional()
+        .describe("Gmail thread ID — required when action is 'reply' to send in-thread"),
+      reply_body: z
+        .string()
+        .optional()
+        .describe(
+          "When action is 'reply': the full email body to send, written in Kayley's casual voice. " +
+          "Start with something like 'Hey [Name]! This is Kayley, Steven's best assistant — he asked me to pass this along.' " +
+          "Be warm and informal. Include everything Steven wanted to say."
+        ),
+    })
+    .nullable()
+    .optional()
+    .describe(
+      "Email action — only set when there is an active [PENDING EMAIL ACTION] in context and Steven has given you instructions. " +
+      "Leave null for all other messages."
+    ),
 });
 
 /**

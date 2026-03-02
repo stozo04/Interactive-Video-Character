@@ -12,7 +12,10 @@ import AuthWarningBanner from './components/AuthWarningBanner';
 import * as conversationHistoryService from './services/conversationHistoryService';
 import * as relationshipService from './services/relationshipService';
 import type { RelationshipMetrics } from './services/relationshipService';
-import { gmailService, type NewEmailPayload } from './services/gmailService';
+import { gmailService } from './services/gmailService';
+import { generateEmailAnnouncement, generateEmailConfirmation, composePolishedReply } from './services/emailProcessingService';
+import { getUserFacts, formatFactsForAI } from './services/memoryService';
+import { clientLogger } from './services/clientLogger';
 import { 
   calendarService, 
   type CalendarEvent,
@@ -373,12 +376,15 @@ const App: React.FC = () => {
   // --------------------------------------------------------------------------
   // Gmail Hook
   const {
-    emailQueue,
-    clearQueue: clearEmailQueue,
-    isConnected: isGmailConnected
+    currentPendingEmail,
+    advanceQueue:       advanceEmailQueue,
+    clearQueue:         clearEmailQueue,
+    isConnected:        isGmailConnected,
   } = useGmail({ session, status: authStatus });
 
-  const debouncedEmailQueue = useDebounce(emailQueue, 5000);
+  // Tracks which email ID Kayley has already announced — prevents double-firing
+  // on re-renders while the same email sits at the front of the queue.
+  const announcedEmailIdRef = useRef<string | null>(null);
   const calendarTriggerRef = useRef<(prompt: string) => void>(() => { });
   const ticketTerminatedRef = useRef<(ticket: TerminatedTicket) => void>(() => { });
 
@@ -1085,45 +1091,158 @@ const App: React.FC = () => {
     };
   }, [refreshSession]); 
 
+  // ==========================================================================
+  // EMAIL: Announce the current pending email (FIFO — one at a time)
+  // Fires a lightweight Gemini call to let Kayley react naturally.
+  // ==========================================================================
   useEffect(() => {
-    if (debouncedEmailQueue.length === 0 || !selectedCharacter) return;
+    if (!currentPendingEmail || !selectedCharacter) return;
 
-    const processEmailNotification = async () => {
-      let characterMessage = '';
-      if (debouncedEmailQueue.length === 1) {
-        const email = debouncedEmailQueue[0];
-        characterMessage = `📧 New email from ${email.from}: ${email.subject}`;
-      } else {
-        characterMessage = `📧 You have ${debouncedEmailQueue.length} new emails.`;
-      }
+    // Already announced this one — skip (guards against re-renders)
+    if (announcedEmailIdRef.current === currentPendingEmail.id) return;
+    announcedEmailIdRef.current = currentPendingEmail.id;
 
-      const updatedHistory = [...chatHistory, { role: 'model' as const, text: characterMessage }];
-      setChatHistory(updatedHistory);
+    const announceEmail = async () => {
+      const log = clientLogger.scoped('App:Email');
+      log.info('Announcing new email', { messageId: currentPendingEmail.id, from: currentPendingEmail.from });
 
-      // Get the latest interaction ID from DB to avoid creating a UUID fallback
-      const existingInteractionId = await conversationHistoryService.getTodaysInteractionId();
-      const interactionIdToUse = aiSession?.interactionId || existingInteractionId;
+      try {
+        // 1. Load user facts so Kayley knows who Steven is and recognizes senders
+        let userContext: string | undefined;
+        try {
+          const facts = await getUserFacts();
+          if (facts.length > 0) userContext = formatFactsForAI(facts);
+        } catch {
+          // Non-fatal — announcement still works without context
+        }
 
-      await conversationHistoryService.appendConversationHistory(
-          [{ role: 'model', text: characterMessage }],
-          interactionIdToUse // Use latest valid interaction ID
-        );
-        setLastSavedMessageIndex(updatedHistory.length - 1);
+        // 2. Lightweight Gemini call — Kayley summarizes and asks what to do
+        const announcement = await generateEmailAnnouncement(currentPendingEmail, userContext);
 
-        // Generate speech for the email notification
-        // Gates: Disable Audio
+        // 3. Add to chat history so the conversation makes sense when Steven replies
+        setChatHistory(prev => [...prev, { role: 'model' as const, text: announcement }]);
+
+        // 4. Save to conversation_history so email interactions are tracked like any other chat
+        conversationHistoryService.appendConversationHistory(
+          [{ role: 'model', text: announcement }], aiSession?.interactionId
+        ).catch(err => log.error('Failed to save email announcement to conversation_history', { err: String(err) }));
+
+        // 5. TTS — Gates: Disable Audio
         // if (!isMuted) {
-        //   const audioData = await generateSpeech(characterMessage);
-        //   if (audioData) {
-        //     enqueueAudio(audioData);
-        //   }
+        //   const audioData = await generateSpeech(announcement);
+        //   if (audioData) media.enqueueAudio(audioData);
         // }
 
-      clearEmailQueue();
+        // 6. Persist to kayley_email_actions as 'pending'.
+        // Note: the server (gmailPoller) may have already written this row — ignore 23505.
+        const { error } = await supabase.from('kayley_email_actions').insert({
+          gmail_message_id: currentPendingEmail.id,
+          gmail_thread_id:  currentPendingEmail.threadId,
+          from_address:     currentPendingEmail.from,
+          subject:          currentPendingEmail.subject,
+          action_taken:     'pending',
+          kayley_summary:   announcement,
+          announced_at:     new Date().toISOString(),
+        });
+        if (error && error.code !== '23505') {
+          log.error('Failed to insert email action record', { err: error.message });
+        }
+
+        log.info('Email announced successfully', { messageId: currentPendingEmail.id });
+      } catch (err) {
+        clientLogger.error('[App:Email] Failed to announce email', { err: String(err) });
+      }
     };
 
-    processEmailNotification();
-  }, [debouncedEmailQueue, selectedCharacter, isMuted, aiSession]);
+    announceEmail();
+  }, [currentPendingEmail, selectedCharacter, isMuted]);
+
+  // ==========================================================================
+  // EMAIL: Execute action returned by orchestrator + generate confirmation
+  // ==========================================================================
+  const executeEmailAction = useCallback(async (emailAction: {
+    action: 'archive' | 'reply' | 'dismiss';
+    message_id: string;
+    thread_id?: string;
+    reply_body?: string;
+  }) => {
+    if (!session?.accessToken || !currentPendingEmail) return;
+
+    const log = clientLogger.scoped('App:Email');
+    log.info('Executing email action', { action: emailAction.action, messageId: emailAction.message_id });
+
+    let success = false;
+
+    // ---- Execute the action against Gmail API ----
+    if (emailAction.action === 'archive') {
+      success = await gmailService.archiveEmail(session.accessToken, emailAction.message_id);
+
+    } else if (emailAction.action === 'reply') {
+      if (!emailAction.reply_body || !emailAction.thread_id) {
+        log.error('Reply action missing reply_body or thread_id', { emailAction });
+        return;
+      }
+
+      // Polish Steven's rough intent into a proper email.
+      // Calendar events are passed so Kayley can reference travel dates, busy periods, etc.
+      log.info('Polishing reply with LLM + calendar context', { eventCount: upcomingEvents.length });
+      const polishedBody = await composePolishedReply(
+        emailAction.reply_body,
+        currentPendingEmail,
+        upcomingEvents,
+      );
+      log.info('Reply polished', { original: emailAction.reply_body, polished: polishedBody });
+
+      // Extract plain email address from "Name <email@example.com>"
+      const toMatch = currentPendingEmail.from.match(/<(.+?)>/);
+      const toAddress = toMatch ? toMatch[1] : currentPendingEmail.from;
+
+      success = await gmailService.sendReply(
+        session.accessToken,
+        emailAction.thread_id,
+        toAddress,
+        currentPendingEmail.subject,
+        polishedBody,    // send the polished version, not the raw AI output
+      );
+
+    } else if (emailAction.action === 'dismiss') {
+      success = true; // No API call needed — just acknowledge and move on
+    }
+
+    if (!success) {
+      log.error('Email action execution failed', { action: emailAction.action });
+      setChatHistory(prev => [...prev, { role: 'model' as const, text: "Hmm, something went wrong on my end — couldn't do that. Try again?" }], aiSession?.interactionId);
+      return;
+    }
+
+    // ---- Update DB record ----
+    // 'dismiss' → 'dismissed' to match the DB CHECK constraint
+    const dbAction = emailAction.action === 'dismiss' ? 'dismissed' : emailAction.action;
+    await supabase
+      .from('kayley_email_actions')
+      .update({ action_taken: dbAction, reply_body: emailAction.reply_body ?? null, actioned_at: new Date().toISOString() })
+      .eq('gmail_message_id', emailAction.message_id);
+
+    // ---- Lightweight Gemini call — Kayley confirms what she did ----
+    try {
+      const confirmation = await generateEmailConfirmation(emailAction.action, currentPendingEmail);
+      setChatHistory(prev => [...prev, { role: 'model' as const, text: confirmation }]);
+
+      // Gates: Disable Audio
+      // if (!isMuted) {
+      //   const audioData = await generateSpeech(confirmation);
+      //   if (audioData) media.enqueueAudio(audioData);
+      // }
+    } catch (err) {
+      log.error('Failed to generate confirmation', { err: String(err) });
+    }
+
+    log.info('Email action complete — advancing queue', { action: emailAction.action });
+
+    // ---- Advance FIFO queue to the next email ----
+    advanceEmailQueue();
+    announcedEmailIdRef.current = null; // reset so next email can be announced
+  }, [session, currentPendingEmail, isMuted, advanceEmailQueue, upcomingEvents]);
 
   // ==========================================================================
   // CHARACTER SELECTION & IMAGE UPDATE
@@ -1474,14 +1593,15 @@ const App: React.FC = () => {
       // ORCHESTRATOR: AI Call + Background Processing
       // ============================================
       const result = await processUserMessage({
-        userMessage: trimmedMessage,
-        aiService: activeService,
-        session: aiSession,
-        accessToken: session.accessToken,
+        userMessage:  trimmedMessage,
+        aiService:    activeService,
+        session:      aiSession,
+        accessToken:  session.accessToken,
         chatHistory,
         upcomingEvents,
         tasks,
         isMuted,
+        pendingEmail: currentPendingEmail, // inject pending email context when present
       });
 
       if (result.updatedSession) setAiSession(result.updatedSession);
@@ -1502,6 +1622,16 @@ const App: React.FC = () => {
         await processTaskAction(result.detectedTaskAction, tasks, {
           handleTaskCreate, handleTaskToggle, handleTaskDelete, setIsTaskPanelOpen,
         });
+      }
+
+      // EMAIL ACTIONS (archive / reply / dismiss a pending email)
+      // Apply the normal chat message first (Kayley's in-chat response),
+      // then execute the Gmail action + generate confirmation.
+      if (result.detectedEmailAction) {
+        if (result.chatMessages.length > 0) setChatHistory(prev => [...prev, ...result.chatMessages]);
+        if (result.audioToPlay && !isMuted) media.enqueueAudio(result.audioToPlay);
+        await executeEmailAction(result.detectedEmailAction);
+        return;
       }
 
       // NEWS ACTIONS (orchestrator fetched, we trigger system message)

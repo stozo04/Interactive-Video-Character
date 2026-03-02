@@ -295,6 +295,8 @@ function normalizeAiResponse(rawJson: any, rawText: string): AIActionResponse {
     almost_moment_used: rawJson.almost_moment_used || null,
     // Promise fulfillment
     fulfilling_promise_id: rawJson.fulfilling_promise_id || null,
+    // Email action (archive / reply / dismiss a pending email)
+    email_action: rawJson.email_action || null,
     // ⚠️ REMINDER: Did you add your new field above? Check docs/Adding_Fields_To_AIActionResponse.md
   };
 }

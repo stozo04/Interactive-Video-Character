@@ -1,11 +1,13 @@
 // src/services/gmailService.ts
 
-// This is the data we'll send to the chat "bridge"
+// Full email payload — includes body + threadId for reply/archive actions
 export interface NewEmailPayload {
   id: string;
-  from: string;
+  threadId: string;   // needed for sending threaded replies
+  from: string;       // e.g. "Cindy Walther <cindy@example.com>"
   subject: string;
   snippet: string;
+  body: string;       // full plain-text body (HTML stripped)
   receivedAt: string; // ISO string
 }
 
@@ -187,15 +189,198 @@ class GmailService extends EventTarget {
 
           payloads.push({
             id: data.id,
+            threadId: data.threadId || '',
             from: getHeader("From"),
             subject: getHeader("Subject"),
             receivedAt: getHeader("Date"),
-            snippet: data.snippet,
+            snippet: data.snippet || '',  // default to '' — never undefined
+            body: '',                     // populated separately by fetchMessageBody()
           });
         }
       }
     }
     return payloads;
+  }
+
+  // ==========================================================================
+  // FETCH FULL MESSAGE BODY
+  // ==========================================================================
+
+  /**
+   * Fetches the full plain-text body of a single email.
+   * Prefers text/plain parts; falls back to stripping HTML from text/html.
+   * Returns an empty string if the body can't be decoded.
+   */
+  async fetchMessageBody(accessToken: string, messageId: string): Promise<string> {
+    const response = await fetch(
+      `${this.apiBase}/messages/${messageId}?format=full`,
+      { headers: { Authorization: `Bearer ${accessToken}` } }
+    );
+
+    if (!response.ok) {
+      console.warn(`[GmailService] fetchMessageBody failed for ${messageId}: ${response.statusText}`);
+      return '';
+    }
+
+    const data = await response.json();
+    return this.extractBodyText(data.payload);
+  }
+
+  /**
+   * Recursively walks the MIME payload tree to find the best text part.
+   * Prefers text/plain over text/html.
+   */
+  private extractBodyText(payload: any): string {
+    if (!payload) return '';
+
+    // Direct body data on this part
+    // Use startsWith — Gmail includes charset params e.g. "text/plain; charset=UTF-8"
+    if (payload.body?.data) {
+      const text = this.decodeBase64Url(payload.body.data);
+      if (payload.mimeType?.startsWith('text/plain')) return text;
+      if (payload.mimeType?.startsWith('text/html'))  return this.stripHtml(text);
+    }
+
+    // Walk child parts — prefer text/plain
+    if (payload.parts?.length) {
+      const plainPart = payload.parts.find((p: any) => p.mimeType?.startsWith('text/plain'));
+      if (plainPart?.body?.data) return this.decodeBase64Url(plainPart.body.data);
+
+      const htmlPart = payload.parts.find((p: any) => p.mimeType?.startsWith('text/html'));
+      if (htmlPart?.body?.data) return this.stripHtml(this.decodeBase64Url(htmlPart.body.data));
+
+      // Recurse into nested multipart
+      for (const part of payload.parts) {
+        const text = this.extractBodyText(part);
+        if (text) return text;
+      }
+    }
+
+    return '';
+  }
+
+  /** Gmail uses base64url encoding (- and _ instead of + and /) */
+  private decodeBase64Url(encoded: string): string {
+    try {
+      const base64 = encoded.replace(/-/g, '+').replace(/_/g, '/');
+      return decodeURIComponent(escape(atob(base64)));
+    } catch {
+      return '';
+    }
+  }
+
+  /** Strip HTML tags and collapse whitespace for a readable plain-text preview */
+  private stripHtml(html: string): string {
+    return html
+      .replace(/<[^>]+>/g, ' ')   // remove tags
+      .replace(/&nbsp;/g, ' ')
+      .replace(/&amp;/g, '&')
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/\s+/g, ' ')       // collapse whitespace
+      .trim();
+  }
+
+  // ==========================================================================
+  // ARCHIVE EMAIL
+  // ==========================================================================
+
+  /**
+   * Archives a message by removing the INBOX label.
+   * The message stays in Gmail (not deleted), just moves out of inbox.
+   */
+  async archiveEmail(accessToken: string, messageId: string): Promise<boolean> {
+    console.log(`[GmailService] Archiving message: ${messageId}`);
+
+    const response = await fetch(
+      `${this.apiBase}/messages/${messageId}/modify`,
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ removeLabelIds: ['INBOX'] }),
+      }
+    );
+
+    if (!response.ok) {
+      console.error(`[GmailService] Archive failed for ${messageId}: ${response.statusText}`);
+      return false;
+    }
+
+    console.log(`[GmailService] ✅ Archived message: ${messageId}`);
+    return true;
+  }
+
+  // ==========================================================================
+  // SEND EMAIL REPLY
+  // ==========================================================================
+
+  /**
+   * Sends a reply email in the same thread.
+   * The body should already be written in Kayley's voice by the AI.
+   *
+   * @param accessToken  - OAuth token
+   * @param threadId     - Gmail thread ID (keeps it in the same conversation)
+   * @param to           - Recipient address (the original sender)
+   * @param subject      - Original subject (Re: prefix added automatically if missing)
+   * @param body         - Plain-text body (composed by Kayley via AI)
+   */
+  async sendReply(
+    accessToken: string,
+    threadId: string,
+    to: string,
+    subject: string,
+    body: string
+  ): Promise<boolean> {
+    console.log(`[GmailService] Sending reply to: ${to} | thread: ${threadId}`);
+
+    // Ensure "Re:" prefix on subject
+    const reSubject = subject.startsWith('Re:') ? subject : `Re: ${subject}`;
+
+    // Always append Kayley's signature so the recipient knows who they're talking to.
+    // This is enforced here rather than relying on the AI to remember every time.
+    const signature = `\r\n\r\n— Kayley\r\n(Steven's AI companion, responding on his behalf)`;
+    const bodyWithSignature = body + signature;
+
+    // Build a minimal RFC 2822 email string
+    const emailLines = [
+      `To: ${to}`,
+      `Subject: ${reSubject}`,
+      `MIME-Version: 1.0`,
+      `Content-Type: text/plain; charset=utf-8`,
+      '',   // blank line separates headers from body
+      bodyWithSignature,
+    ];
+    const rawEmail = emailLines.join('\r\n');
+
+    // Gmail API requires base64url encoding
+    const encoded = btoa(unescape(encodeURIComponent(rawEmail)))
+      .replace(/\+/g, '-')
+      .replace(/\//g, '_')
+      .replace(/=+$/, '');
+
+    const response = await fetch(
+      `${this.apiBase}/messages/send`,
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ raw: encoded, threadId }),
+      }
+    );
+
+    if (!response.ok) {
+      const err = await response.text();
+      console.error(`[GmailService] Send reply failed: ${response.statusText}`, err);
+      return false;
+    }
+
+    console.log(`[GmailService] ✅ Reply sent to ${to} in thread ${threadId}`);
+    return true;
   }
 }
 

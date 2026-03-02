@@ -619,3 +619,43 @@
 
 ## Review Notes
 - Goal: Opey should handle skill tickets without asking questions while keeping bug/feature tickets intact.
+
+---
+
+## Plan: WhatsApp Baileys Conflict Loop Guard (Status 440)
+
+1) Add explicit conflict/replaced detection for status `440` and `reason=conflict/replaced`, and stop auto-reconnect with a clear recovery log:
+- `server/whatsapp/baileyClient.ts`
+2) (Optional) Add a single-instance lock to prevent two local bridge processes from sharing `.whatsapp-auth`:
+- `server/whatsapp/index.ts`
+3) Verification (if approved):
+- `npm run whatsapp:dev`
+- Confirm on conflict: reconnect stops and logs instruct to close other WA sessions or clear `.whatsapp-auth`
+
+## Progress
+- [x] Plan added to `tasks/todo.md`.
+- [ ] Patch implementation (pending approval).
+- [ ] Verification run (if approved).
+
+## Review Notes
+- Root issue appears to be a session replacement (conflict/440) from another linked WA Web session or duplicate local process; reconnecting immediately just loops.
+
+---
+
+## Plan: Gemini Interactions Invalid Argument Guard
+
+1) Add request validation/sanitization before sending Interactions API requests (drop invalid media parts, enforce non-empty text input, log payload summary):
+- `src/services/geminiChatService.ts`
+2) Improve error logs to include sanitized input summary and model/system prompt lengths for quick diagnosis:
+- `src/services/geminiChatService.ts`
+3) Verification (if approved):
+- `npm run whatsapp:dev`
+- Send text-only and image messages; confirm no `invalid_request` and logs show sanitized payload summary
+
+## Progress
+- [x] Plan added to `tasks/todo.md`.
+- [ ] Patch implementation (pending approval).
+- [ ] Verification run (if approved).
+
+## Review Notes
+- Current errors show `invalid_request` from the Interactions API; likely malformed/empty input or invalid media part. Guardrails should prevent sending invalid payloads and improve diagnostics.

@@ -93,7 +93,14 @@ export interface GreetingContext {
   /** Kayley's recent life updates from storylines */
   kayleyLifeUpdates?: KayleyLifeUpdate[];
 }
-
+/**
+ * 
+ * ${synthesisSection}
+${almostMoments.promptSection}
+${topicSuppressionPrompt}
+${idleBrowseNotesPrompt}
+${toolSuggestionsPrompt}
+ */
 export const buildSystemPromptForNonGreeting = async (
   relationship?: RelationshipMetrics | null,
   upcomingEvents: any[] = [],
@@ -150,11 +157,7 @@ ${buildAntiAssistantSection()}
 ${currentWorldContext}
 ${anchorSection}
 ${activeRecallSection}
-${synthesisSection}
-${almostMoments.promptSection}
-${topicSuppressionPrompt}
-${idleBrowseNotesPrompt}
-${toolSuggestionsPrompt}
+
 ${xTweetPrompt}
 ${xMentionsPrompt}
 ${idleQuestionPrompt}

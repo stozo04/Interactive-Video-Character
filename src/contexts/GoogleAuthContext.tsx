@@ -88,6 +88,44 @@ export function GoogleAuthProvider({
         const hasProviderToken = !!sbSession.provider_token;
         const hasLocalToken = !!googleAuth.getSession()?.accessToken;
 
+        // Persist OAuth tokens to DB so the WA server process can refresh them autonomously.
+        // provider_refresh_token is only issued by Google on first consent — guard carefully.
+        //
+        // IMPORTANT: Must be fire-and-forget (no await). The Supabase auth engine may await
+        // this callback during its initialization, and awaiting a DB upsert here causes a
+        // deadlock: upsert needs auth headers → calls getSession() → getSession() is waiting
+        // for this callback to return → deadlock. Using void breaks the cycle.
+        if (hasProviderToken || sbSession.provider_refresh_token) {
+          const expiresAt = sbSession.expires_at
+            ? new Date(sbSession.expires_at * 1000).toISOString()
+            : new Date(Date.now() + 3600 * 1000).toISOString();
+
+          if (sbSession.provider_refresh_token) {
+            // Full upsert — we have the refresh token (first consent or re-consent)
+            void googleAuth.supabase.from('google_api_auth_tokens').upsert({
+              auth_mode:               'oauth',
+              access_token:            sbSession.provider_token  ?? null,
+              refresh_token:           sbSession.provider_refresh_token,
+              expires_at:              expiresAt,
+              scope:                   googleAuth.SCOPES_ARRAY.join(' '),
+              refresh_token_issued_at: new Date().toISOString(), // 7-day Testing clock starts here
+            }, { onConflict: 'auth_mode' })
+              .then(({ error }) => {
+                if (error) console.error('[GoogleAuth] Failed to persist refresh token:', error.message);
+              });
+          } else if (hasProviderToken) {
+            // Partial update — refresh token not present (TOKEN_REFRESHED), don't overwrite it
+            void googleAuth.supabase.from('google_api_auth_tokens').upsert({
+              auth_mode:    'oauth',
+              access_token: sbSession.provider_token!,
+              expires_at:   expiresAt,
+            }, { onConflict: 'auth_mode', ignoreDuplicates: false })
+              .then(({ error }) => {
+                if (error) console.error('[GoogleAuth] Failed to persist access token:', error.message);
+              });
+          }
+        }
+
         if (!hasProviderToken && !hasLocalToken) {
           console.warn('[GoogleAuth] Provider token missing after sign-in. Reconnect required.');
           setError('Google access token missing. Please reconnect.');

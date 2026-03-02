@@ -14,6 +14,7 @@ import type { CalendarEvent } from '../../services/calendarService';
 import type { IAIChatService, AIChatSession, UserContent } from '../../services/aiService';
 import type { AIActionResponse } from '../../services/aiSchema';
 import type { TaskAction } from '../messageActions/taskActions';
+import type { NewEmailPayload } from '../../services/gmailService';
 
 // ============================================================================
 // ENUMS (No magic strings!)
@@ -29,6 +30,7 @@ export enum ActionType {
   SELFIE = 'selfie',
   VIDEO = 'video',
   GIF = 'gif',
+  EMAIL = 'email',
   NONE = 'none',
 }
 
@@ -96,6 +98,13 @@ export interface OrchestratorInput {
 
   /** Whether audio is muted */
   isMuted: boolean;
+
+  /**
+   * The email Kayley is currently waiting on Steven to decide about.
+   * When set, the orchestrator injects email context into the user message
+   * so the AI can output an email_action in its response.
+   */
+  pendingEmail?: NewEmailPayload | null;
 }
 
 /**
@@ -181,6 +190,14 @@ export interface OrchestratorResult {
 
   /** Detected task action for App.tsx to execute (Phase 6) */
   detectedTaskAction?: TaskAction;
+
+  /** Detected email action for App.tsx to execute (archive / reply / dismiss) */
+  detectedEmailAction?: {
+    action: 'archive' | 'reply' | 'dismiss';
+    message_id: string;
+    thread_id?: string;
+    reply_body?: string;
+  };
 
   // --- ADD THESE NEW PROPERTIES ---
   gifUrl?: string;
@@ -345,5 +362,6 @@ export function determineActionType(response: AIActionResponse): ActionType {
   if (response.selfie_action) return ActionType.SELFIE;
   if ((response as any).video_action) return ActionType.VIDEO;
   if ((response as any).gif_action) return ActionType.GIF;
+  if ((response as any).email_action) return ActionType.EMAIL;
   return ActionType.NONE;
 }
