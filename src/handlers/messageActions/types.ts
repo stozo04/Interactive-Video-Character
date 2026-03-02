@@ -28,6 +28,7 @@ export enum ActionType {
   NEWS = 'news',
   SELFIE = 'selfie',
   VIDEO = 'video',
+  GIF = 'gif',
   NONE = 'none',
 }
 
@@ -343,5 +344,6 @@ export function determineActionType(response: AIActionResponse): ActionType {
   if (response.news_action) return ActionType.NEWS;
   if (response.selfie_action) return ActionType.SELFIE;
   if ((response as any).video_action) return ActionType.VIDEO;
+  if ((response as any).gif_action) return ActionType.GIF;
   return ActionType.NONE;
 }

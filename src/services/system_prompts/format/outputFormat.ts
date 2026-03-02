@@ -50,6 +50,7 @@ RESPONSE SCHEMA:
   "user_transcription": string | null, // Audio transcription if applicable
   "open_app": string | null,           // App URL scheme (e.g., "spotify:")
   "selfie_action": { "scene": string, "mood": string } | null,
+  "gif_action": { "mp4_url": string, "message_text": string } | null,
   "video_action": { "scene": string, "mood": string } | null,
   "almost_moment_used": {
     "feeling_id": string,

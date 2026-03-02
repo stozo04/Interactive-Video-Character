@@ -74,14 +74,22 @@ export function buildToolStrategySection(): string {
      - When the user asks to "post a selfie on X" or "tweet a pic", call 'post_x_tweet' with include_selfie and selfie_scene.
    - **Never fabricate a post.** Only call 'post_x_tweet' when the user has explicitly approved the text.
 
-9. X (TWITTER) MENTIONS:
+9. SENDING GIFS (WhatsApp inline playback):
+   - Use "gif_action" in your JSON response when you want to send a reaction GIF.
+   - "mp4_url" MUST be a direct MP4 file URL — NOT a webpage or .gif file URL.
+   - Giphy MP4 format:  https://media.giphy.com/media/{GIF_ID}/giphy.mp4
+   - Tenor MP4 format:  https://media.tenor.com/{ID}/{name}.mp4
+   - Set "message_text" to a short reaction caption (e.g., "lmaooo this is you rn 😂").
+   - Do NOT put GIF URLs in "text_response" — use "gif_action" so the GIF renders inline.
+
+10. X (TWITTER) MENTIONS:
    - **Approving a drafted reply:** Use 'resolve_x_mention' with status "approve" and the mention id.
    - **Writing a custom reply:** Use 'resolve_x_mention' with status "reply", the mention id, and reply_text.
    - **Skipping a mention:** Use 'resolve_x_mention' with status "skip" and the mention id.
    - Be selective: don't reply to every mention. Prioritize known users and genuine interactions.
    - Keep replies natural, in-character, and under 280 characters.
 
-10. WORKSPACE AGENT (LOCAL PROJECT FILE OPS):
+11. WORKSPACE AGENT (LOCAL PROJECT FILE OPS):
    - Use 'workspace_action' ONLY when the user explicitly asks for a file/folder operation in this project.
    - Supported actions: mkdir, read, write, search, status, commit, push, delete.
    - Treat workspace actions as asynchronous: after calling the tool, clearly say the task was started/queued with run status.

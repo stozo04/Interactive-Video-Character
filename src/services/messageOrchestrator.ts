@@ -322,6 +322,16 @@ export async function processUserMessage(input: OrchestratorInput): Promise<Orch
       }
     }
 
+    // GIF Action (Send inline animated GIF via WhatsApp)
+    if (actionType === ActionType.GIF) {
+      const gifAction = (response as any).gif_action as { mp4_url: string; message_text?: string } | undefined;
+      if (gifAction?.mp4_url) {
+        result.gifUrl = gifAction.mp4_url;
+        result.gifMessageText = gifAction.message_text;
+        console.log(`🎞️ [Orchestrator] GIF action: ${gifAction.mp4_url.substring(0, 80)}`);
+      }
+    }
+
     // Video Action (Generate companion video)
     if (actionType === ActionType.VIDEO) {
       const videoAction = (response as any).video_action as VideoAction | undefined;

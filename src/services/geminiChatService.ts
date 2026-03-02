@@ -285,6 +285,8 @@ function normalizeAiResponse(rawJson: any, rawText: string): AIActionResponse {
     game_move: rawJson.game_move, // 0 is valid, so check undefined
     // Selfie/image generation action
     selfie_action: rawJson.selfie_action || null,
+    // GIF action (inline animated media)
+    gif_action: rawJson.gif_action || null,
     // Video generation action
     video_action: rawJson.video_action || null,
     // Store new character facts

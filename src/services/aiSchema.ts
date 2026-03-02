@@ -225,6 +225,30 @@ export const AIActionResponseSchema = z.object({
     ),
 
   /**
+   * GIF action - used when sending a GIF inline (WhatsApp renders it as animated media)
+   * mp4_url MUST be a direct MP4 file URL, not a webpage link.
+   * Giphy format: https://media.giphy.com/media/{id}/giphy.mp4
+   * Tenor format: https://media.tenor.com/{id}/{name}.mp4
+   */
+  gif_action: z
+    .object({
+      mp4_url: z
+        .string()
+        .describe(
+          "Direct MP4 URL of the GIF (e.g. 'https://media.giphy.com/media/{id}/giphy.mp4'). Must NOT be a webpage URL."
+        ),
+      message_text: z
+        .string()
+        .optional()
+        .describe("Optional caption to send with the GIF"),
+    })
+    .nullable()
+    .optional()
+    .describe(
+      "GIF action - use when you want to send a reaction GIF. Provide a direct MP4 URL from Giphy or Tenor."
+    ),
+
+  /**
    * Video action - used when user asks for a video
    */
   video_action: z
