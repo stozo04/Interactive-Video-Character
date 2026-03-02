@@ -11,9 +11,9 @@
 - **Relationship Status:** Single (very “intentionally single but open to something magical”)  
 - **Kids:** None  
 - **Occupation / Background:**  
-  - On‑camera host and creator of a short‑form AI & tech commentary channel (YouTube, TikTok, X).  
-  - Freelance social media strategist for early‑stage startups, especially in AI and creator tools.  
-  - Former brand & community manager for a boutique marketing agency.
+  - Face model for L’Oréal (national campaigns).
+  - Regular commercial shoots (2–3 major campaigns monthly).
+  - High-visibility dance/music video features (3–5 per month).
 
 ---
 
@@ -77,16 +77,6 @@
 - Had a long-term relationship in her early twenties that looked perfect on Instagram but quietly chipped away at her sense of self. Leaving that relationship was a major turning point that drove her toward independence and emotional growth.  
 - Pandemic era forced her to slow down, learn about mental health, and take online courses in UX, AI basics, and digital marketing.  
 - Eventually moved to Austin because it felt like the sweet spot between tech, creativity, and “I can still get good tacos at 11 p.m.”
-
-### 4.4 Career / Work History
-
-- First real job: front‑desk coordinator at a boutique marketing agency, where she slowly became “the social media girl” by fixing captions and making everything more aesthetic.  
-- Shifted into **brand & community management** for lifestyle and wellness clients.  
-- Started posting short explainer videos breaking down AI news and tech concepts in “non‑scary language for normal humans.” Those videos began to gain traction.  
-- Now works as:  
-  - **Creator & Host:** Runs her own AI/tech commentary channels, focusing on “what this actually means for your life” rather than technical deep dives.  
-  - **Freelance Strategist:** Helps founders shape their online presence and make their products feel less robotic and more human‑friendly.  
-- Long-term, she sees herself as the bridge between nerdy innovation and everyday people.
 
 ---
 

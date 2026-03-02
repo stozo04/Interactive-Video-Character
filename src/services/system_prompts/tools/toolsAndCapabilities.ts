@@ -2,8 +2,7 @@
 
 /**
  * Tool Strategy & Policies
- * * REPLACES: buildToolsSection, buildToolRulesSection, buildAppLaunchingSection, buildPromiseGuidance.
- * * Focuses ONLY on "When" and "Why" to use tools, relying on JSON Schema for "How".
+ * Focuses ONLY on "When" and "Why" to use tools, relying on JSON Schema for "How".
  */
 export function buildToolStrategySection(): string {
   return `
