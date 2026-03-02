@@ -14,6 +14,51 @@ import fs from "fs";
 import path from "path";
 const LOG_PREFIX = "[WhatsApp]";
 const runtimeLog = log.fromContext({ source: "whatsappHandler", route: "whatsapp/handler" });
+const TYPING_INDICATOR_INTERVAL_MS = 4500;
+
+async function sendTypingState(sock: WASocket, jid: string, state: "composing" | "paused"): Promise<void> {
+  try {
+    await sock.sendPresenceUpdate(state, jid);
+    runtimeLog.info("Typing state sent", {
+      source: "whatsappHandler",
+      jid,
+      state,
+    });
+  } catch (error) {
+    runtimeLog.warning("Failed to send typing state", {
+      source: "whatsappHandler",
+      jid,
+      state,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
+function startTypingIndicator(sock: WASocket, jid: string): () => Promise<void> {
+  let stopped = false;
+  let timer: NodeJS.Timeout | null = null;
+
+  const sendComposing = () => {
+    void sendTypingState(sock, jid, "composing");
+  };
+
+  sendComposing();
+  timer = setInterval(sendComposing, TYPING_INDICATOR_INTERVAL_MS);
+
+  return async () => {
+    if (stopped) {
+      return;
+    }
+
+    stopped = true;
+    if (timer) {
+      clearInterval(timer);
+      timer = null;
+    }
+
+    await sendTypingState(sock, jid, "paused");
+  };
+}
 
 function isFetchableUrl(url: string): boolean {
   const isFetchable = url.startsWith("http://") || url.startsWith("https://");
@@ -281,6 +326,7 @@ export async function handleWhatsAppMessage(
   userContent?: UserContent
 ): Promise<void> {
   const messageId = `${jid}_${Date.now()}`;
+  const stopTyping = startTypingIndicator(sock, replyJid);
 
   runtimeLog.info("WhatsApp message handler invoked", {
     source: "whatsappHandler",
@@ -383,6 +429,8 @@ export async function handleWhatsAppMessage(
         error: fallbackError instanceof Error ? fallbackError.message : String(fallbackError),
       });
     }
+  } finally {
+    await stopTyping();
   }
 }
 
