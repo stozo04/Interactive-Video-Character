@@ -780,3 +780,24 @@
 
 ## Review Notes
 - Lessons are append-only like daily notes; bounded in prompt to avoid token bloat.
+
+---
+
+## Plan: Settings Panel Extra Divider (Random Check-ins -> Server Status)
+
+1) Identify the separator causing the extra line between Random Check-ins and Server Status:
+- `src/components/SettingsPanel.tsx`
+2) Adjust the divider so only a single separator renders between sections (conditional border class or remove redundant border):
+- `src/components/SettingsPanel.tsx`
+3) Verification (if approved):
+- `npm run dev`
+- Open Settings Panel and confirm only one divider between Random Check-ins and Server Status
+
+## Progress
+- [x] Plan added to `tasks/todo.md`.
+- [x] Read-only inspection completed (`SettingsPanel.tsx`).
+- [ ] Patch implementation (pending approval).
+- [ ] Verification run (if approved).
+
+## Review Notes
+- Extra divider likely caused by `border-b` on the Proactive Features container plus `border-t` on the Server Status container.
