@@ -120,6 +120,7 @@ Touch points for adding a new Kayley tool: `aiSchema.ts` (schema + type + Gemini
 
 ---
 
+<<<<<<< opey-dev/86f25cf3-b8c8-47b2-99f6-3a7cdaa36830
 # Lessons Learned — Orchestrator ENAMETOOLONG on Windows — 2026-03-03
 
 ## Feature
@@ -153,3 +154,76 @@ The problem gets **worse over time** as lessons_learned grows — every new sess
 - **Never pass large text as a CLI argument on Windows.** If you are spawning any external process with a long string (system prompt, full file contents, etc.), write it to `os.tmpdir()` first and pass the path or a short instruction referencing the path.
 - If Opey fails with `spawn ENAMETOOLONG`, the fix is always the same: move the long argument into a temp file.
 - Lessons learned files grow over time — the orchestrator already concatenates every `.md` in `lessons_learned/`. Keep individual files reasonably sized; split large files if they exceed ~500 lines.
+=======
+# Lessons Learned — spawn ENAMETOOLONG & Prompt Temp-File Pattern — 2026-03-03
+
+## Root Cause
+Both orchestrators (`orchestrator.ts` and `orchestrator-openai.ts`) were passing the full assembled prompt as a command-line argument to the CLI subprocess. On Windows, `CreateProcess` has a hard ~32,767 character limit for the entire command line. The combined prompt (SOUL.md + all `lessons_learned/*.md` files concatenated + ticket details) easily exceeds this, causing Node's `spawn()` to throw `ENAMETOOLONG` before the CLI ever starts.
+
+This problem **gets worse over time** — every new lessons file added to `lessons_learned/` grows the combined prompt and makes the error more likely to recur.
+
+## Fix Applied to Both Orchestrators
+1. Added `import * as os from "node:os"`.
+2. Before spawning, write `fullPrompt` to `os.tmpdir()/opey-<ticketId>.md`.
+3. Pass a short **boot arg** to the CLI instead of the full prompt:
+   ```
+   Your complete task instructions are in this file — read it before doing anything:
+   C:\...\opey-<ticketId>.md
+   Implement everything described in that file.
+   ```
+4. `finally` block calls `fs.unlinkSync(promptFile)` to clean up.
+
+**`orchestrator.ts` specific:** `--append-system-prompt soulPrompt` was also removed from args because it was a second long CLI arg. The soul content now lives in the temp file alongside the ticket prompt.
+
+## Gotchas
+- **Failed ticket must be manually reset after ENAMETOOLONG.** `main.ts` catches the spawn error and sets `status = 'failed'`. To retry: `UPDATE engineering_tickets SET status = 'created' WHERE id = '<id>';` in Supabase, then restart Opey.
+- **`promptFile` must be declared outside the try block** (initialised to `null`) so the `finally` block can access it.
+- **Keep lessons_learned files concise.** They are concatenated on every run. A single file that grows to 500+ lines will push the temp file past what Codex comfortably processes in one shot.
+
+## What Future Opey Should Know
+- **Never pass large text as a CLI argument on Windows.** If spawning any external process with a system prompt, ticket body, or file content, write it to `os.tmpdir()` first and pass the file path (or a short instruction referencing it).
+- If you hit `spawn ENAMETOOLONG`, the fix is always the same pattern: move the long arg to a temp file.
+- Your task instructions live in `os.tmpdir()/opey-<ticketId>.md`. Read that file first. Do not commit it.
+
+---
+
+# Lessons Learned — Self-Healing Orchestrator Architecture — 2026-03-03
+
+## Feature
+When an infrastructure error (spawn failure, missing binary, OS limit) prevents Opey from launching, `main.ts` now invokes a meta-Opey instance to diagnose and patch the orchestrator, then restarts itself and retries the ticket — up to 3 times.
+
+## Architecture
+
+```
+Infrastructure error in processNextTicket()
+  → isTaskFailure check (excludes "Claude Code exited with code" and "Codex CLI exited with code")
+  → attemptSelfHeal(err, store, ticketId)
+      → read/write os.tmpdir()/opey-heal-count-<ticketId>.txt  (persists across restarts)
+      → write os.tmpdir()/opey-self-heal-<ticketId>.md         (error + both orchestrator sources)
+      → spawn meta-Claude/Codex with short boot arg
+      → meta-agent reads file, patches orchestrator on disk, exits
+      → reset ticket to 'created'
+      → spawn(process.execPath, process.argv.slice(1), { detached: true }) + process.exit(0)
+  → new Opey process starts, polls, picks up 'created' ticket, retries
+```
+
+Max 3 self-heal attempts per ticket (tracked via temp count file, not in-memory, so it survives restarts). After 3 failures the ticket is marked `failed` and the count file is cleaned up.
+
+## Key Implementation Details
+- **`isTaskFailure` check** in `main.ts` distinguishes infra errors from task errors. Only infra errors trigger self-heal. Task failures (Claude/Codex ran but produced no useful output) go straight to `failed`.
+- **Both orchestrator files included** in the meta-prompt (`orchestrator.ts` + `orchestrator-openai.ts`) so the meta-agent can patch whichever one caused the error.
+- **The meta-Codex boot arg is intentionally short** — it points at the self-heal temp file. This avoids the same ENAMETOOLONG problem that may have triggered self-heal in the first place.
+- **Process restart uses the WhatsApp bridge pattern:** `spawn(process.execPath, process.argv.slice(1), { detached: true, stdio: 'ignore' })` + `child.unref()` + `setTimeout(() => process.exit(0), 300)`.
+- **`OPEY_BACKEND`** env var selects the active orchestrator (`claude` = default, `openai` = Codex). The orchestrator is no longer hardcoded.
+
+## Gotchas
+- After a successful self-heal, the `return true` in `attemptSelfHeal` causes `processNextTicket`'s catch block to `return` early — the `finally` block still runs and resets `isProcessing = false`. The 300ms `setTimeout` for `process.exit(0)` fires while the process is technically idle.
+- The self-heal count file lives in `os.tmpdir()`. If the OS clears tmpdir between runs (rare but possible), the attempt counter resets — effectively giving Opey more than 3 chances. Acceptable tradeoff vs. adding a DB column.
+- If the meta-agent also fails with ENAMETOOLONG on the self-heal spawn, the boot arg for self-heal is already short (it just points at the temp file path), so this should never recurse.
+
+## What Future Opey Should Know
+- You have a self-healing safety net. If you crash due to an infra error, a meta version of you will read the error and your source code, fix the bug, and restart you automatically.
+- When you are the **meta-agent** (your prompt references `opey-self-heal-<ticketId>.md`): read that file, fix the bug at the absolute path shown, and exit. That is your only job. Do not implement the original ticket.
+- Ticket events `self_heal_attempted` and `self_heal_succeeded` appear in the Admin Dashboard event log — use them to audit what was self-patched.
+- The active backend is selected by `OPEY_BACKEND` env var. Default is `claude` (orchestrator.ts). Set to `openai` for Codex (orchestrator-openai.ts).
+>>>>>>> main
