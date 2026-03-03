@@ -750,3 +750,33 @@
 
 ## Review Notes
 - This uses GIPHY only and avoids LLM-provided URLs by selecting a rendition from the GIPHY API.
+
+---
+
+## Plan: Kayley Lessons Learned (Append-Only Memory Lane)
+
+1) Add Supabase migration for lessons learned (1 row per CST day, append-only bullets):
+- `supabase/migrations/20260303_kayley_lessons_learned.sql`
+2) Add lessons learned tool schemas + tool declarations:
+- `src/services/aiSchema.ts`
+3) Implement lessons learned storage/retrieval + tool handler using `clientLogger` for success/failure paths:
+- `src/services/memoryService.ts`
+4) Add system prompt section for Lessons Learned and inject into greeting + non-greeting prompts:
+- `src/services/system_prompts/builders/systemPromptBuilder.ts`
+5) Update tool usage guidance + catalog entry:
+- `src/services/system_prompts/tools/toolsAndCapabilities.ts`
+- `src/services/toolCatalog.ts`
+6) Update docs:
+- `src/services/docs/Memory_and_Callbacks.md`
+- `docs/features/Lessons_Learned.md`
+- `docs/README.md`
+7) Verification (if approved):
+- `npm test -- --run`
+
+## Progress
+- [x] Plan added to `tasks/todo.md`.
+- [x] Patch implementation (approved).
+- [ ] Verification run (if approved).
+
+## Review Notes
+- Lessons are append-only like daily notes; bounded in prompt to avoid token bloat.

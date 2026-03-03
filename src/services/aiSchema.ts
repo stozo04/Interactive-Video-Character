@@ -643,6 +643,24 @@ export const RetrieveDailyNotesSchema = z.object({}).describe(
 );
 
 /**
+ * Schema for the store_lessons_learned tool.
+ * Used to append a short bullet to today's lessons learned.
+ */
+export const StoreLessonsLearnedSchema = z.object({
+  lesson: z.string().describe(
+    "A short lesson to append as a single bullet line (no dates or timestamps)."
+  ),
+});
+
+/**
+ * Schema for the retrieve_lessons_learned tool.
+ * Used to retrieve all stored lessons learned.
+ */
+export const RetrieveLessonsLearnedSchema = z.object({}).describe(
+  "Retrieve all lessons learned (no arguments)."
+);
+
+/**
  * Schema for the mila_note tool.
  * Used to append a milestone note about Mila.
  */
@@ -836,6 +854,8 @@ export type ResolveIdleBrowseNoteArgs = z.infer<typeof ResolveIdleBrowseNoteSche
 export type ToolSuggestionArgs = z.infer<typeof ToolSuggestionSchema>;
 export type StoreDailyNoteArgs = z.infer<typeof StoreDailyNoteSchema>;
 export type RetrieveDailyNotesArgs = z.infer<typeof RetrieveDailyNotesSchema>;
+export type StoreLessonsLearnedArgs = z.infer<typeof StoreLessonsLearnedSchema>;
+export type RetrieveLessonsLearnedArgs = z.infer<typeof RetrieveLessonsLearnedSchema>;
 export type MilaNoteArgs = z.infer<typeof MilaNoteSchema>;
 export type RetrieveMilaNotesArgs = z.infer<typeof RetrieveMilaNotesSchema>;
 export type WorkspaceActionArgs = z.infer<typeof WorkspaceActionSchema>;
@@ -858,6 +878,8 @@ export type MemoryToolArgs =
   | { tool: "tool_suggestion"; args: ToolSuggestionArgs }
   | { tool: "store_daily_note"; args: StoreDailyNoteArgs }
   | { tool: "retrieve_daily_notes"; args: RetrieveDailyNotesArgs }
+  | { tool: "store_lessons_learned"; args: StoreLessonsLearnedArgs }
+  | { tool: "retrieve_lessons_learned"; args: RetrieveLessonsLearnedArgs }
   | { tool: "mila_note"; args: MilaNoteArgs }
   | { tool: "retrieve_mila_notes"; args: RetrieveMilaNotesArgs }
   | {
@@ -1196,6 +1218,33 @@ export const GeminiMemoryToolDeclarations = [
     description:
       "Retrieve all stored daily notes (no dates included). " +
       "Use this when you want to review what you've saved in daily notes.",
+    parameters: {
+      type: "object",
+      properties: {},
+    },
+  },
+  {
+    name: "store_lessons_learned",
+    description:
+      "Append a short bullet to today's lessons learned. " +
+      "Use this when you realize something important you want to remember later. " +
+      "Keep it brief and DO NOT include dates or timestamps.",
+    parameters: {
+      type: "object",
+      properties: {
+        lesson: {
+          type: "string",
+          description: "Short lesson to append as a single bullet line",
+        },
+      },
+      required: ["lesson"],
+    },
+  },
+  {
+    name: "retrieve_lessons_learned",
+    description:
+      "Retrieve all stored lessons learned (no dates included). " +
+      "Use this when you want to review what you've saved as lessons learned.",
     parameters: {
       type: "object",
       properties: {},
@@ -1953,6 +2002,8 @@ export interface PendingToolCall {
     | "tool_suggestion"
     | "store_daily_note"
     | "retrieve_daily_notes"
+    | "store_lessons_learned"
+    | "retrieve_lessons_learned"
     | "mila_note"
     | "retrieve_mila_notes"
     | "make_promise"
