@@ -17,8 +17,6 @@ const LOG_PREFIX = '[GoogleTokenService]';
 const runtimeLog = log.fromContext({ source: 'googleTokenService', route: 'server/auth' });
 
 const GOOGLE_TOKEN_ENDPOINT = 'https://oauth2.googleapis.com/token';
-const CLIENT_ID     = (globalThis as any).__importMetaEnv?.VITE_GOOGLE_CLIENT_ID as string | undefined;
-const CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
 
 // Refresh 5 minutes before actual expiry to avoid races
 const REFRESH_BUFFER_MS = 5 * 60 * 1000;
@@ -36,6 +34,11 @@ const REFRESH_BUFFER_MS = 5 * 60 * 1000;
  * refresh call fails (revoked access).
  */
 export async function getValidGoogleToken(): Promise<string> {
+  // Read credentials at call-time, not module-init — the env shim may not be
+  // fully hydrated when this module first loads (server startup race condition).
+  const CLIENT_ID     = (globalThis as any).__importMetaEnv?.VITE_GOOGLE_CLIENT_ID as string | undefined;
+  const CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
+
   if (!CLIENT_ID) {
     throw new Error(`${LOG_PREFIX} VITE_GOOGLE_CLIENT_ID not configured`);
   }

@@ -74,9 +74,12 @@ class GmailService extends EventTarget {
       }
     }
 
-    // 1. Ask Google for all changes since our last check
+    // 1. Ask Google for all changes since our last check.
+    // historyTypes=messageAdded → only new-message events (not label/delete noise)
+    // labelId=INBOX            → only messages arriving in inbox; also guarantees
+    //                            that labelIds IS populated in the response objects
     const historyResponse = await fetch(
-      `${this.apiBase}/history?startHistoryId=${lastHistoryId}`,
+      `${this.apiBase}/history?startHistoryId=${lastHistoryId}&historyTypes=messageAdded&labelId=INBOX`,
       {
         headers: { Authorization: `Bearer ${accessToken}` },
       }
@@ -98,17 +101,15 @@ class GmailService extends EventTarget {
       const newMessages = historyData.history
         .flatMap((record: any) => record.messagesAdded || [])
         .filter((item: any) => {
-          const labels = item.message.labelIds || [];
+          const labels: string[] = item.message.labelIds || [];
 
-          // MUST be in Inbox
-          const isInInbox = labels.includes("INBOX");
+          // The API query already guarantees INBOX membership (labelId=INBOX).
+          // If labelIds is still absent for some reason, let the message through
+          // rather than silently dropping it — that was the original bug.
+          if (!labels.length) return true;
 
-          // MUST NOT be in any of the ignored categories
-          const isIgnored = labels.some((label: string) =>
-            IGNORED_LABELS.includes(label)
-          );
-
-          return isInInbox && !isIgnored;
+          // Drop promotional/social/updates/forums categories
+          return !labels.some((label: string) => IGNORED_LABELS.includes(label));
         });
 
       if (newMessages.length > 0) {
@@ -329,12 +330,12 @@ class GmailService extends EventTarget {
    */
   async sendReply(
     accessToken: string,
-    threadId: string,
+    threadId: string | undefined | null,
     to: string,
     subject: string,
     body: string
   ): Promise<boolean> {
-    console.log(`[GmailService] Sending reply to: ${to} | thread: ${threadId}`);
+    console.log(`[GmailService] Sending email to: ${to}${threadId ? ` | thread: ${threadId}` : ' | new thread'}`);
 
     // Ensure "Re:" prefix on subject
     const reSubject = subject.startsWith('Re:') ? subject : `Re: ${subject}`;
@@ -369,7 +370,7 @@ class GmailService extends EventTarget {
           Authorization: `Bearer ${accessToken}`,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ raw: encoded, threadId }),
+        body: JSON.stringify(threadId ? { raw: encoded, threadId } : { raw: encoded }),
       }
     );
 

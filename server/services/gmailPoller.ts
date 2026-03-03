@@ -26,6 +26,11 @@ import { generateEmailAnnouncement } from '../../src/services/emailProcessingSer
 import { supabaseAdmin as supabase } from './supabaseAdmin';
 import { getActiveSock, sentMessageIds } from '../whatsapp/baileyClient';
 import { log } from '../runtimeLogger';
+import {
+  checkAutoArchiveRule,
+  extractEmailAddress,
+  extractDisplayName,
+} from './autoArchiveService';
 
 const LOG_PREFIX = '[GmailPoller]';
 const runtimeLog = log.fromContext({ source: 'gmailPoller', route: 'server/gmail' });
@@ -49,7 +54,9 @@ async function loadUserFactsContext(): Promise<string> {
   }
 }
 
-const POLL_INTERVAL_MS      = 60_000;
+const POLL_INTERVAL_MS      = 60_000;       // normal cadence
+const POLL_BACKOFF_MS       = 5 * 60_000;   // cadence after repeated failures
+const FAIL_THRESHOLD        = 3;            // consecutive failures before WA alert + backoff
 const HISTORY_DB_KEY        = 'server_gmail_history_id'; // stored in google_api_config
 const HISTORY_SHIM_KEY      = 'gmail_history_id';        // gmailService's hardcoded key
 
@@ -57,6 +64,22 @@ const STEVEN_JID = process.env.WHATSAPP_STEVEN_JID;
 
 // Prevent overlapping polls if one takes longer than the interval
 let isPolling = false;
+
+// Self-healing state
+let consecutiveFailures = 0;
+let sentFailureAlert    = false; // only send WA notification once per failure streak
+
+async function sendWaAlert(message: string): Promise<void> {
+  if (!STEVEN_JID) return;
+  try {
+    const { getActiveSock } = await import('../whatsapp/baileyClient');
+    const sock = getActiveSock();
+    if (sock) await sock.sendMessage(STEVEN_JID, { text: message });
+  } catch {
+    // Non-fatal — if WA is also down, just log
+    console.error(`${LOG_PREFIX} Could not send WA alert`);
+  }
+}
 
 // ============================================================================
 // HISTORY ID PERSISTENCE
@@ -73,12 +96,91 @@ async function loadHistoryId(): Promise<string | null> {
 }
 
 async function saveHistoryId(historyId: string): Promise<void> {
-  await supabase
+  const { error } = await supabase
     .from('google_api_config')
     .upsert(
       { config_key: HISTORY_DB_KEY, config_value: historyId },
       { onConflict: 'config_key' }
     );
+  if (error) {
+    console.error(`${LOG_PREFIX} Failed to persist history ID (next restart may re-process old mail):`, error.message);
+  }
+}
+
+// ============================================================================
+// AUTO-ARCHIVE FAST PATH
+// If the sender is in email_auto_archive_rules, skip the announcement entirely,
+// archive silently, and send a brief one-liner to WA instead.
+// ============================================================================
+
+async function handleAutoArchive(email: NewEmailPayload, senderEmail: string): Promise<void> {
+  // Dedup — same guard as the normal flow
+  const { data: existing } = await supabase
+    .from('kayley_email_actions')
+    .select('id')
+    .eq('gmail_message_id', email.id)
+    .maybeSingle();
+
+  if (existing) return; // already processed (browser caught it, or duplicate event)
+
+  // Archive via Gmail API
+  let archiveSuccess = false;
+  try {
+    const accessToken = await getValidGoogleToken();
+    archiveSuccess = await gmailService.archiveEmail(accessToken, email.id);
+  } catch (err) {
+    runtimeLog.error('Auto-archive Gmail call failed', {
+      source: 'gmailPoller',
+      gmailMessageId: email.id,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+
+  const now = new Date().toISOString();
+  const displayName = extractDisplayName(email.from) || senderEmail;
+
+  // Write DB row as already actioned so it never bubbles up as "pending"
+  const { error: insertErr } = await supabase.from('kayley_email_actions').insert({
+    gmail_message_id: email.id,
+    gmail_thread_id:  email.threadId,
+    from_address:     email.from,
+    subject:          email.subject,
+    action_taken:     archiveSuccess ? 'archive' : 'pending',
+    kayley_summary:   `[Auto-archived] ${email.subject}`,
+    announced_at:     now,
+    whatsapp_sent_at: now,
+    actioned_at:      archiveSuccess ? now : null,
+  });
+
+  if (insertErr?.code === '23505') return; // race condition — already inserted, fine
+
+  if (insertErr) {
+    runtimeLog.error('Failed to insert auto-archive row', {
+      source: 'gmailPoller',
+      gmailMessageId: email.id,
+      error: insertErr.message,
+    });
+  }
+
+  // Brief WA notification — no announcement, no question, just a heads-up
+  const sock = getActiveSock();
+  if (!sock || !STEVEN_JID) return;
+
+  const notification = archiveSuccess
+    ? `Got an email from ${displayName} — auto-archived it for you. 🗑️`
+    : `Got an email from ${displayName} ("${email.subject}") but had trouble auto-archiving it.`;
+
+  try {
+    const sent = await sock.sendMessage(STEVEN_JID!, { text: notification });
+    if (sent?.key?.id) sentMessageIds.add(sent.key.id);
+    console.log(`${LOG_PREFIX} 🗑️  Auto-archived email from ${senderEmail}: "${email.subject}"`);
+  } catch (err) {
+    runtimeLog.error('Failed to send auto-archive notification to WA', {
+      source: 'gmailPoller',
+      gmailMessageId: email.id,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
 }
 
 // ============================================================================
@@ -87,6 +189,19 @@ async function saveHistoryId(historyId: string): Promise<void> {
 
 async function processNewEmail(email: NewEmailPayload): Promise<void> {
   if (!STEVEN_JID) return;
+
+  // 0. Auto-archive check — runs BEFORE dedup and announcement
+  const senderEmail = extractEmailAddress(email.from);
+  const isAutoArchive = await checkAutoArchiveRule(senderEmail);
+  if (isAutoArchive) {
+    runtimeLog.info('Auto-archive rule matched — skipping announcement', {
+      source: 'gmailPoller',
+      gmailMessageId: email.id,
+      senderEmail,
+    });
+    await handleAutoArchive(email, senderEmail);
+    return;
+  }
 
   // 1. Dedup — browser may have already caught and announced this email
   const { data: existing } = await supabase
@@ -218,9 +333,11 @@ function attachEmailListener(): void {
 // POLL LOOP
 // ============================================================================
 
-async function pollGmail(): Promise<void> {
-  if (isPolling) return;
+// Returns the delay to use before the next poll
+async function pollGmail(): Promise<number> {
+  if (isPolling) return POLL_INTERVAL_MS;
   isPolling = true;
+  console.log(`${LOG_PREFIX} Checking for new mail...`);
 
   try {
     const accessToken = await getValidGoogleToken();
@@ -242,15 +359,48 @@ async function pollGmail(): Promise<void> {
         historyId: updatedHistoryId,
       });
     }
-  } catch (err) {
-    if (err instanceof Error && err.message === 'GOOGLE_REFRESH_TOKEN_EXPIRED') {
-      return; // token health check in emailBridge handles the WA notification
+
+    // Success — reset failure streak
+    if (consecutiveFailures > 0) {
+      console.log(`${LOG_PREFIX} ✅ Poll succeeded after ${consecutiveFailures} failure(s) — resuming normal cadence`);
+      runtimeLog.info('Gmail poll recovered', { source: 'gmailPoller', previousFailures: consecutiveFailures });
     }
+    consecutiveFailures = 0;
+    sentFailureAlert    = false;
+    return POLL_INTERVAL_MS;
+
+  } catch (err) {
+    const errMsg = err instanceof Error ? err.message : String(err);
+
+    if (err instanceof Error && err.message === 'GOOGLE_REFRESH_TOKEN_EXPIRED') {
+      // Handled by emailBridge / whatsappHandler — don't double-alert
+      runtimeLog.warning('Gmail poll skipped: refresh token expired', { source: 'gmailPoller' });
+      consecutiveFailures++;
+      return POLL_BACKOFF_MS;
+    }
+
+    consecutiveFailures++;
     runtimeLog.error('Gmail poll error', {
       source: 'gmailPoller',
-      error: err instanceof Error ? err.message : String(err),
+      error: errMsg,
+      consecutiveFailures,
     });
-    console.error(`${LOG_PREFIX} Poll error:`, err instanceof Error ? err.message : err);
+    console.error(`${LOG_PREFIX} Poll error (failure #${consecutiveFailures}):`, errMsg);
+
+    // After hitting the threshold: back off + send a one-time WA alert
+    if (consecutiveFailures >= FAIL_THRESHOLD && !sentFailureAlert) {
+      sentFailureAlert = true;
+      const alert =
+        `⚠️ Gmail polling has failed ${consecutiveFailures} times in a row.\n` +
+        `Last error: ${errMsg.substring(0, 120)}\n\n` +
+        `I'm backing off to every ${POLL_BACKOFF_MS / 60_000} minutes. ` +
+        `You may need to reopen the app and re-authenticate.`;
+      console.error(`${LOG_PREFIX} Sending failure alert to WA`);
+      await sendWaAlert(alert);
+    }
+
+    return consecutiveFailures >= FAIL_THRESHOLD ? POLL_BACKOFF_MS : POLL_INTERVAL_MS;
+
   } finally {
     isPolling = false;
   }
@@ -274,9 +424,17 @@ export function startGmailPoller(): void {
     pollIntervalMs: POLL_INTERVAL_MS,
   });
 
-  // First poll after 5s to give the WA connection time to open
-  setTimeout(() => {
-    void pollGmail();
-    setInterval(() => void pollGmail(), POLL_INTERVAL_MS);
+  // Recursive setTimeout instead of setInterval — allows dynamic backoff after failures
+  const scheduleNext = (delay: number) => {
+    setTimeout(async () => {
+      const nextDelay = await pollGmail();
+      scheduleNext(nextDelay);
+    }, delay);
+  };
+
+  // First poll after 5s to give the WA connection time to open, then self-schedule
+  setTimeout(async () => {
+    const firstDelay = await pollGmail();
+    scheduleNext(firstDelay);
   }, 5_000);
 }

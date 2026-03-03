@@ -200,7 +200,8 @@ export interface OrchestratorResult {
   };
 
   // --- ADD THESE NEW PROPERTIES ---
-  gifUrl?: string;
+  /** GIF search query or tag for GIPHY (server selects MP4 rendition) */
+  gifQuery?: string;
   gifMessageText?: string;
   stickerBuffer?: Buffer;
   rawGeneratedStickerBase64?: string; // Add this if you went with Scenario A from earlier!

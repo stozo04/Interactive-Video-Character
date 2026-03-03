@@ -1161,25 +1161,56 @@ const App: React.FC = () => {
   // EMAIL: Execute action returned by orchestrator + generate confirmation
   // ==========================================================================
   const executeEmailAction = useCallback(async (emailAction: {
-    action: 'archive' | 'reply' | 'dismiss';
-    message_id: string;
+    action: 'archive' | 'reply' | 'dismiss' | 'send';
+    message_id?: string;
     thread_id?: string;
+    to?: string;
+    subject?: string;
     reply_body?: string;
   }) => {
-    if (!session?.accessToken || !currentPendingEmail) return;
+    if (!session?.accessToken) return;
 
     const log = clientLogger.scoped('App:Email');
-    log.info('Executing email action', { action: emailAction.action, messageId: emailAction.message_id });
+    log.info('Executing email action', { action: emailAction.action, messageId: emailAction.message_id, to: emailAction.to });
 
     let success = false;
 
     // ---- Execute the action against Gmail API ----
     if (emailAction.action === 'archive') {
+      if (!emailAction.message_id) { log.error('Archive missing message_id'); return; }
       success = await gmailService.archiveEmail(session.accessToken, emailAction.message_id);
 
     } else if (emailAction.action === 'reply') {
-      if (!emailAction.reply_body || !emailAction.thread_id) {
-        log.error('Reply action missing reply_body or thread_id', { emailAction });
+      if (!emailAction.reply_body) {
+        log.error('Reply action missing reply_body', { emailAction });
+        return;
+      }
+
+      // Use currentPendingEmail if still in queue; otherwise look up from DB.
+      // Also pulls thread_id from DB when the model didn't include it — which happens
+      // on follow-up replies after the queue was already advanced.
+      let emailContext = currentPendingEmail;
+      if (!emailContext && emailAction.message_id) {
+        const { data } = await supabase
+          .from('kayley_email_actions')
+          .select('from_address, subject, gmail_thread_id')
+          .eq('gmail_message_id', emailAction.message_id)
+          .single();
+        if (data) {
+          // Prefer the DB thread_id — the model may have omitted it
+          if (!emailAction.thread_id && data.gmail_thread_id) {
+            emailAction.thread_id = data.gmail_thread_id;
+          }
+          emailContext = {
+            id: emailAction.message_id, threadId: emailAction.thread_id ?? '',
+            from: data.from_address, subject: data.subject,
+            snippet: '', body: '', receivedAt: '',
+          };
+        }
+      }
+
+      if (!emailContext || !emailAction.thread_id) {
+        log.error('Reply action: missing email context or thread_id (not in queue or DB)', { emailAction });
         return;
       }
 
@@ -1188,21 +1219,46 @@ const App: React.FC = () => {
       log.info('Polishing reply with LLM + calendar context', { eventCount: upcomingEvents.length });
       const polishedBody = await composePolishedReply(
         emailAction.reply_body,
-        currentPendingEmail,
+        emailContext,
         upcomingEvents,
       );
       log.info('Reply polished', { original: emailAction.reply_body, polished: polishedBody });
 
       // Extract plain email address from "Name <email@example.com>"
-      const toMatch = currentPendingEmail.from.match(/<(.+?)>/);
-      const toAddress = toMatch ? toMatch[1] : currentPendingEmail.from;
+      const toMatch = emailContext.from.match(/<(.+?)>/);
+      const toAddress = toMatch ? toMatch[1] : emailContext.from;
 
       success = await gmailService.sendReply(
         session.accessToken,
         emailAction.thread_id,
         toAddress,
-        currentPendingEmail.subject,
+        emailContext.subject,
         polishedBody,    // send the polished version, not the raw AI output
+      );
+
+    } else if (emailAction.action === 'send') {
+      // Ad-hoc email — no pending email in queue, Kayley composes from scratch
+      if (!emailAction.to || !emailAction.subject || !emailAction.reply_body) {
+        log.error('Send action missing to, subject, or reply_body', { emailAction });
+        return;
+      }
+
+      // Stub a minimal email payload so composePolishedReply has recipient/subject context
+      const stubEmail = {
+        id: '', threadId: '', from: emailAction.to, subject: emailAction.subject,
+        snippet: '', body: '', receivedAt: new Date().toISOString(),
+      };
+
+      log.info('Polishing ad-hoc email with LLM + calendar context', { to: emailAction.to });
+      const polishedBody = await composePolishedReply(emailAction.reply_body, stubEmail, upcomingEvents);
+      log.info('Ad-hoc email polished', { polished: polishedBody });
+
+      success = await gmailService.sendReply(
+        session.accessToken,
+        null,           // no threadId — creates a new thread
+        emailAction.to,
+        emailAction.subject,
+        polishedBody,
       );
 
     } else if (emailAction.action === 'dismiss') {
@@ -1215,17 +1271,24 @@ const App: React.FC = () => {
       return;
     }
 
-    // ---- Update DB record ----
-    // 'dismiss' → 'dismissed' to match the DB CHECK constraint
-    const dbAction = emailAction.action === 'dismiss' ? 'dismissed' : emailAction.action;
-    await supabase
-      .from('kayley_email_actions')
-      .update({ action_taken: dbAction, reply_body: emailAction.reply_body ?? null, actioned_at: new Date().toISOString() })
-      .eq('gmail_message_id', emailAction.message_id);
+    // ---- Update DB record (only for queue-based actions that have a message_id) ----
+    if (emailAction.message_id) {
+      const dbAction = emailAction.action === 'dismiss' ? 'dismissed' : emailAction.action;
+      await supabase
+        .from('kayley_email_actions')
+        .update({ action_taken: dbAction, reply_body: emailAction.reply_body ?? null, actioned_at: new Date().toISOString() })
+        .eq('gmail_message_id', emailAction.message_id);
+    }
 
     // ---- Lightweight Gemini call — Kayley confirms what she did ----
     try {
-      const confirmation = await generateEmailConfirmation(emailAction.action, currentPendingEmail);
+      // Map 'send' → 'reply' for the confirmation message — both mean "email sent"
+      const confirmAction = emailAction.action === 'send' ? 'reply' : emailAction.action;
+      const confirmEmail = currentPendingEmail ?? {
+        id: '', threadId: '', from: emailAction.to ?? '', subject: emailAction.subject ?? '',
+        snippet: '', body: '', receivedAt: new Date().toISOString(),
+      };
+      const confirmation = await generateEmailConfirmation(confirmAction as 'archive' | 'reply' | 'dismiss', confirmEmail as any);
       setChatHistory(prev => [...prev, { role: 'model' as const, text: confirmation }]);
 
       // Gates: Disable Audio
@@ -1237,11 +1300,13 @@ const App: React.FC = () => {
       log.error('Failed to generate confirmation', { err: String(err) });
     }
 
-    log.info('Email action complete — advancing queue', { action: emailAction.action });
+    log.info('Email action complete', { action: emailAction.action });
 
-    // ---- Advance FIFO queue to the next email ----
-    advanceEmailQueue();
-    announcedEmailIdRef.current = null; // reset so next email can be announced
+    // ---- Only advance the FIFO queue for queue-based actions (not ad-hoc sends) ----
+    if (emailAction.action !== 'send') {
+      advanceEmailQueue();
+      announcedEmailIdRef.current = null; // reset so next email can be announced
+    }
   }, [session, currentPendingEmail, isMuted, advanceEmailQueue, upcomingEvents]);
 
   // ==========================================================================

@@ -225,17 +225,15 @@ export const AIActionResponseSchema = z.object({
     ),
 
   /**
-   * GIF action - used when sending a GIF inline (WhatsApp renders it as animated media)
-   * mp4_url MUST be a direct MP4 file URL, not a webpage link.
-   * Giphy format: https://media.giphy.com/media/{id}/giphy.mp4
-   * Tenor format: https://media.tenor.com/{id}/{name}.mp4
+   * GIF action - used when sending a GIF inline (WhatsApp renders it as animated media).
+   * Provide a search query or tag; the server will fetch a valid GIPHY MP4 rendition.
    */
   gif_action: z
     .object({
-      mp4_url: z
+      query: z
         .string()
         .describe(
-          "Direct MP4 URL of the GIF (e.g. 'https://media.giphy.com/media/{id}/giphy.mp4'). Must NOT be a webpage URL."
+          "Short search query or reaction tag for GIPHY (e.g. 'eye roll', 'slow clap', 'facepalm', 'excited')."
         ),
       message_text: z
         .string()
@@ -245,7 +243,7 @@ export const AIActionResponseSchema = z.object({
     .nullable()
     .optional()
     .describe(
-      "GIF action - use when you want to send a reaction GIF. Provide a direct MP4 URL from Giphy or Tenor."
+      "GIF action - use when you want to send a reaction GIF. Provide a query/tag (not a URL)."
     ),
 
   /**
@@ -384,36 +382,48 @@ export const AIActionResponseSchema = z.object({
     ),
 
   /**
-   * Email action — set this when Steven has told you what to do with a pending email.
-   * The pending email context is injected into the user message as [PENDING EMAIL ACTION].
-   * Only set this when you are resolving an email decision (archive, reply, or dismiss).
+   * Email action — set this when:
+   *   (a) Steven tells you what to do with a pending email (archive/reply/dismiss), OR
+   *   (b) Steven asks you to send a new email to someone (action: 'send').
    */
   email_action: z
     .object({
       action: z
-        .enum(['archive', 'reply', 'dismiss'])
-        .describe("What to do: 'archive' removes it from inbox, 'reply' sends a response, 'dismiss' leaves it alone"),
+        .enum(['archive', 'reply', 'dismiss', 'send'])
+        .describe(
+          "'archive' removes from inbox, 'reply' responds in-thread, 'dismiss' leaves it alone, " +
+          "'send' composes and sends a brand-new email (use when Steven asks you to email someone with no pending email in context)"
+        ),
       message_id: z
         .string()
-        .describe("Gmail message ID from the pending email context"),
+        .optional()
+        .describe("Gmail message ID — required for archive/reply/dismiss (from [PENDING EMAIL ACTION] context). Omit for 'send'."),
       thread_id: z
         .string()
         .optional()
-        .describe("Gmail thread ID — required when action is 'reply' to send in-thread"),
+        .describe("Gmail thread ID — required when action is 'reply' to send in-thread. Omit for 'send'."),
+      to: z
+        .string()
+        .optional()
+        .describe("Recipient email address — required when action is 'send' (e.g. 'katerina@gmail.com'). Omit for archive/reply/dismiss."),
+      subject: z
+        .string()
+        .optional()
+        .describe("Email subject — required when action is 'send'. Omit for archive/reply/dismiss."),
       reply_body: z
         .string()
         .optional()
         .describe(
-          "When action is 'reply': the full email body to send, written in Kayley's casual voice. " +
-          "Start with something like 'Hey [Name]! This is Kayley, Steven's best assistant — he asked me to pass this along.' " +
-          "Be warm and informal. Include everything Steven wanted to say."
+          "The message content Steven wants to convey. Required for 'reply' and 'send'. " +
+          "Write it as a rough draft — it will be polished by a separate step. " +
+          "Include everything Steven wanted to say."
         ),
     })
     .nullable()
     .optional()
     .describe(
-      "Email action — only set when there is an active [PENDING EMAIL ACTION] in context and Steven has given you instructions. " +
-      "Leave null for all other messages."
+      "Email action — set when resolving a [PENDING EMAIL ACTION] (archive/reply/dismiss) " +
+      "OR when Steven explicitly asks you to email someone (send). Leave null otherwise."
     ),
 });
 

@@ -179,11 +179,14 @@ export async function composePolishedReply(
     calendarEventCount: calendarEvents.length,
   });
 
-  // Format upcoming events for context — only include the next 7 days worth
-  const calendarContext = calendarEvents.length > 0
-    ? calendarEvents.slice(0, 10).map(e => {
-        const start = e.start?.dateTime || e.start?.date || 'unknown time';
-        const end   = e.end?.dateTime   || e.end?.date   || '';
+  // Format upcoming events for context.
+  // Exclude all-day events (date-only, no dateTime) — those are holidays/observances
+  // that have no business appearing in a reply about an unrelated topic.
+  const timedEvents = calendarEvents.filter(e => !!e.start?.dateTime);
+  const calendarContext = timedEvents.length > 0
+    ? timedEvents.slice(0, 10).map(e => {
+        const start = e.start?.dateTime || 'unknown time';
+        const end   = e.end?.dateTime   || '';
         return `• ${e.summary} — ${start}${end ? ` to ${end}` : ''}`;
       }).join('\n')
     : null;
@@ -197,15 +200,17 @@ Body: ${(originalEmail.body || originalEmail.snippet || '').slice(0, 400)}
 
 Steven's response (may be rough shorthand — he might be on his phone or busy):
 "${userIntent}"
-${calendarContext ? `\nSteven's upcoming calendar (use details if relevant to the reply — e.g. travel dates, busy periods):\n${calendarContext}` : ''}
+${calendarContext ? `\nSteven's upcoming calendar (for reference ONLY — do NOT mention any of these unless Steven's message explicitly references scheduling, travel, availability, or a specific event):\n${calendarContext}` : ''}
 
 Write the email body only. Rules:
+- Write as Kayley, Steven's AI companion — you are relaying Steven's message, NOT impersonating him
+- Refer to Steven in third person (e.g. "Steven said he'll...", "He mentioned...", "I let him know and he said...")
 - Warm and friendly, not stiff or corporate
-- Expand on Steven's intent using calendar context where it fits naturally
+- Only reference calendar events if Steven's intent explicitly mentions dates, scheduling, or availability — never volunteer calendar details unprompted
 - Keep it concise — 2-4 sentences is usually right
 - Do NOT start with "Dear" — casual openers like "Hey!" or the person's name are fine
 - Do NOT include a sign-off or signature (that's added automatically)
-- Write in first person as if Steven is speaking, NOT as Kayley narrating`;
+- Do NOT write as if you are Steven — you are his assistant passing along his message`;
 
   try {
     const result = await getAI().models.generateContent({

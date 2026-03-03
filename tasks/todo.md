@@ -659,3 +659,94 @@
 
 ## Review Notes
 - Current errors show `invalid_request` from the Interactions API; likely malformed/empty input or invalid media part. Guardrails should prevent sending invalid payloads and improve diagnostics.
+
+---
+
+## Plan: WhatsApp GIF "This content is not available" Fix
+
+1) Inspect GIF send flow and message payload requirements:
+- `server/whatsapp/whatsappHandler.ts`
+- `src/services/messageOrchestrator.ts`
+2) Implement safer GIF sending (explicit mimetype, stricter validation, better host coverage/logs):
+- `server/whatsapp/whatsappHandler.ts`
+3) Verification (if approved):
+- `npm run whatsapp:dev`
+- Trigger a GIF action and confirm the received message renders (no "This content is not available")
+
+## Progress
+- [x] Plan added to `tasks/todo.md`.
+- [x] Read-only inspection completed (`whatsappHandler`, `messageOrchestrator`).
+- [x] Patch implementation (approved).
+- [ ] Verification run (if approved).
+
+## Review Notes
+- The current GIF send path uses a fetched buffer with `gifPlayback: true` but does not set `mimetype`, and only allows a narrow host set (no `media0/1.giphy.com`, `media1.tenor.com`, `c.tenor.com`).
+- Follow-up likely needs size guard + fetch headers + richer logs for GIF MP4 payloads that still render as "content not available".
+
+---
+
+## Plan: Enforce Valid, Public GIF URLs (Giphy Canonicalization + Validation)
+
+1) Inspect GIF validation/sending path and add canonicalization for Giphy "v1" URLs:
+- `server/whatsapp/whatsappHandler.ts`
+2) Add validation guardrails to ensure fetched media is public, MP4, and within size limits; fallback to text when invalid:
+- `server/whatsapp/whatsappHandler.ts`
+3) Verification (if approved):
+- `npm run whatsapp:dev`
+- Trigger a GIF action with a Giphy `v1` URL and confirm it renders (or clean fallback when invalid)
+
+## Progress
+- [x] Plan added to `tasks/todo.md`.
+- [x] Read-only inspection (additional) completed.
+- [x] Patch implementation (approved).
+- [ ] Verification run (if approved).
+
+## Review Notes
+- The reported URL is `media.giphy.com/media/v1.*` which often requires canonicalization to `media.giphy.com/media/<id>/giphy.mp4` to be publicly accessible.
+
+---
+
+## Plan: Gemini Interactions Proxy 500 Guardrails
+
+1) Inspect Interactions API request/response handling and error paths:
+- `src/services/geminiChatService.ts`
+2) Add retry + richer diagnostics for 5xx proxy errors (request summary + response metadata):
+- `src/services/geminiChatService.ts`
+3) Verification (if approved):
+- `npm run whatsapp:dev`
+- Send a message and confirm no `Proxy error: Internal Server Error` (or logs show retries + clearer diagnostics)
+
+## Progress
+- [x] Plan added to `tasks/todo.md`.
+- [x] Read-only inspection completed (`geminiChatService`).
+- [x] Patch implementation (approved).
+- [ ] Verification run (if approved).
+
+## Review Notes
+- Current error is thrown from `createInteraction` on non-2xx responses; there is no retry or 5xx-specific context logged.
+- Added persistent logging hook to emit proxy errors via `server/runtimeLogger.ts` (server) or `clientLogger` (browser).
+
+---
+
+## Plan: GIPHY-Only GIF Search + MP4 Rendition Selection
+
+1) Update GIF action schema/prompt to emit a query/tag instead of a URL:
+- `src/services/aiSchema.ts`
+- `src/services/system_prompts/tools/toolsAndCapabilities.ts`
+2) Translate `gif_action.query` into a server-side GIPHY search + MP4 rendition pick:
+- `src/services/messageOrchestrator.ts`
+- `server/whatsapp/whatsappHandler.ts`
+3) Enforce size + content-type validation, with text fallback when no GIF found:
+- `server/whatsapp/whatsappHandler.ts`
+4) Verification (if approved):
+- `npm run whatsapp:dev`
+- Trigger a GIF action and confirm a valid MP4 renders (or fallback text when none found)
+
+## Progress
+- [x] Plan added to `tasks/todo.md`.
+- [x] Read-only inspection completed.
+- [x] Patch implementation (approved).
+- [ ] Verification run (if approved).
+
+## Review Notes
+- This uses GIPHY only and avoids LLM-provided URLs by selecting a rendition from the GIPHY API.

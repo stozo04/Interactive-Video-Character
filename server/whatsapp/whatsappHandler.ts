@@ -15,9 +15,23 @@ import { gmailService } from "../../src/services/gmailService";
 import type { NewEmailPayload } from "../../src/services/gmailService";
 import { composePolishedReply } from "../../src/services/emailProcessingService";
 import { getValidGoogleToken } from "../services/googleTokenService";
+import {
+  addAutoArchiveRule,
+  checkAutoArchiveRule,
+  extractEmailAddress,
+  extractDisplayName,
+} from "../services/autoArchiveService";
 import fs from "fs";
 import path from "path";
 const LOG_PREFIX = "[WhatsApp]";
+
+// ============================================================================
+// AUTO-ARCHIVE CONFIRMATION STATE
+// After a manual archive Kayley asks "always archive from X?". The pending
+// confirmation lives here (in-process memory) until the next WA message.
+// ============================================================================
+
+let pendingAutoArchiveConfirm: { email: string; name: string } | null = null;
 const runtimeLog = log.fromContext({ source: "whatsappHandler", route: "whatsapp/handler" });
 const TYPING_INDICATOR_INTERVAL_MS = 4500;
 
@@ -80,19 +94,155 @@ function isFetchableUrl(url: string): boolean {
 const ALLOWED_MEDIA_HOSTS = new Set([
   "media.giphy.com",
   "giphy.com",
-  "media.tenor.com",
-  "tenor.com",
 ]);
+const ALLOWED_MEDIA_DOMAINS = ["giphy.com"];
+const MAX_GIF_BYTES = 12 * 1024 * 1024;
+
+function getGiphyApiKey(): string | null {
+  const envKey = process.env.GIPHY_API_KEY;
+  const viteKey = (globalThis as any).__importMetaEnv?.VITE_GIPHY_API_KEY as string | undefined;
+  return envKey || viteKey || null;
+}
+
+function parseOptionalNumber(value?: string): number | null {
+  if (!value) return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+type GiphyRendition = {
+  mp4?: string;
+  mp4_size?: string;
+};
+
+type GiphyGif = {
+  id?: string;
+  title?: string;
+  url?: string;
+  rating?: string;
+  images?: Record<string, GiphyRendition | undefined>;
+};
+
+async function fetchGiphyMp4ForQuery(query: string): Promise<{
+  ok: boolean;
+  mp4Url?: string;
+  rendition?: string;
+  mp4Size?: number | null;
+  reason?: string;
+}> {
+  const apiKey = getGiphyApiKey();
+  if (!apiKey) {
+    runtimeLog.error("GIPHY API key missing", {
+      source: "whatsappHandler",
+      reason: "missing_giphy_api_key",
+    });
+    return { ok: false, reason: "missing_giphy_api_key" };
+  }
+
+  const endpoint = new URL("https://api.giphy.com/v1/gifs/search");
+  endpoint.searchParams.set("api_key", apiKey);
+  endpoint.searchParams.set("q", query);
+  endpoint.searchParams.set("limit", "5");
+  endpoint.searchParams.set("rating", "g");
+  endpoint.searchParams.set("lang", "en");
+
+  runtimeLog.info("GIPHY search request", {
+    source: "whatsappHandler",
+    queryPreview: query.substring(0, 60),
+    limit: 5,
+    rating: "g",
+  });
+
+  try {
+    const response = await fetch(endpoint.toString(), {
+      headers: { Accept: "application/json" },
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      runtimeLog.error("GIPHY search failed", {
+        source: "whatsappHandler",
+        status: response.status,
+        statusText: response.statusText,
+        errorSnippet: errorText.substring(0, 400),
+      });
+      return { ok: false, reason: "giphy_search_failed" };
+    }
+
+    const payload = (await response.json()) as { data?: GiphyGif[] };
+    const results = Array.isArray(payload?.data) ? payload.data : [];
+    runtimeLog.info("GIPHY search response", {
+      source: "whatsappHandler",
+      queryPreview: query.substring(0, 60),
+      resultCount: results.length,
+    });
+    if (results.length === 0) {
+      runtimeLog.warning("GIPHY search returned no results", {
+        source: "whatsappHandler",
+        query,
+      });
+      return { ok: false, reason: "no_results" };
+    }
+
+    const preferredRenditions = ["downsized_small", "fixed_height", "fixed_width", "original"];
+    for (const gif of results) {
+      const images = gif.images || {};
+      for (const rendition of preferredRenditions) {
+        const candidate = images[rendition];
+        if (!candidate?.mp4) {
+          continue;
+        }
+        const mp4Size = parseOptionalNumber(candidate.mp4_size);
+        if (mp4Size && mp4Size > MAX_GIF_BYTES) {
+          continue;
+        }
+        runtimeLog.info("GIPHY MP4 rendition selected", {
+          source: "whatsappHandler",
+          gifId: gif.id,
+          rendition,
+          mp4Size: mp4Size ?? null,
+          title: gif.title ?? null,
+          rating: gif.rating ?? null,
+        });
+        return {
+          ok: true,
+          mp4Url: candidate.mp4,
+          rendition,
+          mp4Size: mp4Size ?? null,
+        };
+      }
+    }
+
+    runtimeLog.warning("No suitable GIPHY MP4 rendition found", {
+      source: "whatsappHandler",
+      query,
+    });
+    return { ok: false, reason: "no_mp4_rendition" };
+  } catch (error) {
+    runtimeLog.error("GIPHY search threw exception", {
+      source: "whatsappHandler",
+      query,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return { ok: false, reason: "giphy_search_exception" };
+  }
+}
 
 function isAllowedMediaUrl(url: string): boolean {
   try {
     const parsed = new URL(url);
-    const isAllowed = ALLOWED_MEDIA_HOSTS.has(parsed.hostname);
+    const hostname = parsed.hostname.toLowerCase();
+    const isAllowed =
+      ALLOWED_MEDIA_HOSTS.has(hostname) ||
+      ALLOWED_MEDIA_DOMAINS.some(
+        (domain) => hostname === domain || hostname.endsWith(`.${domain}`)
+      );
     if (!isAllowed) {
       runtimeLog.warning("Media URL host not in allowlist", {
         source: "whatsappHandler",
-        hostname: parsed.hostname,
+        hostname,
         allowedHosts: Array.from(ALLOWED_MEDIA_HOSTS).join(", "),
+        allowedDomains: ALLOWED_MEDIA_DOMAINS.join(", "),
       });
     }
     return isAllowed;
@@ -108,12 +258,13 @@ function isAllowedMediaUrl(url: string): boolean {
 
 async function fetchAndValidateVideo(
   url: string,
-  options: { label: string; requireMp4: boolean }
+  options: { label: string; requireMp4: boolean; maxBytes?: number; requestHeaders?: Record<string, string> }
 ): Promise<{ ok: boolean; buffer?: Buffer; contentType?: string; reason?: string }> {
   runtimeLog.info("Starting video validation", {
     source: "whatsappHandler",
     label: options.label,
     requireMp4: options.requireMp4,
+    maxBytes: options.maxBytes ?? null,
     urlPreview: url.substring(0, 100),
   });
 
@@ -146,13 +297,14 @@ async function fetchAndValidateVideo(
       urlPreview: url.substring(0, 100),
     });
 
-    response = await fetch(url);
+    response = await fetch(url, options.requestHeaders ? { headers: options.requestHeaders } : undefined);
 
     runtimeLog.info("Video fetch completed", {
       source: "whatsappHandler",
       label: options.label,
       status: response.status,
       statusText: response.statusText,
+      responseUrl: response.url,
       contentLength: response.headers.get("content-length"),
     });
   } catch (err) {
@@ -185,6 +337,8 @@ async function fetchAndValidateVideo(
   }
 
   const contentType = response.headers.get("content-type") || "";
+  const contentLengthHeader = response.headers.get("content-length");
+  const contentLength = contentLengthHeader ? Number(contentLengthHeader) : NaN;
   const isMp4 = contentType.toLowerCase().includes("video/mp4");
   const isVideo = contentType.toLowerCase().startsWith("video/");
 
@@ -194,7 +348,25 @@ async function fetchAndValidateVideo(
     contentType,
     isMp4,
     isVideo,
+    contentLength: Number.isFinite(contentLength) ? contentLength : null,
   });
+
+  if (options.maxBytes && Number.isFinite(contentLength) && contentLength > options.maxBytes) {
+    runtimeLog.error("Video content length exceeds limit", {
+      source: "whatsappHandler",
+      label: options.label,
+      contentLength,
+      maxBytes: options.maxBytes,
+      reason: "payload_too_large_header",
+      urlPreview: url.substring(0, 100),
+    });
+    console.error(`${LOG_PREFIX} [MEDIA] ${options.label} payload too large (header):`, {
+      contentLength,
+      maxBytes: options.maxBytes,
+      url,
+    });
+    return { ok: false, reason: "payload_too_large_header" };
+  }
 
   if (options.requireMp4 && !isMp4) {
     runtimeLog.error("Video content type is not MP4", {
@@ -242,6 +414,23 @@ async function fetchAndValidateVideo(
       });
       console.error(`${LOG_PREFIX} [MEDIA] ${options.label} empty payload:`, { url });
       return { ok: false, reason: "empty_payload" };
+    }
+
+    if (options.maxBytes && buffer.length > options.maxBytes) {
+      runtimeLog.error("Video buffer exceeds size limit", {
+        source: "whatsappHandler",
+        label: options.label,
+        bufferLength: buffer.length,
+        maxBytes: options.maxBytes,
+        reason: "payload_too_large_buffer",
+        urlPreview: url.substring(0, 100),
+      });
+      console.error(`${LOG_PREFIX} [MEDIA] ${options.label} payload too large (buffer):`, {
+        bufferLength: buffer.length,
+        maxBytes: options.maxBytes,
+        url,
+      });
+      return { ok: false, reason: "payload_too_large_buffer" };
     }
 
     runtimeLog.info("Video validation successful", {
@@ -451,6 +640,30 @@ async function executeWAEmailAction(
     gmailMessageId: row.gmail_message_id,
     success,
   });
+
+  // After a successful archive: offer to add the sender to the auto-archive list
+  // (but only if they're not already on it)
+  if (action === 'archive' && success) {
+    const fromEmail = extractEmailAddress(email.from);
+    const fromName  = extractDisplayName(email.from) || fromEmail;
+
+    try {
+      const alreadyRuled = await checkAutoArchiveRule(fromEmail);
+      if (!alreadyRuled) {
+        pendingAutoArchiveConfirm = { email: fromEmail, name: fromName };
+
+        const sock = (await import('./baileyClient')).getActiveSock();
+        const stevenJid = process.env.WHATSAPP_STEVEN_JID;
+        if (sock && stevenJid) {
+          const msg = `Want me to always auto-archive emails from ${fromName}? Just say "yes" if so!`;
+          const sent = await sock.sendMessage(stevenJid, { text: msg });
+          if (sent?.key?.id) sentMessageIds.add(sent.key.id);
+        }
+      }
+    } catch {
+      pendingAutoArchiveConfirm = null; // don't leave stale state if the check failed
+    }
+  }
 }
 
 export async function handleWhatsAppMessage(
@@ -478,6 +691,61 @@ export async function handleWhatsAppMessage(
   console.log(`${LOG_PREFIX} Processing: "${text.substring(0, 60)}..."`);
 
   try {
+    // -----------------------------------------------------------------------
+    // AUTO-ARCHIVE CONFIRMATION — short-circuit before the full pipeline
+    // If Kayley just asked "always archive from X?" and Steven said yes,
+    // handle it here and return. Either way, always clear the pending state.
+    // -----------------------------------------------------------------------
+    const confirming = pendingAutoArchiveConfirm;
+    pendingAutoArchiveConfirm = null;
+
+    if (confirming) {
+      const isYes = text.length < 60 &&
+        /^(yes|yeah|yep|yup|sure|ok|okay|do it|add( it)?|absolutely|definitely|sounds good|go ahead)/i
+          .test(text.trim());
+
+      if (isYes) {
+        runtimeLog.info("Auto-archive confirmation accepted", {
+          source: "whatsappHandler",
+          messageId,
+          jid,
+          replyJid,
+          fromEmail: confirming.email,
+          fromName: confirming.name,
+          userReplyPreview: text.substring(0, 60),
+        });
+        try {
+          await addAutoArchiveRule(confirming.email, confirming.name);
+          await sendAndTrack(sock, replyJid, {
+            text: `Done! I'll auto-archive emails from ${confirming.name} from now on. 🗑️`,
+          });
+        } catch {
+          runtimeLog.warning("Auto-archive rule save failed after confirmation", {
+            source: "whatsappHandler",
+            messageId,
+            jid,
+            replyJid,
+            fromEmail: confirming.email,
+            fromName: confirming.name,
+          });
+          await sendAndTrack(sock, replyJid, {
+            text: `Hmm, had trouble saving that — want to try again?`,
+          });
+        }
+        return; // don't run through the orchestrator
+      }
+      runtimeLog.info("Auto-archive confirmation declined or skipped", {
+        source: "whatsappHandler",
+        messageId,
+        jid,
+        replyJid,
+        fromEmail: confirming.email,
+        fromName: confirming.name,
+        userReplyPreview: text.substring(0, 60),
+      });
+      // Non-affirmative: fall through to normal orchestrator
+    }
+
     runtimeLog.info("Loading interaction context", {
       source: "whatsappHandler",
       messageId,
@@ -547,7 +815,7 @@ export async function handleWhatsAppMessage(
       hasText: !!result.chatMessages?.[0]?.text,
       hasSelfie: !!result.selfieImage,
       hasSticker: !!result.stickerBuffer || !!result.rawGeneratedStickerBase64,
-      hasGif: !!result.gifUrl,
+      hasGif: !!result.gifQuery,
       hasVideo: !!result.videoUrl,
       hasEmailAction: !!result.detectedEmailAction,
     });
@@ -661,19 +929,46 @@ async function sendOrchestratorResult(
       }
   }
   // --- Sending a GIF ---
-  // Note: result.gifUrl MUST be a link to an .mp4 file, not a .gif!
-  // Services like Tenor and Giphy provide MP4 versions of all their GIFs for this exact reason.
-  if (result.gifUrl && isFetchableUrl(result.gifUrl)) {
+  // Note: result.gifQuery is a short search term; we fetch a valid GIPHY MP4 rendition server-side.
+  if (result.gifQuery && result.gifQuery.trim().length > 0) {
     try {
         runtimeLog.info("Processing GIF for sending", {
           source: "whatsappHandler",
           jid,
-          gifUrlPreview: result.gifUrl.substring(0, 100),
+          gifQueryPreview: result.gifQuery.substring(0, 60),
         });
 
-        const validated = await fetchAndValidateVideo(result.gifUrl, {
+        const giphyResult = await fetchGiphyMp4ForQuery(result.gifQuery);
+        if (!giphyResult.ok || !giphyResult.mp4Url) {
+          runtimeLog.warning("GIPHY search failed to return a usable MP4", {
+            source: "whatsappHandler",
+            jid,
+            reason: giphyResult.reason,
+            gifQueryPreview: result.gifQuery.substring(0, 60),
+          });
+          await sendAndTrack(sock, jid, {
+            text: result.gifMessageText || "I tried to send a GIF, but couldn't find a usable one.",
+          });
+          return;
+        }
+
+        runtimeLog.info("GIPHY MP4 selected for GIF send", {
+          source: "whatsappHandler",
+          jid,
+          gifQueryPreview: result.gifQuery.substring(0, 60),
+          rendition: giphyResult.rendition,
+          mp4Size: giphyResult.mp4Size ?? null,
+          mp4UrlPreview: giphyResult.mp4Url.substring(0, 100),
+        });
+
+        const validated = await fetchAndValidateVideo(giphyResult.mp4Url, {
           label: "GIF",
           requireMp4: true,
+          maxBytes: MAX_GIF_BYTES,
+          requestHeaders: {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+            "Accept": "video/mp4",
+          },
         });
 
         if (!validated.ok || !validated.buffer) {
@@ -683,7 +978,7 @@ async function sendOrchestratorResult(
             reason: validated.reason,
           });
           await sendAndTrack(sock, jid, {
-            text: result.gifMessageText || "I tried to send a GIF, but the link didn't work.",
+            text: result.gifMessageText || "I tried to send a GIF, but it didn't work.",
           });
           return;
         }
@@ -697,12 +992,16 @@ async function sendOrchestratorResult(
 
         await sendAndTrack(sock, jid, {
             video: validated.buffer,
+            mimetype: "video/mp4",
             gifPlayback: true, // THIS FLAG IS THE MAGIC TRICK
             caption: result.gifMessageText || undefined,
         });
         console.log(`${LOG_PREFIX} Sent GIF`, {
           contentType: validated.contentType,
+          declaredMimeType: "video/mp4",
           sizeBytes: validated.buffer.length,
+          giphyRendition: giphyResult.rendition,
+          giphyMp4Size: giphyResult.mp4Size ?? null,
         });
 
         runtimeLog.info("GIF sent successfully", {
@@ -714,7 +1013,7 @@ async function sendOrchestratorResult(
         runtimeLog.error("Failed to send GIF", {
           source: "whatsappHandler",
           jid,
-          gifUrlPreview: result.gifUrl.substring(0, 100),
+          gifQueryPreview: result.gifQuery.substring(0, 60),
           error: err instanceof Error ? err.message : String(err),
         });
         console.error(`${LOG_PREFIX} Failed to send GIF:`, err);

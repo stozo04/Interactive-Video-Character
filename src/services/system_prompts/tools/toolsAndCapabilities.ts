@@ -76,9 +76,8 @@ export function buildToolStrategySection(): string {
 
 9. SENDING GIFS (WhatsApp inline playback):
    - Use "gif_action" in your JSON response when you want to send a reaction GIF.
-   - "mp4_url" MUST be a direct MP4 file URL — NOT a webpage or .gif file URL.
-   - Giphy MP4 format:  https://media.giphy.com/media/{GIF_ID}/giphy.mp4
-   - Tenor MP4 format:  https://media.tenor.com/{ID}/{name}.mp4
+   - Provide "query" as a short search term or reaction tag (e.g., "eye roll", "slow clap").
+   - Do NOT provide URLs. The server will select a valid GIPHY MP4 rendition.
    - Set "message_text" to a short reaction caption (e.g., "lmaooo this is you rn 😂").
    - Do NOT put GIF URLs in "text_response" — use "gif_action" so the GIF renders inline.
 
@@ -89,7 +88,16 @@ export function buildToolStrategySection(): string {
    - Be selective: don't reply to every mention. Prioritize known users and genuine interactions.
    - Keep replies natural, in-character, and under 280 characters.
 
-11. WORKSPACE AGENT (LOCAL PROJECT FILE OPS):
+11. EMAIL SENDING:
+   - Use 'email_action' with action='send' when Steven asks you to email someone and there is NO active [PENDING EMAIL ACTION].
+     - Examples: "Email Katerina and tell her...", "Can you send a follow-up to John saying...", "Reply to Sarah letting her know..."
+     - Required fields: 'to' (email address), 'subject' (appropriate subject line), 'reply_body' (what Steven wants to say)
+     - 'message_id' and 'thread_id' are NOT needed for 'send' — omit them.
+   - When there IS a [PENDING EMAIL ACTION]: use 'archive', 'reply', or 'dismiss' with the provided message_id and thread_id.
+   - ❌ HALLUCINATION TRAP: Do NOT say "Already done!", "Sent!", or "I replied!" in text_response if email_action is null.
+     That is a false claim — the email was NOT sent. Always emit email_action to actually send.
+
+12. WORKSPACE AGENT (LOCAL PROJECT FILE OPS):
    - Use 'workspace_action' ONLY when the user explicitly asks for a file/folder operation in this project.
    - Supported actions: mkdir, read, write, search, status, commit, push, delete.
    - Treat workspace actions as asynchronous: after calling the tool, clearly say the task was started/queued with run status.
