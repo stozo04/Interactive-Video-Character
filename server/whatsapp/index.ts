@@ -7,7 +7,9 @@
  * NOT imported here. It must run before ANY module reads import.meta.env.
  */
 
-import { startWhatsAppClient } from "./baileyClient";
+import { createServer } from "node:http";
+import { spawn } from "node:child_process";
+import { startWhatsAppClient, isWhatsAppConnected } from "./baileyClient";
 import { handleWhatsAppMessage } from "./whatsappHandler";
 import { startEmailBridge } from "./emailBridge";
 import { startGmailPoller } from "../services/gmailPoller";
@@ -17,6 +19,60 @@ import path from "path";
 
 const LOG_PREFIX = "[WhatsApp]";
 const runtimeLog = log.fromContext({ source: "whatsappIndex", route: "whatsapp" });
+const HEALTH_PORT = Number(process.env.WHATSAPP_HEALTH_PORT ?? 4011);
+
+function startHealthServer() {
+  const server = createServer((req, res) => {
+    const pathname = new URL(req.url ?? "/", "http://localhost").pathname;
+
+    if (req.method === "GET" && pathname === "/health") {
+      const connected = isWhatsAppConnected();
+      runtimeLog.info("Health check requested", { source: "whatsappIndex", connected });
+      res.statusCode = 200;
+      res.setHeader("Content-Type", "application/json");
+      res.end(JSON.stringify({ ok: true, connected }));
+      return;
+    }
+
+    if (req.method === "POST" && pathname === "/restart") {
+      runtimeLog.info("Restart requested via API — preparing to respawn", { source: "whatsappIndex" });
+      res.statusCode = 200;
+      res.setHeader("Content-Type", "application/json");
+      res.end(JSON.stringify({ ok: true, message: "WhatsApp bridge restarting..." }));
+      res.on("finish", () => {
+        runtimeLog.info("Releasing lock and spawning new bridge process", {
+          source: "whatsappIndex",
+          execPath: process.execPath,
+          argv: process.argv.slice(1),
+        });
+        releaseSingleInstanceLock();
+        const child = spawn(process.execPath, process.argv.slice(1), {
+          detached: true,
+          stdio: "ignore",
+          cwd: process.cwd(),
+          env: process.env as NodeJS.ProcessEnv,
+        });
+        child.unref();
+        setTimeout(() => process.exit(0), 200);
+      });
+      return;
+    }
+
+    runtimeLog.warning("Health server received unknown route", {
+      source: "whatsappIndex",
+      method: req.method,
+      pathname,
+    });
+    res.statusCode = 404;
+    res.end();
+  });
+  server.listen(HEALTH_PORT, () => {
+    runtimeLog.info("WhatsApp health server listening", {
+      source: "whatsappIndex",
+      port: HEALTH_PORT,
+    });
+  });
+}
 const AUTH_DIR = ".whatsapp-auth";
 const LOCK_FILE = path.join(AUTH_DIR, "bridge.lock");
 
@@ -80,6 +136,8 @@ async function main() {
     releaseSingleInstanceLock();
     process.exit(0);
   });
+
+  startHealthServer();
 
   try {
     runtimeLog.info("Starting WhatsApp client with message handler", {

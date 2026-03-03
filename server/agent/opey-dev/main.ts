@@ -13,6 +13,7 @@ const LOG_PREFIX = "[Opey-Dev]";
 const POLL_INTERVAL_MS = 30_000;
 const SHELL_OPTS = process.platform === "win32" ? { shell: "bash" as const } : {};
 const CLARIFICATION_MARKER = "--- CLARIFICATION ---";
+const MAX_CLARIFICATION_ROUNDS = 3;
 const NO_QUESTION_MARKERS = [
   /no clarifications?/i,
   /no questions?/i,
@@ -69,7 +70,12 @@ function getTicketDetails(ticket: any): string {
 function shouldAvoidClarification(ticket: any): boolean {
   const type = getTicketType(ticket);
   const details = getTicketDetails(ticket);
-  return type === "skill" || NO_QUESTION_MARKERS.some((pattern) => pattern.test(details));
+  if (type === "skill" || NO_QUESTION_MARKERS.some((pattern) => pattern.test(details))) {
+    return true;
+  }
+  // Count how many times clarification has already happened on this ticket
+  const rounds = (details.match(new RegExp(CLARIFICATION_MARKER, "g")) ?? []).length;
+  return rounds >= MAX_CLARIFICATION_ROUNDS;
 }
 
 
@@ -127,12 +133,9 @@ async function processNextTicket(
 
     if (!madeChanges) {
       // No commits AND no uncommitted changes — Opey truly didn't implement.
-      const details = getTicketDetails(ticket);
-      const alreadyClarified = details.includes(CLARIFICATION_MARKER);
-
-      if (!avoidClarification && !alreadyClarified) {
-        // First pass with no changes = clarification request (max 1 loop)
-        log.info(`${LOG_PREFIX} Opey requested clarification (no commits, first pass)`, { source: "main.ts", ticketId });
+      if (!avoidClarification) {
+        // No changes = ask for clarification (up to MAX_CLARIFICATION_ROUNDS times)
+        log.info(`${LOG_PREFIX} Opey requested clarification`, { source: "main.ts", ticketId });
         await store.updateStatus(ticketId, "needs_clarification", { clarificationQuestions: output });
         manager.cleanup(ticketId);
         return;

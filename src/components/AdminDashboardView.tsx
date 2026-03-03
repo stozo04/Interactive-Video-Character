@@ -40,7 +40,9 @@ import {
   listEngineeringTickets,
   transitionEngineeringTicket,
   getMultiAgentHealth,
+  getWhatsAppHealth,
   restartServer,
+  restartWhatsApp,
   type EngineeringTicket,
   type EngineeringTicketEvent,
   type EngineeringTicketStatus,
@@ -94,10 +96,6 @@ const MULTI_AGENT_STATUSES: EngineeringTicketStatus[] = [
   'requirements_ready',
   'planning',
   'implementing',
-  'ready_for_qa',
-  'qa_testing',
-  'qa_changes_requested',
-  'qa_approved',
   'pr_preparing',
   'pr_ready',
   'completed',
@@ -159,14 +157,18 @@ export default function AdminDashboardView({ onBack }: AdminDashboardViewProps) 
   const [multiAgentTab, setMultiAgentTab] = useState<MultiAgentTab>('tickets');
   const [multiAgentHealthStatus, setMultiAgentHealthStatus] = useState<string | null>(null);
   const [multiAgentHealthLatencyMs, setMultiAgentHealthLatencyMs] = useState<number | null>(null);
+  const [waHealthStatus, setWaHealthStatus] = useState<'ok' | 'unreachable' | null>(null);
+  const [waHealthLatencyMs, setWaHealthLatencyMs] = useState<number | null>(null);
   const [isMultiAgentHealthLoading, setIsMultiAgentHealthLoading] = useState(false);
   const [isServerRestarting, setIsServerRestarting] = useState(false);
+  const [isWhatsAppRestarting, setIsWhatsAppRestarting] = useState(false);
 
   // Runtime logs mode state
   const [runtimeLogs, setRuntimeLogs] = useState<ServerRuntimeLogRow[]>([]);
   const [runtimeLogSeverityFilter, setRuntimeLogSeverityFilter] =
     useState<RuntimeLogSeverityFilter>('all');
   const [runtimeLogLimit, setRuntimeLogLimit] = useState<number>(200);
+  const [runtimeLogSource, setRuntimeLogSource] = useState<'server' | 'client'>('server');
   const [isRuntimeLogsLoading, setIsRuntimeLogsLoading] = useState(false);
   const [runtimeLogsError, setRuntimeLogsError] = useState<string | null>(null);
 
@@ -260,23 +262,24 @@ export default function AdminDashboardView({ onBack }: AdminDashboardViewProps) 
     setIsMultiAgentHealthLoading(true);
     setMultiAgentError(null);
     try {
-      const result = await getMultiAgentHealth();
-      if (!result.ok) {
+      const [multiAgent, whatsapp] = await Promise.all([getMultiAgentHealth(), getWhatsAppHealth()]);
+
+      if (!multiAgent.ok) {
         setMultiAgentHealthStatus('unreachable');
         setMultiAgentHealthLatencyMs(null);
-        setMultiAgentError(result.error || 'Multi-agent health check failed.');
-        return;
+        setMultiAgentError(multiAgent.error || 'Multi-agent health check failed.');
+      } else {
+        setMultiAgentHealthStatus('ok');
+        setMultiAgentHealthLatencyMs(typeof multiAgent.latencyMs === 'number' ? multiAgent.latencyMs : null);
       }
 
-      setMultiAgentHealthStatus('ok');
-      setMultiAgentHealthLatencyMs(
-        typeof result.latencyMs === 'number' ? result.latencyMs : null,
-      );
+      setWaHealthStatus(whatsapp.ok && whatsapp.connected ? 'ok' : 'unreachable');
+      setWaHealthLatencyMs(typeof whatsapp.latencyMs === 'number' ? whatsapp.latencyMs : null);
     } catch (err) {
-      console.error('[AdminDashboard] Multi-agent health check failed', err);
+      console.error('[AdminDashboard] Health check failed', err);
       setMultiAgentHealthStatus('unreachable');
       setMultiAgentHealthLatencyMs(null);
-      setMultiAgentError('Multi-agent health check failed.');
+      setMultiAgentError('Health check failed.');
     } finally {
       setIsMultiAgentHealthLoading(false);
     }
@@ -294,11 +297,29 @@ export default function AdminDashboardView({ onBack }: AdminDashboardViewProps) 
       // Server is restarting — health will go unreachable briefly
       setMultiAgentHealthStatus(null);
       setMultiAgentHealthLatencyMs(null);
+      setWaHealthStatus(null);
+      setWaHealthLatencyMs(null);
     } catch (err) {
       console.error('[AdminDashboard] Server restart failed', err);
       setMultiAgentError('Server restart request failed.');
     } finally {
       setIsServerRestarting(false);
+    }
+  };
+
+  const handleRestartWhatsApp = async () => {
+    setIsWhatsAppRestarting(true);
+    setMultiAgentError(null);
+    try {
+      const result = await restartWhatsApp();
+      if (!result.ok) {
+        setMultiAgentError(result.error || 'WhatsApp restart failed.');
+      }
+    } catch (err) {
+      console.error('[AdminDashboard] WhatsApp restart failed', err);
+      setMultiAgentError('WhatsApp restart request failed.');
+    } finally {
+      setIsWhatsAppRestarting(false);
     }
   };
 
@@ -309,16 +330,17 @@ export default function AdminDashboardView({ onBack }: AdminDashboardViewProps) 
       const rows = await listServerRuntimeLogsAdmin({
         severity: runtimeLogSeverityFilter,
         limit: runtimeLogLimit,
+        source: runtimeLogSource,
       });
       setRuntimeLogs(rows);
     } catch (err) {
       console.error('[AdminDashboard] Runtime logs load failed', err);
       setRuntimeLogs([]);
-      setRuntimeLogsError('Failed to load server runtime logs.');
+      setRuntimeLogsError('Failed to load runtime logs.');
     } finally {
       setIsRuntimeLogsLoading(false);
     }
-  }, [runtimeLogSeverityFilter, runtimeLogLimit]);
+  }, [runtimeLogSeverityFilter, runtimeLogLimit, runtimeLogSource]);
 
   useEffect(() => {
     if (mode !== 'facts') {
@@ -366,12 +388,16 @@ export default function AdminDashboardView({ onBack }: AdminDashboardViewProps) 
 
     const pollHealth = async () => {
       try {
-        const result = await getMultiAgentHealth();
-        setMultiAgentHealthStatus(result.ok ? 'ok' : 'unreachable');
-        setMultiAgentHealthLatencyMs(typeof result.latencyMs === 'number' ? result.latencyMs : null);
+        const [multiAgent, whatsapp] = await Promise.all([getMultiAgentHealth(), getWhatsAppHealth()]);
+        setMultiAgentHealthStatus(multiAgent.ok ? 'ok' : 'unreachable');
+        setMultiAgentHealthLatencyMs(typeof multiAgent.latencyMs === 'number' ? multiAgent.latencyMs : null);
+        setWaHealthStatus(whatsapp.ok && whatsapp.connected ? 'ok' : 'unreachable');
+        setWaHealthLatencyMs(typeof whatsapp.latencyMs === 'number' ? whatsapp.latencyMs : null);
       } catch {
         setMultiAgentHealthStatus('unreachable');
         setMultiAgentHealthLatencyMs(null);
+        setWaHealthStatus('unreachable');
+        setWaHealthLatencyMs(null);
       }
     };
 
@@ -1544,11 +1570,32 @@ export default function AdminDashboardView({ onBack }: AdminDashboardViewProps) 
               </div>
             )}
 
+            <div className="flex bg-gray-800 p-1 rounded-xl border border-gray-700 self-start">
+              <button
+                onClick={() => setRuntimeLogSource('server')}
+                className={`px-4 py-1.5 rounded-lg text-sm font-bold transition-all ${
+                  runtimeLogSource === 'server' ? 'bg-purple-600 text-white shadow-lg' : 'text-gray-400 hover:text-white'
+                }`}
+              >
+                Server Logs
+              </button>
+              <button
+                onClick={() => setRuntimeLogSource('client')}
+                className={`px-4 py-1.5 rounded-lg text-sm font-bold transition-all ${
+                  runtimeLogSource === 'client' ? 'bg-purple-600 text-white shadow-lg' : 'text-gray-400 hover:text-white'
+                }`}
+              >
+                Web Logs
+              </button>
+            </div>
+
             <section className="border border-gray-700 rounded-2xl bg-gray-900/60 overflow-hidden">
               <div className="px-4 py-4 border-b border-gray-700/80 bg-gradient-to-r from-gray-900 via-gray-900 to-gray-800/70">
                 <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                   <div>
-                    <h3 className="text-sm font-semibold text-gray-100">Server Runtime Logs</h3>
+                    <h3 className="text-sm font-semibold text-gray-100">
+                      {runtimeLogSource === 'server' ? 'Server Runtime Logs' : 'Web Runtime Logs'}
+                    </h3>
                     <p className="text-xs text-gray-400 mt-1">
                       Newest first. Filter by severity to isolate warnings, errors, and critical failures.
                     </p>
@@ -1735,6 +1782,13 @@ export default function AdminDashboardView({ onBack }: AdminDashboardViewProps) 
               >
                 {isServerRestarting ? 'Restarting...' : 'Restart Server'}
               </button>
+              <button
+                onClick={handleRestartWhatsApp}
+                className="px-3 py-1.5 rounded bg-red-700/80 hover:bg-red-700 text-xs text-white"
+                disabled={isWhatsAppRestarting}
+              >
+                {isWhatsAppRestarting ? 'Restarting...' : 'Restart WhatsApp'}
+              </button>
               <span className="inline-flex items-center gap-2 rounded-full bg-purple-600/80 px-3 py-1 text-xs font-semibold text-white">
                 <span
                   className={`h-3 w-3 rounded-full ring-2 ring-white/70 ${
@@ -1746,12 +1800,26 @@ export default function AdminDashboardView({ onBack }: AdminDashboardViewProps) 
                   }`}
                 />
                 {multiAgentHealthStatus
-                  ? `Health: ${multiAgentHealthStatus}${
+                  ? `Multi-agent: ${multiAgentHealthStatus}${
                       multiAgentHealthLatencyMs !== null
                         ? ` (${multiAgentHealthLatencyMs}ms)`
                         : ''
                     }`
-                  : 'Health: unknown'}
+                  : 'Multi-agent: unknown'}
+              </span>
+              <span className="inline-flex items-center gap-2 rounded-full bg-purple-600/80 px-3 py-1 text-xs font-semibold text-white">
+                <span
+                  className={`h-3 w-3 rounded-full ring-2 ring-white/70 ${
+                    waHealthStatus === 'ok'
+                      ? 'bg-emerald-300'
+                      : waHealthStatus === 'unreachable'
+                        ? 'bg-red-300'
+                        : 'bg-amber-300'
+                  }`}
+                />
+                {waHealthStatus
+                  ? `WhatsApp: ${waHealthStatus}${waHealthLatencyMs !== null ? ` (${waHealthLatencyMs}ms)` : ''}`
+                  : 'WhatsApp: unknown'}
               </span>
               <span className="rounded-full bg-purple-600/80 px-3 py-1 text-xs font-semibold text-white">
                 {multiAgentTickets.length} tickets
@@ -2049,11 +2117,9 @@ function formatRuntimeLogDetails(details: Record<string, unknown> | null | undef
 
 function getTicketStatusClasses(status: EngineeringTicketStatus): string {
   switch (status) {
-    case 'qa_approved':
     case 'pr_ready':
     case 'completed':
       return 'bg-emerald-900/30 border-emerald-600/40 text-emerald-300';
-    case 'qa_changes_requested':
     case 'needs_clarification':
       return 'bg-amber-900/30 border-amber-600/40 text-amber-300';
     case 'failed':
@@ -2061,7 +2127,6 @@ function getTicketStatusClasses(status: EngineeringTicketStatus): string {
     case 'cancelled':
       return 'bg-red-900/30 border-red-600/40 text-red-300';
     case 'implementing':
-    case 'qa_testing':
     case 'pr_preparing':
       return 'bg-blue-900/30 border-blue-600/40 text-blue-300';
     default:

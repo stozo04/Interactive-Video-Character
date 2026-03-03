@@ -31,7 +31,9 @@ export type WASocket = ReturnType<typeof makeWASocket>;
 
 // Module-level socket reference so emailBridge can send proactive messages
 let _activeSock: WASocket | null = null;
+let _isConnected = false;
 export function getActiveSock(): WASocket | null { return _activeSock; }
+export function isWhatsAppConnected(): boolean { return _isConnected; }
 
 export async function startWhatsAppClient(
     onMessage: (sock: WASocket, text: string, jid: string, replyJid: string, userContent?: UserContent) => Promise<void>
@@ -191,6 +193,11 @@ export async function startWhatsAppClient(
             if (connection === 'open') {
                 reconnectAttempts = 0;
                 consecutive405Failures = 0;
+                _isConnected = true;
+                runtimeLog.info("WhatsApp connection state set to connected", {
+                    source: "baileysClient",
+                    isConnected: true,
+                });
                 console.log(`${LOG_PREFIX} Opened connection successfully!`);
                 runtimeLog.info("WhatsApp connection opened successfully", {
                     source: "baileysClient",
@@ -209,6 +216,11 @@ export async function startWhatsAppClient(
 
             // Socket is dead — clear reference so proactive senders back off
             _activeSock = null;
+            _isConnected = false;
+            runtimeLog.info("WhatsApp connection state set to disconnected", {
+                source: "baileysClient",
+                isConnected: false,
+            });
 
             const disconnectError = lastDisconnect?.error as Boom | undefined;
             const statusCode = disconnectError?.output?.statusCode;
