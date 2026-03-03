@@ -225,6 +225,28 @@ export const AIActionResponseSchema = z.object({
     ),
 
   /**
+   * GIF action - used when sending a GIF inline (WhatsApp renders it as animated media).
+   * Provide a search query or tag; the server will fetch a valid GIPHY MP4 rendition.
+   */
+  gif_action: z
+    .object({
+      query: z
+        .string()
+        .describe(
+          "Short search query or reaction tag for GIPHY (e.g. 'eye roll', 'slow clap', 'facepalm', 'excited')."
+        ),
+      message_text: z
+        .string()
+        .optional()
+        .describe("Optional caption to send with the GIF"),
+    })
+    .nullable()
+    .optional()
+    .describe(
+      "GIF action - use when you want to send a reaction GIF. Provide a query/tag (not a URL)."
+    ),
+
+  /**
    * Video action - used when user asks for a video
    */
   video_action: z
@@ -357,6 +379,51 @@ export const AIActionResponseSchema = z.object({
       "The ID of the promise you're fulfilling in this response (from PENDING PROMISES section). " +
         "Set this when your message fulfills a commitment you made earlier (e.g., 'Here's that selfie from my walk!'). " +
         "Leave null if you're not fulfilling a promise."
+    ),
+
+  /**
+   * Email action — set this when:
+   *   (a) Steven tells you what to do with a pending email (archive/reply/dismiss), OR
+   *   (b) Steven asks you to send a new email to someone (action: 'send').
+   */
+  email_action: z
+    .object({
+      action: z
+        .enum(['archive', 'reply', 'dismiss', 'send'])
+        .describe(
+          "'archive' removes from inbox, 'reply' responds in-thread, 'dismiss' leaves it alone, " +
+          "'send' composes and sends a brand-new email (use when Steven asks you to email someone with no pending email in context)"
+        ),
+      message_id: z
+        .string()
+        .optional()
+        .describe("Gmail message ID — required for archive/reply/dismiss (from [PENDING EMAIL ACTION] context). Omit for 'send'."),
+      thread_id: z
+        .string()
+        .optional()
+        .describe("Gmail thread ID — required when action is 'reply' to send in-thread. Omit for 'send'."),
+      to: z
+        .string()
+        .optional()
+        .describe("Recipient email address — required when action is 'send' (e.g. 'katerina@gmail.com'). Omit for archive/reply/dismiss."),
+      subject: z
+        .string()
+        .optional()
+        .describe("Email subject — required when action is 'send'. Omit for archive/reply/dismiss."),
+      reply_body: z
+        .string()
+        .optional()
+        .describe(
+          "The message content Steven wants to convey. Required for 'reply' and 'send'. " +
+          "Write it as a rough draft — it will be polished by a separate step. " +
+          "Include everything Steven wanted to say."
+        ),
+    })
+    .nullable()
+    .optional()
+    .describe(
+      "Email action — set when resolving a [PENDING EMAIL ACTION] (archive/reply/dismiss) " +
+      "OR when Steven explicitly asks you to email someone (send). Leave null otherwise."
     ),
 });
 
@@ -576,6 +643,24 @@ export const RetrieveDailyNotesSchema = z.object({}).describe(
 );
 
 /**
+ * Schema for the store_lessons_learned tool.
+ * Used to append a short bullet to today's lessons learned.
+ */
+export const StoreLessonsLearnedSchema = z.object({
+  lesson: z.string().describe(
+    "A short lesson to append as a single bullet line (no dates or timestamps)."
+  ),
+});
+
+/**
+ * Schema for the retrieve_lessons_learned tool.
+ * Used to retrieve all stored lessons learned.
+ */
+export const RetrieveLessonsLearnedSchema = z.object({}).describe(
+  "Retrieve all lessons learned (no arguments)."
+);
+
+/**
  * Schema for the mila_note tool.
  * Used to append a milestone note about Mila.
  */
@@ -769,6 +854,8 @@ export type ResolveIdleBrowseNoteArgs = z.infer<typeof ResolveIdleBrowseNoteSche
 export type ToolSuggestionArgs = z.infer<typeof ToolSuggestionSchema>;
 export type StoreDailyNoteArgs = z.infer<typeof StoreDailyNoteSchema>;
 export type RetrieveDailyNotesArgs = z.infer<typeof RetrieveDailyNotesSchema>;
+export type StoreLessonsLearnedArgs = z.infer<typeof StoreLessonsLearnedSchema>;
+export type RetrieveLessonsLearnedArgs = z.infer<typeof RetrieveLessonsLearnedSchema>;
 export type MilaNoteArgs = z.infer<typeof MilaNoteSchema>;
 export type RetrieveMilaNotesArgs = z.infer<typeof RetrieveMilaNotesSchema>;
 export type WorkspaceActionArgs = z.infer<typeof WorkspaceActionSchema>;
@@ -791,6 +878,8 @@ export type MemoryToolArgs =
   | { tool: "tool_suggestion"; args: ToolSuggestionArgs }
   | { tool: "store_daily_note"; args: StoreDailyNoteArgs }
   | { tool: "retrieve_daily_notes"; args: RetrieveDailyNotesArgs }
+  | { tool: "store_lessons_learned"; args: StoreLessonsLearnedArgs }
+  | { tool: "retrieve_lessons_learned"; args: RetrieveLessonsLearnedArgs }
   | { tool: "mila_note"; args: MilaNoteArgs }
   | { tool: "retrieve_mila_notes"; args: RetrieveMilaNotesArgs }
   | {
@@ -1129,6 +1218,33 @@ export const GeminiMemoryToolDeclarations = [
     description:
       "Retrieve all stored daily notes (no dates included). " +
       "Use this when you want to review what you've saved in daily notes.",
+    parameters: {
+      type: "object",
+      properties: {},
+    },
+  },
+  {
+    name: "store_lessons_learned",
+    description:
+      "Append a short bullet to today's lessons learned. " +
+      "Use this when you realize something important you want to remember later. " +
+      "Keep it brief and DO NOT include dates or timestamps.",
+    parameters: {
+      type: "object",
+      properties: {
+        lesson: {
+          type: "string",
+          description: "Short lesson to append as a single bullet line",
+        },
+      },
+      required: ["lesson"],
+    },
+  },
+  {
+    name: "retrieve_lessons_learned",
+    description:
+      "Retrieve all stored lessons learned (no dates included). " +
+      "Use this when you want to review what you've saved as lessons learned.",
     parameters: {
       type: "object",
       properties: {},
@@ -1886,6 +2002,8 @@ export interface PendingToolCall {
     | "tool_suggestion"
     | "store_daily_note"
     | "retrieve_daily_notes"
+    | "store_lessons_learned"
+    | "retrieve_lessons_learned"
     | "mila_note"
     | "retrieve_mila_notes"
     | "make_promise"

@@ -29,6 +29,10 @@ const runtimeLog = log.fromContext({ source: "baileysClient", route: "whatsapp" 
 export const sentMessageIds = new Set<string>();
 export type WASocket = ReturnType<typeof makeWASocket>;
 
+// Module-level socket reference so emailBridge can send proactive messages
+let _activeSock: WASocket | null = null;
+export function getActiveSock(): WASocket | null { return _activeSock; }
+
 export async function startWhatsAppClient(
     onMessage: (sock: WASocket, text: string, jid: string, replyJid: string, userContent?: UserContent) => Promise<void>
 ) {
@@ -168,6 +172,9 @@ export async function startWhatsAppClient(
             // 2. We removed the deprecated printQRInTerminal flag here!
         });
 
+        // Make socket available for proactive sends (emailBridge, etc.)
+        _activeSock = sock;
+
         sock.ev.on('connection.update', (update) => {
             const { connection, lastDisconnect, qr } = update;
 
@@ -200,11 +207,19 @@ export async function startWhatsAppClient(
                 return;
             }
 
+            // Socket is dead — clear reference so proactive senders back off
+            _activeSock = null;
+
             const disconnectError = lastDisconnect?.error as Boom | undefined;
             const statusCode = disconnectError?.output?.statusCode;
             const errorData = (disconnectError as any)?.data;
             const isLoggedOut = statusCode === DisconnectReason.loggedOut;
             const is405Failure = statusCode === 405 || errorData?.reason === "405";
+            const isConflict =
+                statusCode === 440 ||
+                errorData?.reason === "conflict" ||
+                errorData?.reason === "replaced" ||
+                errorData?.type === "replaced";
 
             if (is405Failure) {
                 consecutive405Failures += 1;
@@ -238,6 +253,20 @@ export async function startWhatsAppClient(
                     error: serializeErrorForLog(disconnectError),
                 });
                 stopForManualRecovery("WhatsApp session is logged out.", disconnectError);
+                return;
+            }
+
+            if (isConflict) {
+                runtimeLog.critical("WhatsApp session replaced by another connection (conflict/440)", {
+                    source: "baileysClient",
+                    statusCode,
+                    reason: typeof errorData?.reason === "string" ? errorData.reason : null,
+                    error: serializeErrorForLog(disconnectError),
+                });
+                stopForManualRecovery(
+                    "WhatsApp session was replaced by another connection (conflict/440). Close other linked devices or delete auth and re-pair.",
+                    disconnectError
+                );
                 return;
             }
 

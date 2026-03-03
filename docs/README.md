@@ -44,6 +44,7 @@ Use this as the single entry point for core project documentation.
 ## Features
 - Feature index: `docs/features/README.md`
 - Daily Notes: `docs/features/Daily_Notes.md`
+- Lessons Learned: `docs/features/Lessons_Learned.md`
 - Mila Milestones: `docs/features/Mila_Milestones.md`
 
 ## Service Documentation

@@ -619,3 +619,164 @@
 
 ## Review Notes
 - Goal: Opey should handle skill tickets without asking questions while keeping bug/feature tickets intact.
+
+---
+
+## Plan: WhatsApp Baileys Conflict Loop Guard (Status 440)
+
+1) Add explicit conflict/replaced detection for status `440` and `reason=conflict/replaced`, and stop auto-reconnect with a clear recovery log:
+- `server/whatsapp/baileyClient.ts`
+2) (Optional) Add a single-instance lock to prevent two local bridge processes from sharing `.whatsapp-auth`:
+- `server/whatsapp/index.ts`
+3) Verification (if approved):
+- `npm run whatsapp:dev`
+- Confirm on conflict: reconnect stops and logs instruct to close other WA sessions or clear `.whatsapp-auth`
+
+## Progress
+- [x] Plan added to `tasks/todo.md`.
+- [ ] Patch implementation (pending approval).
+- [ ] Verification run (if approved).
+
+## Review Notes
+- Root issue appears to be a session replacement (conflict/440) from another linked WA Web session or duplicate local process; reconnecting immediately just loops.
+
+---
+
+## Plan: Gemini Interactions Invalid Argument Guard
+
+1) Add request validation/sanitization before sending Interactions API requests (drop invalid media parts, enforce non-empty text input, log payload summary):
+- `src/services/geminiChatService.ts`
+2) Improve error logs to include sanitized input summary and model/system prompt lengths for quick diagnosis:
+- `src/services/geminiChatService.ts`
+3) Verification (if approved):
+- `npm run whatsapp:dev`
+- Send text-only and image messages; confirm no `invalid_request` and logs show sanitized payload summary
+
+## Progress
+- [x] Plan added to `tasks/todo.md`.
+- [ ] Patch implementation (pending approval).
+- [ ] Verification run (if approved).
+
+## Review Notes
+- Current errors show `invalid_request` from the Interactions API; likely malformed/empty input or invalid media part. Guardrails should prevent sending invalid payloads and improve diagnostics.
+
+---
+
+## Plan: WhatsApp GIF "This content is not available" Fix
+
+1) Inspect GIF send flow and message payload requirements:
+- `server/whatsapp/whatsappHandler.ts`
+- `src/services/messageOrchestrator.ts`
+2) Implement safer GIF sending (explicit mimetype, stricter validation, better host coverage/logs):
+- `server/whatsapp/whatsappHandler.ts`
+3) Verification (if approved):
+- `npm run whatsapp:dev`
+- Trigger a GIF action and confirm the received message renders (no "This content is not available")
+
+## Progress
+- [x] Plan added to `tasks/todo.md`.
+- [x] Read-only inspection completed (`whatsappHandler`, `messageOrchestrator`).
+- [x] Patch implementation (approved).
+- [ ] Verification run (if approved).
+
+## Review Notes
+- The current GIF send path uses a fetched buffer with `gifPlayback: true` but does not set `mimetype`, and only allows a narrow host set (no `media0/1.giphy.com`, `media1.tenor.com`, `c.tenor.com`).
+- Follow-up likely needs size guard + fetch headers + richer logs for GIF MP4 payloads that still render as "content not available".
+
+---
+
+## Plan: Enforce Valid, Public GIF URLs (Giphy Canonicalization + Validation)
+
+1) Inspect GIF validation/sending path and add canonicalization for Giphy "v1" URLs:
+- `server/whatsapp/whatsappHandler.ts`
+2) Add validation guardrails to ensure fetched media is public, MP4, and within size limits; fallback to text when invalid:
+- `server/whatsapp/whatsappHandler.ts`
+3) Verification (if approved):
+- `npm run whatsapp:dev`
+- Trigger a GIF action with a Giphy `v1` URL and confirm it renders (or clean fallback when invalid)
+
+## Progress
+- [x] Plan added to `tasks/todo.md`.
+- [x] Read-only inspection (additional) completed.
+- [x] Patch implementation (approved).
+- [ ] Verification run (if approved).
+
+## Review Notes
+- The reported URL is `media.giphy.com/media/v1.*` which often requires canonicalization to `media.giphy.com/media/<id>/giphy.mp4` to be publicly accessible.
+
+---
+
+## Plan: Gemini Interactions Proxy 500 Guardrails
+
+1) Inspect Interactions API request/response handling and error paths:
+- `src/services/geminiChatService.ts`
+2) Add retry + richer diagnostics for 5xx proxy errors (request summary + response metadata):
+- `src/services/geminiChatService.ts`
+3) Verification (if approved):
+- `npm run whatsapp:dev`
+- Send a message and confirm no `Proxy error: Internal Server Error` (or logs show retries + clearer diagnostics)
+
+## Progress
+- [x] Plan added to `tasks/todo.md`.
+- [x] Read-only inspection completed (`geminiChatService`).
+- [x] Patch implementation (approved).
+- [ ] Verification run (if approved).
+
+## Review Notes
+- Current error is thrown from `createInteraction` on non-2xx responses; there is no retry or 5xx-specific context logged.
+- Added persistent logging hook to emit proxy errors via `server/runtimeLogger.ts` (server) or `clientLogger` (browser).
+
+---
+
+## Plan: GIPHY-Only GIF Search + MP4 Rendition Selection
+
+1) Update GIF action schema/prompt to emit a query/tag instead of a URL:
+- `src/services/aiSchema.ts`
+- `src/services/system_prompts/tools/toolsAndCapabilities.ts`
+2) Translate `gif_action.query` into a server-side GIPHY search + MP4 rendition pick:
+- `src/services/messageOrchestrator.ts`
+- `server/whatsapp/whatsappHandler.ts`
+3) Enforce size + content-type validation, with text fallback when no GIF found:
+- `server/whatsapp/whatsappHandler.ts`
+4) Verification (if approved):
+- `npm run whatsapp:dev`
+- Trigger a GIF action and confirm a valid MP4 renders (or fallback text when none found)
+
+## Progress
+- [x] Plan added to `tasks/todo.md`.
+- [x] Read-only inspection completed.
+- [x] Patch implementation (approved).
+- [ ] Verification run (if approved).
+
+## Review Notes
+- This uses GIPHY only and avoids LLM-provided URLs by selecting a rendition from the GIPHY API.
+
+---
+
+## Plan: Kayley Lessons Learned (Append-Only Memory Lane)
+
+1) Add Supabase migration for lessons learned (1 row per CST day, append-only bullets):
+- `supabase/migrations/20260303_kayley_lessons_learned.sql`
+2) Add lessons learned tool schemas + tool declarations:
+- `src/services/aiSchema.ts`
+3) Implement lessons learned storage/retrieval + tool handler using `clientLogger` for success/failure paths:
+- `src/services/memoryService.ts`
+4) Add system prompt section for Lessons Learned and inject into greeting + non-greeting prompts:
+- `src/services/system_prompts/builders/systemPromptBuilder.ts`
+5) Update tool usage guidance + catalog entry:
+- `src/services/system_prompts/tools/toolsAndCapabilities.ts`
+- `src/services/toolCatalog.ts`
+6) Update docs:
+- `src/services/docs/Memory_and_Callbacks.md`
+- `docs/features/Lessons_Learned.md`
+- `docs/README.md`
+7) Verification (if approved):
+- `npm test -- --run`
+
+## Progress
+- [x] Plan added to `tasks/todo.md`.
+- [x] Patch implementation (approved).
+- [ ] Verification run (if approved).
+
+## Review Notes
+- Lessons are append-only like daily notes; bounded in prompt to avoid token bloat.

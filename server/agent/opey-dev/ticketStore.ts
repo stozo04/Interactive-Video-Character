@@ -52,7 +52,7 @@ export class SupabaseTicketStore {
   async updateStatus(
     ticketId: string,
     status: EngineeringTicketStatus,
-    details?: { prUrl?: string; failureReason?: string; worktreePath?: string; clarificationQuestions?: string }
+    details?: { prUrl?: string; failureReason?: string; worktreePath?: string; branch?: string; clarificationQuestions?: string }
   ): Promise<void> {
     try {
       const updates: any = {
@@ -63,6 +63,7 @@ export class SupabaseTicketStore {
       if (details?.prUrl) updates.final_pr_url = details.prUrl;
       if (details?.failureReason) updates.failure_reason = details.failureReason;
       if (details?.worktreePath) updates.worktree_path = details.worktreePath;
+      if (details?.branch) updates.worktree_branch = details.branch;
       if (details?.clarificationQuestions) updates.clarification_questions = details.clarificationQuestions;
 
       const { error } = await this.supabase
@@ -85,6 +86,51 @@ export class SupabaseTicketStore {
         error: message,
       });
       throw err;
+    }
+  }
+
+  /**
+   * Records a step or lifecycle event that happened during ticket processing.
+   * Writes to the engineering_ticket_events table so the UI can show a live
+   * activity feed of everything Opey did on a ticket.
+   *
+   * This method intentionally never throws — event tracking is observability,
+   * not critical path. A failed insert should never crash the agent.
+   */
+  async addEvent(
+    ticketId: string,
+    eventType: string,
+    summary: string,
+    payload: Record<string, unknown> = {}
+  ): Promise<void> {
+    try {
+      const { error } = await this.supabase
+        .from('engineering_ticket_events')
+        .insert({
+          id: crypto.randomUUID(),
+          ticket_id: ticketId,
+          event_type: eventType,
+          actor_type: 'opey',
+          actor_name: 'Opey',
+          summary,
+          payload,
+        });
+
+      if (error) {
+        log.error("Failed to insert ticket event", {
+          source: "ticketStore.ts",
+          ticketId,
+          eventType,
+          error: error.message,
+        });
+      }
+    } catch (err) {
+      log.error("Failed to insert ticket event", {
+        source: "ticketStore.ts",
+        ticketId,
+        eventType,
+        error: String(err),
+      });
     }
   }
 

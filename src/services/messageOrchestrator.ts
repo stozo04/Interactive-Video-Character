@@ -146,6 +146,7 @@ export async function processUserMessage(input: OrchestratorInput): Promise<Orch
     upcomingEvents,
     tasks,
     isMuted,
+    pendingEmail,
   } = input;
 
   // console.log(`🎯 [Orchestrator] Processing message: "${userMessage.substring(0, 50)}..."`);
@@ -190,6 +191,26 @@ export async function processUserMessage(input: OrchestratorInput): Promise<Orch
       textToSend = `${userMessage}\n\n[LIVE USER CALENDAR DATA (STEVEN) - ${upcomingEvents.length} EVENTS:\n${calendarContext}]\n\n⚠️ DELETE REMINDER: Use calendar_action with exact event_id from above.`;
     } else if (calendarContext) {
       textToSend = `${userMessage}\n\n[LIVE USER CALENDAR DATA (STEVEN) - ${upcomingEvents.length} EVENTS:\n${calendarContext}]`;
+    }
+
+    // Append pending email context if Kayley is waiting on a decision
+    if (pendingEmail) {
+      const emailContext = [
+        `[PENDING EMAIL ACTION — Steven is responding to an email you announced:]`,
+        `  Message ID : ${pendingEmail.id}`,
+        `  Thread ID  : ${pendingEmail.threadId}`,
+        `  From       : ${pendingEmail.from}`,
+        `  Subject    : ${pendingEmail.subject}`,
+        ``,
+        `Based on Steven's reply, set email_action.action to:`,
+        `  "archive"  — if he wants it archived/removed from inbox`,
+        `  "reply"    — if he wants to respond (compose reply_body in your casual Kayley voice)`,
+        `  "dismiss"  — if he wants to ignore it with no action`,
+        `Always populate message_id. Populate thread_id + reply_body when replying.`,
+      ].join('\n');
+
+      textToSend = `${textToSend}\n\n${emailContext}`;
+      console.log(`📧 [Orchestrator] Injected pending email context for message: ${pendingEmail.id}`);
     }
 
     // Build input and options for AI service
@@ -319,6 +340,38 @@ export async function processUserMessage(input: OrchestratorInput): Promise<Orch
             );
           }
         }
+      }
+    }
+
+    // Email Action (archive / reply / dismiss a pending email, OR send a new one)
+    if (actionType === ActionType.EMAIL) {
+      const emailAction = (response as any).email_action as {
+        action: 'archive' | 'reply' | 'dismiss' | 'send';
+        message_id?: string;
+        thread_id?: string;
+        to?: string;
+        subject?: string;
+        reply_body?: string;
+      } | undefined;
+
+      // 'send' requires 'to'; archive/reply/dismiss require 'message_id'
+      const isValid = emailAction?.action === 'send'
+        ? !!emailAction.to
+        : !!(emailAction?.action && emailAction?.message_id);
+
+      if (isValid) {
+        result.detectedEmailAction = emailAction as any;
+        console.log(`📧 [Orchestrator] Email action detected: ${emailAction!.action}${emailAction!.message_id ? ` for message ${emailAction!.message_id}` : ` to ${emailAction!.to}`}`);
+      }
+    }
+
+    // GIF Action (Send inline animated GIF via WhatsApp)
+    if (actionType === ActionType.GIF) {
+      const gifAction = (response as any).gif_action as { query: string; message_text?: string } | undefined;
+      if (gifAction?.query) {
+        result.gifQuery = gifAction.query;
+        result.gifMessageText = gifAction.message_text;
+        console.log(`🎞️ [Orchestrator] GIF action query: ${gifAction.query.substring(0, 80)}`);
       }
     }
 

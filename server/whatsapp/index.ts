@@ -9,10 +9,53 @@
 
 import { startWhatsAppClient } from "./baileyClient";
 import { handleWhatsAppMessage } from "./whatsappHandler";
+import { startEmailBridge } from "./emailBridge";
+import { startGmailPoller } from "../services/gmailPoller";
 import { log } from "../runtimeLogger";
+import fs from "fs";
+import path from "path";
 
 const LOG_PREFIX = "[WhatsApp]";
 const runtimeLog = log.fromContext({ source: "whatsappIndex", route: "whatsapp" });
+const AUTH_DIR = ".whatsapp-auth";
+const LOCK_FILE = path.join(AUTH_DIR, "bridge.lock");
+
+function acquireSingleInstanceLock(): boolean {
+  try {
+    if (!fs.existsSync(AUTH_DIR)) {
+      fs.mkdirSync(AUTH_DIR, { recursive: true });
+    }
+
+    const handle = fs.openSync(LOCK_FILE, "wx");
+    fs.writeFileSync(handle, String(process.pid));
+    fs.closeSync(handle);
+    return true;
+  } catch (error: any) {
+    const code = typeof error?.code === "string" ? error.code : "unknown";
+    console.error(`${LOG_PREFIX} Another WhatsApp bridge appears to be running (lock: ${LOCK_FILE}).`);
+    runtimeLog.error("WhatsApp bridge lock acquisition failed", {
+      source: "whatsappIndex",
+      lockFile: LOCK_FILE,
+      errorCode: code,
+      errorMessage: error?.message ?? String(error),
+    });
+    return false;
+  }
+}
+
+function releaseSingleInstanceLock() {
+  try {
+    if (fs.existsSync(LOCK_FILE)) {
+      fs.unlinkSync(LOCK_FILE);
+    }
+  } catch (error: any) {
+    runtimeLog.warning("Failed to release WhatsApp bridge lock", {
+      source: "whatsappIndex",
+      lockFile: LOCK_FILE,
+      errorMessage: error?.message ?? String(error),
+    });
+  }
+}
 
 async function main() {
   console.log(`${LOG_PREFIX} Starting WhatsApp bridge...`);
@@ -21,6 +64,21 @@ async function main() {
     nodeVersion: process.version,
     platform: process.platform,
     timestamp: new Date().toISOString(),
+  });
+
+  if (!acquireSingleInstanceLock()) {
+    console.error(`${LOG_PREFIX} Exiting due to existing lock. Stop other bridge processes and retry.`);
+    process.exit(1);
+  }
+
+  process.on("exit", () => releaseSingleInstanceLock());
+  process.on("SIGINT", () => {
+    releaseSingleInstanceLock();
+    process.exit(0);
+  });
+  process.on("SIGTERM", () => {
+    releaseSingleInstanceLock();
+    process.exit(0);
   });
 
   try {
@@ -63,6 +121,12 @@ async function main() {
       }
     });
 
+    // Poll Gmail directly — no browser needed for email notifications
+    startGmailPoller();
+
+    // Forward any browser-caught emails that haven't been sent to WA yet
+    startEmailBridge();
+
     console.log(`${LOG_PREFIX} Waiting for QR scan or session restore...`);
     runtimeLog.info("WhatsApp bridge initialized and waiting for connection", {
       source: "whatsappIndex",
@@ -82,6 +146,8 @@ async function main() {
 
     console.error(`${LOG_PREFIX} Failed to initialize WhatsApp client:`, initError);
     throw initError;
+  } finally {
+    releaseSingleInstanceLock();
   }
 }
 
