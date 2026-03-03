@@ -5,10 +5,6 @@ export type EngineeringTicketStatus =
   | "requirements_ready"
   | "planning"
   | "implementing"
-  | "ready_for_qa"
-  | "qa_testing"
-  | "qa_changes_requested"
-  | "qa_approved"
   | "pr_preparing"
   | "pr_ready"
   | "completed"
@@ -610,6 +606,28 @@ export async function createEngineeringTicket(payload: {
       httpStatus: null,
       error: "Multi-agent service is unreachable.",
     };
+  }
+}
+
+export async function submitClarification(
+  ticketId: string,
+  response: string,
+): Promise<{ ok: boolean; error?: string }> {
+  const endpoint = `${getBaseUrl()}/multi-agent/tickets/${encodeURIComponent(ticketId)}/clarify`;
+  try {
+    const res = await fetch(endpoint, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ mode: "answer", response }),
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({})) as { error?: string };
+      return { ok: false, error: body.error ?? `HTTP ${res.status}` };
+    }
+    return { ok: true };
+  } catch (error) {
+    console.error(`${LOG_PREFIX} submitClarification failed`, { error });
+    return { ok: false, error: "Multi-agent service is unreachable." };
   }
 }
 

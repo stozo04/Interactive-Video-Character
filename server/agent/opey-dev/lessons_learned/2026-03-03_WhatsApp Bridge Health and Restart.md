@@ -72,3 +72,48 @@ Add a "Web Runtime Logs" tab inside the Admin Dashboard's Runtime Logs mode to s
 - `clientLogger.ts` (browser) and `runtimeLogger.ts` (server) share `server_runtime_logs`. The only reliable discriminator is `source = 'client'` for browser-originated rows; everything else is server-originated.
 - If a third origin is ever added (e.g. mobile), it will appear in the Server Logs tab unless it also sets `source: 'client'`. At that point, adding a dedicated `application` column becomes worthwhile.
 - The `LOG_PREFIX` constant in both loggers is purely cosmetic for local console output — it has no effect on what lands in Supabase.
+
+---
+
+# Lessons Learned — Opey ↔ Kayley Communication Pipeline — 2026-03-03
+
+## Feature
+Wire Opey's ticket lifecycle events (needs_clarification, completed, failed, pr_ready) into Kayley's proactive notification system so Kayley naturally relays status and questions to Steven without group chat complexity.
+
+## Codebase Discoveries
+- **`engineeringTicketWatcher.ts`** already existed with a full Supabase Realtime subscription on `engineering_tickets` UPDATE events — it was already calling `triggerSystemMessage` for `completed`, `failed`, and `pr_ready`. The completion pipeline was effectively built and forgotten.
+- **`triggerSystemMessage`** in `App.tsx` is the correct mechanism for Kayley to proactively speak. It injects a [SYSTEM] prompt through her full pipeline, causing her to send an unprompted message.
+- `subscribeWorkspaceAgentEvents` (from `projectAgentService.ts`) was causing a CORS + 404 console error on every page load. The endpoint `/agent/events` was never implemented on the server — the watcher was trying to open an SSE stream to `http://localhost:4010/agent/events` which doesn't exist. The correct real-time mechanism is the Supabase Realtime subscription in `engineeringTicketWatcher.ts`, not SSE.
+- The `source` column on `server_runtime_logs` is overloaded: `clientLogger` writes `source: 'client'`; server loggers write service names (`'serverAudio'`, `'whatsapp'`) or `null`. There is no row with `source = 'server'` literally. The correct filter for server logs is `neq('source', 'client')`.
+- `needs_clarification` was suppressed via `shouldAvoidClarification` / `NO_QUESTION_MARKERS` as a workaround because the relay to Steven was never built. The status code path in `main.ts` was always there, just never reachable.
+- `engineering_ticket_events` deduplication in `engineeringTicketWatcher` originally used `row.id` as the set key — meaning once a ticket fired `needs_clarification`, it would NEVER fire again for that ticket in the same browser session. Fixed to `${row.id}-${row.updated_at}` so each status transition gets a unique key.
+- **QA statuses do not exist** in this project: `ready_for_qa`, `qa_testing`, `qa_changes_requested`, `qa_approved` were defined in types but never used. Canonical status list: `created`, `intake_acknowledged`, `needs_clarification`, `requirements_ready`, `planning`, `implementing`, `pr_preparing`, `pr_ready`, `completed`, `failed`, `escalated_human`, `cancelled`.
+
+## Approach That Worked — Kayley as Relay
+Single conversational surface: Opey writes to Supabase, Kayley reads via Realtime, delivers to Steven via `triggerSystemMessage`. No group chat, no SSE, no new server endpoints.
+
+### Clarification flow (end-to-end):
+1. Opey sets `needs_clarification` + stores questions in `clarification_questions` column
+2. Supabase Realtime fires UPDATE event → `engineeringTicketWatcher` picks it up
+3. App.tsx injects [SYSTEM] prompt with questions + ticketId → Kayley relays naturally
+4. Steven answers in chat → Kayley calls `submit_clarification(ticketId, response)` tool
+5. Tool calls `POST /multi-agent/tickets/:id/clarify` → resets ticket to `created`
+6. Opey's 30s poll picks it up → sets `implementing` → continues
+
+### Clarification cap:
+`shouldAvoidClarification()` counts `--- CLARIFICATION ---` markers in `additional_details`. After 3 rounds it suppresses further clarification and either ships or fails.
+
+## Tool additions (submit_clarification)
+Touch points for adding a new Kayley tool: `aiSchema.ts` (schema + type + GeminiTool definition + union type), `memoryService.ts` (MemoryToolName + ToolCallArgs + case handler), `multiAgentService.ts` (API call function), `toolsAndCapabilities.ts` (strategy rule).
+
+## Gotchas & Bugs
+- **Deduplication key must include `updated_at`**, not just `row.id`. Using `row.id` alone means the same ticket can never re-trigger Kayley, even after going through multiple status cycles.
+- **`source = 'server'` returns zero rows.** Never filter runtime logs this way. Use `neq('source', 'client')` for server-side entries.
+- **The clarify endpoint MUST reset to `created`**, not `implementing`, or the 30s poll loop will never pick the ticket back up (it queries `status = 'created'` only). The `implementing` step happens naturally when the poll fires.
+- **`subscribeWorkspaceAgentEvents` default URL is `http://localhost:4010`** — an absolute URL that bypasses the Vite proxy, causing CORS. If this feature is ever built out, use a relative path (`/agent`) through the Vite proxy the same way WhatsApp bridge does.
+
+## What Future Opey Should Know
+- To add a new status that Kayley proactively notifies about: add it to `NOTIFY_STATUSES` in `engineeringTicketWatcher.ts` and add a branch in the `ticketTerminatedRef.current` handler in `App.tsx`.
+- The canonical ticket status list (no QA): `created` → `intake_acknowledged` → `needs_clarification` ↔ `implementing` → `pr_preparing` → `pr_ready` → `completed` | `failed` | `escalated_human` | `cancelled`.
+- `requirements_ready` and `planning` are manual/placeholder statuses — Opey skips straight to `implementing`.
+- The migration file for re-adding `needs_clarification` to the DB constraint is at `server/agent/opey-dev/migrations/add_needs_clarification_status.sql`.

@@ -96,10 +96,6 @@ const MULTI_AGENT_STATUSES: EngineeringTicketStatus[] = [
   'requirements_ready',
   'planning',
   'implementing',
-  'ready_for_qa',
-  'qa_testing',
-  'qa_changes_requested',
-  'qa_approved',
   'pr_preparing',
   'pr_ready',
   'completed',
@@ -2121,11 +2117,9 @@ function formatRuntimeLogDetails(details: Record<string, unknown> | null | undef
 
 function getTicketStatusClasses(status: EngineeringTicketStatus): string {
   switch (status) {
-    case 'qa_approved':
     case 'pr_ready':
     case 'completed':
       return 'bg-emerald-900/30 border-emerald-600/40 text-emerald-300';
-    case 'qa_changes_requested':
     case 'needs_clarification':
       return 'bg-amber-900/30 border-amber-600/40 text-amber-300';
     case 'failed':
@@ -2133,7 +2127,6 @@ function getTicketStatusClasses(status: EngineeringTicketStatus): string {
     case 'cancelled':
       return 'bg-red-900/30 border-red-600/40 text-red-300';
     case 'implementing':
-    case 'qa_testing':
     case 'pr_preparing':
       return 'bg-blue-900/30 border-blue-600/40 text-blue-300';
     default:

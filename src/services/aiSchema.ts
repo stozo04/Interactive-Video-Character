@@ -845,6 +845,15 @@ export const EngineeringTicketStatusSchema = z.object({
     .describe("Ticket id to fetch. If omitted, return the latest ticket."),
 });
 
+/**
+ * Schema for the submit_clarification tool.
+ * Routes Steven's answer back to an Opey ticket awaiting clarification.
+ */
+export const SubmitClarificationSchema = z.object({
+  ticket_id: z.string().describe("The engineering ticket id that needs clarification."),
+  response: z.string().describe("Steven's answer to Opey's clarifying questions."),
+});
+
 // Export types for tool arguments
 export type RecallMemoryArgs = z.infer<typeof RecallMemorySchema>;
 export type RecallUserInfoArgs = z.infer<typeof RecallUserInfoSchema>;
@@ -862,6 +871,7 @@ export type WorkspaceActionArgs = z.infer<typeof WorkspaceActionSchema>;
 export type CronJobActionArgs = z.infer<typeof CronJobActionSchema>;
 export type DelegateToEngineeringArgs = z.infer<typeof DelegateToEngineeringSchema>;
 export type EngineeringTicketStatusArgs = z.infer<typeof EngineeringTicketStatusSchema>;
+export type SubmitClarificationArgs = z.infer<typeof SubmitClarificationSchema>;
 
 // Union type for all memory tool arguments
 export type MemoryToolArgs =
@@ -871,6 +881,7 @@ export type MemoryToolArgs =
   | { tool: "cron_job_action"; args: CronJobActionArgs }
   | { tool: "delegate_to_engineering"; args: DelegateToEngineeringArgs }
   | { tool: "get_engineering_ticket_status"; args: EngineeringTicketStatusArgs }
+  | { tool: "submit_clarification"; args: SubmitClarificationArgs }
   | { tool: "recall_user_info"; args: RecallUserInfoArgs }
   | { tool: "store_user_info"; args: StoreUserInfoArgs }
   | { tool: "resolve_idle_question"; args: ResolveIdleQuestionArgs }
@@ -1583,6 +1594,26 @@ export const GeminiMemoryToolDeclarations = [
     },
   },
   {
+    name: "submit_clarification",
+    description:
+      "Submit Steven's answer to Opey's clarifying questions for an engineering ticket. " +
+      "Use this after relaying Opey's questions and receiving Steven's response.",
+    parameters: {
+      type: "object",
+      properties: {
+        ticket_id: {
+          type: "string",
+          description: "The engineering ticket id awaiting clarification.",
+        },
+        response: {
+          type: "string",
+          description: "Steven's answer to Opey's clarifying questions.",
+        },
+      },
+      required: ["ticket_id", "response"],
+    },
+  },
+  {
     name: "resolve_open_loop",
     description:
       "Mark an open loop as resolved (user answered) or dismissed (user doesn't want to discuss). " +
@@ -2015,6 +2046,7 @@ export interface PendingToolCall {
     | "cron_job_action"
     | "delegate_to_engineering"
     | "get_engineering_ticket_status"
+    | "submit_clarification"
     | "resolve_x_tweet"
     | "post_x_tweet"
     | "resolve_x_mention";

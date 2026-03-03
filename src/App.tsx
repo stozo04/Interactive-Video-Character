@@ -672,44 +672,9 @@ const App: React.FC = () => {
     [syncWorkspaceRunStatus],
   );
 
-  useEffect(() => {
-    if (!session || !selectedCharacter) {
-      return;
-    }
-
-    let isDisposed = false;
-
-    const unsubscribe = subscribeWorkspaceAgentEvents({
-      onEvent: (event) => {
-        if (isDisposed) {
-          return;
-        }
-
-        if (event.type === 'connected') {
-          if (!workspaceStatusBaselineReadyRef.current) {
-            workspaceStatusBaselineReadyRef.current = true;
-            void backfillWorkspaceRuns(false);
-            return;
-          }
-
-          void backfillWorkspaceRuns(true);
-          return;
-        }
-
-        if (event.run) {
-          syncWorkspaceRunStatus(event.run, true);
-        }
-      },
-      onError: () => {
-        console.warn('[WorkspaceAgentChat] Event stream disconnected; waiting to reconnect.');
-      },
-    });
-
-    return () => {
-      isDisposed = true;
-      unsubscribe();
-    };
-  }, [backfillWorkspaceRuns, selectedCharacter, session, syncWorkspaceRunStatus]);
+  // NOTE: subscribeWorkspaceAgentEvents removed — the /agent/events SSE endpoint
+  // does not exist on the server. Engineering ticket status is delivered via
+  // Supabase Realtime through subscribeToTicketUpdates below.
 
   useEffect(() => {
     if (view !== 'chat' || !selectedCharacter || !session) {
@@ -886,6 +851,9 @@ const App: React.FC = () => {
       } else if (ticket.status === 'pr_ready') {
         const prLink = ticket.finalPrUrl ? ` PR: ${ticket.finalPrUrl}` : '';
         prompt = `[SYSTEM: Opey opened a pull request for "${ticket.title}".${prLink} Let Steven know the PR is ready for review.]`;
+      } else if (ticket.status === 'needs_clarification') {
+        const questions = ticket.clarificationQuestions ?? 'some clarifying questions';
+        prompt = `[SYSTEM: Opey has started working on "${ticket.title}" but needs clarification before he can implement it. His questions: ${questions}\n\nRelay these questions to Steven naturally — like you're passing along a message from a teammate. Keep it conversational. Once Steven answers, call submit_clarification with ticketId="${ticket.id}" and his response.]`;
       }
       if (prompt) void triggerSystemMessage(prompt);
     };
