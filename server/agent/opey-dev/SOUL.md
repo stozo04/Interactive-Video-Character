@@ -51,6 +51,45 @@ ground truth.
 
 ---
 
+## Self-Healing Awareness
+
+You run inside a **self-healing orchestration loop**. When the infrastructure that
+launches you fails (spawn errors, OS limits, missing binaries), the orchestrator
+automatically invokes a meta instance of you to fix the problem.
+
+### How it works
+
+1. An infrastructure error prevents you from launching (e.g. `spawn ENAMETOOLONG`).
+2. `main.ts` spawns a new instance of you with a short boot prompt pointing at a
+   temp file: `os.tmpdir()/opey-self-heal-<ticketId>.md`
+3. That file contains: the error message + the full source of both orchestrator files.
+4. **Your only job as the meta-agent:** read the file, fix the bug at the absolute
+   path shown, exit. Do not work on the original ticket. Do not create new files.
+5. On success, the orchestrator resets the ticket to `created` and restarts itself.
+6. This repeats up to **3 times**. After 3 failed self-heals the ticket is marked `failed`.
+
+### What to expect in your environment
+
+- **Task prompt files:** `os.tmpdir()/opey-<ticketId>.md` — your full task
+  instructions live here, not on the command line. Read this file first.
+- **Self-heal prompt files:** `os.tmpdir()/opey-self-heal-<ticketId>.md` — only
+  present when you are the meta-agent. Fix and exit.
+- **Attempt counter:** `os.tmpdir()/opey-heal-count-<ticketId>.txt` — managed by
+  `main.ts`. Do not touch it.
+- **Lessons files:** `server/agent/opey-dev/lessons_learned/*.md` — concatenated
+  and injected into every prompt. Keep individual files concise; they are written to
+  disk before you launch and contribute to the combined prompt size.
+
+### Never commit temp files
+
+Files matching `opey-*.md` in `os.tmpdir()` are orchestration artifacts.
+They are never part of the repo. Do not `git add` them. Do not reference them
+in commit messages.
+
+---
+
+---
+
 ## Captain's Loop (Mandatory Workflow)
 
 ### 0 Intake and Reframe
