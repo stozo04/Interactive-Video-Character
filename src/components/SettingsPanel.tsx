@@ -1,10 +1,9 @@
 // src/components/SettingsPanel.tsx
 import React, { useState, useEffect, useCallback } from 'react';
 import { GmailConnectButton } from './GmailConnectButton';
-import { useGoogleAuth } from '../contexts/GoogleAuthContext';
 import { hasXScope, isXConnected, initXAuth, revokeXAuth } from '../services/xTwitterService';
 import { supabase } from '../services/supabaseClient';
-import { getMultiAgentHealth } from '../services/multiAgentService';
+import { getMultiAgentHealth, getWhatsAppHealth } from '../services/multiAgentService';
 import type { ProactiveSettings } from '../types';
 
 interface SettingsPanelProps {
@@ -23,21 +22,10 @@ export function SettingsPanel({
   onAdminDashboard
 }: SettingsPanelProps) {
   const [isOpen, setIsOpen] = useState(false);
-  const { session, signOut, status } = useGoogleAuth();
-
   // Check if all proactive features are off
   const allProactiveOff = proactiveSettings 
     ? !proactiveSettings.calendar && !proactiveSettings.news && !proactiveSettings.checkins
     : false;
-
-  const handleSignOut = async () => {
-    try {
-      await signOut();
-      setIsOpen(false);
-    } catch (error) {
-      console.error('Error signing out:', error);
-    }
-  };
 
   // --------------------------------------------------------------------------
   // X (Twitter) Integration State
@@ -54,6 +42,12 @@ export function SettingsPanel({
   const [serverHealthLatencyMs, setServerHealthLatencyMs] = useState<number | null>(null);
   const [isServerHealthLoading, setIsServerHealthLoading] = useState(false);
   const [serverHealthError, setServerHealthError] = useState<string | null>(null);
+
+  // --------------------------------------------------------------------------
+  // WhatsApp Bridge Health
+  // --------------------------------------------------------------------------
+  const [waStatus, setWaStatus] = useState<'ok' | 'unreachable' | null>(null);
+  const [waLatencyMs, setWaLatencyMs] = useState<number | null>(null);
 
   const checkXConnection = useCallback(async () => {
     try {
@@ -92,22 +86,26 @@ export function SettingsPanel({
     setIsServerHealthLoading(true);
     setServerHealthError(null);
     try {
-      const result = await getMultiAgentHealth();
-      if (!result.ok) {
+      const [multiAgent, whatsapp] = await Promise.all([getMultiAgentHealth(), getWhatsAppHealth()]);
+
+      if (!multiAgent.ok) {
         setServerHealthStatus('unreachable');
         setServerHealthLatencyMs(null);
-        setServerHealthError(result.error || 'Server health check failed.');
-        return;
+        setServerHealthError(multiAgent.error || 'Server health check failed.');
+      } else {
+        setServerHealthStatus('ok');
+        setServerHealthLatencyMs(typeof multiAgent.latencyMs === 'number' ? multiAgent.latencyMs : null);
       }
-      setServerHealthStatus('ok');
-      setServerHealthLatencyMs(
-        typeof result.latencyMs === 'number' ? result.latencyMs : null,
-      );
+
+      setWaStatus(whatsapp.ok && whatsapp.connected ? 'ok' : 'unreachable');
+      setWaLatencyMs(typeof whatsapp.latencyMs === 'number' ? whatsapp.latencyMs : null);
     } catch (error) {
       console.error('Server health check failed:', error);
       setServerHealthStatus('unreachable');
       setServerHealthLatencyMs(null);
       setServerHealthError('Server health check failed.');
+      setWaStatus('unreachable');
+      setWaLatencyMs(null);
     } finally {
       setIsServerHealthLoading(false);
     }
@@ -341,7 +339,7 @@ export function SettingsPanel({
                   <span
                     className={`h-2.5 w-2.5 rounded-full ${
                       serverHealthStatus === 'ok'
-                        ? 'bg-emerald-400'
+                        ? 'bg-green-400'
                         : serverHealthStatus === 'unreachable'
                           ? 'bg-red-400'
                           : 'bg-amber-400'
@@ -355,6 +353,22 @@ export function SettingsPanel({
                             : ''
                         }`
                       : 'Multi-agent: unknown'}
+                  </span>
+                </div>
+                <div className="flex items-center gap-2 text-xs text-gray-400 mt-1">
+                  <span
+                    className={`h-2.5 w-2.5 rounded-full ${
+                      waStatus === 'ok'
+                        ? 'bg-green-400'
+                        : waStatus === 'unreachable'
+                          ? 'bg-red-400'
+                          : 'bg-amber-400'
+                    }`}
+                  />
+                  <span>
+                    {waStatus
+                      ? `WhatsApp: ${waStatus}${waLatencyMs !== null ? ` (${waLatencyMs}ms)` : ''}`
+                      : 'WhatsApp: unknown'}
                   </span>
                 </div>
                 {serverHealthError && (
@@ -380,7 +394,10 @@ export function SettingsPanel({
                 ) : xConnected ? (
                   <div className="space-y-3">
                     <div className="flex items-center justify-between">
-                      <span className="text-xs text-green-400 font-medium">Connected</span>
+                      <div className="flex items-center gap-2">
+                        <span className="h-2.5 w-2.5 rounded-full bg-green-400" />
+                        <span className="text-xs text-green-400 font-medium">Connected</span>
+                      </div>
                       <button
                         onClick={handleDisconnectX}
                         disabled={xLoading}
@@ -398,8 +415,8 @@ export function SettingsPanel({
                       </div>
                     )}
 
-                    {/* Posting Mode Toggle */}
-                    <div className="flex items-center justify-between py-2">
+                    {/* Posting Mode Toggle — only relevant when a character is active */}
+                    {proactiveSettings && <div className="flex items-center justify-between py-2">
                       <div>
                         <span className="text-sm text-gray-300">Auto-post</span>
                         <p className="text-xs text-gray-500">
@@ -420,7 +437,7 @@ export function SettingsPanel({
                           }`}
                         />
                       </button>
-                    </div>
+                    </div>}
                   </div>
                 ) : (
                   <button
@@ -466,85 +483,6 @@ export function SettingsPanel({
                 </button>
               </div>
 
-              {/* Account Section */}
-              <div className="border-t border-gray-700 pt-3">
-                <h3 className="text-sm font-medium text-gray-300 mb-3">
-                  Account
-                </h3>
-                {session && (
-                  <div className="space-y-3">
-                    <div className="text-xs text-gray-400 bg-gray-900/50 rounded px-3 py-2 border border-gray-700">
-                      <div className="flex items-center gap-2 mb-1">
-                        <svg
-                          xmlns="http://www.w3.org/2000/svg"
-                          className="h-4 w-4"
-                          fill="none"
-                          viewBox="0 0 24 24"
-                          stroke="currentColor"
-                        >
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            strokeWidth={2}
-                            d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"
-                          />
-                        </svg>
-                        <span className="font-medium">Signed in as:</span>
-                      </div>
-                      <div className="pl-6 text-gray-300">{session.email}</div>
-                    </div>
-                    <button
-                      onClick={handleSignOut}
-                      disabled={status === 'loading'}
-                      className="w-full px-4 py-2 bg-red-600/80 hover:bg-red-600 disabled:bg-gray-700 disabled:cursor-not-allowed text-white rounded-lg transition-colors font-medium flex items-center justify-center gap-2"
-                    >
-                      {status === 'loading' ? (
-                        <>
-                          <svg
-                            className="animate-spin h-4 w-4"
-                            xmlns="http://www.w3.org/2000/svg"
-                            fill="none"
-                            viewBox="0 0 24 24"
-                          >
-                            <circle
-                              className="opacity-25"
-                              cx="12"
-                              cy="12"
-                              r="10"
-                              stroke="currentColor"
-                              strokeWidth="4"
-                            />
-                            <path
-                              className="opacity-75"
-                              fill="currentColor"
-                              d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-                            />
-                          </svg>
-                          <span>Signing out...</span>
-                        </>
-                      ) : (
-                        <>
-                          <svg
-                            xmlns="http://www.w3.org/2000/svg"
-                            className="h-5 w-5"
-                            fill="none"
-                            viewBox="0 0 24 24"
-                            stroke="currentColor"
-                          >
-                            <path
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                              strokeWidth={2}
-                              d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"
-                            />
-                          </svg>
-                          <span>Sign Out</span>
-                        </>
-                      )}
-                    </button>
-                  </div>
-                )}
-              </div>
             </div>
           </div>
         </>

@@ -1850,9 +1850,9 @@ const App: React.FC = () => {
             </button>
           )}
           
-            <SettingsPanel 
-            proactiveSettings={proactiveSettings}
-            onProactiveSettingsChange={updateProactiveSettings}
+            <SettingsPanel
+            proactiveSettings={selectedCharacter ? proactiveSettings : undefined}
+            onProactiveSettingsChange={selectedCharacter ? updateProactiveSettings : undefined}
               onAdminDashboard={() => setView('admin')}
           />
         </div>

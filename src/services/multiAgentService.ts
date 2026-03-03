@@ -201,6 +201,18 @@ export interface MultiAgentCreateTicketResult {
 
 const LOG_PREFIX = "[MultiAgentService]";
 const DEFAULT_AGENT_BASE_URL = "http://localhost:4010";
+const DEFAULT_WHATSAPP_BRIDGE_URL = "http://localhost:4011";
+
+function getWhatsAppBaseUrl(): string {
+  const configuredUrl = import.meta.env.VITE_WHATSAPP_BRIDGE_URL as string | undefined;
+  if (configuredUrl && configuredUrl.trim()) {
+    return configuredUrl.trim().replace(/\/+$/, "");
+  }
+  if (import.meta.env.DEV) {
+    return "/whatsapp-bridge"; // goes through Vite proxy → 127.0.0.1:4011
+  }
+  return DEFAULT_WHATSAPP_BRIDGE_URL;
+}
 
 function getBaseUrl(): string {
   const configuredUrl = import.meta.env.VITE_WORKSPACE_AGENT_URL as string | undefined;
@@ -302,6 +314,61 @@ export async function listEngineeringTickets(limit = 25): Promise<MultiAgentTick
       tickets: [],
       error: "Multi-agent service is unreachable.",
     };
+  }
+}
+
+export interface WhatsAppHealthResult {
+  ok: boolean;
+  connected: boolean;
+  latencyMs?: number;
+  error?: string;
+}
+
+export interface WhatsAppRestartResult {
+  ok: boolean;
+  message?: string;
+  error?: string;
+}
+
+export async function restartWhatsApp(): Promise<WhatsAppRestartResult> {
+  const endpoint = `${getWhatsAppBaseUrl()}/restart`;
+
+  try {
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+    });
+    const body = await parseResponse<{ ok?: boolean; message?: string; error?: string }>(response);
+
+    if (!response.ok) {
+      return { ok: false, error: body.error || `WhatsApp bridge restart failed with status ${response.status}.` };
+    }
+
+    return { ok: true, message: body.message };
+  } catch {
+    return { ok: false, error: "WhatsApp bridge is unreachable." };
+  }
+}
+
+export async function getWhatsAppHealth(): Promise<WhatsAppHealthResult> {
+  const endpoint = `${getWhatsAppBaseUrl()}/health`;
+  const t0 = Date.now();
+
+  try {
+    const response = await fetch(endpoint, {
+      method: "GET",
+      headers: { Accept: "application/json" },
+    });
+    const latencyMs = Date.now() - t0;
+    const body = await parseResponse<{ ok?: boolean; connected?: boolean }>(response);
+
+    if (!response.ok) {
+      return { ok: false, connected: false, error: `WhatsApp bridge returned ${response.status}.` };
+    }
+
+    return { ok: true, connected: body.connected === true, latencyMs };
+  } catch {
+    return { ok: false, connected: false, error: "WhatsApp bridge is unreachable." };
   }
 }
 
