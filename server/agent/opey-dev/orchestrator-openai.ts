@@ -9,6 +9,7 @@
 
 import { spawn, execSync, type ChildProcess } from "node:child_process";
 import * as fs from "node:fs";
+import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { formatSkillContext, loadSkillContext } from "./skillLoader";
@@ -177,11 +178,22 @@ export async function runOpeyLoop(
   // if something goes wrong before it exits on its own.
   let child: ChildProcess | null = null;
 
+  // Temp file that holds the full prompt. Written before spawn, deleted in finally.
+  // Passing fullPrompt as a CLI arg causes spawn ENAMETOOLONG on Windows because
+  // CreateProcess has a ~32KB command-line limit. Writing it to disk sidesteps that.
+  let promptFile: string | null = null;
+
   try {
     // 1. Assemble the prompt.
     const soulPrompt = loadSoulPrompt();
     const ticketPrompt = buildTicketPrompt(ticket, workPath);
     const fullPrompt = `${soulPrompt}\n\n${ticketPrompt}`;
+
+    // Write full prompt to a temp file; pass a short boot arg to Codex instead.
+    promptFile = path.join(os.tmpdir(), `opey-${ticket?.id ?? "task"}.md`);
+    fs.writeFileSync(promptFile, fullPrompt, "utf-8");
+    const bootArg =
+      `Your complete task instructions are in this file — read it before doing anything:\n${promptFile}\n\nImplement everything described in that file.`;
 
     // 2. Build the argument list for the Codex CLI.
     //    - "exec" tells Codex to run a one-shot task (no interactive session).
@@ -190,14 +202,14 @@ export async function runOpeyLoop(
     //      already controls what branch it runs on, and we want fully automated runs.
     //    - "--ephemeral": don't write session files to disk between runs.
     //    - "--color never": strip ANSI colour codes so our logs are readable.
-    //    - The last argument is the prompt text itself.
+    //    - The last argument is a short boot instruction pointing at promptFile.
     const args = [
       "exec",
       "-m", CODEX_MODEL,
       "--dangerously-bypass-approvals-and-sandbox",
       "--ephemeral",
       "--color", "never",
-      fullPrompt,
+      bootArg,
     ];
 
     // 3. Figure out HOW to launch the Codex binary.
@@ -346,6 +358,10 @@ export async function runOpeyLoop(
     // still be running — kill it so we don't leave zombie processes behind.
     if (child && !child.killed) {
       child.kill();
+    }
+    // Clean up the temp prompt file regardless of success or failure.
+    if (promptFile) {
+      try { fs.unlinkSync(promptFile); } catch { /* ignore */ }
     }
   }
 }

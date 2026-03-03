@@ -1,7 +1,11 @@
 // ./server/agent/opey-dev/main.ts
 // Entry point (The Boss) — polls for new tickets every 30s
 
-import { execSync } from "node:child_process";
+import { execSync, spawn, type ChildProcess } from "node:child_process";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
+import { fileURLToPath } from "node:url";
 import { SupabaseTicketStore } from "./ticketStore";
 import { BranchManager } from "./branchManager";
 import { runOpeyLoop } from "./orchestrator";
@@ -9,17 +13,17 @@ import { runOpeyLoop as runOpeyLoopOpenAI } from "./orchestrator-openai";
 import { log } from "../../runtimeLogger";
 import { createPullRequest } from "./githubOps";
 
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
 const LOG_PREFIX = "[Opey-Dev]";
 const POLL_INTERVAL_MS = 30_000;
 const SHELL_OPTS = process.platform === "win32" ? { shell: "bash" as const } : {};
 const CLARIFICATION_MARKER = "--- CLARIFICATION ---";
+// Must match CODEX_MODEL in orchestrator-openai.ts
+const SELF_HEAL_CODEX_MODEL = "gpt-5.2-codex";
+const MAX_SELF_HEAL_ATTEMPTS = 3;
 const MAX_CLARIFICATION_ROUNDS = 3;
-const NO_QUESTION_MARKERS = [
-  /no clarifications?/i,
-  /no questions?/i,
-  /do not ask questions/i,
-  /you can not ask questions/i,
-];
 
 /** Check if the branch has any commits ahead of main. */
 function hasCommitsAheadOfMain(workPath: string): boolean {
@@ -48,15 +52,6 @@ function commitUnstagedWork(workPath: string, ticketTitle: string): void {
   execSync(`git commit -m "${msg}"`, { cwd: workPath, ...SHELL_OPTS });
 }
 
-function getTicketType(ticket: any): string {
-  const type =
-    ticket?.request_type ??
-    ticket?.requestType ??
-    ticket?.type ??
-    "";
-  return String(type).toLowerCase();
-}
-
 function getTicketDetails(ticket: any): string {
   const details =
     ticket?.additional_details ??
@@ -68,11 +63,7 @@ function getTicketDetails(ticket: any): string {
 }
 
 function shouldAvoidClarification(ticket: any): boolean {
-  const type = getTicketType(ticket);
   const details = getTicketDetails(ticket);
-  if (type === "skill" || NO_QUESTION_MARKERS.some((pattern) => pattern.test(details))) {
-    return true;
-  }
   // Count how many times clarification has already happened on this ticket
   const rounds = (details.match(new RegExp(CLARIFICATION_MARKER, "g")) ?? []).length;
   return rounds >= MAX_CLARIFICATION_ROUNDS;
@@ -81,6 +72,154 @@ function shouldAvoidClarification(ticket: any): boolean {
 
 // Choose orchestrator: "claude" or "openai" (default: "claude")
 const ORCHESTRATOR_BACKEND = process.env.OPEY_BACKEND ?? "claude";
+
+// ---------------------------------------------------------------------------
+// Self-healing: when an infrastructure error prevents Codex from launching,
+// Opey spawns a meta-Codex run to patch the orchestrator, then restarts itself.
+// Attempt count is tracked in a temp file (survives the restart, ticket-scoped).
+// ---------------------------------------------------------------------------
+
+async function attemptSelfHeal(
+  err: Error,
+  store: SupabaseTicketStore,
+  ticketId: string,
+): Promise<boolean> {
+  // Count how many self-heal attempts we've already made for this ticket.
+  const countFile = path.join(os.tmpdir(), `opey-heal-count-${ticketId}.txt`);
+  const attempt = fs.existsSync(countFile)
+    ? parseInt(fs.readFileSync(countFile, "utf-8"), 10) + 1
+    : 1;
+
+  if (attempt > MAX_SELF_HEAL_ATTEMPTS) {
+    log.warning(`${LOG_PREFIX} Self-heal limit reached (${MAX_SELF_HEAL_ATTEMPTS}) — giving up`, {
+      source: "main.ts", ticketId,
+    });
+    try { fs.unlinkSync(countFile); } catch { /* ignore */ }
+    return false;
+  }
+
+  log.info(`${LOG_PREFIX} Infrastructure error detected — self-heal attempt ${attempt}/${MAX_SELF_HEAL_ATTEMPTS}`, {
+    source: "main.ts", ticketId, error: err.message,
+  });
+
+  // Persist attempt count so the restarted process knows where we left off.
+  fs.writeFileSync(countFile, String(attempt), "utf-8");
+
+  // Record in ticket event log.
+  await store.addEvent(
+    ticketId,
+    "self_heal_attempted",
+    `Infrastructure error — self-repair attempt ${attempt}/${MAX_SELF_HEAL_ATTEMPTS}`,
+    { error: err.message, attempt },
+  );
+
+  // Include both orchestrators in the meta-prompt — Codex fixes whichever caused the error.
+  const orchestratorFiles = [
+    "orchestrator.ts", "orchestrator.js",
+    "orchestrator-openai.ts", "orchestrator-openai.js",
+  ]
+    .map((f) => path.join(__dirname, f))
+    .filter((p) => fs.existsSync(p));
+
+  const orchestratorSource = orchestratorFiles
+    .map((p) => `### ${path.basename(p)}\n\`\`\`typescript\n${fs.readFileSync(p, "utf-8")}\n\`\`\``)
+    .join("\n\n") || "(files not found)";
+
+  // Write a full meta-prompt to a temp file (avoids Windows CLI length limits
+  // — the same problem we're self-healing is handled here from the start).
+  const metaPromptFile = path.join(os.tmpdir(), `opey-self-heal-${ticketId}.md`);
+  fs.writeFileSync(metaPromptFile, [
+    "# Opey Self-Heal Task",
+    "",
+    "The Opey orchestrator crashed with this error:",
+    "",
+    "```",
+    err.message,
+    "```",
+    "",
+    "## Orchestrator files (one or both may be the source of the bug)",
+    "",
+    `Directory: ${__dirname}`,
+    "",
+    orchestratorSource,
+    "",
+    "Fix the bug that caused the error above. Edit the relevant file(s) at their absolute paths.",
+    "Do not ask questions. Do not create new files. One focused fix only.",
+    "Delete this instructions file when done.",
+  ].join("\n"), "utf-8");
+
+  const bootArg = `Self-heal task. Read instructions from: ${metaPromptFile}`;
+
+  // Spawn meta-Codex (same Windows vs Unix logic as orchestrator-openai.ts).
+  let healChild: ChildProcess | null = null;
+  let metaPromptCleaned = false;
+  try {
+    let spawnCmd: string;
+    let spawnArgs: string[];
+    if (process.platform === "win32") {
+      const npmRoot = execSync("npm root -g").toString().trim();
+      const codexScript = path.join(npmRoot, "@openai", "codex", "bin", "codex.js");
+      spawnCmd = "node";
+      spawnArgs = [codexScript, "exec", "-m", SELF_HEAL_CODEX_MODEL,
+        "--dangerously-bypass-approvals-and-sandbox", "--ephemeral", "--color", "never", bootArg];
+    } else {
+      spawnCmd = "codex";
+      spawnArgs = ["exec", "-m", SELF_HEAL_CODEX_MODEL,
+        "--dangerously-bypass-approvals-and-sandbox", "--ephemeral", "--color", "never", bootArg];
+    }
+
+    const repoRoot = path.join(__dirname, "..", "..", "..");
+    healChild = spawn(spawnCmd, spawnArgs, { stdio: "pipe", cwd: repoRoot });
+
+    healChild.stdout?.on("data", (chunk: Buffer) => {
+      log.info(`${LOG_PREFIX} [Self-Heal] ${chunk.toString().trim()}`, { source: "main.ts", ticketId });
+    });
+    healChild.stderr?.on("data", (chunk: Buffer) => {
+      log.info(`${LOG_PREFIX} [Self-Heal] ${chunk.toString().trim()}`, { source: "main.ts", ticketId });
+    });
+
+    const exitCode = await new Promise<number | null>((resolve, reject) => {
+      healChild!.on("close", resolve);
+      healChild!.on("error", reject);
+    });
+
+    try { fs.unlinkSync(metaPromptFile); metaPromptCleaned = true; } catch { /* ignore */ }
+
+    if (exitCode !== 0) {
+      log.error(`${LOG_PREFIX} Self-heal Codex exited with code ${exitCode}`, {
+        source: "main.ts", ticketId, exitCode,
+      });
+      return false;
+    }
+  } finally {
+    if (healChild && !healChild.killed) healChild.kill();
+    if (!metaPromptCleaned) {
+      try { fs.unlinkSync(metaPromptFile); } catch { /* ignore */ }
+    }
+  }
+
+  // Self-heal succeeded — reset ticket to 'created' so the restarted process
+  // picks it up, then restart.
+  log.info(`${LOG_PREFIX} Self-heal succeeded — resetting ticket and restarting process`, {
+    source: "main.ts", ticketId, attempt,
+  });
+  await store.addEvent(
+    ticketId,
+    "self_heal_succeeded",
+    `Orchestrator patched — restarting and retrying ticket (attempt ${attempt}/${MAX_SELF_HEAL_ATTEMPTS})`,
+    { attempt },
+  );
+  await store.updateStatus(ticketId, "created").catch(() => {});
+
+  // Restart Opey (same pattern used by WhatsApp bridge restart).
+  const restartChild = spawn(process.execPath, process.argv.slice(1), {
+    detached: true,
+    stdio: "ignore",
+  });
+  restartChild.unref();
+  setTimeout(() => process.exit(0), 300);
+  return true;
+}
 
 let isProcessing = false;
 
@@ -112,8 +251,7 @@ async function processNextTicket(
       store.addEvent(ticketId!, eventType, summary, payload ?? {});
 
     log.info(`${LOG_PREFIX} Starting Opey loop (${ORCHESTRATOR_BACKEND})`, { source: "main.ts", ticketId, workPath });
-    // const orchestrator = ORCHESTRATOR_BACKEND === "openai" ? runOpeyLoopOpenAI : runOpeyLoop;
-    const orchestrator = runOpeyLoopOpenAI;
+    const orchestrator = ORCHESTRATOR_BACKEND === "openai" ? runOpeyLoopOpenAI : runOpeyLoop;
     const output = await orchestrator(ticket, workPath, log, emitEvent);
     const avoidClarification = shouldAvoidClarification(ticket);
 
@@ -165,6 +303,23 @@ async function processNextTicket(
     }
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unknown error";
+
+    // Distinguish task failures (Claude/Codex ran but produced no useful output) from
+    // infrastructure failures (spawn/OS error, the CLI never launched).
+    // Only self-heal on infra failures — task failures go straight to 'failed'.
+    const isTaskFailure =
+      message.startsWith("Claude Code exited with code") ||
+      message.startsWith("Codex CLI exited with code");
+
+    if (!isTaskFailure && ticketId) {
+      const healed = await attemptSelfHeal(
+        err instanceof Error ? err : new Error(message),
+        store,
+        ticketId,
+      );
+      if (healed) return; // process is restarting — don't mark ticket failed
+    }
+
     log.error(`${LOG_PREFIX} Ticket processing failed`, { source: "main.ts", error: message, ticketId });
     if (ticketId) {
       await store.updateStatus(ticketId, "failed", { failureReason: message }).catch(() => {});

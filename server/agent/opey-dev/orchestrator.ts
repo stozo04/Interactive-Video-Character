@@ -16,6 +16,7 @@
 
 import { spawn, type ChildProcess } from "node:child_process";
 import * as fs from "node:fs";
+import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { formatSkillContext, loadSkillContext } from "./skillLoader";
@@ -197,12 +198,23 @@ export async function runOpeyLoop(
   // if something goes wrong before it exits on its own.
   let child: ChildProcess | null = null;
 
+  // Temp file that holds the full prompt. Written before spawn, deleted in finally.
+  // Passing soulPrompt + ticketPrompt as CLI args causes spawn ENAMETOOLONG on
+  // Windows (CreateProcess has a ~32KB command-line limit). Writing to disk sidesteps
+  // that. The soul context moves from --append-system-prompt into the temp file.
+  let promptFile: string | null = null;
+
   try {
     // 1. Assemble the prompts.
-    //    Soul prompt → goes to Claude as a system instruction via CLI flag.
-    //    Ticket prompt → goes to Claude as the user turn (the actual task).
     const soulPrompt = loadSoulPrompt();
     const ticketPrompt = buildTicketPrompt(ticket, workPath);
+    const fullPrompt = `${soulPrompt}\n\n${ticketPrompt}`;
+
+    // Write full prompt to a temp file; pass a short boot arg to Claude instead.
+    promptFile = path.join(os.tmpdir(), `opey-${ticket?.id ?? "task"}.md`);
+    fs.writeFileSync(promptFile, fullPrompt, "utf-8");
+    const bootArg =
+      `Your complete task instructions are in this file — read it before doing anything:\n${promptFile}\n\nImplement everything described in that file.`;
 
     // 2. Build the argument list for the Claude CLI.
     //    -p                        non-interactive "print" mode (one-shot, no REPL)
@@ -210,10 +222,8 @@ export async function runOpeyLoop(
     //    --output-format text      return plain text, not JSON
     //    --no-session-persistence  don't write ~/.claude/sessions/* files
     //    --model / --thinking      which model + how much thinking budget
-    //    --append-system-prompt    injects SOUL.md as a system-level instruction
-    //                              (separate from the user turn, so Claude
-    //                               treats it as background context, not a request)
-    //    ticketPrompt              the actual task description (last positional arg)
+    //    bootArg                   short instruction pointing Claude at promptFile
+    //                              (soul + lessons + ticket all live in that file)
     const args = [
       "-p",
       "--permission-mode", "acceptEdits",
@@ -221,8 +231,7 @@ export async function runOpeyLoop(
       "--no-session-persistence",
       "--model", CLAUDE_MODEL,
       "--thinking", THINKING_LEVEL,
-      "--append-system-prompt", soulPrompt,
-      ticketPrompt,
+      bootArg,
     ];
 
     // 3. Figure out HOW to launch the Claude binary.
@@ -360,6 +369,10 @@ export async function runOpeyLoop(
     // still be running — kill it so we don't leave zombie processes behind.
     if (child && !child.killed) {
       child.kill();
+    }
+    // Clean up the temp prompt file regardless of success or failure.
+    if (promptFile) {
+      try { fs.unlinkSync(promptFile); } catch { /* ignore */ }
     }
   }
 }

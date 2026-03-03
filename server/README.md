@@ -96,13 +96,72 @@ taskkill //F //IM node.exe
 
 Opey is an autonomous dev agent that polls `engineering_tickets` and implements them in isolated git worktrees.
 
+### Orchestrator Backend
+
+Opey supports two execution backends, selected via the `OPEY_BACKEND` environment variable:
+
+| Value | File | CLI |
+|-------|------|-----|
+| `claude` (default) | `orchestrator.ts` | Claude Code CLI (`claude`) |
+| `openai` | `orchestrator-openai.ts` | OpenAI Codex CLI (`codex`) |
+
+Set `OPEY_BACKEND=openai` to switch to the Codex backend. Unset or `claude` runs the Claude backend.
+
+### Prompt Delivery via Temp File
+
+Both orchestrators write the full assembled prompt (SOUL.md + lessons_learned + ticket details) to a temp file in `os.tmpdir()` before spawning the CLI. The CLI receives only a short boot instruction:
+
+```
+Your complete task instructions are in this file — read it before doing anything:
+C:\...\AppData\Local\Temp\opey-<ticketId>.md
+Implement everything described in that file.
+```
+
+**Why:** Windows `CreateProcess` has a ~32KB command-line limit. The combined prompt (all lessons files concatenated, SOUL.md, ticket details) can exceed that, causing `spawn ENAMETOOLONG`. The temp file sidesteps the limit entirely. The file is deleted in the orchestrator's `finally` block.
+
+### Self-Healing Architecture
+
+When an infrastructure error prevents the CLI from launching (e.g. `ENAMETOOLONG`, `ENOENT`, binary not found), `main.ts` enters a self-heal loop rather than immediately marking the ticket failed:
+
+```
+Infrastructure error caught in main.ts
+         ↓
+attemptSelfHeal() — up to 3 attempts per ticket
+         ↓
+Read attempt count from os.tmpdir()/opey-heal-count-<ticketId>.txt
+         ↓
+Write meta-prompt to os.tmpdir()/opey-self-heal-<ticketId>.md
+(contains: error message + full source of both orchestrators)
+         ↓
+Spawn a meta-Claude/Codex run with short boot arg pointing at that file
+         ↓
+Meta-Claude patches the orchestrator source on disk
+         ↓
+✅ Exit 0 → reset ticket to 'created', restart Opey process, retry
+❌ Non-zero exit → return false → ticket marked 'failed'
+         ↓
+After 3 failed attempts → give up, delete count file, mark 'failed'
+```
+
+Key implementation files:
+- `server/agent/opey-dev/main.ts` — `attemptSelfHeal()` function
+- `server/agent/opey-dev/orchestrator.ts` — Claude backend
+- `server/agent/opey-dev/orchestrator-openai.ts` — Codex backend
+
+The process restart uses the same detached-spawn pattern as the WhatsApp bridge restart:
+```ts
+spawn(process.execPath, process.argv.slice(1), { detached: true, stdio: 'ignore' })
+child.unref();
+setTimeout(() => process.exit(0), 300);
+```
+
 ### Clarification Loop
 
-When Opey produces no commits AND no uncommitted file changes on the first pass, the ticket is set to `needs_clarification` with his output stored in `clarification_questions`. Kayley (the AI companion) polls for this status, relays the questions to the user, and POSTs the answer to `/multi-agent/tickets/:id/clarify`. The ticket resets to `created` with the Q&A appended to `additional_details`. Max 1 clarification loop — on the second pass Opey must ship or fail.
+When Opey produces no commits AND no uncommitted file changes, the ticket is set to `needs_clarification` with his output stored in `clarification_questions`. Kayley (the AI companion) detects this via Supabase Realtime, relays the questions to the user, and POSTs the answer to `/multi-agent/tickets/:id/clarify`. The ticket resets to `created` with the Q&A appended to `additional_details`. Max **3 clarification rounds** — tracked by counting `--- CLARIFICATION ---` markers in `additional_details`. After 3 rounds Opey ships best-effort or fails.
 
 ### Auto-Commit
 
-Codex sometimes edits files but forgets to `git commit`. If `hasCommitsAheadOfMain()` is false but `hasUncommittedChanges()` is true, `main.ts` commits on Codex's behalf and proceeds to PR creation.
+Claude/Codex sometimes edits files but forgets to `git commit`. If `hasCommitsAheadOfMain()` is false but `hasUncommittedChanges()` is true, `main.ts` commits on the agent's behalf and proceeds to PR creation.
 
 ### Worktree Branching
 
