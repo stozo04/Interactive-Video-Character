@@ -70,7 +70,6 @@ import {
 } from './services/pendingMessageService';
 import {
   listWorkspaceAgentRuns,
-  subscribeWorkspaceAgentEvents,
   type WorkspaceAgentRun,
   type WorkspaceAgentRunStatus,
 } from './services/projectAgentService';
