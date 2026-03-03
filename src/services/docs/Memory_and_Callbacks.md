@@ -41,3 +41,11 @@ Kayley stores small, useful context as daily notes via tools. Notes are append-o
 *   **Table**: `kayley_daily_notes`
 *   **Migration**: `supabase/migrations/20260131_kayley_daily_notes.sql`
 *   **Docs**: `docs/features/Daily_Notes.md`
+
+## Lessons Learned (durable takeaways)
+
+Kayley stores short, durable takeaways as lessons learned via tools. Lessons are append-only and surfaced back in the system prompt.
+
+*   **Table**: `kayley_lessons_learned`
+*   **Migration**: `supabase/migrations/20260303_kayley_lessons_learned.sql`
+*   **Docs**: `docs/features/Lessons_Learned.md`

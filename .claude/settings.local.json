@@ -61,7 +61,8 @@
       "Bash(echo No matching processes:*)",
       "Bash(cd:*)",
       "WebFetch(domain:clawhub.ai)",
-      "Bash(git config:*)"
+      "Bash(git config:*)",
+      "Bash(timeout 8 npx tsx:*)"
     ]
   },
   "enabledPlugins": {

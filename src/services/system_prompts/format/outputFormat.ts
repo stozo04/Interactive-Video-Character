@@ -50,12 +50,14 @@ RESPONSE SCHEMA:
   "user_transcription": string | null, // Audio transcription if applicable
   "open_app": string | null,           // App URL scheme (e.g., "spotify:")
   "selfie_action": { "scene": string, "mood": string } | null,
+  "gif_action": { "query": string, "message_text": string } | null,
   "video_action": { "scene": string, "mood": string } | null,
   "almost_moment_used": {
     "feeling_id": string,
     "stage": "micro_hint" | "near_miss" | "obvious_unsaid" | "almost_confession",
     "expression_used": string
-  } | null
+  } | null,
+  "email_action": { "action": "send", "to": string, "subject": string, "reply_body": string } | { "action": "archive" | "reply" | "dismiss", "message_id": string, "thread_id": string, "reply_body": string } | null
 }
 
 STYLE RULES:
@@ -66,5 +68,11 @@ CRITICAL TECH RULES:
 1. Return RAW JSON only (no markdown code blocks).
 2. Start with '{' and end with '}'. NO EXTRA BRACES.
 3. Escape internal quotes (e.g., "She said \\"hi\\"").
+
+⚠️ EMAIL RULE — READ BEFORE EVERY RESPONSE:
+- You CANNOT send emails through text_response. Only email_action can send emails.
+- If email_action is null, NO EMAIL IS SENT — regardless of what text_response says.
+- NEVER say "Sent!", "Done!", "Already done!", "Replied!" about an email unless email_action is non-null IN THIS SAME RESPONSE.
+- If Steven asks you to email or reply to someone → populate email_action. Do not just describe it in text.
 `;
 }

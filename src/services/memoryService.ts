@@ -8,6 +8,7 @@
  */
 
 import { supabase } from './supabaseClient';
+import { clientLogger } from './clientLogger';
 
 // ============================================
 // Types
@@ -42,7 +43,10 @@ export type FactCategory = 'identity' | 'preference' | 'relationship' | 'context
 const CONVERSATION_HISTORY_TABLE = 'conversation_history';
 const USER_FACTS_TABLE = 'user_facts';
 const KAYLEY_DAILY_NOTES_TABLE = 'kayley_daily_notes';
+const KAYLEY_LESSONS_LEARNED_TABLE = 'kayley_lessons_learned';
 const MILA_MILESTONE_NOTES_TABLE = 'mila_milestone_notes';
+
+const lessonsLogger = clientLogger.scoped('LessonsLearned');
 
 // Default limits to prevent context overflow
 const DEFAULT_MEMORY_LIMIT = 5;
@@ -98,6 +102,10 @@ function getTodayCstDateString(): string {
 
 function normalizeDailyNoteInput(note: string): string {
   return note.replace(/^\s*-\s*/, '').trim();
+}
+
+function normalizeLessonsLearnedInput(lesson: string): string {
+  return lesson.replace(/^\s*-\s*/, '').trim();
 }
 
 /**
@@ -305,6 +313,128 @@ export const getAllDailyNotes = async (): Promise<string[]> => {
     return lines;
   } catch (error) {
     console.error('❌ [Daily Notes] Error retrieving notes:', error);
+    return [];
+  }
+};
+
+// ============================================
+// Lessons Learned Functions
+// ============================================
+
+/**
+ * Ensure the lessons learned row exists for today's CST date.
+ */
+export const ensureLessonsLearnedRowForToday = async (): Promise<boolean> => {
+  try {
+    const cstDate = getTodayCstDateString();
+    lessonsLogger.info('Ensuring lessons learned row exists', { cstDate });
+
+    const { error } = await supabase
+      .from(KAYLEY_LESSONS_LEARNED_TABLE)
+      .upsert(
+        {
+          lesson_date_cst: cstDate,
+        },
+        {
+          onConflict: 'lesson_date_cst',
+        },
+      );
+
+    if (error) {
+      lessonsLogger.error('Failed to ensure lessons learned row', { cstDate, error });
+      return false;
+    }
+
+    lessonsLogger.info('Lessons learned row is ready', { cstDate });
+    return true;
+  } catch (error) {
+    lessonsLogger.error('Error ensuring lessons learned row', { error });
+    return false;
+  }
+};
+
+/**
+ * Append a lesson to today's lessons learned row.
+ */
+export const appendLessonLearned = async (lesson: string): Promise<boolean> => {
+  const normalizedLesson = normalizeLessonsLearnedInput(lesson);
+
+  if (!normalizedLesson) {
+    lessonsLogger.warning('Skipping empty lessons learned entry');
+    return false;
+  }
+
+  try {
+    const cstDate = getTodayCstDateString();
+    lessonsLogger.info('Appending lesson learned', { cstDate, lesson: normalizedLesson });
+
+    const ensured = await ensureLessonsLearnedRowForToday();
+    if (!ensured) {
+      lessonsLogger.warning('Could not ensure lessons learned row; aborting append', { cstDate });
+      return false;
+    }
+
+    const { data, error } = await supabase
+      .from(KAYLEY_LESSONS_LEARNED_TABLE)
+      .select('lessons')
+      .eq('lesson_date_cst', cstDate)
+      .single();
+
+    if (error) {
+      lessonsLogger.error('Failed to fetch existing lessons learned', { cstDate, error });
+      return false;
+    }
+
+    const existingLessons = (data?.lessons || '').trim();
+    const updatedLessons = existingLessons
+      ? `${existingLessons}\n- ${normalizedLesson}`
+      : `- ${normalizedLesson}`;
+
+    const { error: updateError } = await supabase
+      .from(KAYLEY_LESSONS_LEARNED_TABLE)
+      .update({ lessons: updatedLessons, updated_at: new Date().toISOString() })
+      .eq('lesson_date_cst', cstDate);
+
+    if (updateError) {
+      lessonsLogger.error('Failed to append lesson learned', { cstDate, error: updateError });
+      return false;
+    }
+
+    lessonsLogger.info('Lesson learned appended successfully', { cstDate });
+    return true;
+  } catch (error) {
+    lessonsLogger.error('Error appending lesson learned', { error });
+    return false;
+  }
+};
+
+/**
+ * Retrieve all lessons learned as bullet lines (no dates).
+ */
+export const getAllLessonsLearned = async (): Promise<string[]> => {
+  try {
+    lessonsLogger.info('Retrieving all lessons learned');
+
+    const { data, error } = await supabase
+      .from(KAYLEY_LESSONS_LEARNED_TABLE)
+      .select('lessons, lesson_date_cst')
+      .order('lesson_date_cst', { ascending: true });
+
+    if (error) {
+      lessonsLogger.error('Failed to retrieve lessons learned', { error });
+      return [];
+    }
+
+    const lines = (data || [])
+      .flatMap((row) => (row.lessons || '').split('\n'))
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0)
+      .map((line) => (line.startsWith('-') ? line : `- ${line}`));
+
+    lessonsLogger.info('Retrieved lessons learned', { count: lines.length });
+    return lines;
+  } catch (error) {
+    lessonsLogger.error('Error retrieving lessons learned', { error });
     return [];
   }
 };
@@ -889,6 +1019,8 @@ export type MemoryToolName =
   | 'recall_character_profile'
   | 'store_daily_note'
   | 'retrieve_daily_notes'
+  | 'store_lessons_learned'
+  | 'retrieve_lessons_learned'
   | 'mila_note'
   | 'retrieve_mila_notes'
   | 'resolve_x_tweet'
@@ -980,6 +1112,10 @@ export interface ToolCallArgs {
     note: string;
   };
   retrieve_daily_notes: Record<string, never>;
+  store_lessons_learned: {
+    lesson: string;
+  };
+  retrieve_lessons_learned: Record<string, never>;
   mila_note: {
     note: string;
   };
@@ -1462,6 +1598,14 @@ export const executeMemoryTool = async (
           ? '✓ Daily note stored.'
           : 'Failed to store daily note.';
       }
+      case 'store_lessons_learned': {
+        const { lesson } = args as ToolCallArgs['store_lessons_learned'];
+        lessonsLogger.info('Memory tool storing lesson learned', { lesson });
+        const success = await appendLessonLearned(lesson);
+        return success
+          ? '✓ Lesson learned stored.'
+          : 'Failed to store lesson learned.';
+      }
       case 'mila_note': {
         const { note } = args as ToolCallArgs['mila_note'];
         console.log('[Memory Tool] Storing Mila milestone note');
@@ -1482,6 +1626,14 @@ export const executeMemoryTool = async (
           return 'No daily notes recorded yet.';
         }
         return `Daily notes:\n${lines.join('\n')}`;
+      }
+      case 'retrieve_lessons_learned': {
+        lessonsLogger.info('Memory tool retrieving lessons learned');
+        const lines = await getAllLessonsLearned();
+        if (lines.length === 0) {
+          return 'No lessons learned recorded yet.';
+        }
+        return `Lessons learned:\n${lines.join('\n')}`;
       }
       case 'retrieve_mila_notes': {
         const { year, month } = args as ToolCallArgs['retrieve_mila_notes'];

@@ -1,7 +1,9 @@
 // src/services/googleAuth.ts
 
-// Gmail scopes - using metadata scope for privacy
-const GMAIL_SCOPE = "https://www.googleapis.com/auth/gmail.metadata";
+// Gmail scopes:
+//   gmail.modify — read full message bodies + archive (label changes)
+//   gmail.send  — send email replies on Steven's behalf
+const GMAIL_SCOPE = "https://www.googleapis.com/auth/gmail.modify https://www.googleapis.com/auth/gmail.send";
 // Calendar scope for read/write access
 const CALENDAR_SCOPE = "https://www.googleapis.com/auth/calendar.events";
 // User info scopes for authentication

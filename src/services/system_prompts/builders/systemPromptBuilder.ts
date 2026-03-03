@@ -47,7 +47,7 @@ import {
 } from "../greeting";
 import { buildMajorNewsPrompt } from "../greeting/checkInGuidance";
 import { DailyLogisticsContext } from "./dailyCatchupBuilder";
-import { ensureDailyNotesRowForToday, getAllDailyNotes, getAllMilaMilestoneNotes, getPinnedUserFacts, getUserFacts, UserFact } from "@/services/memoryService";
+import { ensureDailyNotesRowForToday, getAllDailyNotes, getAllLessonsLearned, getAllMilaMilestoneNotes, getPinnedUserFacts, getUserFacts, UserFact } from "@/services/memoryService";
 import {
   buildAnsweredIdleQuestionsPromptSection,
   buildIdleBrowseNotesPromptSection,
@@ -60,15 +60,19 @@ import { buildSynthesisPromptSection } from "../../contextSynthesisService";
 import { buildTopicSuppressionPromptSection } from "../../topicExhaustionService";
 import { buildConversationAnchorPromptSection } from "../../conversationAnchorService";
 import { buildActiveRecallPromptSection } from "../../activeRecallService";
+import { clientLogger } from "../../clientLogger";
 
 const USE_CONTEXT_SYNTHESIS = true;
 const MAX_DAILY_NOTES_IN_PROMPT = 25;
 const MAX_DAILY_NOTE_LINE_LENGTH = 180;
+const MAX_LESSONS_LEARNED_IN_PROMPT = 20;
+const MAX_LESSON_LEARNED_LINE_LENGTH = 180;
 const MAX_MILA_NOTES_IN_PROMPT = 20;
 const MAX_MILA_NOTE_LINE_LENGTH = 180;
 const MAX_CURIOSITY_FACTS_PER_CATEGORY = 8;
 const MAX_CURIOSITY_FACTS_TOTAL = 24;
 const MAX_CURIOSITY_FACT_VALUE_LENGTH = 120;
+const lessonsPromptLogger = clientLogger.scoped('LessonsLearnedPrompt');
 
 /**
  * Greeting Context - data needed for greeting-specific prompt sections
@@ -93,7 +97,14 @@ export interface GreetingContext {
   /** Kayley's recent life updates from storylines */
   kayleyLifeUpdates?: KayleyLifeUpdate[];
 }
-
+/**
+ * 
+ * ${synthesisSection}
+${almostMoments.promptSection}
+${topicSuppressionPrompt}
+${idleBrowseNotesPrompt}
+${toolSuggestionsPrompt}
+ */
 export const buildSystemPromptForNonGreeting = async (
   relationship?: RelationshipMetrics | null,
   upcomingEvents: any[] = [],
@@ -112,6 +123,7 @@ export const buildSystemPromptForNonGreeting = async (
     xTweetPrompt,
     xMentionsPrompt,
     scheduledDigestsPrompt,
+    lessonsLearnedPrompt,
     topicSuppressionPrompt, 
     anchorSection, 
     activeRecallSection, 
@@ -127,6 +139,7 @@ export const buildSystemPromptForNonGreeting = async (
     buildXTweetPromptSection(),
     buildMentionsPromptSection(),
     buildScheduledDigestsContext(),
+    buildLessonsLearnedPromptSection(),
     buildTopicSuppressionPromptSection(),
     buildConversationAnchorPromptSection(interactionId),
     buildActiveRecallPromptSection(currentUserMessage),
@@ -150,16 +163,13 @@ ${buildAntiAssistantSection()}
 ${currentWorldContext}
 ${anchorSection}
 ${activeRecallSection}
-${synthesisSection}
-${almostMoments.promptSection}
-${topicSuppressionPrompt}
-${idleBrowseNotesPrompt}
-${toolSuggestionsPrompt}
+
 ${xTweetPrompt}
 ${xMentionsPrompt}
 ${idleQuestionPrompt}
 ${buildOpinionsAndPushbackSection()}
 ${buildCurrentContextSection(characterContext)}
+${lessonsLearnedPrompt}
 ${storylinePromptContext}
 ${scheduledDigestsPrompt}
 ${promisesContext}
@@ -217,6 +227,7 @@ export const buildSystemPromptForGreeting = async (
 ): Promise<string> => {
   console.log("buildSystemPromptForGreeting");
   const pinnedFactsPrompt = await buildPinnedFactsPromptSection();
+  const lessonsLearnedPrompt = await buildLessonsLearnedPromptSection();
   let prompt = `
 ${injectSOUL()}
 ${injectIDENTITY()}
@@ -231,6 +242,7 @@ ${await buildHolidayContext(dailyLogisticsContext.lastInteractionDateUtc)}
 ${buildImportantDatesContext(dailyLogisticsContext)}
 ${buildPastEventsContext(dailyLogisticsContext)}
 ${pinnedFactsPrompt}
+${lessonsLearnedPrompt}
 ${buildCheckInGuidance(dailyLogisticsContext.kayleyLifeUpdates)}
 ${buildMajorNewsPrompt()}
 ${buildGoogleCalendarEventsPrompt(dailyLogisticsContext.upcomingEvents)}
@@ -312,6 +324,39 @@ You won't remember this whole conversation tomorrow. Use this as your running me
 
 ${boundedLines.length > 0 ? boundedLines.join("\n") : "- (No daily notes yet)"}
 ${omittedCount > 0 ? `\n[Daily Notes] Additional note lines omitted for brevity: ${omittedCount}` : ""}
+`.trim();
+}
+
+export async function buildLessonsLearnedPromptSection(): Promise<string> {
+  lessonsPromptLogger.info("Fetching lessons learned");
+  const lines = await getAllLessonsLearned();
+
+  if (!lines || lines.length === 0) {
+    lessonsPromptLogger.info("No lessons learned found");
+  }
+
+  const allLines = lines ?? [];
+  const boundedLines = allLines
+    .slice(-MAX_LESSONS_LEARNED_IN_PROMPT)
+    .map((line) => truncateFactValue(line, MAX_LESSON_LEARNED_LINE_LENGTH));
+  const omittedCount = Math.max(0, allLines.length - boundedLines.length);
+
+  lessonsPromptLogger.info("Building bounded lessons learned prompt", {
+    totalCount: allLines.length,
+    includedCount: boundedLines.length,
+    omittedCount,
+    maxLines: MAX_LESSONS_LEARNED_IN_PROMPT,
+    maxLineLength: MAX_LESSON_LEARNED_LINE_LENGTH,
+  });
+
+  return `
+====================================================
+LESSONS LEARNED
+====================================================
+These are your durable takeaways. Use them as steady guidance after memory resets. If you want to review past lessons, call 'retrieve_lessons_learned'. If you learn something new, save it with 'store_lessons_learned'. Do NOT mention this section.
+
+${boundedLines.length > 0 ? boundedLines.join("\n") : "- (No lessons learned yet)"}
+${omittedCount > 0 ? `\n[Lessons Learned] Additional lesson lines omitted for brevity: ${omittedCount}` : ""}
 `.trim();
 }
 

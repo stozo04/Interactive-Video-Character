@@ -41,6 +41,32 @@ if (!GEMINI_MODEL || !GEMINI_VIDEO_MODEL || !GEMINI_API_KEY) {
   // throw new Error("Missing environment variables for Gemini chat service.");
 }
 
+type PersistentLogSeverity = "info" | "warning" | "error" | "critical";
+
+async function logPersistentGeminiEvent(
+  severity: PersistentLogSeverity,
+  message: string,
+  details?: Record<string, unknown>,
+): Promise<void> {
+  try {
+    if (typeof window === "undefined") {
+      const { log } = await import(/* @vite-ignore */ "../../server/runtimeLogger");
+      const runtimeLog = log.fromContext({
+        source: "geminiChatService",
+        route: "gemini/interactions",
+      });
+      runtimeLog[severity](message, details);
+      return;
+    }
+
+    const { clientLogger } = await import("./clientLogger");
+    const scoped = clientLogger.scoped("GeminiService");
+    scoped[severity](message, details);
+  } catch (error) {
+    console.warn("[GeminiService] Persistent logging failed", { error });
+  }
+}
+
 /**
  * Log when the LLM uses an almost moment expression.
  * Now uses explicit schema field instead of pattern matching for accurate tracking.
@@ -285,6 +311,8 @@ function normalizeAiResponse(rawJson: any, rawText: string): AIActionResponse {
     game_move: rawJson.game_move, // 0 is valid, so check undefined
     // Selfie/image generation action
     selfie_action: rawJson.selfie_action || null,
+    // GIF action (inline animated media)
+    gif_action: rawJson.gif_action || null,
     // Video generation action
     video_action: rawJson.video_action || null,
     // Store new character facts
@@ -293,6 +321,8 @@ function normalizeAiResponse(rawJson: any, rawText: string): AIActionResponse {
     almost_moment_used: rawJson.almost_moment_used || null,
     // Promise fulfillment
     fulfilling_promise_id: rawJson.fulfilling_promise_id || null,
+    // Email action (archive / reply / dismiss a pending email)
+    email_action: rawJson.email_action || null,
     // ⚠️ REMINDER: Did you add your new field above? Check docs/Adding_Fields_To_AIActionResponse.md
   };
 }
@@ -547,36 +577,81 @@ export class GeminiService implements IAIChatService {
    * Create an interaction via API/proxy with error handling
    */
   private async createInteraction(config: any): Promise<any> {
-    try {
-      console.log("[GeminiService] createInteraction request", {
-        model: config?.model,
-        hasPreviousInteractionId: !!config?.previous_interaction_id,
-        inputCount: Array.isArray(config?.input) ? config.input.length : 0,
-        toolCount: Array.isArray(config?.tools) ? config.tools.length : 0,
-        store: !!config?.store,
-      });
-      const proxyUrl = `${VITE_PROXY_BASE}/v1beta/interactions`;
-      const response = await fetch(proxyUrl, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-goog-api-key": GEMINI_API_KEY,
-        },
-        body: JSON.stringify(config),
-      });
+    const proxyUrl = `${VITE_PROXY_BASE}/v1beta/interactions`;
+    const requestSummary = {
+      model: config?.model,
+      hasPreviousInteractionId: !!config?.previous_interaction_id,
+      inputCount: Array.isArray(config?.input) ? config.input.length : 0,
+      toolCount: Array.isArray(config?.tools) ? config.tools.length : 0,
+      store: !!config?.store,
+    };
 
-      if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`Proxy error: ${response.statusText} - ${errorText}`);
-      }
+    console.log("[GeminiService] createInteraction request", requestSummary);
 
-      return await response.json();
-    } catch (error: any) {
-      if (this.isConnectionError(error)) {
-        this.logConnectionError();
+    const maxRetries = 2;
+    let attempt = 0;
+
+    while (attempt <= maxRetries) {
+      try {
+        const response = await fetch(proxyUrl, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-goog-api-key": GEMINI_API_KEY,
+          },
+          body: JSON.stringify(config),
+        });
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          const errorSnippet = errorText.slice(0, 600);
+          const status = response.status;
+          const statusText = response.statusText;
+
+          console.error("[GeminiService] Interactions proxy error", {
+            attempt,
+            maxRetries,
+            proxyUrl,
+            status,
+            statusText,
+            errorSnippet,
+            ...requestSummary,
+          });
+          void logPersistentGeminiEvent("error", "Interactions proxy error", {
+            attempt,
+            maxRetries,
+            proxyUrl,
+            status,
+            statusText,
+            errorSnippet,
+            ...requestSummary,
+          });
+
+          if (status >= 500 && status < 600 && attempt < maxRetries) {
+            const backoffMs = 250 * (attempt + 1);
+            console.warn("[GeminiService] Retrying Interactions request", {
+              attempt,
+              backoffMs,
+              status,
+            });
+            await new Promise((resolve) => setTimeout(resolve, backoffMs));
+            attempt += 1;
+            continue;
+          }
+
+          throw new Error(`Proxy error: ${statusText} - ${errorText}`);
+        }
+
+        return await response.json();
+      } catch (error: any) {
+        if (this.isConnectionError(error)) {
+          this.logConnectionError();
+        }
+        throw error;
       }
-      throw error;
     }
+
+    throw new Error("Proxy error: Interactions request failed after retries");
   }
 
   /**
@@ -675,7 +750,7 @@ export class GeminiService implements IAIChatService {
         store: true,
         generation_config: {
           // Controls the depth of reasoning (Gemini 3 specific)
-          thinking_level: "medium", // "high", "medium", "low"
+          thinking_level: "low", // "high", "medium", "low"
           temperature: 1.0
         },
       };
@@ -828,7 +903,7 @@ export class GeminiService implements IAIChatService {
       store: true, // <-- Important - This enables server-side logging and session continuity
       generation_config: {
         // Controls the depth of reasoning (Gemini 3 specific)
-        thinking_level: "medium", // "high", "medium", "low"
+        thinking_level: "low", // "high", "medium", "low"
         temperature: 1.0
       },
     };
@@ -1106,7 +1181,7 @@ export class GeminiService implements IAIChatService {
       store: true, // REQUIRED: This ensures logs appear in AI Studio
       generation_config: {
         // Uses the dynamic level calculated above
-        thinking_level: "medium",
+        thinking_level: "low",
         temperature: 1.0
       },
       // Combined your custom memory tools with Google Search
@@ -1233,7 +1308,7 @@ ${pendingSuggestion.reasoning}
         system_instruction: systemPrompt,
         store: true, // <-- Important - This enables server-side logging and session continuity
         generation_config: {
-          thinking_level: "medium", // "high", "medium", "low"
+          thinking_level: "low", // "high", "medium", "low"
           temperature: 1.0
         },
       };

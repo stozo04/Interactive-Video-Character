@@ -164,6 +164,15 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
     sample_prompts: ["Add a note that I felt exhausted today."],
   },
   {
+    tool_key: "store_lessons_learned",
+    name: "Lessons Learned",
+    description: "Append a short bullet to Kayley's lessons learned.",
+    user_value: "Preserves takeaways Kayley wants to remember after memory resets.",
+    permissions_needed: ["memory_write"],
+    triggers: ["lesson learned", "takeaway", "I realized"],
+    sample_prompts: ["Add a lesson learned that I should slow down before responding."],
+  },
+  {
     tool_key: "retrieve_daily_notes",
     name: "Daily Notes Recall",
     description: "Retrieve all stored daily notes.",
@@ -171,6 +180,15 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
     permissions_needed: ["memory_read"],
     triggers: ["what did you note", "daily notes"],
     sample_prompts: ["What did you write in your daily notes?"],
+  },
+  {
+    tool_key: "retrieve_lessons_learned",
+    name: "Lessons Learned Recall",
+    description: "Retrieve all stored lessons learned.",
+    user_value: "Lets Kayley review what she has learned over time.",
+    permissions_needed: ["memory_read"],
+    triggers: ["lessons learned", "what did you learn"],
+    sample_prompts: ["What lessons have you learned recently?"],
   },
   {
     tool_key: "mila_note",

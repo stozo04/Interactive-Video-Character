@@ -3,7 +3,7 @@
 
 import { execSync } from "node:child_process";
 import { SupabaseTicketStore } from "./ticketStore";
-import { WorktreeManager } from "./worktreeManager";
+import { BranchManager } from "./branchManager";
 import { runOpeyLoop } from "./orchestrator";
 import { runOpeyLoop as runOpeyLoopOpenAI } from "./orchestrator-openai";
 import { log } from "../../runtimeLogger";
@@ -20,7 +20,7 @@ const NO_QUESTION_MARKERS = [
   /you can not ask questions/i,
 ];
 
-/** Check if the worktree has any commits ahead of main. */
+/** Check if the branch has any commits ahead of main. */
 function hasCommitsAheadOfMain(workPath: string): boolean {
   try {
     const result = execSync("git log main..HEAD --oneline", { cwd: workPath, ...SHELL_OPTS }).toString().trim();
@@ -30,7 +30,7 @@ function hasCommitsAheadOfMain(workPath: string): boolean {
   }
 }
 
-/** Check if the worktree has uncommitted changes (staged or unstaged). */
+/** Check if the branch has uncommitted changes (staged or unstaged). */
 function hasUncommittedChanges(workPath: string): boolean {
   try {
     const result = execSync("git status --porcelain", { cwd: workPath, ...SHELL_OPTS }).toString().trim();
@@ -80,7 +80,7 @@ let isProcessing = false;
 
 async function processNextTicket(
   store: SupabaseTicketStore,
-  manager: WorktreeManager,
+  manager: BranchManager,
 ): Promise<void> {
   if (isProcessing) return;
   isProcessing = true;
@@ -97,13 +97,18 @@ async function processNextTicket(
     // Claim the ticket immediately so it won't be re-polled on failure
     await store.updateStatus(ticketId, "implementing");
 
-    const { workPath } = manager.create(ticketId);
-    await store.updateStatus(ticketId, "implementing", { worktreePath: workPath });
+    const { workPath, branch } = manager.create(ticketId);
+    await store.updateStatus(ticketId, "implementing", { branch });
+
+    // Callback passed into the orchestrator so it can write events to the DB
+    // without knowing anything about Supabase itself.
+    const emitEvent = (eventType: string, summary: string, payload?: Record<string, unknown>) =>
+      store.addEvent(ticketId!, eventType, summary, payload ?? {});
 
     log.info(`${LOG_PREFIX} Starting Opey loop (${ORCHESTRATOR_BACKEND})`, { source: "main.ts", ticketId, workPath });
     // const orchestrator = ORCHESTRATOR_BACKEND === "openai" ? runOpeyLoopOpenAI : runOpeyLoop;
     const orchestrator = runOpeyLoopOpenAI;
-    const output = await orchestrator(ticket, workPath, log);
+    const output = await orchestrator(ticket, workPath, log, emitEvent);
     const avoidClarification = shouldAvoidClarification(ticket);
 
     // Did Opey actually implement anything?
@@ -149,14 +154,12 @@ async function processNextTicket(
 
     if (prUrl) {
       await store.updateStatus(ticketId, "completed", { prUrl });
-      log.info(`${LOG_PREFIX} Mission accomplished! PR: ${prUrl}`, { source: "main.ts", ticketId });
+      log.info(`${LOG_PREFIX} Mission accomplished! PR: ${prUrl} — staying on branch for testing`, { source: "main.ts", ticketId, branch });
     } else {
       // Has commits but PR creation failed
       await store.updateStatus(ticketId, "failed", { failureReason: "Commits exist but PR creation failed" });
-      log.error(`${LOG_PREFIX} PR creation failed despite commits`, { source: "main.ts", ticketId });
+      log.error(`${LOG_PREFIX} PR creation failed despite commits — branch preserved for inspection`, { source: "main.ts", ticketId, branch });
     }
-
-    manager.cleanup(ticketId);
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unknown error";
     log.error(`${LOG_PREFIX} Ticket processing failed`, { source: "main.ts", error: message, ticketId });
@@ -196,7 +199,7 @@ export function startOpeyDev(opts: {
   });
 
   const store = new SupabaseTicketStore(opts.supabaseUrl, opts.supabaseKey);
-  const manager = new WorktreeManager(opts.workspaceRoot);
+  const manager = new BranchManager(opts.workspaceRoot);
 
   // Run immediately, then poll
   void processNextTicket(store, manager);
