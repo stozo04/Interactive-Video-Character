@@ -71,7 +71,7 @@ function shouldAvoidClarification(ticket: any): boolean {
 
 
 // Choose orchestrator: "claude" or "openai" (default: "claude")
-const ORCHESTRATOR_BACKEND = process.env.OPEY_BACKEND ?? "claude";
+const ORCHESTRATOR_BACKEND = "openai";
 
 // ---------------------------------------------------------------------------
 // Self-healing: when an infrastructure error prevents Codex from launching,
@@ -186,6 +186,7 @@ async function attemptSelfHeal(
     try { fs.unlinkSync(metaPromptFile); metaPromptCleaned = true; } catch { /* ignore */ }
 
     if (exitCode !== 0) {
+      isProcessing = false;
       log.error(`${LOG_PREFIX} Self-heal Codex exited with code ${exitCode}`, {
         source: "main.ts", ticketId, exitCode,
       });
@@ -196,6 +197,7 @@ async function attemptSelfHeal(
     if (!metaPromptCleaned) {
       try { fs.unlinkSync(metaPromptFile); } catch { /* ignore */ }
     }
+    isProcessing = false;
   }
 
   // Self-heal succeeded — reset ticket to 'created' so the restarted process
@@ -265,6 +267,7 @@ async function processNextTicket(
         commitUnstagedWork(workPath, ticket.title ?? "Opey implementation");
         madeChanges = true;
       } catch (commitErr) {
+        isProcessing = false;
         log.error(`${LOG_PREFIX} Auto-commit failed`, { source: "main.ts", ticketId, error: String(commitErr) });
       }
     }
