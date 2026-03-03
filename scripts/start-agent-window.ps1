@@ -40,22 +40,44 @@ try {
 
 # ── WhatsApp bridge ──────────────────────────────────────────────────
 # Launches in its own PowerShell window alongside the agent.
-# Skips if already running (checked via a simple title-based guard).
+# Skips if already running on port 4011 (health server).
+# If the health server is NOT listening but a lock file exists, the old
+# process (possibly running without the health server) is killed by PID
+# before spawning a fresh bridge so it picks up the latest code.
 
-$whatsappCommand = "cd `"$repoRoot`"; npm run whatsapp:dev"
+$whatsappHealthPort = 4011
+$whatsappLockFile   = Join-Path $repoRoot ".whatsapp-auth\bridge.lock"
+$whatsappCommand    = "cd `"$repoRoot`"; npm run whatsapp:dev"
 
-try {
-  Start-Process -FilePath "powershell.exe" -ArgumentList @(
-    "-NoExit",
-    "-NoProfile",
-    "-ExecutionPolicy",
-    "Bypass",
-    "-Command",
-    "`$Host.UI.RawUI.WindowTitle = 'WhatsApp Bridge'; $whatsappCommand"
-  ) -ErrorAction Stop | Out-Null
+if (Test-AgentListening -Port $whatsappHealthPort) {
+  Write-Host "[dev] WhatsApp bridge already running on port $whatsappHealthPort. Skipping launch."
+} else {
+  # Health server not listening — kill any stale process holding the lock.
+  if (Test-Path $whatsappLockFile) {
+    $oldPid = Get-Content $whatsappLockFile -ErrorAction SilentlyContinue
+    if ($oldPid -match '^\d+$') {
+      try {
+        Stop-Process -Id ([int]$oldPid) -Force -ErrorAction SilentlyContinue
+        Write-Host "[dev] Killed stale WhatsApp bridge process (PID $oldPid)."
+      } catch { }
+    }
+    Remove-Item $whatsappLockFile -Force -ErrorAction SilentlyContinue
+    Write-Host "[dev] Removed stale lock file."
+  }
 
-  Write-Host "[dev] Started WhatsApp bridge in a new PowerShell window."
-} catch {
-  Write-Error "[dev] Failed to start WhatsApp bridge window: $($_.Exception.Message)"
-  # Non-fatal — dev can still work without WhatsApp
+  try {
+    Start-Process -FilePath "powershell.exe" -ArgumentList @(
+      "-NoExit",
+      "-NoProfile",
+      "-ExecutionPolicy",
+      "Bypass",
+      "-Command",
+      "`$Host.UI.RawUI.WindowTitle = 'WhatsApp Bridge'; $whatsappCommand"
+    ) -ErrorAction Stop | Out-Null
+
+    Write-Host "[dev] Started WhatsApp bridge in a new PowerShell window."
+  } catch {
+    Write-Error "[dev] Failed to start WhatsApp bridge window: $($_.Exception.Message)"
+    # Non-fatal — dev can still work without WhatsApp
+  }
 }

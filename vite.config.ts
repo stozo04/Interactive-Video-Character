@@ -19,7 +19,7 @@ export default defineConfig(({ mode }) => {
             rewrite: (path) => path.replace(/^\/api\/google/, ''),
           },
           '/api/anthropic': {
-            target: 'http://localhost:4010',
+            target: 'http://127.0.0.1:4010',
             changeOrigin: true,
             rewrite: (path) => path.replace(/^\/api\/anthropic/, '/anthropic'),
           },
@@ -34,8 +34,13 @@ export default defineConfig(({ mode }) => {
             rewrite: (path) => path.replace(/^\/api\/x/, ''),
           },
           '/multi-agent': {
-            target: 'http://localhost:4010',
+            target: 'http://127.0.0.1:4010',
             changeOrigin: true,
+          },
+          '/whatsapp-bridge': {
+            target: 'http://127.0.0.1:4011',
+            changeOrigin: true,
+            rewrite: (path) => path.replace(/^\/whatsapp-bridge/, ''),
           },
         },
       },

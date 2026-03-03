@@ -1003,6 +1003,7 @@ export type MemoryToolName =
   | 'cron_job_action'
   | 'delegate_to_engineering'
   | 'get_engineering_ticket_status'
+  | 'submit_clarification'
   | 'recall_memory'
   | 'recall_user_info'
   | 'store_user_info'
@@ -1094,6 +1095,10 @@ export interface ToolCallArgs {
   };
   get_engineering_ticket_status: {
     ticket_id?: string;
+  };
+  submit_clarification: {
+    ticket_id: string;
+    response: string;
   };
   recall_memory: {
     query: string;
@@ -1541,6 +1546,20 @@ export const executeMemoryTool = async (
         }
 
         return formatTicketStatus(listResult.tickets[0]);
+      }
+      case 'submit_clarification': {
+        const { submitClarification } = await import('./multiAgentService');
+        const clarifyArgs = args as ToolCallArgs['submit_clarification'];
+        console.log('[Memory Tool] submit_clarification called:', clarifyArgs);
+
+        if (!clarifyArgs.ticket_id || !clarifyArgs.response?.trim()) {
+          return 'Missing ticket_id or response for submit_clarification.';
+        }
+
+        const result = await submitClarification(clarifyArgs.ticket_id, clarifyArgs.response);
+        return result.ok
+          ? `Clarification submitted for ticket ${clarifyArgs.ticket_id}. Opey will continue implementing.`
+          : `Failed to submit clarification: ${result.error}`;
       }
       case 'recall_memory': {
         const { query, timeframe } = args as ToolCallArgs['recall_memory'];

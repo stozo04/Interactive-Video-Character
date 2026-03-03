@@ -84,10 +84,12 @@ export const fetchTableDataAdmin = async (
 export const listServerRuntimeLogsAdmin = async (options?: {
   severity?: RuntimeLogSeverity | 'all';
   limit?: number;
+  source?: 'server' | 'client' | 'all';
 }): Promise<ServerRuntimeLogRow[]> => {
   try {
     const severity = options?.severity ?? 'all';
     const limit = options?.limit ?? 200;
+    const source = options?.source ?? 'all';
 
     let query = supabase
       .from('server_runtime_logs')
@@ -97,6 +99,14 @@ export const listServerRuntimeLogsAdmin = async (options?: {
 
     if (severity !== 'all') {
       query = query.eq('severity', severity);
+    }
+
+    if (source === 'client') {
+      query = query.eq('source', 'client');
+    } else if (source === 'server') {
+      // Server logs don't write source='server' — they use service names or null.
+      // Exclude client logs to get everything server-originated.
+      query = query.neq('source', 'client');
     }
 
     const { data, error } = await query;

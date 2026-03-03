@@ -65,6 +65,7 @@ export function buildToolStrategySection(): string {
    - Always include a concise request_summary and a short title when possible.
    - If the request is ambiguous, still create the ticket and ask clarifying questions after.
    - Use 'get_engineering_ticket_status' when the user asks for progress or blockers.
+   - Use 'submit_clarification' ONLY after you have relayed Opey's questions to Steven AND received his answer. Pass the ticket_id from the [SYSTEM] notification and Steven's response.
 
 8. X (TWITTER) POSTING:
    - **Approving/rejecting existing drafts:** Use 'resolve_x_tweet' with the draft id and status.
