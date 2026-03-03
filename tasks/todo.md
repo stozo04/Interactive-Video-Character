@@ -801,3 +801,30 @@
 
 ## Review Notes
 - Extra divider likely caused by `border-b` on the Proactive Features container plus `border-t` on the Server Status container.
+
+---
+
+## Plan: Chat Attachment Validation (Allow .md Files)
+
+1) Confirm current attachment flow and validation points (image-only):
+- `src/components/ChatPanel.tsx`
+- `src/utils/clipboardImage.ts`
+- `src/utils/__tests__/clipboardImage.test.ts`
+- `src/types.ts`
+2) Implement minimal attachment support for `.md` by reading file text and injecting into the outbound chat message (no image preview):
+- `src/components/ChatPanel.tsx`
+- `src/utils/clipboardImage.ts`
+- `src/types.ts`
+3) Update tests for new attachment validation/processing:
+- `src/utils/__tests__/clipboardImage.test.ts`
+4) Verification (if approved):
+- `npm test -- --run src/utils/__tests__/clipboardImage.test.ts`
+- `npm run dev` (manual: attach `.md` and confirm no image-only error)
+
+## Progress
+- [x] Plan added to `tasks/todo.md`.
+- [ ] Patch implementation (pending approval).
+- [ ] Verification run (if approved).
+
+## Review Notes
+- Assumption: `.md` attachments should be sent as text content (not as images) by injecting file contents into the chat message.
