@@ -178,9 +178,16 @@ export async function runOpeyLoop(
   // if something goes wrong before it exits on its own.
   let child: ChildProcess | null = null;
 
+<<<<<<< opey-dev/86f25cf3-b8c8-47b2-99f6-3a7cdaa36830
+  // Temp file path — written before spawn, deleted in finally.
+  // We write the full prompt to disk instead of passing it as a CLI arg because
+  // on Windows, CreateProcess has a ~32 KB command-line limit. The full prompt
+  // (SOUL.md + lessons + ticket) can easily exceed that, causing ENAMETOOLONG.
+=======
   // Temp file that holds the full prompt. Written before spawn, deleted in finally.
   // Passing fullPrompt as a CLI arg causes spawn ENAMETOOLONG on Windows because
   // CreateProcess has a ~32KB command-line limit. Writing it to disk sidesteps that.
+>>>>>>> main
   let promptFile: string | null = null;
 
   try {
@@ -189,7 +196,11 @@ export async function runOpeyLoop(
     const ticketPrompt = buildTicketPrompt(ticket, workPath);
     const fullPrompt = `${soulPrompt}\n\n${ticketPrompt}`;
 
+<<<<<<< opey-dev/86f25cf3-b8c8-47b2-99f6-3a7cdaa36830
+    // Write the full prompt to a temp file so we can pass a short CLI arg.
+=======
     // Write full prompt to a temp file; pass a short boot arg to Codex instead.
+>>>>>>> main
     promptFile = path.join(os.tmpdir(), `opey-${ticket?.id ?? "task"}.md`);
     fs.writeFileSync(promptFile, fullPrompt, "utf-8");
     const bootArg =
@@ -202,7 +213,11 @@ export async function runOpeyLoop(
     //      already controls what branch it runs on, and we want fully automated runs.
     //    - "--ephemeral": don't write session files to disk between runs.
     //    - "--color never": strip ANSI colour codes so our logs are readable.
+<<<<<<< opey-dev/86f25cf3-b8c8-47b2-99f6-3a7cdaa36830
+    //    - The last argument is the short boot prompt (actual task is in promptFile).
+=======
     //    - The last argument is a short boot instruction pointing at promptFile.
+>>>>>>> main
     const args = [
       "exec",
       "-m", CODEX_MODEL,
