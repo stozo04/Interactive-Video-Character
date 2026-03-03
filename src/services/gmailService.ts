@@ -96,11 +96,13 @@ class GmailService extends EventTarget {
 
     const historyData = await historyResponse.json();
 
+    console.log(`[GmailService] Poll: historyId=${lastHistoryId} → newHistoryId=${historyData.historyId ?? 'none'} | historyRecords=${historyData.history?.length ?? 0}`);
+
     // 2. If there's new history, find the "messages added" events
     if (historyData.history) {
-      const newMessages = historyData.history
-        .flatMap((record: any) => record.messagesAdded || [])
-        .filter((item: any) => {
+      const allAdded = historyData.history.flatMap((record: any) => record.messagesAdded || []);
+
+      const newMessages = allAdded.filter((item: any) => {
           const labels: string[] = item.message.labelIds || [];
 
           // The API query already guarantees INBOX membership (labelId=INBOX).
@@ -108,9 +110,21 @@ class GmailService extends EventTarget {
           // rather than silently dropping it — that was the original bug.
           if (!labels.length) return true;
 
+          // IMPORTANT overrides category filtering — if Gmail flagged it as
+          // important, surface it regardless of category (e.g. CATEGORY_UPDATES).
+          // This catches transactional/business emails (docusign, dotloop, banks)
+          // that Gmail auto-categorizes as Updates but are clearly high-signal.
+          if (labels.includes('IMPORTANT')) return true;
+
           // Drop promotional/social/updates/forums categories
-          return !labels.some((label: string) => IGNORED_LABELS.includes(label));
+          const dropped = labels.some((label: string) => IGNORED_LABELS.includes(label));
+          if (dropped) {
+            console.log(`[GmailService] Filtered out message ${item.message.id} — labels: ${labels.join(', ')}`);
+          }
+          return !dropped;
         });
+
+      console.log(`[GmailService] messagesAdded=${allAdded.length} | passed filter=${newMessages.length}`);
 
       if (newMessages.length > 0) {
         // 3. Get the headers for just these new messages

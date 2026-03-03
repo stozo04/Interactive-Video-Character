@@ -750,7 +750,7 @@ export class GeminiService implements IAIChatService {
         store: true,
         generation_config: {
           // Controls the depth of reasoning (Gemini 3 specific)
-          thinking_level: "medium", // "high", "medium", "low"
+          thinking_level: "low", // "high", "medium", "low"
           temperature: 1.0
         },
       };
@@ -903,7 +903,7 @@ export class GeminiService implements IAIChatService {
       store: true, // <-- Important - This enables server-side logging and session continuity
       generation_config: {
         // Controls the depth of reasoning (Gemini 3 specific)
-        thinking_level: "medium", // "high", "medium", "low"
+        thinking_level: "low", // "high", "medium", "low"
         temperature: 1.0
       },
     };
@@ -1181,7 +1181,7 @@ export class GeminiService implements IAIChatService {
       store: true, // REQUIRED: This ensures logs appear in AI Studio
       generation_config: {
         // Uses the dynamic level calculated above
-        thinking_level: "medium",
+        thinking_level: "low",
         temperature: 1.0
       },
       // Combined your custom memory tools with Google Search
@@ -1308,7 +1308,7 @@ ${pendingSuggestion.reasoning}
         system_instruction: systemPrompt,
         store: true, // <-- Important - This enables server-side logging and session continuity
         generation_config: {
-          thinking_level: "medium", // "high", "medium", "low"
+          thinking_level: "low", // "high", "medium", "low"
           temperature: 1.0
         },
       };
