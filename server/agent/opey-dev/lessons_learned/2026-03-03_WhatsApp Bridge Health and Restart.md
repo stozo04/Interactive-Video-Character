@@ -117,3 +117,39 @@ Touch points for adding a new Kayley tool: `aiSchema.ts` (schema + type + Gemini
 - The canonical ticket status list (no QA): `created` → `intake_acknowledged` → `needs_clarification` ↔ `implementing` → `pr_preparing` → `pr_ready` → `completed` | `failed` | `escalated_human` | `cancelled`.
 - `requirements_ready` and `planning` are manual/placeholder statuses — Opey skips straight to `implementing`.
 - The migration file for re-adding `needs_clarification` to the DB constraint is at `server/agent/opey-dev/migrations/add_needs_clarification_status.sql`.
+
+---
+
+# Lessons Learned — Orchestrator ENAMETOOLONG on Windows — 2026-03-03
+
+## Feature
+Opey failing to spawn Codex CLI with `spawn ENAMETOOLONG` on Windows.
+
+## Root Cause
+`orchestrator-openai.ts` was passing the **full assembled prompt** (`soulPrompt + lessonContext + ticketPrompt`) as the last positional CLI argument to Codex. On Windows, `CreateProcess` has a hard ~32,767 character limit for the entire command line. The combined prompt (SOUL.md + all lessons_learned/*.md + ticket details) easily exceeds this, causing Node's `spawn()` to throw `ENAMETOOLONG` before Codex even starts.
+
+This is a **Windows-only** issue. Linux/Mac have an `ARG_MAX` of 2MB+, so the same prompt passes fine there.
+
+The problem gets **worse over time** as lessons_learned grows — every new session appends more text, making the issue more likely to recur if the fix is ever reverted.
+
+## Fix Applied
+`server/agent/opey-dev/orchestrator-openai.ts`:
+1. Added `import * as os from "node:os"`.
+2. Before spawning, write `fullPrompt` to `os.tmpdir()/opey-<ticketId>.md`.
+3. Pass a short **boot argument** to Codex instead of the full prompt:
+   ```
+   Your complete task instructions are in this file — read it before doing anything:
+   <absolute temp path>
+   Implement everything described in that file.
+   ```
+4. In the `finally` block, `fs.unlinkSync(promptFile)` cleans up the temp file regardless of success or failure.
+
+## Gotchas
+- **Failed ticket must be manually reset.** When the error occurs, `main.ts` catches the spawn error and sets `status = 'failed'`. To retry, run `UPDATE engineering_tickets SET status = 'created' WHERE id = '<id>';` in Supabase, then restart Opey.
+- **Codex can read absolute paths outside its cwd.** The temp file lives in `os.tmpdir()` (e.g. `C:\Users\gates\AppData\Local\Temp\`), which is outside the worktree. Codex as an AI agent reads it without issue.
+- **`promptFile` must be declared outside the try block** so the `finally` block can access it. Initialise to `null` and guard with `if (promptFile)` before unlinking.
+
+## What Future Opey Should Know
+- **Never pass large text as a CLI argument on Windows.** If you are spawning any external process with a long string (system prompt, full file contents, etc.), write it to `os.tmpdir()` first and pass the path or a short instruction referencing the path.
+- If Opey fails with `spawn ENAMETOOLONG`, the fix is always the same: move the long argument into a temp file.
+- Lessons learned files grow over time — the orchestrator already concatenates every `.md` in `lessons_learned/`. Keep individual files reasonably sized; split large files if they exceed ~500 lines.
