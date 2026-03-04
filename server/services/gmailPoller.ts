@@ -24,7 +24,7 @@ import type { NewEmailPayload } from '../../src/services/gmailService';
 import { getValidGoogleToken } from './googleTokenService';
 import { generateEmailAnnouncement } from '../../src/services/emailProcessingService';
 import { supabaseAdmin as supabase } from './supabaseAdmin';
-import { getActiveSock, sentMessageIds } from '../whatsapp/baileyClient';
+import { bot, getStevenChatId } from '../telegram/telegramClient';
 import { log } from '../runtimeLogger';
 import {
   checkAutoArchiveRule,
@@ -60,7 +60,7 @@ const FAIL_THRESHOLD        = 3;            // consecutive failures before WA al
 const HISTORY_DB_KEY        = 'server_gmail_history_id'; // stored in google_api_config
 const HISTORY_SHIM_KEY      = 'gmail_history_id';        // gmailService's hardcoded key
 
-const STEVEN_JID = process.env.WHATSAPP_STEVEN_JID;
+const STEVEN_CHAT_ID = getStevenChatId();
 
 // Prevent overlapping polls if one takes longer than the interval
 let isPolling = false;
@@ -69,15 +69,14 @@ let isPolling = false;
 let consecutiveFailures = 0;
 let sentFailureAlert    = false; // only send WA notification once per failure streak
 
-async function sendWaAlert(message: string): Promise<void> {
-  if (!STEVEN_JID) return;
+async function sendTelegramAlert(message: string): Promise<void> {
+  const chatId = getStevenChatId();
+  if (!chatId) return;
   try {
-    const { getActiveSock } = await import('../whatsapp/baileyClient');
-    const sock = getActiveSock();
-    if (sock) await sock.sendMessage(STEVEN_JID, { text: message });
+    await bot.api.sendMessage(chatId, message);
   } catch {
-    // Non-fatal — if WA is also down, just log
-    console.error(`${LOG_PREFIX} Could not send WA alert`);
+    // Non-fatal — if Telegram is also down, just log
+    console.error(`${LOG_PREFIX} Could not send Telegram alert`);
   }
 }
 
@@ -162,20 +161,19 @@ async function handleAutoArchive(email: NewEmailPayload, senderEmail: string): P
     });
   }
 
-  // Brief WA notification — no announcement, no question, just a heads-up
-  const sock = getActiveSock();
-  if (!sock || !STEVEN_JID) return;
+  // Brief Telegram notification — no announcement, no question, just a heads-up
+  const chatId = getStevenChatId();
+  if (!chatId) return;
 
   const notification = archiveSuccess
     ? `Got an email from ${displayName} — auto-archived it for you. 🗑️`
     : `Got an email from ${displayName} ("${email.subject}") but had trouble auto-archiving it.`;
 
   try {
-    const sent = await sock.sendMessage(STEVEN_JID!, { text: notification });
-    if (sent?.key?.id) sentMessageIds.add(sent.key.id);
+    await bot.api.sendMessage(chatId, notification);
     console.log(`${LOG_PREFIX} 🗑️  Auto-archived email from ${senderEmail}: "${email.subject}"`);
   } catch (err) {
-    runtimeLog.error('Failed to send auto-archive notification to WA', {
+    runtimeLog.error('Failed to send auto-archive notification to Telegram', {
       source: 'gmailPoller',
       gmailMessageId: email.id,
       error: err instanceof Error ? err.message : String(err),
@@ -188,7 +186,8 @@ async function handleAutoArchive(email: NewEmailPayload, senderEmail: string): P
 // ============================================================================
 
 async function processNewEmail(email: NewEmailPayload): Promise<void> {
-  if (!STEVEN_JID) return;
+  const chatId = getStevenChatId();
+  if (!chatId) return;
 
   // 0. Auto-archive check — runs BEFORE dedup and announcement
   const senderEmail = extractEmailAddress(email.from);
@@ -271,27 +270,17 @@ async function processNewEmail(email: NewEmailPayload): Promise<void> {
     // Continue and try to send to WA anyway — better to duplicate than miss
   }
 
-  // 5. Send announcement to Steven's WhatsApp
-  const sock = getActiveSock();
-  if (!sock) {
-    runtimeLog.warning('WA socket not available, email announcement dropped', {
-      source: 'gmailPoller',
-      gmailMessageId: email.id,
-    });
-    return;
-  }
-
+  // 5. Send announcement to Steven via Telegram
   try {
-    const sent = await sock.sendMessage(STEVEN_JID!, { text: announcement });
-    if (sent?.key?.id) sentMessageIds.add(sent.key.id);
-    console.log(`${LOG_PREFIX} ✅ Email notification sent to WA: "${email.subject}" from ${email.from}`);
-    runtimeLog.info('Email announcement sent to WhatsApp', {
+    await bot.api.sendMessage(chatId, announcement);
+    console.log(`${LOG_PREFIX} ✅ Email notification sent to Telegram: "${email.subject}" from ${email.from}`);
+    runtimeLog.info('Email announcement sent to Telegram', {
       source: 'gmailPoller',
       gmailMessageId: email.id,
       announcementLength: announcement.length,
     });
   } catch (err) {
-    runtimeLog.error('Failed to send email announcement to WA', {
+    runtimeLog.error('Failed to send email announcement to Telegram', {
       source: 'gmailPoller',
       gmailMessageId: email.id,
       error: err instanceof Error ? err.message : String(err),
@@ -395,8 +384,8 @@ async function pollGmail(): Promise<number> {
         `Last error: ${errMsg.substring(0, 120)}\n\n` +
         `I'm backing off to every ${POLL_BACKOFF_MS / 60_000} minutes. ` +
         `You may need to reopen the app and re-authenticate.`;
-      console.error(`${LOG_PREFIX} Sending failure alert to WA`);
-      await sendWaAlert(alert);
+      console.error(`${LOG_PREFIX} Sending failure alert to Telegram`);
+      await sendTelegramAlert(alert);
     }
 
     return consecutiveFailures >= FAIL_THRESHOLD ? POLL_BACKOFF_MS : POLL_INTERVAL_MS;
@@ -411,8 +400,8 @@ async function pollGmail(): Promise<number> {
 // ============================================================================
 
 export function startGmailPoller(): void {
-  if (!STEVEN_JID) {
-    console.warn(`${LOG_PREFIX} WHATSAPP_STEVEN_JID not set — Gmail poller disabled`);
+  if (!STEVEN_CHAT_ID) {
+    console.warn(`${LOG_PREFIX} TELEGRAM_STEVEN_CHAT_ID not set — Gmail poller disabled`);
     return;
   }
 

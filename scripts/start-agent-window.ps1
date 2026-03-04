@@ -38,33 +38,16 @@ try {
   exit 1
 }
 
-# ── WhatsApp bridge ──────────────────────────────────────────────────
+# ── Telegram bridge ──────────────────────────────────────────────────
 # Launches in its own PowerShell window alongside the agent.
-# Skips if already running on port 4011 (health server).
-# If the health server is NOT listening but a lock file exists, the old
-# process (possibly running without the health server) is killed by PID
-# before spawning a fresh bridge so it picks up the latest code.
+# Skips if already running on port 4012 (health server).
 
-$whatsappHealthPort = 4011
-$whatsappLockFile   = Join-Path $repoRoot ".whatsapp-auth\bridge.lock"
-$whatsappCommand    = "cd `"$repoRoot`"; npm run whatsapp:dev"
+$telegramHealthPort = 4012
+$telegramCommand    = "cd `"$repoRoot`"; npm run telegram:dev"
 
-if (Test-AgentListening -Port $whatsappHealthPort) {
-  Write-Host "[dev] WhatsApp bridge already running on port $whatsappHealthPort. Skipping launch."
+if (Test-AgentListening -Port $telegramHealthPort) {
+  Write-Host "[dev] Telegram bridge already running on port $telegramHealthPort. Skipping launch."
 } else {
-  # Health server not listening — kill any stale process holding the lock.
-  if (Test-Path $whatsappLockFile) {
-    $oldPid = Get-Content $whatsappLockFile -ErrorAction SilentlyContinue
-    if ($oldPid -match '^\d+$') {
-      try {
-        Stop-Process -Id ([int]$oldPid) -Force -ErrorAction SilentlyContinue
-        Write-Host "[dev] Killed stale WhatsApp bridge process (PID $oldPid)."
-      } catch { }
-    }
-    Remove-Item $whatsappLockFile -Force -ErrorAction SilentlyContinue
-    Write-Host "[dev] Removed stale lock file."
-  }
-
   try {
     Start-Process -FilePath "powershell.exe" -ArgumentList @(
       "-NoExit",
@@ -72,12 +55,12 @@ if (Test-AgentListening -Port $whatsappHealthPort) {
       "-ExecutionPolicy",
       "Bypass",
       "-Command",
-      "`$Host.UI.RawUI.WindowTitle = 'WhatsApp Bridge'; $whatsappCommand"
+      "`$Host.UI.RawUI.WindowTitle = 'Telegram Bridge'; $telegramCommand"
     ) -ErrorAction Stop | Out-Null
 
-    Write-Host "[dev] Started WhatsApp bridge in a new PowerShell window."
+    Write-Host "[dev] Started Telegram bridge in a new PowerShell window."
   } catch {
-    Write-Error "[dev] Failed to start WhatsApp bridge window: $($_.Exception.Message)"
-    # Non-fatal — dev can still work without WhatsApp
+    Write-Error "[dev] Failed to start Telegram bridge window: $($_.Exception.Message)"
+    # Non-fatal — dev can still work without Telegram
   }
 }
