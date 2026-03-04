@@ -1,6 +1,9 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { CharacterProfile } from '../types';
 import LoadingSpinner from './LoadingSpinner';
+import { clientLogger } from '../services/clientLogger';
+
+const LOG_PREFIX = '[ActionManagementView]';
 
 interface ManagedAction {
   id: string;
@@ -107,7 +110,7 @@ const ActionManagementView: React.FC<ActionManagementViewProps> = ({
         createVideoInputRef.current.value = '';
       }
     } catch (error) {
-      console.error('Failed to create action:', error);
+      clientLogger.error(`${LOG_PREFIX} Failed to create action`, { error: error instanceof Error ? error.message : String(error) });
       setCreateError('Failed to create action. Please try again.');
     }
   };
@@ -150,7 +153,7 @@ const ActionManagementView: React.FC<ActionManagementViewProps> = ({
         editVideoInputRef.current.value = '';
       }
     } catch (error) {
-      console.error('Failed to update action:', error);
+      clientLogger.error(`${LOG_PREFIX} Failed to update action`, { error: error instanceof Error ? error.message : String(error) });
       setEditError('Failed to update action. Please try again.');
     }
   };
@@ -167,7 +170,7 @@ const ActionManagementView: React.FC<ActionManagementViewProps> = ({
         setEditingActionId(null);
       }
     } catch (error) {
-      console.error('Failed to delete action:', error);
+      clientLogger.error(`${LOG_PREFIX} Failed to delete action`, { error: error instanceof Error ? error.message : String(error) });
       alert('Failed to delete action. Please try again.');
     }
   };

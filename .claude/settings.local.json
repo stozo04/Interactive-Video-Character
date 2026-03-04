@@ -64,7 +64,9 @@
       "Bash(git config:*)",
       "Bash(timeout 8 npx tsx:*)",
       "Bash(python:*)",
-      "Bash(python3:*)"
+      "Bash(python3:*)",
+      "Bash(where:*)",
+      "Bash(cmd.exe:*)"
     ]
   },
   "enabledPlugins": {
