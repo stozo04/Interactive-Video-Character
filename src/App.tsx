@@ -61,7 +61,6 @@ import { shuffleArray } from './utils/arrayUtils';
 import { getAccessToken } from './services/googleAuth';
 import { hasBeenBriefedToday, markBriefedToday } from './services/dailyCatchupService';
 import { StorageKey } from './utils/enums';
-import { runIdleThinkingTick } from './services/idleThinkingService';
 import { registerXAuthTestHelper } from './services/xAuthTestHelper';
 import { handleXAuthCallback, refreshRecentTweetMetrics } from './services/xTwitterService';
 import { handleOAuthCallback as handleAnthropicOAuthCallback } from './services/anthropicService';
@@ -186,6 +185,8 @@ function formatWorkspaceRunStatusMessage(run: WorkspaceAgentRun): string | null 
 // ============================================================================
 // MAIN COMPONENT
 // ============================================================================
+const LOG_PREFIX = '[App]';
+
 const App: React.FC = () => {
   // --------------------------------------------------------------------------
   // AUTH & CORE SERVICES
@@ -209,12 +210,12 @@ const App: React.FC = () => {
         setAnthropicAuthStatus('processing');
         handleAnthropicOAuthCallback(code, state)
           .then((success) => {
-            console.log('Anthropic OAuth callback:', success ? 'succeeded' : 'failed');
+            clientLogger.info(`${LOG_PREFIX} Anthropic OAuth callback`, { source: 'App.tsx', success });
             setAnthropicAuthStatus(success ? 'success' : 'error');
             window.history.replaceState({}, '', '/');
           })
           .catch((error) => {
-            console.error('Anthropic OAuth callback failed:', error);
+            clientLogger.error(`${LOG_PREFIX} Anthropic OAuth callback failed`, { source: 'App.tsx', error: error instanceof Error ? error.message : String(error) });
             setAnthropicAuthStatus('error');
             window.history.replaceState({}, '', '/');
           });
@@ -233,12 +234,12 @@ const App: React.FC = () => {
         setXAuthStatus('processing');
         handleXAuthCallback(code, state)
           .then(() => {
-            console.log('X OAuth callback succeeded — account connected');
+            clientLogger.info(`${LOG_PREFIX} X OAuth callback succeeded — account connected`, { source: 'App.tsx' });
             setXAuthStatus('success');
             window.history.replaceState({}, '', '/');
           })
           .catch((error) => {
-            console.error('X OAuth callback failed:', error);
+            clientLogger.error(`${LOG_PREFIX} X OAuth callback failed`, { source: 'App.tsx', error: error instanceof Error ? error.message : String(error) });
             setXAuthStatus('error');
             window.history.replaceState({}, '', '/');
           });
@@ -260,12 +261,6 @@ const App: React.FC = () => {
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [talkingVideoUrl, setTalkingVideoUrl] = useState<string | null>(null);
 
-  useEffect(() => {
-    // Placeholder for talking video URL. 
-    // In a real app, this would come from the character profile or DB.
-    // const url = "https://your-supabase-url.../talking_loop.mp4"; 
-    // setTalkingVideoUrl(url);
-  }, []);
 
   // --------------------------------------------------------------------------
   // MEDIA & CACHE HOOKS
@@ -366,7 +361,7 @@ const App: React.FC = () => {
 
   // Character Management (CRUD operations for characters, actions, idle videos)
   const reportErrorRef = useRef<(message: string, error?: unknown) => void>((msg) => {
-    console.error(msg);
+    clientLogger.error(`${LOG_PREFIX} ${msg}`, { source: 'App.tsx' });
     setErrorMessage(msg);
   });
   const {
@@ -460,7 +455,7 @@ const App: React.FC = () => {
       startCleanupScheduler({
           onComplete: (result) => {
             if (result.totalExpired > 0) {
-              console.log(`🧹 Cleaned up ${result.totalExpired} stale loops`);
+              clientLogger.info(`${LOG_PREFIX} Cleaned up ${result.totalExpired} stale loops`, { source: 'App.tsx' });
             }
           }
         });
@@ -470,28 +465,10 @@ const App: React.FC = () => {
         };
     } catch (e) {
       // Ignore if user ID check fails (e.g. env var missing in dev)
-      console.log(`❌ [LoopCleanup] Error starting cleanup scheduler:`, e);
+      clientLogger.error(`${LOG_PREFIX} [LoopCleanup] Error starting cleanup scheduler`, { source: 'App.tsx', error: e instanceof Error ? e.message : String(e) });
     }
   }, []);
 
-  // Idle Thoughts: Initialize scheduler to generate thoughts during user absence
-  useEffect(() => {
-    try {
-      console.log("❌ Idle Thoughts are disabled.")
-      // Disabling Idle Thoughts as this is not working as expected.
-      // I need to get rid of the hard code logic in idleThougths.ts
-      // and make it dynamic
-      // startIdleThoughtsScheduler();
-
-      // return () => {
-      //   stopIdleThoughtsScheduler();
-      // };
-
-    } catch (e) {
-      // Ignore if user ID check fails (e.g. env var missing in dev)
-      console.log(`❌ [IdleThoughts] Error starting idle thoughts scheduler:`, e);
-    }
-  }, []);
 
   // Storyline Idle Service: Generate storyline suggestions during user absence
   useEffect(() => {
@@ -501,14 +478,14 @@ const App: React.FC = () => {
         stopStorylineIdleService();
       };
     } catch (e) {
-      console.log(`❌ [StorylineIdle] Error starting idle service:`, e);
+      clientLogger.error(`${LOG_PREFIX} [StorylineIdle] Error starting idle service`, { source: 'App.tsx', error: e instanceof Error ? e.message : String(e) });
     }
   }, []);
 
   // Storyline Processing: Check for missed days on app startup
   useEffect(() => {
     processStorylineOnStartup().catch(error => {
-      console.error('📖 [Storylines] Error in startup processing:', error);
+      clientLogger.error(`${LOG_PREFIX} [Storylines] Error in startup processing`, { source: 'App.tsx', error: error instanceof Error ? error.message : String(error) });
     });
   }, []); // Run once on mount
 
@@ -519,13 +496,13 @@ const App: React.FC = () => {
     // Initial refresh after a short delay
     const initialTimeout = setTimeout(() => {
       refreshRecentTweetMetrics().catch(e =>
-        console.warn('[X Metrics] Initial refresh failed:', e)
+        clientLogger.warning(`${LOG_PREFIX} [X Metrics] Initial refresh failed`, { source: 'App.tsx', error: e instanceof Error ? e.message : String(e) })
       );
     }, 10000);
 
     const interval = setInterval(() => {
       refreshRecentTweetMetrics().catch(e =>
-        console.warn('[X Metrics] Periodic refresh failed:', e)
+        clientLogger.warning(`${LOG_PREFIX} [X Metrics] Periodic refresh failed`, { source: 'App.tsx', error: e instanceof Error ? e.message : String(e) })
       );
     }, METRICS_INTERVAL);
 
@@ -542,13 +519,13 @@ const App: React.FC = () => {
     // Initial poll after 15s delay
     const initialTimeout = setTimeout(() => {
       pollAndProcessMentions().catch(e =>
-        console.warn('[X Mentions] Initial poll failed:', e)
+        clientLogger.warning(`${LOG_PREFIX} [X Mentions] Initial poll failed`, { source: 'App.tsx', error: e instanceof Error ? e.message : String(e) })
       );
     }, 15000);
 
     const interval = setInterval(() => {
       pollAndProcessMentions().catch(e =>
-        console.warn('[X Mentions] Periodic poll failed:', e)
+        clientLogger.warning(`${LOG_PREFIX} [X Mentions] Periodic poll failed`, { source: 'App.tsx', error: e instanceof Error ? e.message : String(e) })
       );
     }, MENTION_INTERVAL);
 
@@ -563,7 +540,7 @@ const App: React.FC = () => {
   // ==========================================================================
 
   const reportError = useCallback((message: string, error?: unknown) => {
-    console.error(message, error);
+    clientLogger.error(`${LOG_PREFIX} ${message}`, { source: 'App.tsx', error: error instanceof Error ? error.message : String(error) });
     setErrorMessage(message);
   }, []);
 
@@ -573,15 +550,12 @@ const App: React.FC = () => {
 
   const loadCharacters = useCallback(async () => {
     setView('loading');
-    const startTime = performance.now(); 
     try {
       const savedCharacters = await dbService.getCharacters();
-      const loadTime = performance.now() - startTime;
-      // console.log(`✅ Loaded ${savedCharacters.length} character(s) in ${loadTime.toFixed(0)}ms`);
       setCharacters(savedCharacters.sort((a, b) => b.createdAt - a.createdAt));
       setView('selectCharacter');
     } catch (error) {
-      console.error('Failed to load characters:', error);
+      clientLogger.error(`${LOG_PREFIX} Failed to load characters`, { source: 'App.tsx', error: error instanceof Error ? error.message : String(error) });
       setErrorMessage('Failed to load characters. Check console for details.');
       setView('selectCharacter');
     }
@@ -647,10 +621,6 @@ const App: React.FC = () => {
   useEffect(() => {
     taskCelebrateRef.current = (message: string) => {
       if (selectedCharacter && !isMutedRef.current) {
-        // Gates: Disable Audio
-        // generateSpeech(message).then(audio => {
-        //   if (audio) media.enqueueAudio(audio);
-        // });
         setChatHistory(prev => [...prev, { role: 'model', text: message }]);
       }
     };
@@ -699,9 +669,7 @@ const App: React.FC = () => {
     async (shouldEmitChatMessage: boolean) => {
       const result = await listWorkspaceAgentRuns(20);
       if (!result.ok) {
-        console.warn('[WorkspaceAgentChat] Failed to list runs for backfill', {
-          error: result.error,
-        });
+        clientLogger.warning(`${LOG_PREFIX} [WorkspaceAgentChat] Failed to list runs for backfill`, { source: 'App.tsx', error: result.error });
         return;
       }
 
@@ -765,7 +733,7 @@ const App: React.FC = () => {
             assistantImage = selfieResult.imageBase64;
             assistantImageMimeType = selfieResult.mimeType || 'image/png';
           } else if (selfieResult.error) {
-            console.error('[PendingMessage] Selfie generation failed', selfieResult.error);
+            clientLogger.error(`${LOG_PREFIX} [PendingMessage] Selfie generation failed`, { source: 'App.tsx', error: selfieResult.error });
           }
         }
 
@@ -784,12 +752,10 @@ const App: React.FC = () => {
 
         const acked = await ackPendingMessageDelivered(pending.id);
         if (!acked) {
-          console.warn('[PendingMessage] Delivery ack skipped or already claimed', {
-            pendingMessageId: pending.id,
-          });
+          clientLogger.warning(`${LOG_PREFIX} [PendingMessage] Delivery ack skipped or already claimed`, { source: 'App.tsx', pendingMessageId: pending.id });
         }
       } catch (error) {
-        console.error('[PendingMessage] Delivery failed', error);
+        clientLogger.error(`${LOG_PREFIX} [PendingMessage] Delivery failed`, { source: 'App.tsx', error: error instanceof Error ? error.message : String(error) });
       } finally {
         pendingMessageInFlightRef.current = false;
       }
@@ -853,12 +819,12 @@ const App: React.FC = () => {
       // 5. Play Audio
       if (!isMuted && audioData) enqueueAudio(audioData);
       if (response.open_app) {
-        console.log("Launching app:", response.open_app);
-         window.location.href = response.open_app;
+        clientLogger.info(`${LOG_PREFIX} Launching app`, { source: 'App.tsx', url: response.open_app });
+        window.location.href = response.open_app;
       }
 
     } catch (error) {
-      console.error('Briefing error:', error);
+      clientLogger.error(`${LOG_PREFIX} Briefing error`, { source: 'App.tsx', error: error instanceof Error ? error.message : String(error) });
     } finally {
       setIsProcessingAction(false);
     }
@@ -913,14 +879,14 @@ const App: React.FC = () => {
     if (isSnoozed) {
       // Handle indefinite snooze (snoozeUntil is null)
       if (snoozeUntil === null) {
-        console.log("⏸️ Check-ins are snoozed indefinitely");
+        clientLogger.info(`${LOG_PREFIX} Check-ins are snoozed indefinitely`, { source: 'App.tsx' });
         return; // Skip idle breaker while snoozed indefinitely
       }
-      
+
       // Handle timed snooze
       const now = Date.now();
       if (now < snoozeUntil) {
-        console.log("⏸️ Check-ins are snoozed until", new Date(snoozeUntil).toLocaleTimeString());
+        clientLogger.info(`${LOG_PREFIX} Check-ins are snoozed until ${new Date(snoozeUntil).toLocaleTimeString()}`, { source: 'App.tsx' });
         return; // Skip idle breaker while snoozed
       } else {
         // Snooze period ended - clear state and return
@@ -928,38 +894,31 @@ const App: React.FC = () => {
         setIsSnoozed(false);
         setSnoozeUntil(null);
         localStorage.removeItem('kayley_snooze_until');
-        console.log("⏰ Snooze period ended (waiting for next scheduled check)");
+        clientLogger.info(`${LOG_PREFIX} Snooze period ended (waiting for next scheduled check)`, { source: 'App.tsx' });
         return; // Exit without triggering check-in immediately
       }
     }
-    
+
     // If both check-ins and news are disabled, don't trigger anything
     if (!proactiveSettings.checkins && !proactiveSettings.news) {
-      console.log("💤 Both check-ins and news are disabled, skipping idle breaker");
+      clientLogger.info(`${LOG_PREFIX} Both check-ins and news are disabled, skipping idle breaker`, { source: 'App.tsx' });
       return;
     }
-    
+
     if (idleThinkingInFlightRef.current) {
-      console.log("[IdleThinking] Idle thinking already in flight, skipping");
+      clientLogger.info(`${LOG_PREFIX} [IdleThinking] Idle thinking already in flight, skipping`, { source: 'App.tsx' });
       return;
     }
 
     const idleNow = Date.now();
     lastIdleActionAtRef.current = idleNow;
 
-    console.log("[IdleThinking] User is idle. Running idle thinking tick...");
+    clientLogger.info(`${LOG_PREFIX} [IdleThinking] User is idle. Running idle thinking tick...`, { source: 'App.tsx' });
 
     try {
-      // idleThinkingInFlightRef.current = true;
-      // const result = await runIdleThinkingTick({
-      //   allowStoryline: proactiveSettings.checkins,
-      //   allowQuestion: proactiveSettings.checkins,
-      //   allowBrowse: proactiveSettings.news,
-      // });
-      // console.log("[IdleThinking] Idle thinking result:", result);
-      console.log("IDLE THINK COMMENTED OUT")
+      // TIDY: ⚠️ Idle thinking is disabled — implement runIdleThinkingTick integration here
     } catch (error) {
-      console.error("[IdleThinking] Error:", error);
+      clientLogger.error(`${LOG_PREFIX} [IdleThinking] Error`, { source: 'App.tsx', error: error instanceof Error ? error.message : String(error) });
     } finally {
       idleThinkingInFlightRef.current = false;
     }
@@ -1083,11 +1042,11 @@ const App: React.FC = () => {
 
   useEffect(() => {
     const handleAuthError = async () => {
-      console.log('Google Auth error detected. Attempting forced refresh...');
+      clientLogger.info(`${LOG_PREFIX} Google Auth error detected. Attempting forced refresh...`, { source: 'App.tsx' });
       try {
         await refreshSession({ force: true, reason: 'gmail_or_calendar_401' });
       } catch (err) {
-        console.warn('Background refresh failed:', err);
+        clientLogger.warning(`${LOG_PREFIX} Background refresh failed`, { source: 'App.tsx', error: err instanceof Error ? err.message : String(err) });
       }
     };
 
@@ -1136,13 +1095,7 @@ const App: React.FC = () => {
           [{ role: 'model', text: announcement }], aiSession?.interactionId
         ).catch(err => log.error('Failed to save email announcement to conversation_history', { err: String(err) }));
 
-        // 5. TTS — Gates: Disable Audio
-        // if (!isMuted) {
-        //   const audioData = await generateSpeech(announcement);
-        //   if (audioData) media.enqueueAudio(audioData);
-        // }
-
-        // 6. Persist to kayley_email_actions as 'pending'.
+        // 5. Persist to kayley_email_actions as 'pending'.
         // Note: the server (gmailPoller) may have already written this row — ignore 23505.
         const { error } = await supabase.from('kayley_email_actions').insert({
           gmail_message_id: currentPendingEmail.id,
@@ -1276,6 +1229,7 @@ const App: React.FC = () => {
 
     if (!success) {
       log.error('Email action execution failed', { action: emailAction.action });
+      // TIDY: ⚠️ Extra argument `aiSession?.interactionId` passed to setChatHistory — likely a bug (second arg to setState is ignored)
       setChatHistory(prev => [...prev, { role: 'model' as const, text: "Hmm, something went wrong on my end — couldn't do that. Try again?" }], aiSession?.interactionId);
       return;
     }
@@ -1300,11 +1254,6 @@ const App: React.FC = () => {
       const confirmation = await generateEmailConfirmation(confirmAction as 'archive' | 'reply' | 'dismiss', confirmEmail as any);
       setChatHistory(prev => [...prev, { role: 'model' as const, text: confirmation }]);
 
-      // Gates: Disable Audio
-      // if (!isMuted) {
-      //   const audioData = await generateSpeech(confirmation);
-      //   if (audioData) media.enqueueAudio(audioData);
-      // }
     } catch (err) {
       log.error('Failed to generate confirmation', { err: String(err) });
     }
@@ -1343,7 +1292,6 @@ const App: React.FC = () => {
     // Phase 1 Optimization: Build action key map for LLM response resolution
     if (character.actions?.length) {
       buildActionKeyMap(character.actions);
-      // console.log(`🔑 Built action key map for ${character.actions.length} actions`);
     }
 
 
@@ -1370,7 +1318,7 @@ const App: React.FC = () => {
       // FRESH SESSION: Don't load history anymore!
       // AI uses memory tools to recall past context
       // ============================================
-      console.log('🧠 [App] Starting FRESH session - AI will use memory tools for context');
+      clientLogger.info(`${LOG_PREFIX} Starting FRESH session - AI will use memory tools for context`, { source: 'App.tsx' });
 
       // Still load relationship data for tone/personality
       const relationshipData = await relationshipService.getRelationship();
@@ -1418,19 +1366,17 @@ const App: React.FC = () => {
               return updated;
             });
           } else if (selfieResult.error) {
-            console.error('Selfie generation failed on startup:', selfieResult.error);
+            clientLogger.error(`${LOG_PREFIX} Selfie generation failed on startup`, { source: 'App.tsx', error: selfieResult.error });
           }
         };
         
 
         if (!hasBeenBriefedToday()) {
-          console.log("[App] First login today - generating greeting with daily logistics");
-          console.log('googleAccessToken: ', googleAccessToken)
+          clientLogger.info(`${LOG_PREFIX} First login today - generating greeting with daily logistics`, { source: 'App.tsx' });
           const { greeting, session: updatedSession } = await activeService.generateGreeting(googleAccessToken.accessToken);
           setAiSession(updatedSession);
-        // Important: set localStorage so we do not need to query database
-          markBriefedToday()
-          console.log("Has Been Briefed : ", hasBeenBriefedToday())
+          // Important: set localStorage so we do not need to query database
+          markBriefedToday();
           const initialHistory = [{ role: 'model' as const, text: greeting.text_response }];
           
           setChatHistory(initialHistory);
@@ -1442,10 +1388,10 @@ const App: React.FC = () => {
 
         } else {
           // CONVERSATION OCCURRED TODAY: Reload all exchanges and generate informal "welcome back"
-          console.log(`🧠 [App] Chat detected today (${messageCount} messages) - reloading history and generating non-greeting`);
+          clientLogger.info(`${LOG_PREFIX} Chat detected today (${messageCount} messages) - reloading history and generating non-greeting`, { source: 'App.tsx' });
           const existingInteractionId = await conversationHistoryService.getTodaysInteractionId();
           if (existingInteractionId) {
-            console.log(`🔗 [App] Restoring today's interaction ID: ${existingInteractionId}`);
+            clientLogger.info(`${LOG_PREFIX} Restoring today's interaction ID: ${existingInteractionId}`, { source: 'App.tsx' });
             session.interactionId = existingInteractionId;
           }
 
@@ -1554,7 +1500,7 @@ const App: React.FC = () => {
   const handleUserInterrupt = () => {
     // Only interrupt if she is currently speaking or has audio queued
     if (isSpeaking || media.audioQueue.length > 0) {
-      console.log("🛑 User interrupted! Stopping audio.");
+      clientLogger.info(`${LOG_PREFIX} User interrupted! Stopping audio.`, { source: 'App.tsx' });
 
       // 1. Stop the current audio immediately and clear queue
       // This will make media.currentAudioSrc null, unmounting the player
@@ -1603,7 +1549,6 @@ const App: React.FC = () => {
 
       try {
         const sessionToUse: AIChatSession = aiSession || { model: activeService.model };
-          console.log("SENDING MESSAGE")
         const { response, session: updatedSession, audioData } = await activeService.generateResponse(
           {
             type: 'image_text',
@@ -1630,15 +1575,12 @@ const App: React.FC = () => {
           enqueueAudio(audioData);
         }
 
-        // if (response.action_id) {
-        //   playAction(response.action_id);
-        // }
         if (response.open_app) {
-          console.log("🚀 Launching app:", response.open_app);
+          clientLogger.info(`${LOG_PREFIX} Launching app`, { source: 'App.tsx', url: response.open_app });
           window.location.href = response.open_app;
         }
       } catch (error) {
-        console.error('Error sending image:', error);
+        clientLogger.error(`${LOG_PREFIX} Error sending image`, { source: 'App.tsx', error: error instanceof Error ? error.message : String(error) });
         setErrorMessage('Failed to process image.');
       } finally {
         setIsProcessingAction(false);
@@ -1673,7 +1615,7 @@ const App: React.FC = () => {
         if (result.audioToPlay && !isMuted) media.enqueueAudio(result.audioToPlay);
         maybePlayResponseAction(result.actionToPlay);
       } catch (error) {
-        console.error('❌ [App] GIF send failed:', error);
+        clientLogger.error(`${LOG_PREFIX} GIF send failed`, { source: 'App.tsx', error: error instanceof Error ? error.message : String(error) });
         setErrorMessage('Failed to send GIF');
       } finally {
         setIsProcessingAction(false);
@@ -1729,7 +1671,7 @@ const App: React.FC = () => {
         if (result.refreshTasks) refreshTasks();
         if (result.openTaskPanel) setIsTaskPanelOpen(true);
       } catch (error) {
-        console.error('❌ [App] File attachment processing failed:', error);
+        clientLogger.error(`${LOG_PREFIX} File attachment processing failed`, { source: 'App.tsx', error: error instanceof Error ? error.message : String(error) });
         setErrorMessage('Failed to process attachment');
       } finally {
         setIsProcessingAction(false);
@@ -1747,7 +1689,6 @@ const App: React.FC = () => {
       predictedActionId = predictActionFromMessage(trimmedMessage, selectedCharacter.actions);
     }
     if (predictedActionId) {
-      // console.log(`⚡ Optimistically playing action: ${predictedActionId}`);
       playAction(predictedActionId, true);
     } else if (isQuestionMessage(trimmedMessage)) {
       talkingActionId = playRandomTalkingAction(true);
@@ -1817,8 +1758,6 @@ const App: React.FC = () => {
         } else {
           setChatHistory(prev => [...prev, { role: 'model', text: selfieMsg }]);
         }
-        // Gates: Disable Audio
-        // if (!isMuted) { const audio = await generateSpeech(selfieMsg); if (audio) media.enqueueAudio(audio); }
         maybePlayResponseAction(result.actionToPlay);
         return;
       }
@@ -1860,7 +1799,7 @@ const App: React.FC = () => {
       if (result.openTaskPanel) setIsTaskPanelOpen(true);
 
     } catch (error) {
-      console.error('❌ [App] Message processing failed:', error);
+      clientLogger.error(`${LOG_PREFIX} Message processing failed`, { source: 'App.tsx', error: error instanceof Error ? error.message : String(error) });
       setErrorMessage('Failed to process message');
     } finally {
       setIsProcessingAction(false);
