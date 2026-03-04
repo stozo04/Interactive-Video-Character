@@ -171,6 +171,56 @@ Worktrees branch from `main`, not `HEAD`. This is critical — if they branched 
 
 After PR creation (success or fail), the worktree is cleaned up. Previously this only happened in the clarification/failure paths, leaving orphaned worktrees that could block future checkouts and cause Vitest to pick up duplicate test files.
 
+## Tidy — Nightly Code Hygiene Agent
+
+Tidy is a conservative Claude Code agent that runs every night at midnight CST. He picks 5 files per run, applies 4 safe mechanical transforms, commits file-by-file, and opens a PR for Steven to review in the morning.
+
+### The 4 Transforms
+
+| # | Transform |
+|---|---|
+| 1 | Remove commented-out dead code |
+| 2 | Remove unused imports |
+| 3 | Standardize logging (`runtimeLogger` in `server/`, `clientLogger` in `src/`) |
+| 4 | Standardize silent catch blocks |
+
+### File Rotation
+
+Tidy tracks processed files via a `processedFiles` set stored in the cron job's `payload` JSONB column. After each batch, the set grows. When all files are processed, it resets and the loop starts over. This survives file additions/deletions without cursor drift.
+
+### `// TIDY:` Protocol
+
+Leave instructions for Tidy directly in the code:
+
+```typescript
+// TIDY: This import is unused
+// TIDY: Standardize the catch block below
+```
+
+Tidy acts on plain `// TIDY:` comments and removes them when done. He leaves `// TIDY: ⚠️` notes for things that need human review and are out of his scope.
+
+### File Structure
+
+```
+server/agent/tidy/
+  SOUL.md          ← Tidy's personality (conservative janitor, not architect)
+  IDENTITY.md      ← Quick-reference identity card
+  README.md        ← Full documentation
+  orchestrator.ts  ← Thin Claude Code CLI spawner
+  migrations/
+    001_create_tidy_cron_job.sql         ← Daily midnight run
+    002_create_tidy_branch_cleanup_cron.sql  ← Weekly stale branch cleanup
+server/scheduler/
+  codeCleanerHandler.ts      ← Batch selection, TIDY comment scan, PR creation
+  tidyBranchCleanupHandler.ts ← Deletes tidy-* branches older than 7 days
+```
+
+### Activation
+
+Run both migrations once in the Supabase SQL editor. Tidy fires tonight at midnight CST.
+
+---
+
 ## Lessons Learned
 
 - A Vite proxy avoids CORS in development, but it does not create backend routes. The server still must implement `/multi-agent/*`.
@@ -181,3 +231,7 @@ After PR creation (success or fail), the worktree is cleaned up. Previously this
 - **Worktrees must branch from `main`.** Branching from `HEAD` (which could be any dev branch) means `git log main..HEAD` sees pre-existing commits, breaking any "did the agent make changes?" detection.
 - **Codex doesn't always commit its work.** The agent can edit files and exit 0 without running `git commit`. Always check for uncommitted changes as a fallback before assuming "no changes = clarification."
 - **Vitest picks up test files in worktrees.** Add `.worktrees/**` to `vite.config.ts` `test.exclude` to prevent orphaned worktrees from causing duplicate/stale test failures in CI.
+- **Do not spawn `.cmd` files directly on Node 18.14+.** CVE-2024-27980 broke it — use a direct `.exe` path or `{ shell: true }` to route through cmd.exe.
+- **Embedded newlines in spawn args throw `EINVAL` on Windows.** Keep all CLI boot arg strings single-line.
+- **Claude Code on this machine is a standalone `.exe`, not an npm global.** Path: `C:\Users\gates\AppData\Roaming\Claude\claude-code\2.1.34\claude.exe`. Don't assume `claude.cmd` exists.
+- **VS Code buffers cause silent file reversions.** When Claude edits a file that VS Code has open, VS Code may overwrite the change on next save. Commit immediately to make the change visible in git. Ask the user to close the tab before editing critical infrastructure files.
