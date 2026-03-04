@@ -643,6 +643,28 @@ export const RetrieveDailyNotesSchema = z.object({}).describe(
 );
 
 /**
+ * Schema for the store_monthly_note tool.
+ * Used to append a short bullet to the current month's notes (CST).
+ */
+export const StoreMonthlyNoteSchema = z.object({
+  note: z.string().describe(
+    "A detailed, self-explanatory note to append as a single bullet line. " +
+    "Write as if you will forget everything before reading it again. " +
+    "Include the reason for changes, what you intended to do next, and any exact file paths to review. " +
+    "Do NOT include dates or timestamps."
+  ),
+});
+
+/**
+ * Schema for the retrieve_monthly_notes tool.
+ * Used to retrieve notes for a specific month (CST) or the current month.
+ */
+export const RetrieveMonthlyNotesSchema = z.object({
+  year: z.number().optional().describe("4-digit year (e.g., 2026). Defaults to current year (CST)."),
+  month: z.number().min(1).max(12).optional().describe("Month number (1-12). Defaults to current month (CST)."),
+});
+
+/**
  * Schema for the store_lessons_learned tool.
  * Used to append a short bullet to today's lessons learned.
  */
@@ -771,14 +793,32 @@ export const CronJobActionSchema = z.object({
     .optional()
     .describe("Run id for mark_summary_delivered."),
   title: z.string().optional().describe("Job title for create/update."),
+  action_type: z
+    .string()
+    .optional()
+    .describe(
+      "Action type for the scheduled job (e.g., 'web_search', 'maintenance_reminder', 'selfie_send')."
+    ),
+  instruction: z
+    .string()
+    .optional()
+    .describe(
+      "Instruction or reminder content for non-web jobs (e.g., maintenance reminders)."
+    ),
+  payload: z
+    .record(z.any())
+    .optional()
+    .describe(
+      "Optional action-specific payload (e.g., { query, instruction, selfieParams })."
+    ),
   search_query: z
     .string()
     .optional()
-    .describe("Web search query for the cron job."),
+    .describe("Web search query for web_search jobs only."),
   summary_instruction: z
     .string()
     .optional()
-    .describe("How Kayley should summarize results."),
+    .describe("How Kayley should summarize results for web_search jobs."),
   schedule_type: z
     .enum(["daily", "one_time"])
     .optional()
@@ -865,6 +905,8 @@ export type ResolveIdleBrowseNoteArgs = z.infer<typeof ResolveIdleBrowseNoteSche
 export type ToolSuggestionArgs = z.infer<typeof ToolSuggestionSchema>;
 export type StoreDailyNoteArgs = z.infer<typeof StoreDailyNoteSchema>;
 export type RetrieveDailyNotesArgs = z.infer<typeof RetrieveDailyNotesSchema>;
+export type StoreMonthlyNoteArgs = z.infer<typeof StoreMonthlyNoteSchema>;
+export type RetrieveMonthlyNotesArgs = z.infer<typeof RetrieveMonthlyNotesSchema>;
 export type StoreLessonsLearnedArgs = z.infer<typeof StoreLessonsLearnedSchema>;
 export type RetrieveLessonsLearnedArgs = z.infer<typeof RetrieveLessonsLearnedSchema>;
 export type MilaNoteArgs = z.infer<typeof MilaNoteSchema>;
@@ -891,6 +933,8 @@ export type MemoryToolArgs =
   | { tool: "tool_suggestion"; args: ToolSuggestionArgs }
   | { tool: "store_daily_note"; args: StoreDailyNoteArgs }
   | { tool: "retrieve_daily_notes"; args: RetrieveDailyNotesArgs }
+  | { tool: "store_monthly_note"; args: StoreMonthlyNoteArgs }
+  | { tool: "retrieve_monthly_notes"; args: RetrieveMonthlyNotesArgs }
   | { tool: "store_lessons_learned"; args: StoreLessonsLearnedArgs }
   | { tool: "retrieve_lessons_learned"; args: RetrieveLessonsLearnedArgs }
   | { tool: "mila_note"; args: MilaNoteArgs }
@@ -1227,6 +1271,27 @@ export const GeminiMemoryToolDeclarations = [
     },
   },
   {
+    name: "store_monthly_note",
+    description:
+      "Append a detailed, self-explanatory note to the current month's notes (CST). " +
+      "Use this when you're archiving or summarizing for the month so future-Kayley can act without any prior context. " +
+      "Be verbose and explicit: include the why, what changed, what to review next, and any risks. " +
+      "Include local reference paths for identity files (SOUL.md, IDENTITY.md) so future-Kayley knows exactly where to look. " +
+      "Write as if you're reading it for the first time after a memory reset. Do NOT include dates or timestamps.",
+    parameters: {
+      type: "object",
+      properties: {
+        note: {
+          type: "string",
+          description:
+            "Verbose note to append as a single bullet line. " +
+            "Must include the reason for any SOUL/IDENTITY edits and reference paths (e.g., server/agent/kayley/SOUL.md, server/agent/kayley/IDENTITY.md).",
+        },
+      },
+      required: ["note"],
+    },
+  },
+  {
     name: "retrieve_daily_notes",
     description:
       "Retrieve all stored daily notes (no dates included). " +
@@ -1234,6 +1299,25 @@ export const GeminiMemoryToolDeclarations = [
     parameters: {
       type: "object",
       properties: {},
+    },
+  },
+  {
+    name: "retrieve_monthly_notes",
+    description:
+      "Retrieve monthly notes for a specific month (CST). " +
+      "If year/month are omitted, return the current month.",
+    parameters: {
+      type: "object",
+      properties: {
+        year: {
+          type: "number",
+          description: "4-digit year (e.g., 2026). Defaults to current CST year.",
+        },
+        month: {
+          type: "number",
+          description: "Month number (1-12). Defaults to current CST month.",
+        },
+      },
     },
   },
   {
@@ -1474,7 +1558,8 @@ export const GeminiMemoryToolDeclarations = [
     name: "cron_job_action",
     description:
       "Create, update, delete, pause, resume, or run scheduled cron jobs. " +
-      "Use this when the user asks Kayley to schedule recurring or one-time news digests. " +
+      "Use action_type to route the job (e.g., 'web_search', 'maintenance_reminder', 'selfie_send'). " +
+      "If action_type is 'web_search', include search_query (required). " +
       "Use mark_summary_delivered after you share a queued scheduled digest summary.",
     parameters: {
       type: "object",
@@ -1507,17 +1592,32 @@ export const GeminiMemoryToolDeclarations = [
           type: "string",
           description: "Job title for create/update.",
         },
+        action_type: {
+          type: "string",
+          description:
+            "Action type for the scheduled job (e.g., 'web_search', 'maintenance_reminder', 'selfie_send').",
+        },
+        instruction: {
+          type: "string",
+          description:
+            "Instruction or reminder content for non-web jobs (e.g., maintenance reminders). If omitted, summary_instruction may be used.",
+        },
+        payload: {
+          type: "object",
+          description:
+            "Optional action-specific payload (e.g., { query, instruction, selfieParams }).",
+        },
         search_query: {
           type: "string",
           description: "Web search query to run on schedule.",
         },
         summary_instruction: {
           type: "string",
-          description: "How Kayley should summarize results.",
+          description: "How Kayley should summarize results. For non-web jobs, may be used as fallback instruction.",
         },
         schedule_type: {
           type: "string",
-          enum: ["daily", "one_time"],
+          enum: ["daily", "one_time", "monthly", "weekly"],
           description: "Schedule type for create/update.",
         },
         timezone: {
@@ -1537,7 +1637,7 @@ export const GeminiMemoryToolDeclarations = [
         one_time_at: {
           type: "string",
           description:
-            "ISO datetime for one-time schedule.",
+            "ISO datetime for one-time, monthly, or weekly schedules (monthly/weekly use this as the anchor date).",
         },
       },
       required: ["action"],
@@ -2035,6 +2135,8 @@ export interface PendingToolCall {
     | "tool_suggestion"
     | "store_daily_note"
     | "retrieve_daily_notes"
+    | "store_monthly_note"
+    | "retrieve_monthly_notes"
     | "store_lessons_learned"
     | "retrieve_lessons_learned"
     | "mila_note"

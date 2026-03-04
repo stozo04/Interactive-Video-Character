@@ -506,37 +506,60 @@ export class GeminiService implements IAIChatService {
     toolInteractionConfig: any,
   ): void {
     void this.createInteraction(toolInteractionConfig)
-      .then((continuationInteraction) => {
-        const hasUnresolvedFunctionCalls = Array.isArray(
-          continuationInteraction?.outputs,
-        )
-          ? continuationInteraction.outputs.some(
-              (output: any) => output?.type === "function_call",
-            )
+      .then(async (continuationInteraction) => {
+        let finalInteraction = continuationInteraction;
+
+        // If the continuation still requires action (e.g. a write following a read),
+        // execute those tool calls synchronously here rather than dropping them.
+        const hasUnresolvedFunctionCalls = Array.isArray(continuationInteraction?.outputs)
+          ? continuationInteraction.outputs.some((output: any) => output?.type === "function_call")
           : false;
 
+        if (hasUnresolvedFunctionCalls) {
+          const pendingTools = continuationInteraction.outputs
+            .filter((o: any) => o?.type === "function_call")
+            .map((o: any) => o.name);
+          void logPersistentGeminiEvent("info", "Background continuation has follow-on tool calls — executing synchronously", {
+            sourceInteractionId,
+            continuationInteractionId: continuationInteraction.id,
+            pendingTools,
+          });
+          finalInteraction = await this.continueInteractionWithTools(
+            continuationInteraction,
+            toolInteractionConfig,
+            toolInteractionConfig.system_instruction,
+            undefined,
+            10,
+            true, // skipBackgroundOffload — prevent re-queuing into background
+          );
+          void logPersistentGeminiEvent("info", "Background follow-on tools completed", {
+            sourceInteractionId,
+            finalInteractionId: finalInteraction?.id ?? null,
+            toolsExecuted: pendingTools,
+          });
+        }
+
         if (
-          !hasUnresolvedFunctionCalls &&
-          continuationInteraction &&
-          typeof continuationInteraction.id === "string" &&
-          continuationInteraction.id.length > 0
+          finalInteraction &&
+          typeof finalInteraction.id === "string" &&
+          finalInteraction.id.length > 0
         ) {
           this.rememberInteractionRedirect(
             sourceInteractionId,
-            continuationInteraction.id,
+            finalInteraction.id,
           );
         }
 
-        console.log("[GeminiService] Background tool continuation finished", {
+        void logPersistentGeminiEvent("info", "Background tool continuation finished", {
           sourceInteractionId,
-          continuationInteractionId: continuationInteraction?.id || null,
-          hasUnresolvedFunctionCalls,
+          finalInteractionId: finalInteraction?.id ?? null,
+          hadFollowOnTools: hasUnresolvedFunctionCalls,
         });
       })
       .catch((error) => {
-        console.warn("[GeminiService] Background tool continuation failed", {
+        void logPersistentGeminiEvent("error", "Background tool continuation failed", {
           sourceInteractionId,
-          error,
+          error: error instanceof Error ? error.message : String(error),
         });
       });
   }
@@ -666,6 +689,7 @@ export class GeminiService implements IAIChatService {
     systemPrompt: string,
     options?: AIChatOptions,
     maxIterations: number = 10,
+    skipBackgroundOffload: boolean = false,
   ): Promise<any> {
     let iterations = 0;
     const executedToolSignatures = new Set<string>();
@@ -738,6 +762,25 @@ export class GeminiService implements IAIChatService {
         }),
       );
 
+      const toolFailureMessages = toolResults
+        .map((toolResult) =>
+          typeof toolResult?.result === "string" ? toolResult.result.trim() : ""
+        )
+        .filter((message) => message.startsWith("TOOL_FAILED:"));
+
+      if (toolFailureMessages.length > 0) {
+        const formatted = toolFailureMessages
+          .map((message) => message.replace(/^TOOL_FAILED:\s*/i, ""))
+          .join("\n");
+        const failureText = `I couldn't complete that. ${formatted}`.trim();
+        console.warn("⚠️ [Gemini Interactions] Tool failure detected, returning guardrail response", {
+          tools: functionCalls.map((fc: any) => fc.name),
+          failureCount: toolFailureMessages.length,
+        });
+        interaction = this.buildSyntheticInteraction(interaction.id, failureText);
+        break;
+      }
+
       // Continue interaction with tool results
       // CRITICAL: Must include system_instruction again! The API doesn't persist it.
       // IMPORTANT: Include history context to prevent "who said what" confusion
@@ -759,25 +802,26 @@ export class GeminiService implements IAIChatService {
         (functionCall: any) => functionCall.name === "workspace_action",
       );
 
-      if (
-        isWorkspaceOnlyToolTurn &&
-        typeof interaction?.id === "string" &&
-        interaction.id.length > 0
-      ) {
-        const immediateWorkspaceAck = this.buildWorkspaceImmediateAck(
-          toolResults,
-        );
-
-        this.queueToolContinuationInBackground(
-          interaction.id,
-          toolInteractionConfig,
-        );
-
-        interaction = this.buildSyntheticInteraction(
-          interaction.id,
-          immediateWorkspaceAck,
-        );
-        break;
+      // Only offload to background on the first workspace turn (not in recursive background calls).
+      // If skipBackgroundOffload is true, we're already inside a background continuation and must
+      // execute subsequent tool calls (e.g. a write following a read) synchronously here.
+      if (isWorkspaceOnlyToolTurn && typeof interaction?.id === "string" && interaction.id.length > 0) {
+        if (!skipBackgroundOffload) {
+          const immediateWorkspaceAck = this.buildWorkspaceImmediateAck(toolResults);
+          void logPersistentGeminiEvent("info", "Workspace tool turn offloaded to background", {
+            interactionId: interaction.id,
+            tools: functionCalls.map((fc: any) => fc.name),
+          });
+          this.queueToolContinuationInBackground(interaction.id, toolInteractionConfig);
+          interaction = this.buildSyntheticInteraction(interaction.id, immediateWorkspaceAck);
+          break;
+        } else {
+          void logPersistentGeminiEvent("info", "Workspace tool turn executing synchronously in background (skipBackgroundOffload=true)", {
+            interactionId: interaction.id,
+            tools: functionCalls.map((fc: any) => fc.name),
+            iteration: iterations,
+          });
+        }
       }
 
       // Make continuation call

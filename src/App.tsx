@@ -1786,7 +1786,7 @@ const App: React.FC = () => {
       maybePlayResponseAction(result.actionToPlay);
       if (result.appToOpen) window.location.href = result.appToOpen;
       if (result.refreshCalendar && session) refreshCalendarEvents(session.accessToken);
-      if (result.refreshTasks) refreshTasks();
+      if (result.refreshTasks) await refreshTasks();
       if (result.openTaskPanel) setIsTaskPanelOpen(true);
 
     } catch (error) {

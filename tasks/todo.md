@@ -6,6 +6,146 @@
 
 ---
 
+## Plan: Kayley Monthly Notes Tooling
+
+1) Add monthly notes schema + tool declarations:
+- `src/services/aiSchema.ts`
+2) Persist monthly notes in Supabase and expose memory service helpers:
+- `supabase/migrations/20260304_kayley_monthly_notes.sql`
+- `src/services/memoryService.ts`
+3) Wire tool usage guidance + catalog docs:
+- `src/services/system_prompts/tools/toolsAndCapabilities.ts`
+- `src/services/toolCatalog.ts`
+- `src/services/docs/Memory_and_Callbacks.md`
+- `docs/features/Monthly_Notes.md`
+4) Verification (if approved):
+- `npm test -- --run`
+
+## Progress
+- [x] Plan added to `tasks/todo.md`.
+- [x] Patch implementation.
+- [ ] Verification run (not executed).
+
+## Review Notes
+- Goal: give Kayley append-only monthly notes with read/write tools to support monthly archiving.
+
+---
+
+## Plan: Maintenance Cron Jobs (Server Async Offload)
+
+1) Add DB columns to support server cron action routing:
+- `supabase/migrations/20260304_cron_jobs_action_type.sql`
+2) Extend cron job service to write/read action_type + instruction + payload:
+- `src/services/cronJobService.ts`
+3) Wire maintenance_job_action to create server-handled maintenance reminders:
+- `src/services/memoryService.ts`
+- `src/services/aiSchema.ts`
+4) Add server scheduler handler for maintenance reminders (no web search):
+- `server/scheduler/cronScheduler.ts`
+5) Verification (if approved):
+- `npm test -- --run`
+
+## Progress
+- [x] Plan added to `tasks/todo.md`.
+- [x] Patch implementation.
+- [ ] Verification run (not executed).
+
+## Review Notes
+- Goal: maintenance cron jobs should run server-side async without web search, and Kayley only confirms success when job creation succeeds.
+
+---
+
+## Plan: Monthly Cron Schedule + Maintenance Default
+
+1) Add monthly schedule type support to cron jobs:
+- `supabase/migrations/20260304_cron_jobs_monthly.sql`
+- `src/services/cronJobService.ts`
+- `server/scheduler/cronScheduler.ts`
+2) Allow cron_job_action to default to maintenance reminders when instruction/payload is provided (no search query):
+- `src/services/memoryService.ts`
+- `src/services/aiSchema.ts`
+3) Update admin UI + tool guidance to expose monthly schedule option:
+- `src/components/AdminDashboardView.tsx`
+- `src/services/system_prompts/tools/toolsAndCapabilities.ts`
+4) Verification (if approved):
+- `npm test -- --run`
+
+## Progress
+- [x] Plan added to `tasks/todo.md`.
+- [x] Patch implementation.
+- [ ] Verification run (not executed).
+
+## Review Notes
+- Goal: allow “start April 1st and repeat monthly” schedules, and avoid forcing web_search when Kayley creates maintenance jobs.
+
+---
+
+## Plan: Weekly Cron Schedule Support
+
+1) Add weekly schedule type support to cron jobs:
+- `supabase/migrations/20260304_cron_jobs_weekly.sql`
+- `src/services/cronJobService.ts`
+- `server/scheduler/cronScheduler.ts`
+2) Extend tool schema + memory tool args to accept weekly:
+- `src/services/aiSchema.ts`
+- `src/services/memoryService.ts`
+3) Update admin UI + tool guidance to expose weekly schedule option:
+- `src/components/AdminDashboardView.tsx`
+- `src/services/system_prompts/tools/toolsAndCapabilities.ts`
+4) Verification (if approved):
+- `npm test -- --run`
+
+## Progress
+- [x] Plan added to `tasks/todo.md`.
+- [x] Patch implementation.
+- [ ] Verification run (not executed).
+
+## Review Notes
+- Goal: allow weekly scheduled cron jobs alongside daily/one-time/monthly.
+
+---
+
+## Plan: Cron Jobs Schema Sync (Missing Columns)
+
+1) Add missing cron_jobs/cron_job_runs columns with safe defaults:
+- `supabase/migrations/20260304_cron_jobs_schema_sync.sql`
+2) Backfill nulls and enforce defaults for required fields:
+- `supabase/migrations/20260304_cron_jobs_schema_sync.sql`
+3) Verification (if approved):
+- Apply migration in Supabase
+- Retry cron job creation
+
+## Progress
+- [x] Plan added to `tasks/todo.md`.
+- [x] Patch implementation.
+- [ ] Verification run (not executed).
+
+## Review Notes
+- Goal: fix Supabase schema mismatch causing `search_query` column missing errors.
+
+---
+
+## Plan: Monthly Memory Rollover (Server-Executed)
+
+1) Add cron handler that executes monthly notes rollover immediately:
+- `server/scheduler/cronScheduler.ts`
+2) Implement Supabase fetch + LLM update + file write workflow:
+- `server/scheduler/cronScheduler.ts`
+3) Document action_type guidance for monthly rollover:
+- `src/services/system_prompts/tools/toolsAndCapabilities.ts`
+4) Verification (if approved):
+- Trigger cron job run now and inspect SOUL/IDENTITY changes
+
+## Progress
+- [x] Plan added to `tasks/todo.md`.
+- [x] Patch implementation.
+- [ ] Verification run (not executed).
+
+## Review Notes
+- Goal: make monthly rollover complete server-side without waiting for Kayley to be active.
+
+---
+
 ## Plan: Daily Checklist Task Render Fix + Autonomy Update
 
 1) Ensure task creation updates UI even if the insert returns no row data:

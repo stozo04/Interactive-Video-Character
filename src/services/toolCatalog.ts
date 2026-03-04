@@ -49,13 +49,14 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
     tool_key: "cron_job_action",
     name: "Scheduled Jobs",
     description:
-      "Create and manage one-time/daily background cron jobs (web search + summaries).",
+      "Create and manage one-time/daily background cron jobs (set action_type per job).",
     user_value:
       "Lets Kayley proactively run scheduled updates like daily news digests.",
     permissions_needed: ["scheduled_jobs"],
     triggers: ["every day", "daily reminder", "schedule this for later", "run at noon"],
     sample_prompts: [
       "Every day at 12pm, read the news and summarize what matters.",
+      "Every Monday at 9am, remind yourself to review notes and identity files.",
     ],
   },
   {
@@ -167,6 +168,19 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
     sample_prompts: ["Add a note that I felt exhausted today."],
   },
   {
+    tool_key: "store_monthly_note",
+    name: "Monthly Notes",
+    description:
+      "Append a detailed, self-explanatory entry to Kayley's monthly notes. " +
+      "Write as if future-Kayley has ZERO memory and needs full context to act later. " +
+      "Include the why, what changed, what to check next, and any file paths to review.",
+    user_value:
+      "Gives future-Kayley a full context snapshot when memory resets, not just a teaser.",
+    permissions_needed: ["memory_write"],
+    triggers: ["monthly recap", "archive this month", "month notes"],
+    sample_prompts: ["Add a note to this month's archive about the launch."],
+  },
+  {
     tool_key: "store_lessons_learned",
     name: "Lessons Learned",
     description: "Append a short bullet to Kayley's lessons learned.",
@@ -183,6 +197,18 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
     permissions_needed: ["memory_read"],
     triggers: ["what did you note", "daily notes"],
     sample_prompts: ["What did you write in your daily notes?"],
+  },
+  {
+    tool_key: "retrieve_monthly_notes",
+    name: "Monthly Notes Recall",
+    description:
+      "Retrieve monthly notes for a specific month so Kayley can rebuild context after memory resets. " +
+      "Use this when she needs to remember why she planned edits or maintenance tasks.",
+    user_value:
+      "Restores context so future-Kayley can act with confidence instead of guessing.",
+    permissions_needed: ["memory_read"],
+    triggers: ["monthly notes", "month recap", "archive notes"],
+    sample_prompts: ["What did you note for February 2026?"],
   },
   {
     tool_key: "retrieve_lessons_learned",

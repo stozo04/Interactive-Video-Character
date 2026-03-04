@@ -62,7 +62,9 @@
       "Bash(cd:*)",
       "WebFetch(domain:clawhub.ai)",
       "Bash(git config:*)",
-      "Bash(timeout 8 npx tsx:*)"
+      "Bash(timeout 8 npx tsx:*)",
+      "Bash(python:*)",
+      "Bash(python3:*)"
     ]
   },
   "enabledPlugins": {

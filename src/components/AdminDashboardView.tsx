@@ -704,6 +704,14 @@ export default function AdminDashboardView({ onBack }: AdminDashboardViewProps) 
       setCronError('One-time schedule requires a date/time.');
       return;
     }
+    if (cronForm.scheduleType === CronScheduleType.Weekly && !cronForm.oneTimeAt) {
+      setCronError('Weekly schedule requires an anchor date/time.');
+      return;
+    }
+    if (cronForm.scheduleType === CronScheduleType.Monthly && !cronForm.oneTimeAt) {
+      setCronError('Monthly schedule requires an anchor date/time.');
+      return;
+    }
 
     setIsCronLoading(true);
     try {
@@ -716,7 +724,12 @@ export default function AdminDashboardView({ onBack }: AdminDashboardViewProps) 
           timezone: cronForm.timezone.trim(),
           hour: cronForm.scheduleType === CronScheduleType.Daily ? cronForm.hour : undefined,
           minute: cronForm.scheduleType === CronScheduleType.Daily ? cronForm.minute : undefined,
-          oneTimeAt: cronForm.scheduleType === CronScheduleType.OneTime ? cronForm.oneTimeAt : undefined,
+          oneTimeAt:
+            cronForm.scheduleType === CronScheduleType.OneTime ||
+            cronForm.scheduleType === CronScheduleType.Monthly ||
+            cronForm.scheduleType === CronScheduleType.Weekly
+              ? cronForm.oneTimeAt
+              : undefined,
         });
 
         if (!updated) {
@@ -732,7 +745,12 @@ export default function AdminDashboardView({ onBack }: AdminDashboardViewProps) 
           timezone: cronForm.timezone.trim(),
           hour: cronForm.scheduleType === CronScheduleType.Daily ? cronForm.hour : undefined,
           minute: cronForm.scheduleType === CronScheduleType.Daily ? cronForm.minute : undefined,
-          oneTimeAt: cronForm.scheduleType === CronScheduleType.OneTime ? cronForm.oneTimeAt : undefined,
+          oneTimeAt:
+            cronForm.scheduleType === CronScheduleType.OneTime ||
+            cronForm.scheduleType === CronScheduleType.Monthly ||
+            cronForm.scheduleType === CronScheduleType.Weekly
+              ? cronForm.oneTimeAt
+              : undefined,
           createdBy: 'admin_ui',
         });
 
@@ -1418,6 +1436,8 @@ export default function AdminDashboardView({ onBack }: AdminDashboardViewProps) 
                         >
                           <option value={CronScheduleType.Daily}>Daily</option>
                           <option value={CronScheduleType.OneTime}>One-Time</option>
+                          <option value={CronScheduleType.Monthly}>Monthly</option>
+                          <option value={CronScheduleType.Weekly}>Weekly</option>
                         </select>
                       </div>
 
@@ -1470,7 +1490,18 @@ export default function AdminDashboardView({ onBack }: AdminDashboardViewProps) 
                       </div>
                     ) : (
                       <div>
-                        <label className="text-xs text-gray-400 block mb-1">One-Time At</label>
+                        <label className="text-xs text-gray-400 block mb-1">
+                          {cronForm.scheduleType === CronScheduleType.Monthly
+                            ? 'Monthly Anchor'
+                            : cronForm.scheduleType === CronScheduleType.Weekly
+                              ? 'Weekly Anchor'
+                              : 'One-Time At'}
+                        </label>
+                        {cronForm.scheduleType === CronScheduleType.Weekly && (
+                          <p className="text-[11px] text-gray-500 mb-2">
+                            Uses the weekday of this anchor date (e.g. Monday at the same time).
+                          </p>
+                        )}
                         <input
                           type="datetime-local"
                           value={cronForm.oneTimeAt}
@@ -2036,6 +2067,22 @@ function formatCronSchedule(job: CronJob): string {
     const hour = job.scheduleHour ?? 12;
     const minute = job.scheduleMinute ?? 0;
     return `Daily ${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')} (${job.timezone})`;
+  }
+  if (job.scheduleType === CronScheduleType.Monthly) {
+    const hour = job.scheduleHour ?? 12;
+    const minute = job.scheduleMinute ?? 0;
+    const anchorDate = job.oneTimeRunAt ? new Date(job.oneTimeRunAt) : null;
+    const day = anchorDate ? anchorDate.getDate() : '?';
+    return `Monthly day ${day} ${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')} (${job.timezone})`;
+  }
+  if (job.scheduleType === CronScheduleType.Weekly) {
+    const hour = job.scheduleHour ?? 12;
+    const minute = job.scheduleMinute ?? 0;
+    const anchorDate = job.oneTimeRunAt ? new Date(job.oneTimeRunAt) : null;
+    const weekday = anchorDate
+      ? anchorDate.toLocaleDateString('en-US', { weekday: 'long', timeZone: job.timezone })
+      : '?';
+    return `Weekly ${weekday} ${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')} (${job.timezone})`;
   }
 
   return `One-time ${job.oneTimeRunAt ? new Date(job.oneTimeRunAt).toLocaleString() : 'unspecified'}`;

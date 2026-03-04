@@ -43,11 +43,13 @@ export type FactCategory = 'identity' | 'preference' | 'relationship' | 'context
 const CONVERSATION_HISTORY_TABLE = 'conversation_history';
 const USER_FACTS_TABLE = 'user_facts';
 const KAYLEY_DAILY_NOTES_TABLE = 'kayley_daily_notes';
+const KAYLEY_MONTHLY_NOTES_TABLE = 'kayley_monthly_notes';
 const KAYLEY_LESSONS_LEARNED_TABLE = 'kayley_lessons_learned';
 const MILA_MILESTONE_NOTES_TABLE = 'mila_milestone_notes';
 
 const lessonsLogger = clientLogger.scoped('LessonsLearned');
 const workspaceLogger = clientLogger.scoped('WorkspaceAction');
+const TOOL_FAILURE_PREFIX = 'TOOL_FAILED:';
 
 // Default limits to prevent context overflow
 const DEFAULT_MEMORY_LIMIT = 5;
@@ -101,7 +103,33 @@ function getTodayCstDateString(): string {
   return `${year}-${month}-${day}`;
 }
 
+/**
+ * Get the current month key in CST (YYYY-MM).
+ */
+function getCurrentCstMonthKey(): string {
+  const now = new Date();
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: CST_TIMEZONE,
+    year: 'numeric',
+    month: '2-digit',
+  }).formatToParts(now);
+
+  const year = parts.find((p) => p.type === 'year')?.value;
+  const month = parts.find((p) => p.type === 'month')?.value;
+
+  if (!year || !month) {
+    console.warn('⚠️ [Monthly Notes] Failed to parse CST month parts, falling back to UTC month');
+    return new Date().toISOString().slice(0, 7);
+  }
+
+  return `${year}-${month}`;
+}
+
 function normalizeDailyNoteInput(note: string): string {
+  return note.replace(/^\s*-\s*/, '').trim();
+}
+
+function normalizeMonthlyNoteInput(note: string): string {
   return note.replace(/^\s*-\s*/, '').trim();
 }
 
@@ -118,6 +146,10 @@ function getTodayUtcDateString(): string {
 
 function normalizeMilaNoteInput(note: string): string {
   return note.replace(/^\s*-\s*/, '').trim();
+}
+
+function formatToolFailure(message: string): string {
+  return `${TOOL_FAILURE_PREFIX} ${message}`;
 }
 
 const PINNED_IDENTITY_KEYS = new Set(['name', 'nickname', 'pronouns']);
@@ -315,6 +347,157 @@ export const getAllDailyNotes = async (): Promise<string[]> => {
   } catch (error) {
     console.error('❌ [Daily Notes] Error retrieving notes:', error);
     return [];
+  }
+};
+
+// ============================================
+// Monthly Notes Functions
+// ============================================
+
+function getCstMonthParts(): { year: number; month: number; key: string } {
+  const key = getCurrentCstMonthKey();
+  const [yearStr, monthStr] = key.split('-');
+  const year = Number.parseInt(yearStr, 10);
+  const month = Number.parseInt(monthStr, 10);
+  return { year, month, key };
+}
+
+/**
+ * Ensure the monthly notes row exists for the given month key (YYYY-MM).
+ */
+export const ensureMonthlyNotesRowForMonth = async (
+  monthKey: string
+): Promise<boolean> => {
+  try {
+    console.log(`🗓️ [Monthly Notes] Ensuring monthly notes row exists for: ${monthKey}`);
+
+    const { error } = await supabase
+      .from(KAYLEY_MONTHLY_NOTES_TABLE)
+      .upsert(
+        {
+          month_key: monthKey,
+        },
+        {
+          onConflict: 'month_key',
+        },
+      );
+
+    if (error) {
+      console.error('❌ [Monthly Notes] Failed to ensure monthly notes row:', error);
+      return false;
+    }
+
+    console.log('✅ [Monthly Notes] Monthly notes row is ready');
+    return true;
+  } catch (error) {
+    console.error('❌ [Monthly Notes] Error ensuring monthly notes row:', error);
+    return false;
+  }
+};
+
+/**
+ * Append a note to the current month's notes (CST).
+ */
+export const appendMonthlyNote = async (note: string): Promise<boolean> => {
+  const normalizedNote = normalizeMonthlyNoteInput(note);
+
+  if (!normalizedNote) {
+    console.warn('⚠️ [Monthly Notes] Skipping empty monthly note');
+    return false;
+  }
+
+  try {
+    const monthKey = getCurrentCstMonthKey();
+    console.log(`🗒️ [Monthly Notes] Appending note for month: ${monthKey}`);
+    console.log(`🗒️ [Monthly Notes] Note content: "${normalizedNote}"`);
+
+    const ensured = await ensureMonthlyNotesRowForMonth(monthKey);
+    if (!ensured) {
+      console.warn('⚠️ [Monthly Notes] Could not ensure monthly notes row; aborting append');
+      return false;
+    }
+
+    const { data, error } = await supabase
+      .from(KAYLEY_MONTHLY_NOTES_TABLE)
+      .select('notes')
+      .eq('month_key', monthKey)
+      .single();
+
+    if (error) {
+      console.error('❌ [Monthly Notes] Failed to fetch existing notes:', error);
+      return false;
+    }
+
+    const existingNotes = (data?.notes || '').trim();
+    const updatedNotes = existingNotes
+      ? `${existingNotes}\n- ${normalizedNote}`
+      : `- ${normalizedNote}`;
+
+    const { error: updateError } = await supabase
+      .from(KAYLEY_MONTHLY_NOTES_TABLE)
+      .update({ notes: updatedNotes, updated_at: new Date().toISOString() })
+      .eq('month_key', monthKey);
+
+    if (updateError) {
+      console.error('❌ [Monthly Notes] Failed to append note:', updateError);
+      return false;
+    }
+
+    console.log('✅ [Monthly Notes] Note appended successfully');
+    return true;
+  } catch (error) {
+    console.error('❌ [Monthly Notes] Error appending monthly note:', error);
+    return false;
+  }
+};
+
+/**
+ * Retrieve monthly notes as bullet lines for a given CST month.
+ */
+export const getMonthlyNotesForMonth = async (
+  year?: number,
+  month?: number
+): Promise<{ monthKey: string; lines: string[] }> => {
+  try {
+    const current = getCstMonthParts();
+    const safeYear = Number.isFinite(year) ? Math.floor(year as number) : current.year;
+    const safeMonth = Number.isFinite(month) ? Math.floor(month as number) : current.month;
+
+    if (!Number.isFinite(safeYear) || safeYear < 1970 || safeYear > 2100) {
+      console.warn('⚠️ [Monthly Notes] Invalid year for monthly notes retrieval', { year });
+      return { monthKey: current.key, lines: [] };
+    }
+
+    if (!Number.isFinite(safeMonth) || safeMonth < 1 || safeMonth > 12) {
+      console.warn('⚠️ [Monthly Notes] Invalid month for monthly notes retrieval', { month });
+      return { monthKey: current.key, lines: [] };
+    }
+
+    const monthKey = `${safeYear}-${String(safeMonth).padStart(2, '0')}`;
+    console.log('📚 [Monthly Notes] Retrieving notes for month', { monthKey });
+
+    const { data, error } = await supabase
+      .from(KAYLEY_MONTHLY_NOTES_TABLE)
+      .select('notes, month_key')
+      .eq('month_key', monthKey)
+      .maybeSingle();
+
+    if (error) {
+      console.error('❌ [Monthly Notes] Failed to retrieve notes:', error);
+      return { monthKey, lines: [] };
+    }
+
+    const lines = (data?.notes || '')
+      .split('\n')
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0)
+      .map((line) => (line.startsWith('-') ? line : `- ${line}`));
+
+    console.log(`📚 [Monthly Notes] Retrieved ${lines.length} note line(s)`, { monthKey });
+    return { monthKey, lines };
+  } catch (error) {
+    console.error('❌ [Monthly Notes] Error retrieving notes:', error);
+    return { monthKey: getCurrentCstMonthKey(), lines: [] };
   }
 };
 
@@ -998,6 +1181,18 @@ export const formatFactsForAI = (facts: UserFact[]): string => {
 // Tool Execution Handler
 // ============================================
 
+// Signal that a task mutation (create/complete/delete) happened inside a function
+// tool call. Because function tools run inside geminiChatService before the
+// response reaches the orchestrator, the orchestrator never sees task_action in
+// the JSON response and therefore never sets refreshTasks. This flag bridges
+// that gap. Always consume via consumeTaskMutationSignal() — it auto-resets.
+let _taskMutationPending = false;
+export function consumeTaskMutationSignal(): boolean {
+  const v = _taskMutationPending;
+  _taskMutationPending = false;
+  return v;
+}
+
 export type MemoryToolName =
   | 'web_search'
   | 'workspace_action'
@@ -1021,6 +1216,8 @@ export type MemoryToolName =
   | 'recall_character_profile'
   | 'store_daily_note'
   | 'retrieve_daily_notes'
+  | 'store_monthly_note'
+  | 'retrieve_monthly_notes'
   | 'store_lessons_learned'
   | 'retrieve_lessons_learned'
   | 'mila_note'
@@ -1078,9 +1275,12 @@ export interface ToolCallArgs {
     id?: string;
     run_id?: string;
     title?: string;
+    action_type?: string;
+    instruction?: string;
+    payload?: Record<string, unknown>;
     search_query?: string;
     summary_instruction?: string;
-    schedule_type?: 'daily' | 'one_time';
+    schedule_type?: 'daily' | 'one_time' | 'monthly' | 'weekly';
     timezone?: string;
     hour?: number;
     minute?: number;
@@ -1118,6 +1318,13 @@ export interface ToolCallArgs {
     note: string;
   };
   retrieve_daily_notes: Record<string, never>;
+  store_monthly_note: {
+    note: string;
+  };
+  retrieve_monthly_notes: {
+    year?: number;
+    month?: number;
+  };
   store_lessons_learned: {
     lesson: string;
   };
@@ -1398,6 +1605,9 @@ export const executeMemoryTool = async (
           id,
           run_id,
           title,
+          action_type,
+          instruction,
+          payload,
           search_query,
           summary_instruction,
           schedule_type,
@@ -1409,28 +1619,79 @@ export const executeMemoryTool = async (
 
         console.log('[Memory Tool] cron_job_action called:', cronArgs);
 
+        const trimmedInstruction = instruction?.trim();
+        const normalizedPayload =
+          payload && typeof payload === 'object' ? payload : undefined;
+        const payloadQuery =
+          typeof normalizedPayload?.query === 'string'
+            ? normalizedPayload.query.trim()
+            : '';
+        const payloadInstruction =
+          typeof normalizedPayload?.instruction === 'string'
+            ? normalizedPayload.instruction.trim()
+            : '';
+        const createActionType =
+          action_type?.trim() || (payloadQuery ? 'web_search' : 'maintenance_reminder');
+        const effectiveSearchQuery = search_query?.trim() || payloadQuery;
+        const effectiveInstruction =
+          trimmedInstruction || payloadInstruction || summary_instruction?.trim();
+
         if (action === 'list') {
           const jobs = await listCronJobs();
           return formatCronJobsForTool(jobs);
         }
 
         if (action === 'create') {
-          if (!search_query || search_query.trim().length === 0) {
-            return "Missing search_query for cron job creation.";
+          if (createActionType === 'web_search') {
+            if (!effectiveSearchQuery) {
+              return formatToolFailure(
+                "Missing search_query for web_search cron job creation."
+              );
+            }
+          } else if (!effectiveInstruction) {
+            return formatToolFailure(
+              "Missing instruction for non-web cron job creation."
+            );
           }
 
           const normalizedScheduleType =
             schedule_type === 'one_time'
               ? CronScheduleType.OneTime
-              : CronScheduleType.Daily;
+              : schedule_type === 'monthly'
+                ? CronScheduleType.Monthly
+                : schedule_type === 'weekly'
+                  ? CronScheduleType.Weekly
+                  : CronScheduleType.Daily;
+          if (
+            (normalizedScheduleType === CronScheduleType.Monthly ||
+              normalizedScheduleType === CronScheduleType.Weekly) &&
+            (!one_time_at || one_time_at.trim().length === 0)
+          ) {
+            return formatToolFailure(
+              "Missing one_time_at for monthly/weekly cron job creation."
+            );
+          }
+          const defaultTitle =
+            createActionType === 'web_search'
+              ? `Scheduled news digest (${normalizedScheduleType === CronScheduleType.Daily ? 'daily' : normalizedScheduleType === CronScheduleType.Monthly ? 'monthly' : normalizedScheduleType === CronScheduleType.Weekly ? 'weekly' : 'one-time'})`
+              : `Scheduled reminder (${normalizedScheduleType === CronScheduleType.Daily ? 'daily' : normalizedScheduleType === CronScheduleType.Monthly ? 'monthly' : normalizedScheduleType === CronScheduleType.Weekly ? 'weekly' : 'one-time'})`;
           const createdJob = await createCronJob({
             title:
-              title?.trim() ||
-              `Scheduled news digest (${normalizedScheduleType === CronScheduleType.Daily ? 'daily' : 'one-time'})`,
-            searchQuery: search_query,
+              title?.trim() || defaultTitle,
+            searchQuery:
+              effectiveSearchQuery ||
+              (createActionType === 'web_search' ? 'technology news' : ''),
             summaryInstruction:
               summary_instruction ||
-              'Summarize what matters most in clear, human language.',
+              (createActionType === 'web_search'
+                ? 'Summarize what matters most in clear, human language.'
+                : effectiveInstruction || ''),
+            actionType: createActionType,
+            instruction: effectiveInstruction || summary_instruction,
+            payload: normalizedPayload ??
+              (createActionType === 'web_search'
+                ? { query: effectiveSearchQuery, instruction: summary_instruction }
+                : { instruction: effectiveInstruction }),
             scheduleType: normalizedScheduleType,
             timezone,
             hour,
@@ -1440,7 +1701,7 @@ export const executeMemoryTool = async (
           });
 
           if (!createdJob) {
-            return "Failed to create cron job.";
+            return formatToolFailure("Failed to create cron job.");
           }
 
           return `Created cron job "${createdJob.title}" (${createdJob.id}) scheduled ${createdJob.scheduleType}. Next run: ${createdJob.nextRunAt}.`;
@@ -1448,19 +1709,26 @@ export const executeMemoryTool = async (
 
         if (action === 'update') {
           if (!id) {
-            return 'Missing id for cron job update.';
+            return formatToolFailure('Missing id for cron job update.');
           }
 
           const updatedJob = await updateCronJob(id, {
             title,
-            searchQuery: search_query,
+            searchQuery: search_query || payloadQuery || undefined,
             summaryInstruction: summary_instruction,
+            actionType: action_type?.trim(),
+            instruction: trimmedInstruction || undefined,
+            payload: normalizedPayload,
             scheduleType:
               schedule_type === undefined
                 ? undefined
                 : schedule_type === 'one_time'
                   ? CronScheduleType.OneTime
-                  : CronScheduleType.Daily,
+                  : schedule_type === 'monthly'
+                    ? CronScheduleType.Monthly
+                    : schedule_type === 'weekly'
+                      ? CronScheduleType.Weekly
+                      : CronScheduleType.Daily,
             timezone,
             hour,
             minute,
@@ -1468,7 +1736,7 @@ export const executeMemoryTool = async (
           });
 
           if (!updatedJob) {
-            return `Failed to update cron job (${id}).`;
+            return formatToolFailure(`Failed to update cron job (${id}).`);
           }
 
           return `Updated cron job "${updatedJob.title}" (${updatedJob.id}). Next run: ${updatedJob.nextRunAt}.`;
@@ -1476,25 +1744,25 @@ export const executeMemoryTool = async (
 
         if (action === 'delete') {
           if (!id) {
-            return 'Missing id for cron job delete.';
+            return formatToolFailure('Missing id for cron job delete.');
           }
 
           const deleted = await deleteCronJob(id);
           return deleted
             ? `Deleted cron job (${id}).`
-            : `Failed to delete cron job (${id}).`;
+            : formatToolFailure(`Failed to delete cron job (${id}).`);
         }
 
         if (action === 'pause' || action === 'resume') {
           if (!id) {
-            return `Missing id for cron job ${action}.`;
+            return formatToolFailure(`Missing id for cron job ${action}.`);
           }
 
           const nextStatus =
             action === 'pause' ? CronJobStatus.Paused : CronJobStatus.Active;
           const updated = await setCronJobStatus(id, nextStatus);
           if (!updated) {
-            return `Failed to ${action} cron job (${id}).`;
+            return formatToolFailure(`Failed to ${action} cron job (${id}).`);
           }
 
           return `${action === 'pause' ? 'Paused' : 'Resumed'} cron job "${updated.title}" (${updated.id}).`;
@@ -1502,12 +1770,12 @@ export const executeMemoryTool = async (
 
         if (action === 'run_now') {
           if (!id) {
-            return 'Missing id for cron job run_now.';
+            return formatToolFailure('Missing id for cron job run_now.');
           }
 
           const updated = await runCronJobNow(id);
           if (!updated) {
-            return `Failed to trigger cron job now (${id}).`;
+            return formatToolFailure(`Failed to trigger cron job now (${id}).`);
           }
 
           return `Triggered cron job "${updated.title}" (${updated.id}) to run now.`;
@@ -1515,13 +1783,13 @@ export const executeMemoryTool = async (
 
         if (action === 'mark_summary_delivered') {
           if (!run_id) {
-            return 'Missing run_id for mark_summary_delivered.';
+            return formatToolFailure('Missing run_id for mark_summary_delivered.');
           }
 
           const marked = await markScheduledDigestDelivered(run_id);
           return marked
             ? `Marked scheduled digest as delivered (${run_id}).`
-            : `Failed to mark scheduled digest as delivered (${run_id}).`;
+            : formatToolFailure(`Failed to mark scheduled digest as delivered (${run_id}).`);
         }
 
         return `Unknown cron_job_action: ${action}`;
@@ -1650,6 +1918,14 @@ export const executeMemoryTool = async (
           ? '✓ Daily note stored.'
           : 'Failed to store daily note.';
       }
+      case 'store_monthly_note': {
+        const { note } = args as ToolCallArgs['store_monthly_note'];
+        console.log('🗒️ [Memory Tool] Storing monthly note');
+        const success = await appendMonthlyNote(note);
+        return success
+          ? '✓ Monthly note stored.'
+          : 'Failed to store monthly note.';
+      }
       case 'store_lessons_learned': {
         const { lesson } = args as ToolCallArgs['store_lessons_learned'];
         lessonsLogger.info('Memory tool storing lesson learned', { lesson });
@@ -1678,6 +1954,15 @@ export const executeMemoryTool = async (
           return 'No daily notes recorded yet.';
         }
         return `Daily notes:\n${lines.join('\n')}`;
+      }
+      case 'retrieve_monthly_notes': {
+        const { year, month } = args as ToolCallArgs['retrieve_monthly_notes'];
+        console.log('📚 [Memory Tool] Retrieving monthly notes', { year, month });
+        const { monthKey, lines } = await getMonthlyNotesForMonth(year, month);
+        if (lines.length === 0) {
+          return `No monthly notes recorded for ${monthKey}.`;
+        }
+        return `Monthly notes for ${monthKey}:\n${lines.join('\n')}`;
       }
       case 'retrieve_lessons_learned': {
         lessonsLogger.info('Memory tool retrieving lessons learned');
@@ -1710,6 +1995,7 @@ export const executeMemoryTool = async (
               return "Error: task_text is required for creating a task.";
             }
             await createTask(task_text, priority || "low");
+            _taskMutationPending = true;
             return `✓ Created task: "${task_text}" (priority: ${
               priority || "low"
             })`;
@@ -1728,6 +2014,7 @@ export const executeMemoryTool = async (
             // console.log("matchingTask: ", matchingTask);
             if (matchingTask) {
               await toggleTask(matchingTask.id, false); // false = currently not completed, toggle to complete
+              _taskMutationPending = true;
               return `✓ Completed task: "${matchingTask.text}"`;
             }
             return `Could not find a task matching "${task_text}".`;
@@ -1744,6 +2031,7 @@ export const executeMemoryTool = async (
             );
             if (taskToDelete) {
               await deleteTask(taskToDelete.id);
+              _taskMutationPending = true;
               return sanitizeForGemini(
                 `✓ Deleted task: "${taskToDelete.text}"`
               );
@@ -2919,6 +3207,9 @@ export const memoryService = {
   ensureDailyNotesRowForToday,
   appendDailyNote,
   getAllDailyNotes,
+  ensureMonthlyNotesRowForMonth,
+  appendMonthlyNote,
+  getMonthlyNotesForMonth,
   ensureMilaMilestoneRowForDate,
   appendMilaMilestoneNote,
   getMilaMilestonesForMonth,

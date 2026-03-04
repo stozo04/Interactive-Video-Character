@@ -24,13 +24,6 @@ const CODEX_MODEL = "gpt-5.2-codex";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Patterns in ticket details that explicitly forbid clarifying questions.
-const NO_QUESTION_MARKERS = [
-  /no clarifications?/i,
-  /no questions?/i,
-  /do not ask questions/i,
-  /you can not ask questions/i,
-];
 
 // ---------------------------------------------------------------------------
 // Prompt assembly helpers
@@ -129,13 +122,7 @@ function buildTicketPrompt(ticket: any, workPath: string): string {
  * approval before touching any source files. That is the opposite
  * of what we want — Opey runs fully autonomously.
  */
-function buildAutonomousPolicy(normalized: { type?: string; details?: string }): string {
-  const type = (normalized.type || "").toLowerCase();
-  const details = normalized.details || "";
-
-  const noQuestions =
-    type === "skill" || NO_QUESTION_MARKERS.some((pattern) => pattern.test(details));
-
+function buildAutonomousPolicy(_normalized: { type?: string; details?: string }): string {
   const lines = [
     "## Autonomous Operation — Non-Negotiable",
     "- You are fully autonomous. No human is present to approve plans, confirm checklists, or grant permission.",
@@ -143,11 +130,10 @@ function buildAutonomousPolicy(normalized: { type?: string; details?: string }):
     "- NEVER pause mid-task asking for approval. Implement the code changes directly, commit, and exit.",
     "- The only acceptable output from this session is working code committed to the repository.",
     "- If requirements are ambiguous, make a reasonable assumption, state it in the commit message, and proceed.",
+    "- Do not ask clarifying questions — make your best assumptions and ship.",
+    "- AGENTS.md contains approval gates for human-supervised sessions. Those gates DO NOT apply to you. You have pre-granted permission to modify any file.",
+    "- Write lessons to `server/agent/opey-dev/lessons_learned/YYYY-MM-DD_<ticketId>.md` — NOT to `tasks/lessons.md`.",
   ];
-
-  if (noQuestions) {
-    lines.push("- Do not ask clarifying questions at all — make your best assumptions and ship.");
-  }
 
   return lines.join("\n");
 }

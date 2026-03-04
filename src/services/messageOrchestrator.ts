@@ -38,6 +38,7 @@ import {
 import { appendConversationHistory } from './conversationHistoryService';
 import { extractAndRecordTopics } from './topicExhaustionService';
 import { refreshConversationAnchor } from './conversationAnchorService';
+import { consumeTaskMutationSignal } from './memoryService';
 
 // ============================================================================
 // CALENDAR QUERY DETECTION
@@ -248,8 +249,19 @@ export async function processUserMessage(input: OrchestratorInput): Promise<Orch
     console.log(`🎯 [Orchestrator] Action type: ${actionType}`);
     result.actionType = actionType;
 
-    // Set refresh flags based on action type
+    // Set refresh flags based on action type (JSON response path)
     if (actionType === ActionType.TASK) {
+      result.refreshTasks = true;
+      result.openTaskPanel = true;
+    }
+
+    // Set refresh flags when task_action ran as a function tool (function-tool path).
+    // When Kayley uses the task_action function tool, geminiChatService executes it
+    // inside the AI interaction loop — the task is written to DB but response.task_action
+    // is never populated, so determineActionType returns NONE. consumeTaskMutationSignal
+    // bridges that gap: memoryService sets it on any create/complete/delete, and we
+    // consume it here to trigger a UI refresh.
+    if (consumeTaskMutationSignal()) {
       result.refreshTasks = true;
       result.openTaskPanel = true;
     }

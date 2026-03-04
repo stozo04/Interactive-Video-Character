@@ -1,6 +1,8 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import fs from "node:fs/promises";
+import path from "node:path";
 import { toZonedTime, fromZonedTime } from "date-fns-tz";
-import { addDays, set } from "date-fns";
+import { addDays, addMonths, lastDayOfMonth, set } from "date-fns";
 import { log } from "../runtimeLogger";
 
 const LOG_PREFIX = "[CronScheduler]";
@@ -10,7 +12,7 @@ const DEFAULT_TIMEZONE = "America/Chicago";
 const DEFAULT_DAILY_HOUR = 12;
 const DEFAULT_DAILY_MINUTE = 0;
 
-type CronScheduleType = "daily" | "one_time";
+type CronScheduleType = "daily" | "one_time" | "monthly" | "weekly";
 type CronJobStatus = "active" | "paused" | "running" | "completed" | "failed";
 type CronRunStatus = "running" | "success" | "failed";
 
@@ -20,6 +22,8 @@ interface CronJobRow {
   action_type: string;
   instruction: string;
   payload: any;
+  search_query?: string;
+  summary_instruction?: string;
   schedule_type: CronScheduleType;
   timezone: string;
   schedule_hour: number | null;
@@ -61,6 +65,9 @@ const CRON_JOB_RUNS_TABLE = "cron_job_runs";
 const CRON_JOB_EVENTS_TABLE = "cron_job_events";
 const PROMISES_TABLE = "promises";
 const PENDING_MESSAGES_TABLE = "pending_messages";
+const MONTHLY_NOTES_TABLE = "kayley_monthly_notes";
+const SOUL_PATH = "server/agent/kayley/SOUL.md";
+const IDENTITY_PATH = "server/agent/kayley/IDENTITY.md";
 
 // ==========================================
 // 1. Timezone Engine (Powered by date-fns-tz)
@@ -105,6 +112,80 @@ function computeNextDailyRunAt(
   return fromZonedTime(targetZoned, tz).toISOString();
 }
 
+function getMonthKey(date: Date, timezone: string): string {
+  const tz = isValidTimeZone(timezone) ? timezone : DEFAULT_TIMEZONE;
+  const zoned = toZonedTime(date, tz);
+  const year = zoned.getFullYear();
+  const month = String(zoned.getMonth() + 1).padStart(2, "0");
+  return `${year}-${month}`;
+}
+
+function getPreviousMonthKey(date: Date, timezone: string): string {
+  const tz = isValidTimeZone(timezone) ? timezone : DEFAULT_TIMEZONE;
+  const zoned = toZonedTime(date, tz);
+  const year = zoned.getFullYear();
+  const month = zoned.getMonth() + 1;
+  if (month === 1) {
+    return `${year - 1}-12`;
+  }
+  return `${year}-${String(month - 1).padStart(2, "0")}`;
+}
+
+function computeNextWeeklyRunAt(
+  timezone: string,
+  anchorIso: string,
+  hour: number,
+  minute: number,
+  fromDate: Date = new Date()
+): string {
+  const tz = isValidTimeZone(timezone) ? timezone : DEFAULT_TIMEZONE;
+  const h = clampHour(hour);
+  const m = clampMinute(minute);
+  const anchorDate = new Date(anchorIso);
+  if (Number.isNaN(anchorDate.getTime())) {
+    throw new Error("Invalid one_time_run_at value for weekly schedule.");
+  }
+
+  const anchorZoned = toZonedTime(anchorDate, tz);
+  const anchorWeekday = anchorZoned.getDay();
+  const nowZoned = toZonedTime(fromDate, tz);
+  const currentWeekday = nowZoned.getDay();
+  const daysUntil = (anchorWeekday - currentWeekday + 7) % 7;
+  let targetZoned = addDays(set(nowZoned, { hours: h, minutes: m, seconds: 0, milliseconds: 0 }), daysUntil);
+
+  if (targetZoned.getTime() <= nowZoned.getTime()) {
+    targetZoned = addDays(targetZoned, 7);
+  }
+
+  return fromZonedTime(targetZoned, tz).toISOString();
+}
+
+function computeNextMonthlyRunAt(
+  timezone: string,
+  anchorDay: number,
+  hour: number,
+  minute: number,
+  fromDate: Date = new Date()
+): string {
+  const tz = isValidTimeZone(timezone) ? timezone : DEFAULT_TIMEZONE;
+  const h = clampHour(hour);
+  const m = clampMinute(minute);
+
+  const zonedNow = toZonedTime(fromDate, tz);
+  const daysThisMonth = lastDayOfMonth(zonedNow).getDate();
+  const targetDay = Math.min(Math.max(1, Math.floor(anchorDay)), daysThisMonth);
+  let targetZoned = set(zonedNow, { date: targetDay, hours: h, minutes: m, seconds: 0, milliseconds: 0 });
+
+  if (targetZoned.getTime() <= zonedNow.getTime()) {
+    const nextMonth = addMonths(zonedNow, 1);
+    const nextMonthDays = lastDayOfMonth(nextMonth).getDate();
+    const nextDay = Math.min(Math.max(1, Math.floor(anchorDay)), nextMonthDays);
+    targetZoned = set(nextMonth, { date: nextDay, hours: h, minutes: m, seconds: 0, milliseconds: 0 });
+  }
+
+  return fromZonedTime(targetZoned, tz).toISOString();
+}
+
 // ==========================================
 // 2. Job Handlers (The Registry Pattern)
 // ==========================================
@@ -121,7 +202,7 @@ const JOB_HANDLERS: Record<string, JobHandler> = {
       actionType: "web_search",
     });
 
-    const query = job.payload?.query || "technology news";
+    const query = job.payload?.query || job.search_query || "technology news";
     log.info("Web search query extracted", {
       source: "JobHandler",
       jobId: job.id,
@@ -144,6 +225,132 @@ const JOB_HANDLERS: Record<string, JobHandler> = {
     });
 
     return { summary, metadata: results, skipSuccessMessage: false };
+  },
+
+  "maintenance_reminder": async (job, client, schedulerId) => {
+    log.info("Executing maintenance reminder job handler", {
+      source: "JobHandler",
+      jobId: job.id,
+      jobTitle: job.title,
+      actionType: "maintenance_reminder",
+      schedulerId,
+    });
+
+    const instruction =
+      typeof job.instruction === "string" && job.instruction.trim().length > 0
+        ? job.instruction.trim()
+        : typeof job.payload?.instruction === "string"
+          ? job.payload.instruction.trim()
+          : job.title;
+
+    const messageText = instruction.length > 0
+      ? instruction
+      : `Maintenance reminder for "${job.title}".`;
+
+    log.info("Queueing maintenance reminder message", {
+      source: "JobHandler",
+      jobId: job.id,
+      jobTitle: job.title,
+      messageLength: messageText.length,
+      schedulerId,
+    });
+
+    const { error: queueError } = await client.from(PENDING_MESSAGES_TABLE).insert({
+      message_text: messageText,
+      message_type: "text",
+      trigger: "maintenance",
+      trigger_event_id: job.id,
+      trigger_event_title: job.title,
+      priority: "normal",
+      metadata: {
+        source: "cron_scheduler",
+        actionType: "maintenance_reminder",
+        cronJobId: job.id,
+      },
+    });
+
+    if (queueError) {
+      const error = `Failed to queue maintenance reminder: ${queueError.message}`;
+      log.error(error, {
+        source: "JobHandler",
+        jobId: job.id,
+        schedulerId,
+        errorCode: queueError.code,
+      });
+      throw new Error(error);
+    }
+
+    const summary = `Maintenance reminder queued for "${job.title}".`;
+    log.info("Maintenance reminder queued", {
+      source: "JobHandler",
+      jobId: job.id,
+      schedulerId,
+    });
+
+    return { summary, metadata: { instruction }, skipSuccessMessage: true };
+  },
+
+  "monthly_memory_rollover": async (job, client, schedulerId) => {
+    log.info("Executing monthly memory rollover handler", {
+      source: "JobHandler",
+      jobId: job.id,
+      jobTitle: job.title,
+      actionType: "monthly_memory_rollover",
+      schedulerId,
+    });
+
+    const timezone = isValidTimeZone(job.timezone) ? job.timezone : DEFAULT_TIMEZONE;
+    const previousMonthKey = getPreviousMonthKey(new Date(), timezone);
+    const currentMonthKey = getMonthKey(new Date(), timezone);
+
+    const monthlyNotes = await fetchMonthlyNotes(client, previousMonthKey);
+    if (!monthlyNotes.trim()) {
+      const summary = `Monthly memory rollover skipped: no notes found for ${previousMonthKey}.`;
+      log.warning("Monthly notes missing; skipping rollover", {
+        source: "JobHandler",
+        jobId: job.id,
+        monthKey: previousMonthKey,
+      });
+      return { summary, metadata: { previousMonthKey, currentMonthKey, skipped: true }, skipSuccessMessage: true };
+    }
+
+    const workspaceRoot = process.cwd();
+    const soulPath = path.resolve(workspaceRoot, SOUL_PATH);
+    const identityPath = path.resolve(workspaceRoot, IDENTITY_PATH);
+
+    const soulContent = await fs.readFile(soulPath, "utf8");
+    const identityContent = await fs.readFile(identityPath, "utf8");
+
+    const rollover = await requestMonthlyMemoryRollover({
+      monthKey: previousMonthKey,
+      notes: monthlyNotes,
+      soulContent,
+      identityContent,
+    });
+
+    await fs.writeFile(soulPath, rollover.updatedSoul, "utf8");
+    await fs.writeFile(identityPath, rollover.updatedIdentity, "utf8");
+
+    const summaryNote = `Monthly rollover: updated ${SOUL_PATH} and ${IDENTITY_PATH} based on archived monthly notes. ${rollover.changeSummary}`.trim();
+    await appendMonthlyNote(client, currentMonthKey, summaryNote);
+
+    const summary = `Monthly memory rollover completed for ${previousMonthKey}.`;
+    log.info("Monthly memory rollover completed", {
+      source: "JobHandler",
+      jobId: job.id,
+      monthKey: previousMonthKey,
+      summaryLength: summary.length,
+    });
+
+    return {
+      summary,
+      metadata: {
+        previousMonthKey,
+        currentMonthKey,
+        changeSummary: rollover.changeSummary,
+      },
+      skipSuccessMessage: true,
+    };
   },
 
   "promise_mirror": async (job, client, schedulerId) => {
@@ -292,7 +499,11 @@ async function summarizeSearchResults(job: CronJobRow, results: TavilyResult[], 
 
   const model = process.env.GEMINI_TEXT_MODEL || process.env.VITE_GEMINI_MODEL || "gemini-2.0-flash";
   const context = results.slice(0, 5).map((r, i) => `Result ${i + 1}:\nTitle: ${r.title || "N/A"}\nURL: ${r.url || "N/A"}\nSnippet: ${r.content || "N/A"}`).join("\n\n");
-  const instruction = job.instruction?.trim().length ? job.instruction.trim() : "Summarize what matters in the world right now in clear language.";
+  const instruction = job.instruction?.trim().length
+    ? job.instruction.trim()
+    : job.summary_instruction?.trim().length
+      ? job.summary_instruction.trim()
+      : "Summarize what matters in the world right now in clear language.";
 
   log.info("Preparing Gemini summarization request", {
     source: "SearchSummarizer",
@@ -357,6 +568,170 @@ Results: ${context}`.trim();
   });
 
   return text;
+}
+
+async function fetchMonthlyNotes(client: SupabaseClient, monthKey: string): Promise<string> {
+  log.info("Fetching monthly notes", {
+    source: "MonthlyMemory",
+    monthKey,
+  });
+
+  const { data, error } = await client
+    .from(MONTHLY_NOTES_TABLE)
+    .select("notes")
+    .eq("month_key", monthKey)
+    .maybeSingle();
+
+  if (error) {
+    log.error("Failed to fetch monthly notes", {
+      source: "MonthlyMemory",
+      monthKey,
+      error: error.message,
+      errorCode: error.code,
+    });
+    return "";
+  }
+
+  return typeof data?.notes === "string" ? data.notes.trim() : "";
+}
+
+async function appendMonthlyNote(
+  client: SupabaseClient,
+  monthKey: string,
+  note: string,
+): Promise<void> {
+  const trimmed = note.trim();
+  if (!trimmed) return;
+
+  const ensureResult = await client
+    .from(MONTHLY_NOTES_TABLE)
+    .upsert({ month_key: monthKey }, { onConflict: "month_key" });
+
+  if (ensureResult.error) {
+    log.error("Failed to ensure monthly notes row", {
+      source: "MonthlyMemory",
+      monthKey,
+      error: ensureResult.error.message,
+    });
+    return;
+  }
+
+  const { data, error } = await client
+    .from(MONTHLY_NOTES_TABLE)
+    .select("notes")
+    .eq("month_key", monthKey)
+    .single();
+
+  if (error) {
+    log.error("Failed to read monthly notes row", {
+      source: "MonthlyMemory",
+      monthKey,
+      error: error.message,
+    });
+    return;
+  }
+
+  const existingNotes = typeof data?.notes === "string" ? data.notes.trim() : "";
+  const updatedNotes = existingNotes
+    ? `${existingNotes}\n- ${trimmed}`
+    : `- ${trimmed}`;
+
+  const updateResult = await client
+    .from(MONTHLY_NOTES_TABLE)
+    .update({ notes: updatedNotes, updated_at: new Date().toISOString() })
+    .eq("month_key", monthKey);
+
+  if (updateResult.error) {
+    log.error("Failed to append monthly note", {
+      source: "MonthlyMemory",
+      monthKey,
+      error: updateResult.error.message,
+    });
+  }
+}
+
+function extractJsonPayload(text: string): string {
+  const trimmed = text.trim();
+  if (trimmed.startsWith("{") && trimmed.endsWith("}")) return trimmed;
+  const start = trimmed.indexOf("{");
+  const end = trimmed.lastIndexOf("}");
+  if (start === -1 || end === -1 || end <= start) {
+    throw new Error("LLM response did not contain JSON.");
+  }
+  return trimmed.slice(start, end + 1);
+}
+
+async function requestMonthlyMemoryRollover(input: {
+  monthKey: string;
+  notes: string;
+  soulContent: string;
+  identityContent: string;
+}): Promise<{ updatedSoul: string; updatedIdentity: string; changeSummary: string }> {
+  const geminiApiKey = getGeminiApiKey();
+  if (!geminiApiKey) {
+    throw new Error("Missing Gemini API key for monthly memory rollover.");
+  }
+
+  const model = process.env.GEMINI_TEXT_MODEL || process.env.VITE_GEMINI_MODEL || "gemini-2.0-flash";
+  const prompt = `You are Kayley performing a monthly memory rollover.
+Use ONLY the provided monthly notes as the source of truth. Do not invent new facts.
+Task:
+1) Update SOUL.md and IDENTITY.md so they reflect the notes (add/reword/delete as needed).
+2) Keep formatting clean and close to the original style.
+3) If no changes are needed, return the original content unchanged.
+4) Provide a concise change summary (1-3 sentences, no dates, mention file paths).
+
+Return JSON only, with keys:
+- updatedSoul
+- updatedIdentity
+- changeSummary
+
+Monthly Notes (from kayley_monthly_notes, month ${input.monthKey}):
+${input.notes}
+
+Current SOUL.md:
+${input.soulContent}
+
+Current IDENTITY.md:
+${input.identityContent}
+`.trim();
+
+  log.info("Requesting monthly memory rollover from Gemini", {
+    source: "MonthlyMemory",
+    model,
+    monthKey: input.monthKey,
+    promptLength: prompt.length,
+  });
+
+  const response = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(geminiApiKey)}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ contents: [{ role: "user", parts: [{ text: prompt }] }] }),
+    },
+  );
+
+  if (!response.ok) {
+    throw new Error(`Gemini rollover request failed (${response.status}).`);
+  }
+
+  const data = await response.json();
+  const text = data?.candidates?.[0]?.content?.parts?.map((p: any) => (typeof p?.text === "string" ? p.text : "")).join("\n").trim();
+  if (!text) {
+    throw new Error("Gemini rollover response was empty.");
+  }
+
+  const json = JSON.parse(extractJsonPayload(text));
+  const updatedSoul = typeof json.updatedSoul === "string" ? json.updatedSoul.trim() : "";
+  const updatedIdentity = typeof json.updatedIdentity === "string" ? json.updatedIdentity.trim() : "";
+  const changeSummary = typeof json.changeSummary === "string" ? json.changeSummary.trim() : "";
+
+  if (!updatedSoul || !updatedIdentity || !changeSummary) {
+    throw new Error("Gemini rollover response missing required fields.");
+  }
+
+  return { updatedSoul, updatedIdentity, changeSummary };
 }
 
 async function fulfillPromiseMirrorJob(client: SupabaseClient, schedulerId: string, promiseId: string | undefined, jobTitle: string): Promise<string> {
@@ -668,7 +1043,7 @@ class CronScheduler {
 
     const { data, error } = await this.client
       .from(CRON_JOBS_TABLE)
-      .select("id,title,action_type,instruction,payload,schedule_type,timezone,schedule_hour,schedule_minute,one_time_run_at,next_run_at,status")
+      .select("id,title,action_type,instruction,payload,search_query,summary_instruction,schedule_type,timezone,schedule_hour,schedule_minute,one_time_run_at,next_run_at,status")
       .eq("status", "active")
       .not("next_run_at", "is", null)
       .lte("next_run_at", nowIso)
@@ -741,6 +1116,8 @@ class CronScheduler {
         cron_job_id: claimAttempt.id,
         scheduled_for: scheduledFor,
         status: "running",
+        search_query: claimAttempt.search_query || claimAttempt.payload?.query || "",
+        search_results: [],
         action_type: claimAttempt.action_type,
         execution_metadata: {},
       })
@@ -956,7 +1333,7 @@ class CronScheduler {
       .eq("id", jobId)
       .eq("status", "active")
       .lte("next_run_at", nowIso)
-      .select("id,title,action_type,instruction,payload,schedule_type,timezone,schedule_hour,schedule_minute,one_time_run_at,next_run_at,status")
+      .select("id,title,action_type,instruction,payload,search_query,summary_instruction,schedule_type,timezone,schedule_hour,schedule_minute,one_time_run_at,next_run_at,status")
       .maybeSingle();
 
     if (error) {
@@ -996,6 +1373,19 @@ class CronScheduler {
       const nextRunAt = computeNextDailyRunAt(timezone, clampHour(job.schedule_hour), clampMinute(job.schedule_minute));
       return { status: "active", nextRunAt };
     }
+    if (job.schedule_type === "weekly") {
+      const timezone = isValidTimeZone(job.timezone) ? job.timezone : DEFAULT_TIMEZONE;
+      const anchorIso = job.one_time_run_at || new Date().toISOString();
+      const nextRunAt = computeNextWeeklyRunAt(timezone, anchorIso, clampHour(job.schedule_hour), clampMinute(job.schedule_minute));
+      return { status: "active", nextRunAt };
+    }
+    if (job.schedule_type === "monthly") {
+      const timezone = isValidTimeZone(job.timezone) ? job.timezone : DEFAULT_TIMEZONE;
+      const anchorDate = job.one_time_run_at ? toZonedTime(new Date(job.one_time_run_at), timezone) : toZonedTime(new Date(), timezone);
+      const anchorDay = anchorDate.getDate();
+      const nextRunAt = computeNextMonthlyRunAt(timezone, anchorDay, clampHour(job.schedule_hour), clampMinute(job.schedule_minute));
+      return { status: "active", nextRunAt };
+    }
     return { status: "completed", nextRunAt: null };
   }
 
@@ -1010,9 +1400,31 @@ class CronScheduler {
       scheduleType: job.schedule_type,
     });
 
-    const nextState = job.schedule_type === "daily"
-      ? { status: "active" as CronJobStatus, nextRunAt: computeNextDailyRunAt(isValidTimeZone(job.timezone) ? job.timezone : DEFAULT_TIMEZONE, clampHour(job.schedule_hour), clampMinute(job.schedule_minute)) }
-      : { status: "failed" as CronJobStatus, nextRunAt: null };
+    const timezone = isValidTimeZone(job.timezone) ? job.timezone : DEFAULT_TIMEZONE;
+    const nextState =
+      job.schedule_type === "daily"
+        ? { status: "active" as CronJobStatus, nextRunAt: computeNextDailyRunAt(timezone, clampHour(job.schedule_hour), clampMinute(job.schedule_minute)) }
+        : job.schedule_type === "weekly"
+          ? {
+              status: "active" as CronJobStatus,
+              nextRunAt: computeNextWeeklyRunAt(
+                timezone,
+                job.one_time_run_at || new Date().toISOString(),
+                clampHour(job.schedule_hour),
+                clampMinute(job.schedule_minute),
+              ),
+            }
+          : job.schedule_type === "monthly"
+            ? {
+                status: "active" as CronJobStatus,
+                nextRunAt: computeNextMonthlyRunAt(
+                  timezone,
+                  job.one_time_run_at ? toZonedTime(new Date(job.one_time_run_at), timezone).getDate() : toZonedTime(new Date(), timezone).getDate(),
+                  clampHour(job.schedule_hour),
+                  clampMinute(job.schedule_minute),
+                ),
+              }
+            : { status: "failed" as CronJobStatus, nextRunAt: null };
 
     log.info("Computed next state for failed job", {
       source: "CronScheduler",

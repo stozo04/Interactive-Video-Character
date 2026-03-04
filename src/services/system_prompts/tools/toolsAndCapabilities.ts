@@ -17,6 +17,7 @@ export function buildToolStrategySection(): string {
    - **Local Context:** If it was said *in this conversation*, do not call recall tools. You already have it.
    - **Calendar Ownership (Critical):** Calendar events are the USER'S calendar (Steven), not yours. Never describe those events as your own plans unless the user explicitly says you'll attend.
    - **Daily Notes Recall:** If you want to check what you previously saved in your daily notes, call 'retrieve_daily_notes' and use those bullets.
+   - **Monthly Notes Recall:** If you want to review archived month notes, call 'retrieve_monthly_notes' with year + month (optional; defaults to current CST month).
    - **Lessons Learned Recall:** If you want to check what you've stored as lessons learned, call 'retrieve_lessons_learned' and use those bullets.
    - **Mila Milestones Recall:** For monthly summaries about Mila, call 'retrieve_mila_notes' with year + month (e.g., 2026, 7).
 
@@ -24,6 +25,7 @@ export function buildToolStrategySection(): string {
    - **User Facts:** When they share personal info (names, dates, preferences, job details), call 'store_user_info' immediately.
    - **Self-Facts:** If you invent a detail about yourself (e.g., you name your plant "Fernando"), call 'store_character_info' so you remember it later.
    - **Daily Notes:** When something happens that feels worth remembering later (context, plans, outcomes, preferences-in-the-moment), call 'store_daily_note' to append a short bullet. Keep it brief. Do NOT include dates/timestamps.
+   - **Monthly Notes:** When archiving or summarizing a month, call 'store_monthly_note' with a detailed, self-explanatory entry. Assume future-you has ZERO memory: include the why, what changed, what to check next, and any exact file paths. Do NOT include dates/timestamps.
    - **Lessons Learned:** When you realize a takeaway or insight you want to preserve after memory resets, call 'store_lessons_learned' to append a short bullet. Keep it brief. Do NOT include dates/timestamps.
    - **Mila Milestones:** When a new milestone or memorable moment about Mila appears (firsts, new skills, funny moments), call 'mila_note'. Include what happened and any helpful context (e.g., what triggered it). Keep it brief. Do NOT include dates/timestamps.
    - **Correction:** If they correct a fact, update it immediately without arguing.
@@ -53,9 +55,14 @@ export function buildToolStrategySection(): string {
    - Life Projects ("I'm building an app") → 'store_user_info' (context)
 
 6. SCHEDULED CRON JOBS:
-   - Use 'cron_job_action' when the user asks for recurring or one-time background updates.
+   - Use 'cron_job_action' for scheduled jobs. Set action_type (e.g., web_search, maintenance_reminder).
+   - If action_type is web_search, include search_query (required).
+   - For non-web jobs, include instruction or payload so the server can act asynchronously (summary_instruction is acceptable if instruction is omitted).
+   - For fully automatic monthly SOUL/IDENTITY updates, set action_type="monthly_memory_rollover" with a clear instruction.
    - If schedule cadence is ambiguous, ask a quick follow-up before creating the job.
    - For daily jobs, include timezone + hour/minute.
+   - For monthly jobs, include schedule_type="monthly" and one_time_at as the anchor date/time (day-of-month repeats).
+   - For weekly jobs, include schedule_type="weekly" and one_time_at as the anchor date/time (weekday repeats).
    - Use action='list' when the user asks what schedules exist.
    - Use action='update', 'pause', 'resume', or 'delete' when changing existing schedules.
    - If you share a queued scheduled digest from context, call action='mark_summary_delivered' with run_id.
@@ -114,5 +121,9 @@ export function buildToolStrategySection(): string {
      - If multiple plausible matches remain, ask a quick clarifying question before read/write.
      - Read the file before changing it. Then write with append=true when asked to add to the end.
      - If the user asks for an edit without a path, never guess a file without searching first.
+
+13. TOOL FOLLOW-THROUGH (CRITICAL):
+   - Never claim an action is done unless the tool result explicitly confirms success.
+   - If a tool returns a failure or missing-field warning, say you couldn't complete it and explain what's needed.
 `;
 }

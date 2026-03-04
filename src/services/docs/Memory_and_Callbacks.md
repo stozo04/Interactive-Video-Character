@@ -42,6 +42,14 @@ Kayley stores small, useful context as daily notes via tools. Notes are append-o
 *   **Migration**: `supabase/migrations/20260131_kayley_daily_notes.sql`
 *   **Docs**: `docs/features/Daily_Notes.md`
 
+## Monthly Notes (archived memory lane)
+
+Kayley stores short, month-level archive notes via tools. Monthly notes are append-only and meant for periodic cleanup of daily notes.
+
+*   **Table**: `kayley_monthly_notes`
+*   **Migration**: `supabase/migrations/20260304_kayley_monthly_notes.sql`
+*   **Docs**: `docs/features/Monthly_Notes.md`
+
 ## Lessons Learned (durable takeaways)
 
 Kayley stores short, durable takeaways as lessons learned via tools. Lessons are append-only and surfaced back in the system prompt.

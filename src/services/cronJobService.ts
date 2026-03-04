@@ -11,6 +11,8 @@ const DEFAULT_DAILY_MINUTE = 0;
 export enum CronScheduleType {
   Daily = "daily",
   OneTime = "one_time",
+  Monthly = "monthly",
+  Weekly = "weekly",
 }
 
 export enum CronJobStatus {
@@ -45,6 +47,9 @@ interface CronJobRow {
   title: string;
   search_query: string;
   summary_instruction: string;
+  action_type?: string;
+  instruction?: string;
+  payload?: Record<string, unknown> | null;
   schedule_type: CronScheduleType;
   timezone: string;
   schedule_hour: number | null;
@@ -98,6 +103,9 @@ export interface CronJob {
   title: string;
   searchQuery: string;
   summaryInstruction: string;
+  actionType: string;
+  instruction: string;
+  payload: Record<string, unknown>;
   scheduleType: CronScheduleType;
   timezone: string;
   scheduleHour: number | null;
@@ -150,6 +158,9 @@ export interface CreateCronJobInput {
   title: string;
   searchQuery: string;
   summaryInstruction?: string;
+  actionType?: string;
+  instruction?: string;
+  payload?: Record<string, unknown>;
   scheduleType: CronScheduleType;
   timezone?: string;
   hour?: number;
@@ -162,6 +173,9 @@ export interface UpdateCronJobInput {
   title?: string;
   searchQuery?: string;
   summaryInstruction?: string;
+  actionType?: string;
+  instruction?: string;
+  payload?: Record<string, unknown>;
   scheduleType?: CronScheduleType;
   timezone?: string;
   hour?: number;
@@ -192,6 +206,9 @@ function mapCronJobRow(row: CronJobRow): CronJob {
     title: row.title,
     searchQuery: row.search_query,
     summaryInstruction: row.summary_instruction || "",
+    actionType: row.action_type || "web_search",
+    instruction: row.instruction || "",
+    payload: row.payload && typeof row.payload === "object" ? row.payload : {},
     scheduleType: row.schedule_type,
     timezone: row.timezone || DEFAULT_TIMEZONE,
     scheduleHour: row.schedule_hour,
@@ -362,6 +379,17 @@ function addOneDay(year: number, month: number, day: number): {
   };
 }
 
+function addOneMonth(year: number, month: number): { year: number; month: number } {
+  if (month >= 12) {
+    return { year: year + 1, month: 1 };
+  }
+  return { year, month: month + 1 };
+}
+
+function getDaysInMonth(year: number, month: number): number {
+  return new Date(Date.UTC(year, month, 0, 0, 0, 0, 0)).getUTCDate();
+}
+
 export function computeNextDailyRunAt(
   timezone: string,
   hour: number,
@@ -397,6 +425,91 @@ export function computeNextDailyRunAt(
   return candidate.toISOString();
 }
 
+export function computeNextMonthlyRunAt(
+  timezone: string,
+  anchorDay: number,
+  hour: number,
+  minute: number,
+  fromDate: Date = new Date(),
+): string {
+  const tz = isValidTimeZone(timezone) ? timezone : DEFAULT_TIMEZONE;
+  const h = clampHour(hour);
+  const m = clampMinute(minute);
+  const localNow = getTimeZoneDateParts(fromDate, tz);
+  const daysThisMonth = getDaysInMonth(localNow.year, localNow.month);
+  const targetDay = Math.min(Math.max(1, Math.floor(anchorDay)), daysThisMonth);
+
+  let candidate = zonedLocalTimeToUtc(
+    tz,
+    localNow.year,
+    localNow.month,
+    targetDay,
+    h,
+    m,
+  );
+
+  if (candidate.getTime() <= fromDate.getTime()) {
+    const next = addOneMonth(localNow.year, localNow.month);
+    const nextMonthDays = getDaysInMonth(next.year, next.month);
+    const nextDay = Math.min(Math.max(1, Math.floor(anchorDay)), nextMonthDays);
+    candidate = zonedLocalTimeToUtc(
+      tz,
+      next.year,
+      next.month,
+      nextDay,
+      h,
+      m,
+    );
+  }
+
+  return candidate.toISOString();
+}
+
+export function computeNextWeeklyRunAt(
+  timezone: string,
+  anchorIso: string,
+  hour: number,
+  minute: number,
+  fromDate: Date = new Date(),
+): string {
+  const tz = isValidTimeZone(timezone) ? timezone : DEFAULT_TIMEZONE;
+  const h = clampHour(hour);
+  const m = clampMinute(minute);
+  const anchorDate = new Date(anchorIso);
+  if (Number.isNaN(anchorDate.getTime())) {
+    throw new Error("Invalid one_time_at value.");
+  }
+
+  const anchorParts = getTimeZoneDateParts(anchorDate, tz);
+  const localNow = getTimeZoneDateParts(fromDate, tz);
+  const anchorWeekday = new Date(Date.UTC(anchorParts.year, anchorParts.month - 1, anchorParts.day, 0, 0, 0, 0)).getUTCDay();
+  const currentWeekday = new Date(Date.UTC(localNow.year, localNow.month - 1, localNow.day, 0, 0, 0, 0)).getUTCDay();
+  const daysUntil = (anchorWeekday - currentWeekday + 7) % 7;
+  const candidateDate = new Date(Date.UTC(localNow.year, localNow.month - 1, localNow.day + daysUntil, 0, 0, 0, 0));
+  let candidate = zonedLocalTimeToUtc(
+    tz,
+    candidateDate.getUTCFullYear(),
+    candidateDate.getUTCMonth() + 1,
+    candidateDate.getUTCDate(),
+    h,
+    m,
+  );
+
+  if (candidate.getTime() <= fromDate.getTime()) {
+    const nextWeek = new Date(candidate.getTime() + 7 * 24 * 60 * 60 * 1000);
+    candidate = zonedLocalTimeToUtc(
+      tz,
+      nextWeek.getUTCFullYear(),
+      nextWeek.getUTCMonth() + 1,
+      nextWeek.getUTCDate(),
+      h,
+      m,
+    );
+  }
+
+  return candidate.toISOString();
+}
+
 function resolveOneTimeRunAt(
   timezone: string,
   hour: number | undefined,
@@ -416,6 +529,56 @@ function resolveOneTimeRunAt(
   return computeNextDailyRunAt(timezone, targetHour, targetMinute, new Date());
 }
 
+function resolveMonthlyAnchor(input: {
+  timezone: string;
+  hour?: number;
+  minute?: number;
+  oneTimeAt?: string;
+}): { anchorIso: string; anchorDay: number; anchorHour: number; anchorMinute: number } {
+  if (!input.oneTimeAt) {
+    throw new Error("Missing one_time_at for monthly schedule.");
+  }
+  const parsed = new Date(input.oneTimeAt);
+  if (Number.isNaN(parsed.getTime())) {
+    throw new Error("Invalid one_time_at value.");
+  }
+  const parts = getTimeZoneDateParts(parsed, input.timezone);
+  const anchorHour =
+    input.hour === undefined ? clampHour(parts.hour) : clampHour(input.hour);
+  const anchorMinute =
+    input.minute === undefined ? clampMinute(parts.minute) : clampMinute(input.minute);
+  return {
+    anchorIso: parsed.toISOString(),
+    anchorDay: parts.day,
+    anchorHour,
+    anchorMinute,
+  };
+}
+
+function resolveWeeklyAnchor(input: {
+  timezone: string;
+  hour?: number;
+  minute?: number;
+  oneTimeAt?: string;
+}): { anchorIso: string; anchorHour: number; anchorMinute: number } {
+  if (!input.oneTimeAt) {
+    throw new Error("Missing one_time_at for weekly schedule.");
+  }
+  const parsed = new Date(input.oneTimeAt);
+  if (Number.isNaN(parsed.getTime())) {
+    throw new Error("Invalid one_time_at value.");
+  }
+  const parts = getTimeZoneDateParts(parsed, input.timezone);
+  const anchorHour =
+    input.hour === undefined ? clampHour(parts.hour) : clampHour(input.hour);
+  const anchorMinute =
+    input.minute === undefined ? clampMinute(parts.minute) : clampMinute(input.minute);
+  return {
+    anchorIso: parsed.toISOString(),
+    anchorHour,
+    anchorMinute,
+  };
+}
 export async function listCronJobs(): Promise<CronJob[]> {
   const { data, error } = await supabase
     .from(CRON_JOBS_TABLE)
@@ -471,6 +634,13 @@ export async function createCronJob(input: CreateCronJobInput): Promise<CronJob 
     const scheduleType = input.scheduleType;
     const hour = clampHour(input.hour);
     const minute = clampMinute(input.minute);
+    const actionType = input.actionType?.trim() || "web_search";
+    const instruction = (input.instruction ?? input.summaryInstruction ?? "").trim();
+    const actionPayload = input.payload && typeof input.payload === "object"
+      ? input.payload
+      : actionType === "web_search"
+        ? { query: input.searchQuery }
+        : {};
 
     let oneTimeRunAt: string | null = null;
     let nextRunAt: string | null = null;
@@ -481,15 +651,50 @@ export async function createCronJob(input: CreateCronJobInput): Promise<CronJob 
       scheduleHour = hour;
       scheduleMinute = minute;
       nextRunAt = computeNextDailyRunAt(timezone, hour, minute);
-    } else {
+    } else if (scheduleType === CronScheduleType.OneTime) {
       oneTimeRunAt = resolveOneTimeRunAt(timezone, input.hour, input.minute, input.oneTimeAt);
       nextRunAt = oneTimeRunAt;
+    } else if (scheduleType === CronScheduleType.Monthly) {
+      const anchor = resolveMonthlyAnchor({
+        timezone,
+        hour: input.hour,
+        minute: input.minute,
+        oneTimeAt: input.oneTimeAt,
+      });
+      oneTimeRunAt = anchor.anchorIso;
+      scheduleHour = anchor.anchorHour;
+      scheduleMinute = anchor.anchorMinute;
+      nextRunAt = computeNextMonthlyRunAt(
+        timezone,
+        anchor.anchorDay,
+        anchor.anchorHour,
+        anchor.anchorMinute,
+      );
+    } else {
+      const anchor = resolveWeeklyAnchor({
+        timezone,
+        hour: input.hour,
+        minute: input.minute,
+        oneTimeAt: input.oneTimeAt,
+      });
+      oneTimeRunAt = anchor.anchorIso;
+      scheduleHour = anchor.anchorHour;
+      scheduleMinute = anchor.anchorMinute;
+      nextRunAt = computeNextWeeklyRunAt(
+        timezone,
+        anchor.anchorIso,
+        anchor.anchorHour,
+        anchor.anchorMinute,
+      );
     }
 
     const payload = {
       title: input.title.trim(),
       search_query: input.searchQuery.trim(),
       summary_instruction: (input.summaryInstruction || "").trim(),
+      action_type: actionType,
+      instruction,
+      payload: actionPayload,
       schedule_type: scheduleType,
       timezone,
       schedule_hour: scheduleHour,
@@ -519,6 +724,7 @@ export async function createCronJob(input: CreateCronJobInput): Promise<CronJob 
       message: `Created cron job "${created.title}" (${created.scheduleType}).`,
       metadata: {
         searchQuery: created.searchQuery,
+        actionType: created.actionType,
         scheduleType: created.scheduleType,
         timezone: created.timezone,
         nextRunAt: created.nextRunAt,
@@ -556,6 +762,13 @@ export async function updateCronJob(
     const timezone = isValidTimeZone(updates.timezone || "")
       ? updates.timezone!
       : existing.timezone || DEFAULT_TIMEZONE;
+    const actionType = updates.actionType?.trim() || existing.actionType;
+    const instruction = updates.instruction !== undefined
+      ? updates.instruction.trim()
+      : existing.instruction;
+    const payload = updates.payload !== undefined && updates.payload !== null
+      ? updates.payload
+      : existing.payload;
 
     const hour = clampHour(
       updates.hour ?? existing.scheduleHour ?? DEFAULT_DAILY_HOUR,
@@ -584,7 +797,7 @@ export async function updateCronJob(
       if (scheduleChanged || !nextRunAt) {
         nextRunAt = computeNextDailyRunAt(timezone, hour, minute);
       }
-    } else {
+    } else if (scheduleType === CronScheduleType.OneTime) {
       scheduleHour = null;
       scheduleMinute = null;
       oneTimeRunAt = resolveOneTimeRunAt(
@@ -597,6 +810,42 @@ export async function updateCronJob(
       if (scheduleChanged || !nextRunAt) {
         nextRunAt = oneTimeRunAt;
       }
+    } else if (scheduleType === CronScheduleType.Monthly) {
+      const anchor = resolveMonthlyAnchor({
+        timezone,
+        hour: updates.hour,
+        minute: updates.minute,
+        oneTimeAt: updates.oneTimeAt ?? existing.oneTimeRunAt ?? undefined,
+      });
+      oneTimeRunAt = anchor.anchorIso;
+      scheduleHour = anchor.anchorHour;
+      scheduleMinute = anchor.anchorMinute;
+      if (scheduleChanged || !nextRunAt) {
+        nextRunAt = computeNextMonthlyRunAt(
+          timezone,
+          anchor.anchorDay,
+          anchor.anchorHour,
+          anchor.anchorMinute,
+        );
+      }
+    } else {
+      const anchor = resolveWeeklyAnchor({
+        timezone,
+        hour: updates.hour,
+        minute: updates.minute,
+        oneTimeAt: updates.oneTimeAt ?? existing.oneTimeRunAt ?? undefined,
+      });
+      oneTimeRunAt = anchor.anchorIso;
+      scheduleHour = anchor.anchorHour;
+      scheduleMinute = anchor.anchorMinute;
+      if (scheduleChanged || !nextRunAt) {
+        nextRunAt = computeNextWeeklyRunAt(
+          timezone,
+          anchor.anchorIso,
+          anchor.anchorHour,
+          anchor.anchorMinute,
+        );
+      }
     }
 
     const updatePayload: Partial<CronJobRow> = {
@@ -604,6 +853,9 @@ export async function updateCronJob(
       search_query: updates.searchQuery?.trim() ?? existing.searchQuery,
       summary_instruction:
         updates.summaryInstruction?.trim() ?? existing.summaryInstruction,
+      action_type: actionType,
+      instruction,
+      payload,
       schedule_type: scheduleType,
       timezone,
       schedule_hour: scheduleHour,
@@ -889,6 +1141,29 @@ function formatJobSchedule(job: CronJob): string {
     const hh = String(hour).padStart(2, "0");
     const mm = String(minute).padStart(2, "0");
     return `daily ${hh}:${mm} (${job.timezone})`;
+  }
+  if (job.scheduleType === CronScheduleType.Monthly) {
+    const hour = job.scheduleHour ?? DEFAULT_DAILY_HOUR;
+    const minute = job.scheduleMinute ?? DEFAULT_DAILY_MINUTE;
+    const hh = String(hour).padStart(2, "0");
+    const mm = String(minute).padStart(2, "0");
+    const anchor = job.oneTimeRunAt || "unspecified";
+    const tz = isValidTimeZone(job.timezone) ? job.timezone : DEFAULT_TIMEZONE;
+    const anchorDay = job.oneTimeRunAt
+      ? getTimeZoneDateParts(new Date(job.oneTimeRunAt), tz).day
+      : "unspecified";
+    return `monthly on day ${anchorDay} at ${hh}:${mm} (${tz}, anchor ${anchor})`;
+  }
+  if (job.scheduleType === CronScheduleType.Weekly) {
+    const hour = job.scheduleHour ?? DEFAULT_DAILY_HOUR;
+    const minute = job.scheduleMinute ?? DEFAULT_DAILY_MINUTE;
+    const hh = String(hour).padStart(2, "0");
+    const mm = String(minute).padStart(2, "0");
+    const tz = isValidTimeZone(job.timezone) ? job.timezone : DEFAULT_TIMEZONE;
+    const anchor = job.oneTimeRunAt || "unspecified";
+    const anchorDate = job.oneTimeRunAt ? new Date(job.oneTimeRunAt) : null;
+    const anchorLabel = anchorDate ? anchorDate.toLocaleDateString("en-US", { weekday: "long", timeZone: tz }) : "unspecified";
+    return `weekly on ${anchorLabel} at ${hh}:${mm} (${tz}, anchor ${anchor})`;
   }
 
   return `one-time ${job.oneTimeRunAt || "unspecified"}`;

@@ -36,12 +36,6 @@ const __dirname = path.dirname(__filename);
 
 // Patterns that, if found in a ticket's details, tell us Claude should NOT
 // stop to ask clarifying questions — it should just make its best guess and ship.
-const NO_QUESTION_MARKERS = [
-  /no clarifications?/i,
-  /no questions?/i,
-  /do not ask questions/i,
-  /you can not ask questions/i,
-];
 
 // ---------------------------------------------------------------------------
 // Prompt assembly helpers
@@ -429,16 +423,10 @@ function normalizeTicket(ticket: any): {
  * approval before touching any source files. That is the opposite
  * of what we want — Opey runs fully autonomously.
  */
-function buildClarificationPolicy(normalized: {
+function buildClarificationPolicy(_normalized: {
   type?: string;
   details?: string;
 }): string {
-  const type = (normalized.type || "").toLowerCase();
-  const details = normalized.details || "";
-
-  const noQuestions =
-    type === "skill" || NO_QUESTION_MARKERS.some((pattern) => pattern.test(details));
-
   const lines = [
     "## Autonomous Operation — Non-Negotiable",
     "- You are fully autonomous. No human is present to approve plans, confirm checklists, or grant permission.",
@@ -446,11 +434,10 @@ function buildClarificationPolicy(normalized: {
     "- NEVER pause mid-task asking for approval. Implement the code changes directly, commit, and exit.",
     "- The only acceptable output from this session is working code committed to the repository.",
     "- If requirements are ambiguous, make a reasonable assumption, state it in the commit message, and proceed.",
+    "- Do not ask clarifying questions — make your best assumptions and ship.",
+    "- AGENTS.md contains approval gates for human-supervised sessions. Those gates DO NOT apply to you. You have pre-granted permission to modify any file.",
+    "- Write lessons to `server/agent/opey-dev/lessons_learned/YYYY-MM-DD_<ticketId>.md` — NOT to `tasks/lessons.md`.",
   ];
-
-  if (noQuestions) {
-    lines.push("- Do not ask clarifying questions at all — make your best assumptions and ship.");
-  }
 
   return lines.join("\n");
 }
