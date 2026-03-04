@@ -1,5 +1,5 @@
-import React, { useState, useRef, useEffect } from 'react';
-import { ChatMessage, PendingChatAttachment } from '../types';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
+import { ChatMessage, PendingChatAttachment, PendingGifAttachment } from '../types';
 import LoadingSpinner from './LoadingSpinner';
 import TypingIndicator from './TypingIndicator';
 import TweetCard, { extractTweetUrls } from './TweetCard';
@@ -40,6 +40,10 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
   const [input, setInput] = useState('');
   const [isListening, setIsListening] = useState(false);
   const [isEmojiOpen, setIsEmojiOpen] = useState(false);
+  const [isGifOpen, setIsGifOpen] = useState(false);
+  const [gifSearch, setGifSearch] = useState('');
+  const [gifResults, setGifResults] = useState<PendingGifAttachment[]>([]);
+  const [isGifLoading, setIsGifLoading] = useState(false);
   const [pendingAttachment, setPendingAttachment] = useState<PendingChatAttachment | null>(null);
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
@@ -80,6 +84,40 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
     window.addEventListener('keydown', handleKey);
     return () => window.removeEventListener('keydown', handleKey);
   }, [lightboxSrc]);
+
+  const searchGiphy = useCallback(async (query: string) => {
+    const apiKey = (import.meta as any).env?.VITE_GIPHY_API_KEY as string | undefined;
+    if (!apiKey || !query.trim()) { setGifResults([]); return; }
+    setIsGifLoading(true);
+    try {
+      const url = new URL('https://api.giphy.com/v1/gifs/search');
+      url.searchParams.set('api_key', apiKey);
+      url.searchParams.set('q', query);
+      url.searchParams.set('limit', '18');
+      url.searchParams.set('rating', 'g');
+      url.searchParams.set('lang', 'en');
+      const res = await fetch(url.toString(), { headers: { Accept: 'application/json' } });
+      if (!res.ok) { setGifResults([]); return; }
+      const payload = await res.json() as { data?: Array<{ title?: string; images?: Record<string, { url?: string }> }> };
+      const results: PendingGifAttachment[] = (payload.data ?? []).flatMap(gif => {
+        const thumb = gif.images?.['fixed_height_small']?.url ?? gif.images?.['downsized_small']?.url;
+        const full = gif.images?.['downsized']?.url ?? gif.images?.['fixed_height']?.url ?? gif.images?.['original']?.url;
+        if (!thumb || !full) return [];
+        return [{ kind: 'gif' as const, url: full, previewUrl: thumb, title: gif.title ?? '' }];
+      });
+      setGifResults(results);
+    } catch {
+      setGifResults([]);
+    } finally {
+      setIsGifLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!isGifOpen) return;
+    const timer = setTimeout(() => searchGiphy(gifSearch), 400);
+    return () => clearTimeout(timer);
+  }, [gifSearch, isGifOpen, searchGiphy]);
 
   const textBeforeRef = useRef('');
 
@@ -225,11 +263,20 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
           <div className={`max-w-xs md:max-w-md lg:max-w-sm xl:max-w-md px-4 py-2 rounded-2xl ${msg.role === 'user' ? 'bg-indigo-600 text-white rounded-br-none' : 'bg-gray-700 text-gray-200 rounded-bl-none'}`}>
             {/* User-sent images */}
             {msg.image && (
-                 <img 
-                   src={`data:${msg.imageMimeType || 'image/jpeg'};base64,${msg.image}`} 
-                   alt="Uploaded content" 
+                 <img
+                   src={`data:${msg.imageMimeType || 'image/jpeg'};base64,${msg.image}`}
+                   alt="Uploaded content"
                    className="max-w-full rounded-lg mb-2 border border-white/20"
                  />
+              )}
+              {/* User-sent GIFs */}
+              {msg.gifUrl && (
+                <img
+                  src={msg.gifUrl}
+                  alt="GIF"
+                  className="max-w-full rounded-lg mb-2 border border-white/20"
+                  style={{ maxHeight: '260px', objectFit: 'contain' }}
+                />
               )}
               {msg.fileAttachment && (
                 <div className="mb-2 rounded-lg border border-white/20 bg-white/10 px-3 py-2 text-xs">
@@ -273,6 +320,17 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
                   </div>
                 </div>
               )}
+              {/* AI-triggered GIFs */}
+              {msg.assistantGifUrl && (
+                <div className="mb-2">
+                  <img
+                    src={msg.assistantGifUrl}
+                    alt="gif"
+                    className="max-w-full rounded-lg border border-indigo-400/30 shadow-lg"
+                    style={{ maxHeight: '300px', objectFit: 'contain' }}
+                  />
+                </div>
+              )}
               <p>{msg.text}</p>
               {/* Tweet cards for X URLs in AI messages */}
               {msg.role === 'model' && extractTweetUrls(msg.text).map((url) => (
@@ -292,6 +350,12 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
               alt="Pending attachment"
               className="h-14 w-14 rounded-md object-cover border border-white/10"
             />
+          ) : pendingAttachment.kind === 'gif' ? (
+            <img
+              src={pendingAttachment.previewUrl}
+              alt="GIF preview"
+              className="h-14 w-14 rounded-md object-cover border border-white/10"
+            />
           ) : (
             <div className="flex h-14 w-14 items-center justify-center rounded-md border border-white/10 bg-gray-700 text-xs font-semibold text-gray-200">
               FILE
@@ -299,16 +363,18 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
           )}
           <div className="flex-1 text-xs text-gray-300">
             <div className="font-semibold">
-              {pendingAttachment.kind === 'image' ? 'Image attached' : 'File attached'}
+              {pendingAttachment.kind === 'image' ? 'Image attached' : pendingAttachment.kind === 'gif' ? 'GIF selected' : 'File attached'}
             </div>
             <div className="text-gray-400">
               {pendingAttachment.kind === 'image'
                 ? pendingAttachment.mimeType
+                : pendingAttachment.kind === 'gif'
+                ? pendingAttachment.title || 'Animated GIF'
                 : `${pendingAttachment.fileName} · ${pendingAttachment.mimeType}`}
             </div>
-            <div className="text-gray-500">
-              {formatBytes(pendingAttachment.size)}
-            </div>
+            {pendingAttachment.kind !== 'gif' && (
+              <div className="text-gray-500">{formatBytes(pendingAttachment.size)}</div>
+            )}
           </div>
           <button
             type="button"
@@ -396,12 +462,76 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
           className="flex-grow bg-gray-700 rounded-2xl py-2 px-4 text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:opacity-50 resize-none overflow-hidden"
           style={{ minHeight: '40px', maxHeight: '120px' }}
         />
+        {/* GIF Picker */}
+        <div className="relative">
+          <button
+            type="button"
+            onClick={() => {
+              onUserActivity?.();
+              setIsGifOpen(prev => !prev);
+              setIsEmojiOpen(false);
+              if (!isGifOpen && !gifSearch) searchGiphy('funny');
+            }}
+            disabled={isSending}
+            className="p-3 rounded-full text-gray-300 hover:text-white hover:bg-gray-700 transition-colors disabled:opacity-50"
+            title="Send a GIF"
+          >
+            <span className="text-xs font-bold leading-none">GIF</span>
+          </button>
+          {isGifOpen && (
+            <div className="absolute right-0 bottom-14 bg-gray-800 border border-gray-700 rounded-xl shadow-xl z-20 w-72 flex flex-col" style={{ maxHeight: '340px' }}>
+              <div className="p-2 border-b border-gray-700 flex-shrink-0">
+                <input
+                  type="text"
+                  value={gifSearch}
+                  onChange={e => setGifSearch(e.target.value)}
+                  placeholder="Search GIFs..."
+                  className="w-full bg-gray-700 rounded-lg px-3 py-1.5 text-sm text-white placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                  autoFocus
+                />
+              </div>
+              <div className="overflow-y-auto flex-1 p-1.5">
+                {isGifLoading ? (
+                  <div className="flex items-center justify-center h-24 text-gray-400 text-sm">Searching...</div>
+                ) : gifResults.length === 0 ? (
+                  <div className="flex items-center justify-center h-24 text-gray-500 text-sm">No results</div>
+                ) : (
+                  <div className="grid grid-cols-3 gap-1">
+                    {gifResults.map((gif, i) => (
+                      <button
+                        key={i}
+                        type="button"
+                        onClick={() => {
+                          setPendingAttachment(gif);
+                          setIsGifOpen(false);
+                          setAttachmentError(null);
+                        }}
+                        className="rounded overflow-hidden hover:ring-2 hover:ring-indigo-500 transition-all"
+                      >
+                        <img
+                          src={gif.previewUrl}
+                          alt={gif.title}
+                          className="w-full h-16 object-cover"
+                        />
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <div className="px-2 py-1 border-t border-gray-700 flex-shrink-0 text-right">
+                <span className="text-xs text-gray-500">Powered by GIPHY</span>
+              </div>
+            </div>
+          )}
+        </div>
+
         <div className="relative">
           <button
             type="button"
             onClick={() => {
               onUserActivity?.();
               setIsEmojiOpen(prev => !prev);
+              setIsGifOpen(false);
             }}
             disabled={isSending}
             className="p-3 rounded-full text-gray-300 hover:text-white hover:bg-gray-700 transition-colors disabled:opacity-50"

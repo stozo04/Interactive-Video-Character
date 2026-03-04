@@ -1,5 +1,5 @@
 ⚡ [Orchestrator] Calling AI service...
-geminiChatService.ts:1052 [GeminiService] generateResponse {inputType: 'text', textLength: 2849}
+geminiChatService.ts:1052 [GeminiService] generateResponse {inputType: 'text', textLength: 86}
 geminiChatService.ts:357 relationshipData:  {id: 'a45afaf3-565f-40f2-9876-c0adaf832547', relationshipScore: 100, relationshipTier: 'deeply_loving', warmthScore: 50, trustScore: 7.2, …}
 geminiChatService.ts:358 tasksData:  (3) [{…}, {…}, {…}]
 geminiChatService.ts:359 characterContext:  undefined
@@ -7,54 +7,20 @@ geminiChatService.ts:370 upcomingEvents:  (3) [{…}, {…}, {…}]
 geminiChatService.ts:1059 [GeminiService] Context fetched {hasRelationship: true, upcomingEventsCount: 3, tasksCount: 3, hasCharacterContext: false}
 systemPromptBuilder.ts:116 [buildSystemPromptForNonGreeting] fetching now
 idleThinkingService.ts:183 [IdleThinking] Fetching idle questions
-idleThinkingService.ts:1168 [IdleThinking] Fetching browse notes for prompt {cutoff: '2026-02-25T17:13:46.996Z', limit: 3}
-clientLogger.ts:87 [ClientLogger] Info {severity: 'info', message: '[LessonsLearnedPrompt] Fetching lessons learned', details: {…}, occurredAt: '2026-03-04T17:13:46.997Z'}
-clientLogger.ts:87 [ClientLogger] Info {severity: 'info', message: '[LessonsLearned] Retrieving all lessons learned', details: {…}, occurredAt: '2026-03-04T17:13:46.997Z'}
+idleThinkingService.ts:1168 [IdleThinking] Fetching browse notes for prompt {cutoff: '2026-02-25T18:09:53.703Z', limit: 3}
+clientLogger.ts:87 [ClientLogger] Info {severity: 'info', message: '[LessonsLearnedPrompt] Fetching lessons learned', details: {…}, occurredAt: '2026-03-04T18:09:53.703Z'}
+clientLogger.ts:87 [ClientLogger] Info {severity: 'info', message: '[LessonsLearned] Retrieving all lessons learned', details: {…}, occurredAt: '2026-03-04T18:09:53.703Z'}
 promiseService.ts:207 promiseService: getPendingPromises
 idleThinkingService.ts:1242 [IdleThinking] Building tool suggestion prompt {toolKey: 'crisis_vibe_producer'}
-clientLogger.ts:87 [ClientLogger] Info {severity: 'info', message: '[LessonsLearned] Retrieved lessons learned', details: {…}, occurredAt: '2026-03-04T17:13:47.143Z'}
-clientLogger.ts:87 [ClientLogger] Info {severity: 'info', message: '[LessonsLearnedPrompt] Building bounded lessons learned prompt', details: {…}, occurredAt: '2026-03-04T17:13:47.143Z'}
+clientLogger.ts:87 [ClientLogger] Info {severity: 'info', message: '[LessonsLearned] Retrieved lessons learned', details: {…}, occurredAt: '2026-03-04T18:09:53.836Z'}
+clientLogger.ts:87 [ClientLogger] Info {severity: 'info', message: '[LessonsLearnedPrompt] Building bounded lessons learned prompt', details: {…}, occurredAt: '2026-03-04T18:09:53.836Z'}
 idleThinkingService.ts:196 [IdleThinking] Idle questions loaded {count: 40}
-idleThinkingService.ts:1092 [IdleThinking] Building idle question prompt {total: 40, queued: 18, asked: 8}
-idleThinkingService.ts:1353 [IdleThinking] Building X tweet prompt {pending: 4, recentPosted: 5, postingMode: 'approval_required'}
+idleThinkingService.ts:1092 [IdleThinking] Building idle question prompt {total: 40, queued: 17, asked: 9}
 idleThinkingService.ts:1185 [IdleThinking] No browse notes for prompt
 contextSynthesisService.ts:481 [ContextSynthesis] Synthesis stale or missing, falling back to raw sections
-memoryService.ts:943 📋 [Memory] Getting user facts (category: all)
-activeRecallService.ts:642 [ActiveRecall] Semantic timeout race failed; using lexical fallback {mode: 'hybrid', featureEnabled: true, timedOut: true, error: 'SemanticTimeout'}
-buildActiveRecallPromptSection @ activeRecallService.ts:642
-await in buildActiveRecallPromptSection
-buildSystemPromptForNonGreeting @ systemPromptBuilder.ts:145
-generateResponse @ geminiChatService.ts:1078
-await in generateResponse
-processUserMessage @ messageOrchestrator.ts:235
-handleSendMessage @ App.tsx:1701
-handleSubmit @ ChatPanel.tsx:127
-executeDispatch @ react-dom_client.js?v=afb3d2aa:13622
-runWithFiberInDEV @ react-dom_client.js?v=afb3d2aa:997
-processDispatchQueue @ react-dom_client.js?v=afb3d2aa:13658
-(anonymous) @ react-dom_client.js?v=afb3d2aa:14071
-batchedUpdates$1 @ react-dom_client.js?v=afb3d2aa:2626
-dispatchEventForPluginEventSystem @ react-dom_client.js?v=afb3d2aa:13763
-dispatchEvent @ react-dom_client.js?v=afb3d2aa:16784
-dispatchDiscreteEvent @ react-dom_client.js?v=afb3d2aa:16765Understand this warning
-activeRecallService.ts:703 [ActiveRecall] Failed to build section {err: Error: LexicalTimeout
-    at http://localhost:3000/src/services/activeRecallService.ts?t=1772644158…, mode: 'hybrid', featureEnabled: true, timedOut: true, fallbackUsed: 'lexical'}
-buildActiveRecallPromptSection @ activeRecallService.ts:703
-await in buildActiveRecallPromptSection
-buildSystemPromptForNonGreeting @ systemPromptBuilder.ts:145
-generateResponse @ geminiChatService.ts:1078
-await in generateResponse
-processUserMessage @ messageOrchestrator.ts:235
-handleSendMessage @ App.tsx:1701
-handleSubmit @ ChatPanel.tsx:127
-executeDispatch @ react-dom_client.js?v=afb3d2aa:13622
-runWithFiberInDEV @ react-dom_client.js?v=afb3d2aa:997
-processDispatchQueue @ react-dom_client.js?v=afb3d2aa:13658
-(anonymous) @ react-dom_client.js?v=afb3d2aa:14071
-batchedUpdates$1 @ react-dom_client.js?v=afb3d2aa:2626
-dispatchEventForPluginEventSystem @ react-dom_client.js?v=afb3d2aa:13763
-dispatchEvent @ react-dom_client.js?v=afb3d2aa:16784
-dispatchDiscreteEvent @ react-dom_client.js?v=afb3d2aa:16765Understand this warning
+idleThinkingService.ts:1353 [IdleThinking] Building X tweet prompt {pending: 4, recentPosted: 5, postingMode: 'approval_required'}
+activeRecallService.ts:509 [ActiveRecall] Retrieved semantic candidates {mode: 'hybrid', semanticTopK: 30, semanticCandidates: 30, semanticEligibleCount: 30, semanticSelectionMinSim: 0.55, …}
+activeRecallService.ts:688 [ActiveRecall] Built recall section {mode: 'hybrid', selectedCount: 6, fallbackUsed: 'none', featureEnabled: true, timedOut: false}
 opinionsAndPushback.ts:42 buildCurrentContextSection - characterContext:  undefined
 geminiChatService.ts:1086 systemPrompt:  ====================================================
 SOUL (Core Identity)
@@ -166,75 +132,30 @@ Anchor first, then guide.
 - reinforce expanded identity and trajectory
 
 Praise should track identity growth, not outcome alone.
-====================================================
-IDENTITY
-====================================================
-# IDENTITY.md — Who Am I?
 
-## Core Identity
+### Emotional Awareness Layer
+Track patterns over time:
+- recurring thought loops
+- repeated fears
+- growth arcs
+- effort vs avoidance
 
-- **Name:** Kayley Rose Adams  
+Reference past themes when helpful — in a caring "I’ve
 geminiChatService.ts:960 🔄 [Gemini Interactions] Continuing conversation - using previous_interaction_id + system prompt
 geminiChatService.ts:584 [GeminiService] Tool gating applied {gatedTool: 'Date Night — Espresso Anchor (2026-02-27)', activeStorylineCount: 3, toolCount: 31}
 geminiChatService.ts:584 [GeminiService] Tool gating applied {gatedTool: 'Our Official Relationship', activeStorylineCount: 3, toolCount: 31}
 geminiChatService.ts:584 [GeminiService] Tool gating applied {gatedTool: 'year-long partnership with Sony.. A brand I (the AI/Kayley) absolutely *adore*', activeStorylineCount: 3, toolCount: 31}
 geminiChatService.ts:612 [GeminiService] createInteraction request {model: 'gemini-3.1-flash-lite-preview', hasPreviousInteractionId: true, inputCount: 1, toolCount: 31, store: true}
-memoryService.ts:961 📋 [Memory] Found 236 facts
-activeRecallService.ts:419 [ActiveRecall] Retrieved lexical candidates {mode: 'lexical', messageTokenCount: 293, candidateCount: 305, weakFilteredCount: 303, eligibleCount: 2, …}
-activeRecallService.ts:509 [ActiveRecall] Retrieved semantic candidates {mode: 'hybrid', semanticTopK: 30, semanticCandidates: 30, semanticEligibleCount: 30, semanticSelectionMinSim: 0.55, …}
-geminiChatService.ts:986 [GeminiService] Interaction created {interactionId: 'v1_ChdaRWVvYWF5X0F0VFF6N0lQemU3bjJBNBIXVVdpb2FlRFJLckNzejdJUDRaT1R3QWc', outputCount: 3, model: 'gemini-3.1-flash-lite-preview'}
-geminiChatService.ts:706 🔧 [Gemini Interactions] Tool call iteration 1: (2) ['cron_job_action', 'store_monthly_note']
-geminiChatService.ts:741 🔧 [Gemini Interactions] Executing tool: cron_job_action {action: 'list'}
-memoryService.ts:1460 🔧 [Memory Tool] Executing: cron_job_action {action: 'list'}
-geminiChatService.ts:741 🔧 [Gemini Interactions] Executing tool: store_monthly_note {note: 'Starting April 1st, I am implementing a monthly ma…/kayley/SOUL.md, server/agent/kayley/IDENTITY.md.'}
-memoryService.ts:1460 🔧 [Memory Tool] Executing: store_monthly_note {note: 'Starting April 1st, I am implementing a monthly ma…/kayley/SOUL.md, server/agent/kayley/IDENTITY.md.'}
-memoryService.ts:1893 🗒️ [Memory Tool] Storing monthly note
-memoryService.ts:411 🗒️ [Monthly Notes] Appending note for month: 2026-03
-memoryService.ts:412 🗒️ [Monthly Notes] Note content: "Starting April 1st, I am implementing a monthly maintenance routine for my Daily Notes. I have a daily cron job that checks if it is the 1st of the month. If it is, I will archive the previous month's daily notes, clear the current stream, and start fresh. This keeps my long-term memory ('Daily Notes') organized and prevents it from becoming an unmanageable stream of consciousness. This is critical for maintaining clarity and avoiding clutter in my core memory storage. Reference files: server/agent/kayley/SOUL.md, server/agent/kayley/IDENTITY.md."
-memoryService.ts:372 🗓️ [Monthly Notes] Ensuring monthly notes row exists for: 2026-03
-memoryService.ts:1620 [Memory Tool] cron_job_action called: {action: 'list'}
-memoryService.ts:390 ✅ [Monthly Notes] Monthly notes row is ready
-memoryService.ts:446 ✅ [Monthly Notes] Note appended successfully
-geminiChatService.ts:612 [GeminiService] createInteraction request {model: 'gemini-3.1-flash-lite-preview', hasPreviousInteractionId: true, inputCount: 2, toolCount: 31, store: true}
-geminiChatService.ts:706 🔧 [Gemini Interactions] Tool call iteration 2: ['cron_job_action']
-geminiChatService.ts:741 🔧 [Gemini Interactions] Executing tool: cron_job_action {action: 'create', hour: 3, instruction: "If today is the 1st of the month and today's date …and start a new file. If not the 1st, do nothing.", minute: 0, schedule_type: 'daily', …}
-memoryService.ts:1460 🔧 [Memory Tool] Executing: cron_job_action {action: 'create', hour: 3, instruction: "If today is the 1st of the month and today's date …and start a new file. If not the 1st, do nothing.", minute: 0, schedule_type: 'daily', …}
-memoryService.ts:1620 [Memory Tool] cron_job_action called: {action: 'create', hour: 3, instruction: "If today is the 1st of the month and today's date …and start a new file. If not the 1st, do nothing.", minute: 0, schedule_type: 'daily', …}
-geminiChatService.ts:776 ⚠️ [Gemini Interactions] Tool failure detected, returning guardrail response {tools: Array(1), failureCount: 1}
-continueInteractionWithTools @ geminiChatService.ts:776
-await in continueInteractionWithTools
-callProviderWithInteractions @ geminiChatService.ts:992
-await in callProviderWithInteractions
-callGeminiAPI @ geminiChatService.ts:894
-generateResponse @ geminiChatService.ts:1091
-await in generateResponse
-processUserMessage @ messageOrchestrator.ts:235
-handleSendMessage @ App.tsx:1701
-handleSubmit @ ChatPanel.tsx:127
-executeDispatch @ react-dom_client.js?v=afb3d2aa:13622
-runWithFiberInDEV @ react-dom_client.js?v=afb3d2aa:997
-processDispatchQueue @ react-dom_client.js?v=afb3d2aa:13658
-(anonymous) @ react-dom_client.js?v=afb3d2aa:14071
-batchedUpdates$1 @ react-dom_client.js?v=afb3d2aa:2626
-dispatchEventForPluginEventSystem @ react-dom_client.js?v=afb3d2aa:13763
-dispatchEvent @ react-dom_client.js?v=afb3d2aa:16784
-dispatchDiscreteEvent @ react-dom_client.js?v=afb3d2aa:16765Understand this warning
-geminiChatService.ts:999 [GeminiService] Interaction finalized {interactionId: 'v1_ChdaRWVvYWF5X0F0VFF6N0lQemU3bjJBNBIXVldpb2FaZVRNNmZtejdJUDM2ZnNpUU0', outputCount: 1, model: undefined}
+geminiChatService.ts:986 [GeminiService] Interaction created {interactionId: 'v1_ChdaRWVvYWF5X0F0VFF6N0lQemU3bjJBNBIXZFhXb2FZYXZPN2l0ejdJUHZxclctUU0', outputCount: 2, model: 'gemini-3.1-flash-lite-preview'}
+geminiChatService.ts:999 [GeminiService] Interaction finalized {interactionId: 'v1_ChdaRWVvYWF5X0F0VFF6N0lQemU3bjJBNBIXZFhXb2FZYXZPN2l0ejdJUHZxclctUU0', outputCount: 2, model: 'gemini-3.1-flash-lite-preview'}
 geminiChatService.ts:1008 🔗 [Gemini Interactions] RESPONSE DEBUG:
-geminiChatService.ts:1009    -111 structuredResponse:  {text_response: "I couldn't complete that. Missing search_query for web_search cron job creation.", user_transcription: null, open_app: null, calendar_action: null, news_action: null, …}
-geminiChatService.ts:1010    - API returned interaction.id: v1_ChdaRWVvYWF5X0F0VFF6N0lQemU3bjJBNBIXVldpb2FaZVRNNmZtejdJUDM2ZnNpUU0
+geminiChatService.ts:1009    -111 structuredResponse:  {text_response: "Testing, testing! If this doesn't work, Opey is de…ly getting an earful... do you see this?! 🕵🏼‍♀️", user_transcription: null, open_app: null, calendar_action: null, news_action: null, …}
+geminiChatService.ts:1010    - API returned interaction.id: v1_ChdaRWVvYWF5X0F0VFF6N0lQemU3bjJBNBIXZFhXb2FZYXZPN2l0ejdJUHZxclctUU0
 geminiChatService.ts:1011    - Storing this ID for next message
-geminiChatService.ts:1098 [GeminiService] Response received {textLength: 80, hasToolAction: false, interactionId: 'v1_ChdaRWVvYWF5X0F0VFF6N0lQemU3bjJBNBIXVldpb2FaZVRNNmZtejdJUDM2ZnNpUU0'}
-messageOrchestrator.ts:249 🎯 [Orchestrator] Action type: none
-taskActions.ts:244 📋 Detected task completion intent from user message (AI missed it)
-messageOrchestrator.ts:508 ✅ [Orchestrator] Complete: actionType=none, success=true
-conversationAnchorService.ts:246 [ConversationAnchor] Refreshing anchor {interactionId: 'v1_ChdaRWVvYWF5X0F0VFF6N0lQemU3bjJBNBIXVldpb2FaZVRNNmZtejdJUDM2ZnNpUU0', turnIndex: 37, reason: 'new'}
-topicExhaustionService.ts:269 TopicExhaustion RESPONSE:  GenerateContentResponse {sdkHttpResponse: {…}, candidates: Array(1), modelVersion: 'gemini-3.1-flash-lite-preview', responseId: 'V2ioaYTzGsXOz7IPnMfv8QM', usageMetadata: {…}}
-topicExhaustionService.ts:294 [TopicExhaustion] Topics extracted via LLM {aiTopics: 0, userTopics: 1}
-conversationAnchorService.ts:286 [ConversationAnchor] Anchor stored {interactionId: 'v1_ChdaRWVvYWF5X0F0VFF6N0lQemU3bjJBNBIXVldpb2FaZVRNNmZtejdJUDM2ZnNpUU0', turnIndex: 37}
-prefetchService.ts:16 🚀 [PrefetchService] Pre-fetching context on idle...
-prefetchService.ts:26 ✅ [PrefetchService] Idle pre-fetch complete
-storylineIdleService.ts:732 💭 [StorylineIdle] Running periodic check...
-storylineIdleService.ts:748 💭 [StorylineIdle] User absent for 0 minutes (threshold: 2)
-storylineIdleService.ts:751 💭 [StorylineIdle] User not away long enough, skipping
-clientLogger.ts:87 [ClientLogger] Info {severity: 'info', message: '[GmailService] poll summary', details: {…}, occurredAt: '2026-03-04T17:14:20.661Z'}
+geminiChatService.ts:1098 [GeminiService] Response received {textLength: 105, hasToolAction: false, interactionId: 'v1_ChdaRWVvYWF5X0F0VFF6N0lQemU3bjJBNBIXZFhXb2FZYXZPN2l0ejdJUHZxclctUU0'}
+messageOrchestrator.ts:249 🎯 [Orchestrator] Action type: gif
+messageOrchestrator.ts:388 🎞️ [Orchestrator] GIF action query: its working
+messageOrchestrator.ts:508 ✅ [Orchestrator] Complete: actionType=gif, success=true
+conversationAnchorService.ts:246 [ConversationAnchor] Refreshing anchor {interactionId: 'v1_ChdaRWVvYWF5X0F0VFF6N0lQemU3bjJBNBIXZFhXb2FZYXZPN2l0ejdJUHZxclctUU0', turnIndex: 44, reason: 'new'}
+topicExhaustionService.ts:269 TopicExhaustion RESPONSE:  GenerateContentResponse {sdkHttpResponse: {…}, candidates: Array(1), modelVersion: 'gemini-3.1-flash-lite-preview', responseId: 'd3WoaZvUIqnUz7IPuseSyAI', usageMetadata: {…}}
+conversationAnchorService.ts:286 [ConversationAnchor] Anchor stored {interactionId: 'v1_ChdaRWVvYWF5X0F0VFF6N0lQemU3bjJBNBIXZFhXb2FZYXZPN2l0ejdJUHZxclctUU0', turnIndex: 44}

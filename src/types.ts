@@ -7,6 +7,8 @@ export interface ChatMessage {
   assistantImage?: string; // base64 string for AI-generated images (selfies)
   assistantImageMimeType?: string; // mime type for assistant images
   assistantVideoUrl?: string; // URL for AI-generated videos
+  assistantGifUrl?: string; // URL for AI-triggered GIFs (GIPHY)
+  gifUrl?: string; // URL for user-sent GIFs (GIPHY)
 }
 
 export interface ChatFileMeta {
@@ -39,7 +41,14 @@ export interface PendingFileAttachment {
   truncated: boolean;
 }
 
-export type PendingChatAttachment = PendingImageAttachment | PendingFileAttachment;
+export interface PendingGifAttachment {
+  kind: 'gif';
+  url: string;
+  previewUrl: string;
+  title: string;
+}
+
+export type PendingChatAttachment = PendingImageAttachment | PendingFileAttachment | PendingGifAttachment;
 
 export interface CharacterAction {
   id: string;

@@ -120,6 +120,30 @@ const buildFileAttachmentPayload = (
   return `${header}\n\n<attached_file ${metadata}>\n${attachment.text}\n</attached_file>`;
 };
 
+async function fetchGiphyGifUrl(query: string): Promise<string | null> {
+  const apiKey = import.meta.env.VITE_GIPHY_API_KEY as string | undefined;
+  if (!apiKey) return null;
+  try {
+    const url = new URL('https://api.giphy.com/v1/gifs/search');
+    url.searchParams.set('api_key', apiKey);
+    url.searchParams.set('q', query);
+    url.searchParams.set('limit', '5');
+    url.searchParams.set('rating', 'g');
+    url.searchParams.set('lang', 'en');
+    const res = await fetch(url.toString(), { headers: { Accept: 'application/json' } });
+    if (!res.ok) return null;
+    const payload = await res.json() as { data?: Array<{ images?: Record<string, { url?: string }> }> };
+    const results = payload.data ?? [];
+    for (const gif of results) {
+      const url = gif.images?.['downsized']?.url ?? gif.images?.['fixed_height']?.url ?? gif.images?.['original']?.url;
+      if (url) return url;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 function getWorkspaceActionTarget(run: WorkspaceAgentRun): string {
   const path = run.request?.args?.path;
   if (typeof path === 'string' && path.trim().length > 0) {
@@ -1622,6 +1646,41 @@ const App: React.FC = () => {
       return;
     }
 
+    if (attachment?.kind === 'gif') {
+      const userText = trimmedMessage || '🎞️ [Sent a GIF]';
+      setChatHistory(prev => [
+        ...prev,
+        { role: 'user' as const, text: userText, gifUrl: attachment.url },
+      ]);
+      const messageForAI = trimmedMessage || `[User sent a GIF: "${attachment.title}"]`;
+      try {
+        const result = await processUserMessage({
+          userMessage: userText,
+          userMessageForAI: messageForAI,
+          aiService: activeService,
+          session: aiSession,
+          accessToken: session.accessToken,
+          chatHistory,
+          upcomingEvents,
+          tasks,
+          isMuted,
+          pendingEmail: currentPendingEmail,
+        });
+        if (result.updatedSession) setAiSession(result.updatedSession);
+        if (result.error) setErrorMessage(result.error);
+        const maybePlayResponseAction = (actionId?: string | null) => { if (actionId) playAction(actionId, true); };
+        if (result.chatMessages.length > 0) setChatHistory(prev => [...prev, ...result.chatMessages]);
+        if (result.audioToPlay && !isMuted) media.enqueueAudio(result.audioToPlay);
+        maybePlayResponseAction(result.actionToPlay);
+      } catch (error) {
+        console.error('❌ [App] GIF send failed:', error);
+        setErrorMessage('Failed to send GIF');
+      } finally {
+        setIsProcessingAction(false);
+      }
+      return;
+    }
+
     if (attachment?.kind === 'file') {
       const userText = trimmedMessage || '[Sent a File]';
       const messageForAI = buildFileAttachmentPayload(message, attachment);
@@ -1760,6 +1819,17 @@ const App: React.FC = () => {
         }
         // Gates: Disable Audio
         // if (!isMuted) { const audio = await generateSpeech(selfieMsg); if (audio) media.enqueueAudio(audio); }
+        maybePlayResponseAction(result.actionToPlay);
+        return;
+      }
+
+      // GIF ACTIONS (Fetch from GIPHY and display inline)
+      if (result.gifQuery) {
+        if (result.chatMessages.length > 0) setChatHistory(prev => [...prev, ...result.chatMessages]);
+        if (result.audioToPlay) media.enqueueAudio(result.audioToPlay);
+        const gifUrl = await fetchGiphyGifUrl(result.gifQuery);
+        const gifText = result.gifMessageText || '';
+        setChatHistory(prev => [...prev, { role: 'model', text: gifText, assistantGifUrl: gifUrl ?? undefined }]);
         maybePlayResponseAction(result.actionToPlay);
         return;
       }
