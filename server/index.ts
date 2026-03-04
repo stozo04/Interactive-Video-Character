@@ -19,23 +19,22 @@ runtimeLog.info("Server initialization starting", {
   timestamp: new Date().toISOString(),
 });
 
-// 1) Load environment variables. Priority (highest→lowest): server/.env.local,
-//    server/.env, root .env. dotenv.config skips keys already set, so load
-//    highest-priority first.
+// 1) Load environment variables from one source path strategy:
+//    root .env.local (highest) then root .env (fallback).
+//    dotenv.config skips keys already set, so load highest-priority first.
 const port = DEFAULT_PORT;
-const serverDir = path.resolve(process.cwd(), "server");
+const repoRoot = process.cwd();
 
 runtimeLog.info("Loading environment configuration files", {
   source: "serverIndex",
-  serverDir,
-  priority: "server/.env.local -> server/.env -> root/.env",
+  repoRoot,
+  priority: ".env.local -> .env",
 });
 
 const loadedEnvFiles: string[] = [];
 [
-  path.join(serverDir, ".env.local"),
-  path.join(serverDir, ".env"),
-  path.resolve(process.cwd(), ".env"),
+  path.resolve(repoRoot, ".env.local"),
+  path.resolve(repoRoot, ".env"),
 ].forEach((envPath) => {
   const r = dotenv.config({ path: envPath });
   if (!r.error) {

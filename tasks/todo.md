@@ -857,3 +857,33 @@
 ## Review Notes
 - Requirement: UI shows attachments as a clean bubble, but the send payload inlines the file contents inside `<attached_file name="...">...</attached_file>`.
 - Constraints: 1MB max per file, multiple attachments allowed, accept `.md` extension or `text/markdown` MIME type.
+
+---
+
+## Plan: Google OAuth Env Single Source of Truth (No VITE Client ID)
+
+1) Standardize server env loading paths so both the workspace server and WhatsApp bridge use the same root env strategy:
+- `server/index.ts`
+- `server/envShim.ts`
+2) Standardize Google OAuth server refresh credentials to non-VITE names only:
+- `server/services/googleTokenService.ts`
+3) Remove stale frontend-only type/utility references to `VITE_GOOGLE_CLIENT_ID`:
+- `src/services/googleAuth.ts`
+- `src/types/vite-env.d.ts`
+4) Update env/docs references to prevent future drift:
+- `.env.example`
+- `README.md`
+- `server/README.md`
+5) Verification (if approved):
+- `npm run whatsapp:dev`
+- `npm run dev`
+- `npm test -- --run`
+
+## Progress
+- [x] Plan added to `tasks/todo.md`.
+- [x] Patch implementation (approved).
+- [ ] Verification run (if approved).
+
+## Review Notes
+- Root cause target: prevent OAuth `invalid_client` by eliminating mixed env paths and mixed key naming (`VITE_GOOGLE_CLIENT_ID` vs `GOOGLE_CLIENT_ID`) in server token refresh.
+- This patch keeps one server credential source (`GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET`) and one root env path strategy (`.env.local` -> `.env`).

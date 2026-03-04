@@ -4,7 +4,6 @@ interface ImportMetaEnv {
   readonly VITE_SUPABASE_URL: string; // Not in env
   readonly VITE_SUPABASE_ANON_KEY: string; // Not in env
   readonly VITE_USER_ID: string;
-  readonly VITE_GOOGLE_CLIENT_ID?: string;
   readonly VITE_GROK_API_KEY: string;
   readonly VITE_CHATGPT_API_KEY: string;
   readonly VITE_CHATGPT_VECTOR_ID: string;
