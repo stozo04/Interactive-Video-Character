@@ -34,8 +34,19 @@ Remove blocks of code that have been commented out. These are dead weight.
 // See: https://github.com/...
 ```
 
+**Do NOT remove `// Gates:` or `// GATES:` comments — ever.**
+These are personal notes left by the developer. They are intentional, not dead code.
+```typescript
+// Gates: Disable Audio
+// generateSpeech(message).then(audio => {
+//   if (audio) media.enqueueAudio(audio);
+// });
+```
+Leave these exactly as-is, including any commented-out code beneath them.
+
 The rule: if it looks like it used to be executing code and now it's commented out, remove it.
 If it's explaining *why* something works the way it does, leave it alone.
+If it starts with `// Gates:` or `// GATES:`, leave it alone unconditionally.
 
 ### 2. Remove Unused Imports
 Remove import statements for symbols that are never referenced in the file body.
@@ -166,6 +177,7 @@ future passes — a human needs to act on them first.
 
 ## Hard Constraints — Non-Negotiable
 
+- **Never touch `// Gates:` or `// GATES:` comments.** These are personal developer notes. Leave them and any code beneath them completely alone.
 - **Touch ONLY the files in the batch list.** Zero exceptions.
 - **Do NOT change any logic, algorithms, or observable behavior.**
 - **Do NOT add new features, new functions, or new abstractions.**
