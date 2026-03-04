@@ -4,6 +4,8 @@ import path from "node:path";
 import { toZonedTime, fromZonedTime } from "date-fns-tz";
 import { addDays, addMonths, lastDayOfMonth, set } from "date-fns";
 import { log } from "../runtimeLogger";
+import { runCodeCleanerBatch } from "./codeCleanerHandler";
+import { runTidyBranchCleanup } from "./tidyBranchCleanupHandler";
 
 const LOG_PREFIX = "[CronScheduler]";
 const DEFAULT_TICK_MS = 60_000;
@@ -379,7 +381,15 @@ const JOB_HANDLERS: Record<string, JobHandler> = {
     });
 
     return { summary, metadata: { promiseId }, skipSuccessMessage: true };
-  }
+  },
+
+  "code_cleaner": async (job, client) => {
+    return runCodeCleanerBatch(job, client);
+  },
+
+  "tidy_branch_cleanup": async (job, client) => {
+    return runTidyBranchCleanup(job, client);
+  },
 
   // Future skills (e.g., "bug_finder", "tiktok_scraper") get dropped right here!
 };
