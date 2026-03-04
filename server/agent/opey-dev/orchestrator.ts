@@ -235,7 +235,10 @@ export async function runOpeyLoop(
     //    wrapper works fine because we're not passing the prompt via shell
     //    string interpolation — it travels as an args array element, so there
     //    are no quoting or escaping issues.
-    const claudeBin = process.platform === "win32" ? "claude.cmd" : "claude";
+    // On this machine Claude Code is installed as a standalone .exe (not npm).
+    const claudeBin = process.platform === "win32"
+      ? "C:\\Users\\gates\\AppData\\Roaming\\Claude\\claude-code\\2.1.34\\claude.exe"
+      : "claude";
 
     // 4. Spawn Claude.
     //    stdio: ["ignore", "pipe", "pipe"]
@@ -245,9 +248,6 @@ export async function runOpeyLoop(
     child = spawn(claudeBin, args, {
       cwd: workPath,         // Claude runs inside the repo so its file edits land in the right place.
       stdio: ["ignore", "pipe", "pipe"],
-      // .cmd files require a shell on Windows after Node 18.14+ (CVE-2024-27980).
-      // shell:true defaults to cmd.exe on Windows, which handles .cmd wrappers.
-      ...(process.platform === "win32" ? { shell: true } : {}),
     });
 
     log.info(`${LOG_PREFIX} Claude Code spawned`, {

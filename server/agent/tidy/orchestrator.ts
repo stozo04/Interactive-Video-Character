@@ -42,7 +42,10 @@ export async function runTidyLoop(taskPrompt: string, workPath: string): Promise
 
     const bootArg = `Your complete task instructions are in this file — read it before doing anything: ${promptFile}. Execute the cleaning pass described in that file.`;
 
-    const claudeBin = process.platform === "win32" ? "claude.cmd" : "claude";
+    // On this machine Claude Code is installed as a standalone .exe (not npm).
+    const claudeBin = process.platform === "win32"
+      ? "C:\\Users\\gates\\AppData\\Roaming\\Claude\\claude-code\\2.1.34\\claude.exe"
+      : "claude";
     const args = [
       "-p",
       "--permission-mode", "acceptEdits",
@@ -55,9 +58,6 @@ export async function runTidyLoop(taskPrompt: string, workPath: string): Promise
     child = spawn(claudeBin, args, {
       cwd: workPath,
       stdio: ["ignore", "pipe", "pipe"],
-      // .cmd files require a shell on Windows after Node 18.14+ (CVE-2024-27980).
-      // shell:true defaults to cmd.exe on Windows, which handles .cmd wrappers.
-      ...(process.platform === "win32" ? { shell: true } : {}),
     });
 
     log.info(`${LOG_PREFIX} Claude spawned`, {
