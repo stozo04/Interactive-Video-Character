@@ -499,6 +499,33 @@ async function sendAndTrack(
         messageId: sent.key.id,
       });
     }
+
+    // Mark the chat as unread so the phone shows a notification badge.
+    // WhatsApp suppresses push notifications for self-messages from linked
+    // devices; marking unread is the best workaround within a single account.
+    if (sent?.key) {
+      try {
+        await sock.chatModify(
+          {
+            markRead: false,
+            lastMessages: [{ key: sent.key, messageTimestamp: sent.messageTimestamp ?? 0 }],
+          },
+          jid
+        );
+        runtimeLog.info("Chat marked as unread for notification badge", {
+          source: "whatsappHandler",
+          jid,
+          messageId: sent.key.id,
+        });
+      } catch (markErr) {
+        // Non-fatal — notification badge is best-effort
+        runtimeLog.warning("Failed to mark chat as unread", {
+          source: "whatsappHandler",
+          jid,
+          error: markErr instanceof Error ? markErr.message : String(markErr),
+        });
+      }
+    }
   } catch (err) {
     runtimeLog.error("Failed to send message to WhatsApp", {
       source: "whatsappHandler",
