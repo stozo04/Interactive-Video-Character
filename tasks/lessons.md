@@ -56,3 +56,8 @@
 - When Opey implementation completes with read/search-only actions and patch checkpoint finds no meaningful code changes, use a bounded automatic rework loop with explicit patch-checkpoint feedback (attempt count + ignored artifact paths + write requirement) instead of repeatedly stalling in `implementing`.
 - If the workflow conceptually has a `patch` phase, make it explicit in orchestration (diff/status checkpoint + gating) instead of inferring success from an implementation turn alone.
 - State-machine transitions being allowed is not enough; each lifecycle stage that should auto-progress (for example `qa_approved -> pr_preparing`) also needs an actual trigger path (`processNextStep` and/or a watcher) or it will stall silently.
+
+### 2026-03-04 - Honor explicit autonomy updates immediately
+- Pattern: I paused for approval even after the user explicitly granted full autonomy and asked me to proceed.
+- Prevention Rule:
+- When the user grants autonomy or removes approval gates, update `AGENTS.md` accordingly and proceed without additional approval requests.

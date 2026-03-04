@@ -6,6 +6,32 @@
 
 ---
 
+## Plan: Daily Checklist Task Render Fix + Autonomy Update
+
+1) Ensure task creation updates UI even if the insert returns no row data:
+- `src/hooks/useTasks.ts`
+2) Add regression test coverage for the fallback refresh path:
+- `src/hooks/__tests__/useTasks.test.ts`
+3) Update autonomy/workflow instructions and capture lessons:
+- `AGENTS.md`
+- `tasks/lessons.md`
+- `server/agent/opey-dev/lessons_learned/2026-03-04_Fix_Task_Rendering.md`
+4) Verification (do not run without approval):
+- `npm test -- --run src/hooks/__tests__/useTasks.test.ts`
+- `npm run build`
+
+## Progress
+- [x] Plan added to `tasks/todo.md`.
+- [x] Read-only inspection completed (`src/hooks/useTasks.ts`, `src/components/TaskPanel.tsx`, `src/services/taskService.ts`, `src/hooks/__tests__/useTasks.test.ts`, `AGENTS.md`, `tasks/lessons.md`).
+- [x] Patch implementation.
+- [ ] Verification run (not executed).
+
+## Review Notes
+- Goal: new tasks should appear immediately even if Supabase insert returns no row data due to RLS or select restrictions.
+- Implemented a refresh fallback on null create responses and added a regression test to guard the behavior.
+
+---
+
 ## Plan: Multi-Agent API Routes (Workspace Agent Server)
 
 1) Add multi-agent HTTP routes with CORS + JSON parsing:

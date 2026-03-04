@@ -156,10 +156,12 @@ export function useTasks(options: UseTasksOptions = {}): UseTasksResult {
         ];
         onCelebrate(message);
       }
-    } else {
-      console.log('❌ [useTasks] Failed to create task');
+      return;
     }
-  }, [onCelebrate]);
+
+    console.log('⚠️ [useTasks] Task create returned no data; refreshing task list.');
+    await refreshTasks();
+  }, [onCelebrate, refreshTasks]);
 
   /**
    * Toggle task completion status

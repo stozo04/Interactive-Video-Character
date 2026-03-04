@@ -160,6 +160,16 @@ describe('useTasks', () => {
 
       expect(onCelebrate).not.toHaveBeenCalled();
     });
+
+    it('should refresh tasks when createTask returns null', async () => {
+      vi.mocked(taskService.createTask).mockResolvedValue(null);
+      vi.mocked(taskService.fetchTasks).mockResolvedValue([mockTask]);
+
+      const hook = useTasks();
+      await hook.handleTaskCreate('Test task');
+
+      expect(taskService.fetchTasks).toHaveBeenCalledOnce();
+    });
   });
 
   describe('handleTaskToggle', () => {
