@@ -40,8 +40,7 @@ export async function runTidyLoop(taskPrompt: string, workPath: string): Promise
     promptFile = path.join(os.tmpdir(), `tidy-${Date.now()}.md`);
     fs.writeFileSync(promptFile, fullPrompt, "utf-8");
 
-    const bootArg =
-      `Your complete task instructions are in this file — read it before doing anything:\n${promptFile}\n\nExecute the cleaning pass described in that file.`;
+    const bootArg = `Your complete task instructions are in this file — read it before doing anything: ${promptFile}. Execute the cleaning pass described in that file.`;
 
     const claudeBin = process.platform === "win32" ? "claude.cmd" : "claude";
     const args = [
