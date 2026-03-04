@@ -47,6 +47,7 @@ const KAYLEY_LESSONS_LEARNED_TABLE = 'kayley_lessons_learned';
 const MILA_MILESTONE_NOTES_TABLE = 'mila_milestone_notes';
 
 const lessonsLogger = clientLogger.scoped('LessonsLearned');
+const workspaceLogger = clientLogger.scoped('WorkspaceAction');
 
 // Default limits to prevent context overflow
 const DEFAULT_MEMORY_LIMIT = 5;
@@ -1295,7 +1296,16 @@ export const executeMemoryTool = async (
       case 'workspace_action': {
         const { requestWorkspaceAction } = await import('./projectAgentService');
         const actionArgs = args as ToolCallArgs['workspace_action'];
-        console.log('[Memory Tool] workspace_action called:', actionArgs);
+        const contentLength =
+          typeof actionArgs.content === 'string' ? actionArgs.content.length : 0;
+        workspaceLogger.info('workspace_action requested', {
+          action: actionArgs.action,
+          path: actionArgs.path,
+          query: actionArgs.query,
+          rootPath: actionArgs.rootPath,
+          append: actionArgs.append,
+          contentLength,
+        });
         const { action, ...rawArgs } = actionArgs;
         const filteredArgs = Object.fromEntries(
           Object.entries(rawArgs).filter(([, value]) => value !== undefined),
@@ -1310,6 +1320,10 @@ export const executeMemoryTool = async (
         });
 
         if (!result.run) {
+          workspaceLogger.error('workspace_action failed: no run returned', {
+            action,
+            error: result.error || null,
+          });
           return `Workspace action failed: ${
             result.error || 'No run details returned from workspace agent.'
           }`;
@@ -1319,9 +1333,28 @@ export const executeMemoryTool = async (
         const stepSummary = run.steps
           .map((step) => `${step.stepId}:${step.type}:${step.status}`)
           .join(', ');
+        const evidenceText = (() => {
+          const evidenceLines = (run.steps || [])
+            .flatMap((step) => step.evidence || [])
+            .filter((line) => typeof line === "string" && line.trim().length > 0);
+          if (evidenceLines.length === 0) return "";
+          const combined = evidenceLines.join("\n");
+          const maxChars = 4000;
+          if (combined.length <= maxChars) return combined;
+          return `${combined.slice(0, maxChars)}\n\n[Evidence truncated after ${maxChars} chars]`;
+        })();
+        const evidenceSuffix = evidenceText ? `\n\nEvidence:\n${evidenceText}` : "";
+
+        workspaceLogger.info('workspace_action result', {
+          action,
+          runId: run.id,
+          status: run.status,
+          summary: run.summary,
+          stepCount: run.steps?.length ?? 0,
+        });
 
         if (run.status === 'success') {
-          return `Workspace action success (${run.id}): ${run.summary}. Steps: ${stepSummary}`;
+          return `Workspace action success (${run.id}): ${run.summary}. Steps: ${stepSummary}${evidenceSuffix}`;
         }
 
         if (
@@ -1341,10 +1374,10 @@ export const executeMemoryTool = async (
         }
 
         if (run.status === 'verification_failed') {
-          return `Workspace action verification failed (${run.id}): ${run.summary}. Steps: ${stepSummary}`;
+          return `Workspace action verification failed (${run.id}): ${run.summary}. Steps: ${stepSummary}${evidenceSuffix}`;
         }
 
-        return `Workspace action failed (${run.id}): ${run.summary}. Steps: ${stepSummary}`;
+        return `Workspace action failed (${run.id}): ${run.summary}. Steps: ${stepSummary}${evidenceSuffix}`;
       }
       case 'cron_job_action': {
         const {

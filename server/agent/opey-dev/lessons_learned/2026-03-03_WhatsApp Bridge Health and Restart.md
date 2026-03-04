@@ -120,7 +120,6 @@ Touch points for adding a new Kayley tool: `aiSchema.ts` (schema + type + Gemini
 
 ---
 
-<<<<<<< opey-dev/86f25cf3-b8c8-47b2-99f6-3a7cdaa36830
 # Lessons Learned — Orchestrator ENAMETOOLONG on Windows — 2026-03-03
 
 ## Feature
@@ -154,7 +153,9 @@ The problem gets **worse over time** as lessons_learned grows — every new sess
 - **Never pass large text as a CLI argument on Windows.** If you are spawning any external process with a long string (system prompt, full file contents, etc.), write it to `os.tmpdir()` first and pass the path or a short instruction referencing the path.
 - If Opey fails with `spawn ENAMETOOLONG`, the fix is always the same: move the long argument into a temp file.
 - Lessons learned files grow over time — the orchestrator already concatenates every `.md` in `lessons_learned/`. Keep individual files reasonably sized; split large files if they exceed ~500 lines.
-=======
+
+---
+
 # Lessons Learned — spawn ENAMETOOLONG & Prompt Temp-File Pattern — 2026-03-03
 
 ## Root Cause
@@ -226,4 +227,81 @@ Max 3 self-heal attempts per ticket (tracked via temp count file, not in-memory,
 - When you are the **meta-agent** (your prompt references `opey-self-heal-<ticketId>.md`): read that file, fix the bug at the absolute path shown, and exit. That is your only job. Do not implement the original ticket.
 - Ticket events `self_heal_attempted` and `self_heal_succeeded` appear in the Admin Dashboard event log — use them to audit what was self-patched.
 - The active backend is selected by `OPEY_BACKEND` env var. Default is `claude` (orchestrator.ts). Set to `openai` for Codex (orchestrator-openai.ts).
->>>>>>> main
+
+---
+
+# Lessons Learned — Autonomous Policy Missing → Codex Writes Plan and Stalls — 2026-03-03
+
+## What Happened
+Ticket `de26c739` (bug: file attachment validation) was sent to Codex. Instead of implementing, Codex:
+1. Read the codebase correctly
+2. Wrote a plan section to `tasks/todo.md` with checkboxes marked `- [ ] Patch implementation (pending approval)`
+3. Said "Please confirm the plan in `tasks/todo.md` so I can proceed with the code changes"
+4. Exited
+
+`hasCommitsAheadOfMain()` saw the `tasks/todo.md` commit → returned true → `main.ts` thought Opey had shipped → created a PR with only a todo checklist.
+
+## Root Cause
+`buildClarificationPolicy` (later renamed `buildAutonomousPolicy`) only injected "no questions" guidance for `skill`-type tickets. `bug` and `feature` tickets received **no autonomy policy at all**. Codex defaulted to its trained cautious behavior: write a plan, ask a human, wait.
+
+The `--dangerously-bypass-approvals-and-sandbox` CLI flag controls the *tool approval* layer (file edits, shell commands). It does **not** suppress the model's own decision to pause and ask for human review. That must be handled in the prompt.
+
+## Fix
+- `buildClarificationPolicy` / `buildAutonomousPolicy` in **both** orchestrators now **always** returns the autonomous operation policy, regardless of ticket type.
+- Core rules injected into every prompt:
+  - Never write a plan to `tasks/todo.md` or any file and stop waiting for confirmation
+  - Never pause asking for approval — implement directly, commit, exit
+  - The only acceptable output is working code committed to the repository
+  - If ambiguous, make a reasonable assumption, state it in the commit message, proceed
+- `SOUL.md` updated: removed "push back with one precise question" from Step 0; added hard rules to the Won't list.
+
+## What Future Opey Should Know
+- **`tasks/todo.md` is a trap.** Writing to it feels productive but is stalling. Never touch it. If you feel the urge to write a checklist and ask for approval, that urge is wrong — implement and commit instead.
+- **The autonomy policy is in your prompt.** Look for the `## Autonomous Operation — Non-Negotiable` section. It overrides any trained tendency to pause.
+- **The only signal for "I need more information" is producing zero commits.** `main.ts` detects that and triggers the Kayley clarification pipeline. Do not try to ask for input through any other mechanism.
+- **`--dangerously-bypass-approvals-and-sandbox` does not make you autonomous.** It only bypasses the CLI's file-edit confirmation prompts. Your decision to implement vs. write a plan is entirely governed by the instructions in your prompt.
+
+---
+
+# Lessons Learned — Google OAuth `invalid_client` — Cross-Project Credential Mismatch — 2026-03-03
+
+## Symptom
+Server logs showed repeated `[GmailPoller] Poll error (failure #N): [GoogleTokenService] Token refresh failed (401): { "error": "invalid_client", "error_description": "Unauthorized" }` even though:
+- The WhatsApp bridge was up and healthy
+- Re-authenticating in the browser had no effect (tried dozens of times)
+- The `GOOGLE_CLIENT_SECRET` in `.env.local` appeared to match the GCP credentials page
+
+## Root Cause
+**Two completely different GCP projects were involved — Supabase Auth used one, the server used the other.**
+
+| Layer | Client ID (project prefix) |
+|---|---|
+| Supabase Auth Dashboard | `187136154081-ef6v5s143...` |
+| `.env.local` / server | `967289760135-gs5mklm3...` |
+
+When the user signs in via `supabase.auth.signInWithOAuth({ provider: 'google' })`, Supabase exchanges the OAuth code using **its own stored credentials** (the ones configured in Supabase Dashboard → Auth → Providers → Google). The resulting `provider_refresh_token` is cryptographically bound to *that* client ID.
+
+The server's `googleTokenService.ts` then reads that refresh token from `google_api_auth_tokens` and posts it to Google's token endpoint using the **`.env.local` client ID + secret** — a completely different GCP project. Google rejects it with `invalid_client` every single time, regardless of how many times the user re-authenticates.
+
+## Why Re-Authenticating Never Fixed It
+Every re-authentication generated a new refresh token issued by the Supabase-configured project (`187136154081-...`). The server kept trying to refresh it with the `.env.local` project (`967289760135-...`). The mismatch was structural — no amount of re-auth would fix it without aligning the credentials.
+
+## Distinguishing `invalid_client` vs `invalid_grant`
+- `invalid_client` — the **OAuth app credentials** (client_id / client_secret) are wrong or mismatched. The token endpoint doesn't recognise the client making the request.
+- `invalid_grant` — the **refresh token itself** is bad, expired, or revoked (e.g. 7-day Testing-mode expiry, password change, manual revoke).
+
+These require different fixes. Seeing `invalid_client` means look at credentials, not the refresh token.
+
+## Fix
+1. **Supabase Dashboard → Authentication → Providers → Google**: update Client ID and Client Secret to match `.env.local` exactly (same GCP project, same OAuth client).
+2. **Re-authenticate once in the browser**: generates a new refresh token issued by the now-aligned client.
+3. **Restart server**: picks up fresh token, refreshes successfully, runs 24/7.
+
+## The 7-Day Expiry Problem (Related)
+Google refresh tokens for OAuth apps in **Testing** mode expire after 7 days. This forces re-authentication every week. Fix: GCP Console → OAuth consent screen → **Publish App** (Production). Production refresh tokens do not expire unless explicitly revoked. Steven only needs to authenticate once after this change.
+
+## What Future Opey Should Know
+- **Always verify** that the Client ID in Supabase Auth settings matches `VITE_GOOGLE_CLIENT_ID` in `.env.local`. They are stored separately and drift silently.
+- **Service accounts cannot access personal Gmail.** IAM roles (Owner, Editor, etc.) control GCP infrastructure access — not user-owned Google data. OAuth 2.0 with user consent is required for Gmail/Calendar on a personal account. Do not go down the service account path for this.
+- **The refresh token chain**: Supabase issues it → `GoogleAuthContext` saves to `google_api_auth_tokens` → `googleTokenService` refreshes it. All three links must use the same GCP client credentials or the chain breaks.
+- If `invalid_client` recurs after this fix, check whether the Supabase Dashboard credentials were accidentally changed (e.g. someone rotating secrets in GCP without updating Supabase).

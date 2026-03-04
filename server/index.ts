@@ -3,6 +3,7 @@ import path from "node:path";
 import dotenv from "dotenv";
 import { routeAnthropicRequest } from "./routes/anthropicRoutes";
 import { createMultiAgentRouter } from "./routes/multiAgentRoutes";
+import { createWorkspaceAgentRouter } from "./routes/workspaceAgentRoutes";
 import { startOpeyDev } from "./agent/opey-dev/main";
 import { startCronScheduler } from "./scheduler/cronScheduler";
 import { log } from "./runtimeLogger";
@@ -132,6 +133,19 @@ runtimeLog.info("Multi-agent router created", {
   source: "serverIndex",
 });
 
+runtimeLog.info("Creating workspace agent router", {
+  source: "serverIndex",
+});
+
+const routeWorkspaceAgentRequest = createWorkspaceAgentRouter({
+  workspaceRoot,
+});
+
+runtimeLog.info("Workspace agent router created", {
+  source: "serverIndex",
+  workspaceRoot,
+});
+
 // 5) Background services.
 // Cron scheduler: handles scheduled "Kayley" digests and promise reminders.
 const cronTickMs = Number(process.env.CRON_TICK_MS || 60_000);
@@ -195,6 +209,23 @@ const server = createServer(async (req, res) => {
     const handledAnthropic = await routeAnthropicRequest(req, res);
     if (handledAnthropic) {
       runtimeLog.info("Request handled by Anthropic router", {
+        source: "serverIndex",
+        requestId,
+        statusCode: res.statusCode,
+      });
+      return;
+    }
+
+    // b) Workspace agent routes (file ops).
+    runtimeLog.info("Attempting to route through workspace agent handler", {
+      source: "serverIndex",
+      requestId,
+      url: req.url,
+    });
+
+    const handledWorkspaceAgent = await routeWorkspaceAgentRequest(req, res);
+    if (handledWorkspaceAgent) {
+      runtimeLog.info("Request handled by workspace agent router", {
         source: "serverIndex",
         requestId,
         statusCode: res.statusCode,

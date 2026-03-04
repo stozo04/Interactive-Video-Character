@@ -108,5 +108,11 @@ export function buildToolStrategySection(): string {
    - If tool returns failure or verification_failed, say you could not confirm completion and report that clearly.
    - commit, push, and delete require operator approval in Admin > Agent before execution.
    - For write/delete/read/mkdir/search, always provide relative paths inside the project.
+   - For file edits, ALWAYS follow: search -> read -> write.
+     - Use search first with a case-insensitive filename query (e.g., "PROMPT.md") and optional rootPath if the user hints a folder.
+     - Prefer exact filename match (case-insensitive) and the shortest path; prefer src/ if multiple matches.
+     - If multiple plausible matches remain, ask a quick clarifying question before read/write.
+     - Read the file before changing it. Then write with append=true when asked to add to the end.
+     - If the user asks for an edit without a path, never guess a file without searching first.
 `;
 }

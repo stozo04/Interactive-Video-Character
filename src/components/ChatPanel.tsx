@@ -1,10 +1,13 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { ChatMessage, UploadedImage } from '../types';
+import { ChatMessage, PendingChatAttachment } from '../types';
 import LoadingSpinner from './LoadingSpinner';
 import TypingIndicator from './TypingIndicator';
 import TweetCard, { extractTweetUrls } from './TweetCard';
 import {
+  DEFAULT_MAX_FILE_BYTES,
+  DEFAULT_MAX_FILE_CHARS,
   DEFAULT_MAX_IMAGE_BYTES,
+  buildFileAttachment,
   buildImageAttachment,
   getFirstImageFileFromClipboard,
   type ClipboardItemLike,
@@ -12,11 +15,20 @@ import {
 
 interface ChatPanelProps {
   history: ChatMessage[];
-  onSendMessage: (message: string, image?: { base64: string; mimeType: string }) => void;
+  onSendMessage: (message: string, attachment?: PendingChatAttachment) => void;
   onOpenWhiteboard?: () => void;
   onUserActivity?: () => void;
   isSending: boolean;
 }
+
+const formatBytes = (bytes: number): string => {
+  if (!Number.isFinite(bytes)) return '0 B';
+  if (bytes < 1024) return `${bytes} B`;
+  const kb = bytes / 1024;
+  if (kb < 1024) return `${kb.toFixed(1)} KB`;
+  const mb = kb / 1024;
+  return `${mb.toFixed(1)} MB`;
+};
 
 const ChatPanel: React.FC<ChatPanelProps> = ({ 
   history, 
@@ -28,7 +40,7 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
   const [input, setInput] = useState('');
   const [isListening, setIsListening] = useState(false);
   const [isEmojiOpen, setIsEmojiOpen] = useState(false);
-  const [pendingImage, setPendingImage] = useState<UploadedImage | null>(null);
+  const [pendingAttachment, setPendingAttachment] = useState<PendingChatAttachment | null>(null);
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -111,30 +123,46 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     const trimmed = input.trim();
-    if ((!trimmed && !pendingImage) || isSending) return;
-    onSendMessage(trimmed, pendingImage ? { base64: pendingImage.base64, mimeType: pendingImage.mimeType } : undefined);
+    if ((!trimmed && !pendingAttachment) || isSending) return;
+    onSendMessage(trimmed, pendingAttachment || undefined);
     setInput('');
-    setPendingImage(null);
+    setPendingAttachment(null);
     setAttachmentError(null);
   };
 
-  const handleImageFile = async (file: File) => {
+  const handleAttachmentFile = async (file: File) => {
     try {
-      const image = await buildImageAttachment(file, { maxBytes: DEFAULT_MAX_IMAGE_BYTES });
-      setPendingImage(image);
+      if (file.type?.startsWith('image/')) {
+        const image = await buildImageAttachment(file, { maxBytes: DEFAULT_MAX_IMAGE_BYTES });
+        setPendingAttachment({
+          kind: 'image',
+          base64: image.base64,
+          mimeType: image.mimeType,
+          fileName: file.name,
+          size: file.size,
+        });
+        setAttachmentError(null);
+        return;
+      }
+
+      const attachment = await buildFileAttachment(file, {
+        maxBytes: DEFAULT_MAX_FILE_BYTES,
+        maxChars: DEFAULT_MAX_FILE_CHARS,
+      });
+      setPendingAttachment(attachment);
       setAttachmentError(null);
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Failed to attach image.';
+      const message = error instanceof Error ? error.message : 'Failed to attach file.';
       setAttachmentError(message);
     }
   };
 
-  const handleImageSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleAttachmentSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     onUserActivity?.();
     const file = e.target.files?.[0];
     if (!file) return;
 
-    void handleImageFile(file);
+    void handleAttachmentFile(file);
     e.target.value = '';
   };
 
@@ -144,7 +172,7 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
     const items = Array.from(e.clipboardData?.items ?? []) as ClipboardItemLike[];
     const file = getFirstImageFileFromClipboard(items);
     if (!file) return;
-    void handleImageFile(file);
+    void handleAttachmentFile(file);
   };
 
   // --- Microphone Logic ---
@@ -179,7 +207,7 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
   };
 
   const isMicSupported = !!recognitionRef.current || hasRecognition;
-  const canSend = (!!input.trim() || !!pendingImage) && !isSending && !isListening;
+  const canSend = (!!input.trim() || !!pendingAttachment) && !isSending && !isListening;
   const micLabel = isListening ? "Click to Send" : "Click to Speak";
   const emojiOptions = ['😀','😁','😊','😉','😍','🤔','😅','😭','☹️','😴','🤗','😬','🔥','✨','🎉','💪','👍','👎','🙏','❤️'];
 
@@ -192,16 +220,24 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
   return (
     <div className="bg-gray-800/70 h-full flex flex-col rounded-lg p-4 border border-gray-700 shadow-lg">
       <div className="flex-1 min-h-0 overflow-y-auto pr-2 space-y-4 mb-4" style={{ scrollbarWidth: 'thin', scrollbarColor: '#4B5563 #1F2937' }}>
-        {history.map((msg, index) => (
-          <div key={index} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-            <div className={`max-w-xs md:max-w-md lg:max-w-sm xl:max-w-md px-4 py-2 rounded-2xl ${msg.role === 'user' ? 'bg-indigo-600 text-white rounded-br-none' : 'bg-gray-700 text-gray-200 rounded-bl-none'}`}>
-              {/* User-sent images */}
-              {msg.image && (
+      {history.map((msg, index) => (
+        <div key={index} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+          <div className={`max-w-xs md:max-w-md lg:max-w-sm xl:max-w-md px-4 py-2 rounded-2xl ${msg.role === 'user' ? 'bg-indigo-600 text-white rounded-br-none' : 'bg-gray-700 text-gray-200 rounded-bl-none'}`}>
+            {/* User-sent images */}
+            {msg.image && (
                  <img 
                    src={`data:${msg.imageMimeType || 'image/jpeg'};base64,${msg.image}`} 
                    alt="Uploaded content" 
                    className="max-w-full rounded-lg mb-2 border border-white/20"
                  />
+              )}
+              {msg.fileAttachment && (
+                <div className="mb-2 rounded-lg border border-white/20 bg-white/10 px-3 py-2 text-xs">
+                  <div className="font-semibold">{msg.fileAttachment.name}</div>
+                  <div className="text-white/70">
+                    {msg.fileAttachment.mimeType} · {formatBytes(msg.fileAttachment.size)}
+                  </div>
+                </div>
               )}
               {/* AI-generated selfie images */}
               {msg.assistantImage && (
@@ -248,21 +284,36 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
         {isSending && <TypingIndicator />}
         <div ref={messagesEndRef} />
       </div>
-      {pendingImage && (
+      {pendingAttachment && (
         <div className="mb-3 flex items-center gap-3 rounded-lg border border-gray-700 bg-gray-800/70 p-2">
-          <img
-            src={`data:${pendingImage.mimeType};base64,${pendingImage.base64}`}
-            alt="Pending attachment"
-            className="h-14 w-14 rounded-md object-cover border border-white/10"
-          />
+          {pendingAttachment.kind === 'image' ? (
+            <img
+              src={`data:${pendingAttachment.mimeType};base64,${pendingAttachment.base64}`}
+              alt="Pending attachment"
+              className="h-14 w-14 rounded-md object-cover border border-white/10"
+            />
+          ) : (
+            <div className="flex h-14 w-14 items-center justify-center rounded-md border border-white/10 bg-gray-700 text-xs font-semibold text-gray-200">
+              FILE
+            </div>
+          )}
           <div className="flex-1 text-xs text-gray-300">
-            <div className="font-semibold">Image attached</div>
-            <div className="text-gray-400">{pendingImage.mimeType}</div>
+            <div className="font-semibold">
+              {pendingAttachment.kind === 'image' ? 'Image attached' : 'File attached'}
+            </div>
+            <div className="text-gray-400">
+              {pendingAttachment.kind === 'image'
+                ? pendingAttachment.mimeType
+                : `${pendingAttachment.fileName} · ${pendingAttachment.mimeType}`}
+            </div>
+            <div className="text-gray-500">
+              {formatBytes(pendingAttachment.size)}
+            </div>
           </div>
           <button
             type="button"
             onClick={() => {
-              setPendingImage(null);
+              setPendingAttachment(null);
               setAttachmentError(null);
             }}
             className="text-xs text-red-300 hover:text-red-200"
@@ -279,17 +330,17 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
         <>
           <input 
             type="file" 
-            accept="image/*" 
+            accept="image/*,.md,.txt,.pdf,.ts,.tsx,.js,.jsx,.json,.cs,.py,.java,.rb,.go,.rs,.yaml,.yml,.toml,.csv,.log,.ini,.cfg,.xml,.sql,.html,.css" 
             className="hidden" 
             ref={fileInputRef}
-            onChange={handleImageSelect}
+            onChange={handleAttachmentSelect}
           />
           <button
             type="button"
             onClick={() => fileInputRef.current?.click()}
             disabled={isSending}
             className="p-3 rounded-full text-gray-400 hover:text-white hover:bg-gray-700 transition-colors disabled:opacity-50"
-            title="Attach Image"
+            title="Attach File"
           >
             <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
@@ -327,10 +378,10 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
             if (e.key === 'Enter' && !e.shiftKey) {
               e.preventDefault();
               const trimmed = input.trim();
-              if ((!trimmed && !pendingImage) || isSending) return;
-              onSendMessage(trimmed, pendingImage ? { base64: pendingImage.base64, mimeType: pendingImage.mimeType } : undefined);
+              if ((!trimmed && !pendingAttachment) || isSending) return;
+              onSendMessage(trimmed, pendingAttachment || undefined);
               setInput('');
-              setPendingImage(null);
+              setPendingAttachment(null);
               setAttachmentError(null);
             }
             // Shift+Enter allows default behavior (new line)
