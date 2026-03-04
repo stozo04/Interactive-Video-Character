@@ -17,7 +17,6 @@ const __dirname = path.dirname(__filename);
 
 const LOG_PREFIX = "[Tidy]";
 const CLAUDE_MODEL = "claude-sonnet-4-6";
-const SHELL_OPTS = process.platform === "win32" ? { shell: "bash" as const } : {};
 
 function loadSoul(): string {
   return fs.readFileSync(path.join(__dirname, "SOUL.md"), "utf-8");
@@ -57,7 +56,6 @@ export async function runTidyLoop(taskPrompt: string, workPath: string): Promise
     child = spawn(claudeBin, args, {
       cwd: workPath,
       stdio: ["ignore", "pipe", "pipe"],
-      ...(process.platform === "win32" ? SHELL_OPTS : {}),
     });
 
     log.info(`${LOG_PREFIX} Claude spawned`, {
