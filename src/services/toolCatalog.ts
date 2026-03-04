@@ -111,12 +111,15 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
     tool_key: "workspace_action",
     name: "Workspace Agent",
     description:
-      "Run local project operations via the workspace agent (files + git with policy checks).",
+      "Run local project operations via the workspace agent (files + git with policy checks). Use search -> read -> write for file edits.",
     user_value:
       "Lets Kayley manage project files and git workflows with verification and approval gates.",
     permissions_needed: ["local_workspace_agent"],
-    triggers: ["create folder", "read file", "write file", "git status", "commit", "push", "search"],
-    sample_prompts: ["Create a folder called docs/notes."],
+    triggers: ["create folder", "read file", "write file", "edit file", "append", "git status", "commit", "push", "search"],
+    sample_prompts: [
+      "Create a folder called docs/notes.",
+      "Read PROMPT.md and add Hello World.",
+    ],
   },
   {
     tool_key: "recall_memory",

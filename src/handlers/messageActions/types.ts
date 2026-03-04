@@ -75,6 +75,9 @@ export interface OrchestratorInput {
   /** The user's message text */
   userMessage: string;
 
+  /** Optional user message text for AI (e.g., includes attachment contents). */
+  userMessageForAI?: string;
+
   /** Optional rich user content (image + text, audio, etc.) */
   userContent?: UserContent;
 

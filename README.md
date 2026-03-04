@@ -92,6 +92,7 @@
    ```
 
    Edit `.env.local` with your API keys (see [Environment Variables](#environment-variables) below).
+   Keep `.env` only as optional shared defaults.
 
 4. **Apply database migrations**
 
@@ -172,7 +173,8 @@ ai-interactive-chat/
 | `VITE_GROK_API_KEY` | xAI Grok API key | Optional* |
 | `NEXT_PUBLIC_SUPABASE_URL` | Supabase project URL | Yes |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Supabase anon key | Yes |
-| `VITE_GOOGLE_CLIENT_ID` | Google OAuth client ID | Yes |
+| `GOOGLE_CLIENT_ID` | Google OAuth client ID used by server token refresh | Yes |
+| `GOOGLE_CLIENT_SECRET` | Google OAuth client secret used by server token refresh | Yes |
 | `VITE_USER_ID` | Your user identifier | Yes |
 
 \* At least one AI provider must be configured

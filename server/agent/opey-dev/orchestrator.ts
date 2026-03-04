@@ -120,7 +120,7 @@ function buildTicketPrompt(ticket: any, workPath: string): string {
   });
   const skillBlock = formatSkillContext(skillContext);
 
-  // Only inject the clarification policy section if needed.
+  // Always injected — Opey is fully autonomous on every ticket type.
   const clarificationPolicy = buildClarificationPolicy(normalized);
 
   // Build the prompt by joining non-empty sections with blank lines between them.
@@ -422,34 +422,35 @@ function normalizeTicket(ticket: any): {
 }
 
 /**
- * Decides whether to append a "do not ask questions" policy to the prompt.
+ * Always appended to every prompt regardless of ticket type.
  *
- * Claude defaults to asking clarifying questions when requirements are
- * ambiguous. For certain ticket types (like "skill" tasks, which are
- * pre-defined templates) or when the ticket explicitly says not to ask,
- * we want Claude to just make reasonable assumptions and ship something.
- *
- * Returns a formatted markdown section string if the policy applies,
- * or null if Claude should use its default (questions allowed) behaviour.
+ * Without this, Claude defaults to its trained "cautious" behavior:
+ * writing a plan to tasks/todo.md and stopping to ask for human
+ * approval before touching any source files. That is the opposite
+ * of what we want — Opey runs fully autonomously.
  */
 function buildClarificationPolicy(normalized: {
   type?: string;
   details?: string;
-}): string | null {
+}): string {
   const type = (normalized.type || "").toLowerCase();
   const details = normalized.details || "";
 
-  // "skill" tickets are pre-defined tasks — no ambiguity, no questions needed.
-  // Otherwise, check if the details text explicitly forbids questions.
   const noQuestions =
     type === "skill" || NO_QUESTION_MARKERS.some((pattern) => pattern.test(details));
 
-  if (!noQuestions) return null;
+  const lines = [
+    "## Autonomous Operation — Non-Negotiable",
+    "- You are fully autonomous. No human is present to approve plans, confirm checklists, or grant permission.",
+    "- NEVER write a plan to `tasks/todo.md` or any other planning file and then stop to wait for confirmation.",
+    "- NEVER pause mid-task asking for approval. Implement the code changes directly, commit, and exit.",
+    "- The only acceptable output from this session is working code committed to the repository.",
+    "- If requirements are ambiguous, make a reasonable assumption, state it in the commit message, and proceed.",
+  ];
 
-  return [
-    "## Clarification Policy",
-    "- Do not ask questions.",
-    "- If any requirement is ambiguous, make reasonable assumptions and proceed.",
-    "- Prefer shipping a best-effort implementation over requesting clarification.",
-  ].join("\n");
+  if (noQuestions) {
+    lines.push("- Do not ask clarifying questions at all — make your best assumptions and ship.");
+  }
+
+  return lines.join("\n");
 }

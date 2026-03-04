@@ -1,4 +1,5 @@
 // src/services/gmailService.ts
+import { clientLogger } from './clientLogger';
 
 // Full email payload — includes body + threadId for reply/archive actions
 export interface NewEmailPayload {
@@ -28,6 +29,7 @@ const IGNORED_LABELS = [
  */
 class GmailService extends EventTarget {
   private apiBase = "https://www.googleapis.com/gmail/v1/users/me";
+  private log = clientLogger.scoped('GmailService');
 
   /**
    * Fetches the user's *current* mailbox state.
@@ -96,7 +98,11 @@ class GmailService extends EventTarget {
 
     const historyData = await historyResponse.json();
 
-    console.log(`[GmailService] Poll: historyId=${lastHistoryId} → newHistoryId=${historyData.historyId ?? 'none'} | historyRecords=${historyData.history?.length ?? 0}`);
+    this.log.info('poll summary', {
+      historyId: lastHistoryId,
+      newHistoryId: historyData.historyId ?? 'none',
+      historyRecords: historyData.history?.length ?? 0,
+    });
 
     // 2. If there's new history, find the "messages added" events
     if (historyData.history) {
@@ -119,12 +125,18 @@ class GmailService extends EventTarget {
           // Drop promotional/social/updates/forums categories
           const dropped = labels.some((label: string) => IGNORED_LABELS.includes(label));
           if (dropped) {
-            console.log(`[GmailService] Filtered out message ${item.message.id} — labels: ${labels.join(', ')}`);
+            this.log.info('filtered message', {
+              messageId: item.message.id,
+              labels,
+            });
           }
           return !dropped;
         });
 
-      console.log(`[GmailService] messagesAdded=${allAdded.length} | passed filter=${newMessages.length}`);
+      this.log.info('message filter summary', {
+        messagesAdded: allAdded.length,
+        passedFilter: newMessages.length,
+      });
 
       if (newMessages.length > 0) {
         // 3. Get the headers for just these new messages
@@ -133,10 +145,7 @@ class GmailService extends EventTarget {
         // (Optional) Double check: The history object usually has the labels,
         // but if you want 100% accuracy, you could filter again inside
         // fetchMessageHeaders, though this is usually overkill.
-        const emailPayloads = await this.fetchMessageHeaders(
-          accessToken,
-          messageIds
-        );
+        const emailPayloads = await this.fetchMessageHeaders(accessToken, messageIds);
 
         // 4. Fire an event for App.tsx to listen to!
         this.dispatchEvent(
@@ -188,6 +197,8 @@ class GmailService extends EventTarget {
     const text = await batchResponse.text();
     const parts = text.split(/--batch_.*/);
     const payloads: NewEmailPayload[] = [];
+    let skippedParts = 0;
+    let parsedParts = 0;
 
     for (const part of parts) {
       if (part.includes("Content-Type: application/json")) {
@@ -196,11 +207,33 @@ class GmailService extends EventTarget {
         const jsonEnd = part.lastIndexOf("}");
         if (jsonStart !== -1 && jsonEnd !== -1) {
           const jsonBody = part.substring(jsonStart, jsonEnd + 1);
-          const data = JSON.parse(jsonBody);
+          let data: any = null;
+          try {
+            data = JSON.parse(jsonBody);
+          } catch (error) {
+            skippedParts += 1;
+            this.log.warning('batch part JSON parse failed', {
+              error: error instanceof Error ? error.message : String(error),
+            });
+            continue;
+          }
 
           // Helper to find a specific header value
+          const headers = Array.isArray(data?.payload?.headers)
+            ? data.payload.headers
+            : null;
+
+          if (!headers) {
+            skippedParts += 1;
+            this.log.warning('batch part missing headers', {
+              messageId: data?.id ?? null,
+              hasPayload: !!data?.payload,
+            });
+            continue;
+          }
+
           const getHeader = (name: string) =>
-            data.payload.headers.find((h: any) => h.name === name)?.value || "";
+            headers.find((h: any) => h.name === name)?.value || "";
 
           payloads.push({
             id: data.id,
@@ -211,9 +244,16 @@ class GmailService extends EventTarget {
             snippet: data.snippet || '',  // default to '' — never undefined
             body: '',                     // populated separately by fetchMessageBody()
           });
+          parsedParts += 1;
         }
       }
     }
+
+    this.log.info('batch headers parsed', {
+      requestedIds: messageIds.length,
+      parsedParts,
+      skippedParts,
+    });
     return payloads;
   }
 

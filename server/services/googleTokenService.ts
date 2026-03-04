@@ -7,8 +7,8 @@
 // triggered on demand (e.g. by a WhatsApp message), no browser required.
 //
 // Required env vars (server-side only, never exposed to browser):
-//   VITE_GOOGLE_CLIENT_ID  — available via envShim from .env.local
-//   GOOGLE_CLIENT_SECRET   — add to .env.local
+//   GOOGLE_CLIENT_ID
+//   GOOGLE_CLIENT_SECRET
 
 import { supabaseAdmin as supabase } from './supabaseAdmin';
 import { log } from '../runtimeLogger';
@@ -34,13 +34,12 @@ const REFRESH_BUFFER_MS = 5 * 60 * 1000;
  * refresh call fails (revoked access).
  */
 export async function getValidGoogleToken(): Promise<string> {
-  // Read credentials at call-time, not module-init — the env shim may not be
-  // fully hydrated when this module first loads (server startup race condition).
-  const CLIENT_ID     = (globalThis as any).__importMetaEnv?.VITE_GOOGLE_CLIENT_ID as string | undefined;
+  // Read credentials at call-time, not module-init.
+  const CLIENT_ID     = process.env.GOOGLE_CLIENT_ID;
   const CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
 
   if (!CLIENT_ID) {
-    throw new Error(`${LOG_PREFIX} VITE_GOOGLE_CLIENT_ID not configured`);
+    throw new Error(`${LOG_PREFIX} GOOGLE_CLIENT_ID not configured — add it to .env.local`);
   }
   if (!CLIENT_SECRET) {
     throw new Error(`${LOG_PREFIX} GOOGLE_CLIENT_SECRET not configured — add it to .env.local`);
@@ -112,6 +111,10 @@ export async function getValidGoogleToken(): Promise<string> {
       status: response.status,
       body: errText.substring(0, 200),
     });
+
+    if (errText.includes('invalid_client')) {
+      throw new Error('GOOGLE_CLIENT_CREDENTIALS_INVALID');
+    }
 
     // Detect expired/revoked refresh token specifically — caller can send WA notification
     if (errText.includes('invalid_grant')) {

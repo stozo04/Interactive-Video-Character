@@ -12,7 +12,6 @@ const USERINFO_PROFILE_SCOPE = "https://www.googleapis.com/auth/userinfo.profile
 
 // Combine all scopes into one array for Supabase
 export const SCOPES_ARRAY = [GMAIL_SCOPE, CALENDAR_SCOPE, USERINFO_EMAIL_SCOPE, USERINFO_PROFILE_SCOPE];
-const SCOPES = SCOPES_ARRAY.join(' ');
 
 // Buffer time before token expiry to refresh (10 minutes)
 const TOKEN_REFRESH_BUFFER_MS = 10 * 60 * 1000;
@@ -43,72 +42,6 @@ const SESSION_KEY = "gmail_session";
 const CONNECTED_KEY = "google_connected";
 import { supabase } from './supabaseClient';
 export { supabase };
-
-// Global token client instance for refresh - still kept for potential UI needs
-let tokenClientInstance: any = null;
-
-// Helper to load the Google GIS script
-let gisScriptLoaded: Promise<void> | null = null;
-
-/**
- * Loads the Google Identity Services script
- */
-function loadGisScript(): Promise<void> {
-  if (!gisScriptLoaded) {
-    gisScriptLoaded = new Promise((resolve, reject) => {
-      // Check if script is already loaded
-      if (typeof google !== 'undefined' && google.accounts?.oauth2) {
-        resolve();
-        return;
-      }
-
-      const script = document.createElement("script");
-      script.src = "https://accounts.google.com/gsi/client";
-      script.async = true;
-      script.defer = true;
-      script.onload = () => {
-        console.log('Google Identity Services script loaded');
-        resolve();
-      };
-      script.onerror = () => {
-        const error = new Error("Failed to load Google Identity Services script. Check your internet connection.");
-        console.error(error);
-        reject(error);
-      };
-      document.head.appendChild(script);
-    });
-  }
-  return gisScriptLoaded;
-}
-
-/**
- * Validates that Google Client ID is configured
- */
-function validateClientId(): string {
-  const clientId = import.meta.env.VITE_GOOGLE_CLIENT_ID;
-  if (!clientId) {
-    throw new Error(
-      "Google Client ID is not configured. Please set VITE_GOOGLE_CLIENT_ID in your environment variables."
-    );
-  }
-  return clientId;
-}
-
-/**
- * Gets or creates the token client
- */
-function getTokenClient(): any {
-  if (!tokenClientInstance) {
-    const clientId = validateClientId();
-    tokenClientInstance = google.accounts.oauth2.initTokenClient({
-      client_id: clientId,
-      scope: SCOPES,
-      callback: () => {}, // Will be overridden per request
-      error_callback: () => {}, // Will be overridden per request
-    });
-  }
-  return tokenClientInstance;
-}
 
 /**
  * Gets a fresh access token from Google.

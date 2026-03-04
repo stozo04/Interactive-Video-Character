@@ -3,9 +3,16 @@ export interface ChatMessage {
   text: string;
   image?: string; // base64 string for user-sent images
   imageMimeType?: string; // mime type for user-sent images
+  fileAttachment?: ChatFileMeta; // metadata for user-sent files
   assistantImage?: string; // base64 string for AI-generated images (selfies)
   assistantImageMimeType?: string; // mime type for assistant images
   assistantVideoUrl?: string; // URL for AI-generated videos
+}
+
+export interface ChatFileMeta {
+  name: string;
+  mimeType: string;
+  size: number;
 }
 
 export interface UploadedImage {
@@ -13,6 +20,26 @@ export interface UploadedImage {
   base64: string;
   mimeType: string;
 }
+
+export interface PendingImageAttachment {
+  kind: 'image';
+  base64: string;
+  mimeType: string;
+  fileName: string;
+  size: number;
+}
+
+export interface PendingFileAttachment {
+  kind: 'file';
+  fileName: string;
+  mimeType: string;
+  size: number;
+  extension: string;
+  text: string;
+  truncated: boolean;
+}
+
+export type PendingChatAttachment = PendingImageAttachment | PendingFileAttachment;
 
 export interface CharacterAction {
   id: string;

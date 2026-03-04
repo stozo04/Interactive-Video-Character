@@ -138,6 +138,7 @@ export function formatEventsForContext(events: CalendarEvent[]): string {
 export async function processUserMessage(input: OrchestratorInput): Promise<OrchestratorResult> {
   const {
     userMessage,
+    userMessageForAI,
     userContent,
     aiService,
     session,
@@ -186,11 +187,12 @@ export async function processUserMessage(input: OrchestratorInput): Promise<Orch
     console.log(`⚡ [Orchestrator] Calling AI service...`);
 
     // Build message with calendar context if needed
-    let textToSend = userMessage;
+    const baseTextForAI = userMessageForAI ?? userMessage;
+    let textToSend = baseTextForAI;
     if (calendarContext && calendarQueryType === CalendarQueryType.WRITE) {
-      textToSend = `${userMessage}\n\n[LIVE USER CALENDAR DATA (STEVEN) - ${upcomingEvents.length} EVENTS:\n${calendarContext}]\n\n⚠️ DELETE REMINDER: Use calendar_action with exact event_id from above.`;
+      textToSend = `${baseTextForAI}\n\n[LIVE USER CALENDAR DATA (STEVEN) - ${upcomingEvents.length} EVENTS:\n${calendarContext}]\n\n⚠️ DELETE REMINDER: Use calendar_action with exact event_id from above.`;
     } else if (calendarContext) {
-      textToSend = `${userMessage}\n\n[LIVE USER CALENDAR DATA (STEVEN) - ${upcomingEvents.length} EVENTS:\n${calendarContext}]`;
+      textToSend = `${baseTextForAI}\n\n[LIVE USER CALENDAR DATA (STEVEN) - ${upcomingEvents.length} EVENTS:\n${calendarContext}]`;
     }
 
     // Append pending email context if Kayley is waiting on a decision

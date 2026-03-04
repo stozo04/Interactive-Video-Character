@@ -9,7 +9,7 @@ This folder hosts the Workspace Agent server that powers multi-agent workflows a
 ## What It Does
 
 - Starts the Workspace Agent HTTP server (default port `4010`).
-- Loads environment variables from `server/.env.local`, `server/.env`, and root `.env` (highest to lowest priority).
+- Loads environment variables from root `.env.local` and root `.env` (highest to lowest priority).
 - Starts background services:
   - Opey dev ticket polling loop (reads `engineering_tickets`).
   - Cron scheduler for scheduled digests and reminders.

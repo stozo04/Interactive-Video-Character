@@ -4,7 +4,7 @@
  * Loaded via `tsx --import ./server/envShim.ts` BEFORE the main entry point.
  *
  * Two-part strategy:
- * 1. Load .env.local/.env into process.env, then build globalThis.__importMetaEnv
+ * 1. Load root .env.local/.env into process.env, then build globalThis.__importMetaEnv
  * 2. Register a Node.js loader hook (envLoader.mjs) that rewrites
  *    `import.meta.env` → `globalThis.__importMetaEnv` in source code
  *
@@ -16,9 +16,13 @@ import { resolve } from "path";
 import { pathToFileURL } from "url";
 import { register } from "node:module";
 
-// 1. Load env files (.env.local takes priority, .env as fallback)
-config({ path: resolve(process.cwd(), ".env.local") });
-config({ path: resolve(process.cwd(), ".env") });
+// 1. Load env files from repo root (.env.local takes priority, .env as fallback)
+for (const envPath of [
+  resolve(process.cwd(), ".env.local"),
+  resolve(process.cwd(), ".env"),
+]) {
+  config({ path: envPath });
+}
 
 // 2. Build the env object from all VITE_* process.env vars
 const env: Record<string, string> = {};

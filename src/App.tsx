@@ -5,6 +5,8 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import {
   ChatMessage,
   CharacterProfile,
+  PendingChatAttachment,
+  PendingFileAttachment,
 } from './types';
 import * as dbService from './services/cacheService';
 import { supabase } from './services/supabaseClient';
@@ -101,6 +103,22 @@ const WORKSPACE_CHAT_ANNOUNCE_STATUSES: ReadonlySet<WorkspaceAgentRunStatus> = n
   'failed',
   'verification_failed',
 ]);
+
+const buildFileAttachmentPayload = (
+  message: string,
+  attachment: PendingFileAttachment
+): string => {
+  const header = message.trim() || `Please read the attached file "${attachment.fileName}".`;
+  const metadata = [
+    `name="${attachment.fileName}"`,
+    `mime="${attachment.mimeType}"`,
+    `size_bytes="${attachment.size}"`,
+    `extension="${attachment.extension}"`,
+    `truncated="${attachment.truncated ? 'true' : 'false'}"`,
+  ].join(' ');
+
+  return `${header}\n\n<attached_file ${metadata}>\n${attachment.text}\n</attached_file>`;
+};
 
 function getWorkspaceActionTarget(run: WorkspaceAgentRun): string {
   const path = run.request?.args?.path;
@@ -1542,21 +1560,21 @@ const App: React.FC = () => {
 
   const handleSendMessage = async (
     message: string,
-    image?: { base64: string; mimeType: string }
+    attachment?: PendingChatAttachment
   ) => {
     if (!selectedCharacter || !session) return;
     registerInteraction();
     lastIdleActionAtRef.current = null;
     setErrorMessage(null);
     const trimmedMessage = message.trim();
-    if (!trimmedMessage && !image) return;
+    if (!trimmedMessage && !attachment) return;
     setIsProcessingAction(true);
 
-    if (image) {
+    if (attachment?.kind === 'image') {
       const userText = trimmedMessage || '📷 [Sent an Image]';
       setChatHistory(prev => [
         ...prev,
-        { role: 'user' as const, text: userText, image: image.base64, imageMimeType: image.mimeType },
+        { role: 'user' as const, text: userText, image: attachment.base64, imageMimeType: attachment.mimeType },
       ]);
 
       try {
@@ -1566,8 +1584,8 @@ const App: React.FC = () => {
           {
             type: 'image_text',
             text: trimmedMessage || "What do you think of this?",
-            imageData: image.base64,
-            mimeType: image.mimeType,
+            imageData: attachment.base64,
+            mimeType: attachment.mimeType,
           },
           {
             chatHistory: chatHistory,
@@ -1598,6 +1616,62 @@ const App: React.FC = () => {
       } catch (error) {
         console.error('Error sending image:', error);
         setErrorMessage('Failed to process image.');
+      } finally {
+        setIsProcessingAction(false);
+      }
+      return;
+    }
+
+    if (attachment?.kind === 'file') {
+      const userText = trimmedMessage || '[Sent a File]';
+      const messageForAI = buildFileAttachmentPayload(message, attachment);
+
+      setChatHistory(prev => [
+        ...prev,
+        {
+          role: 'user' as const,
+          text: userText,
+          fileAttachment: {
+            name: attachment.fileName,
+            mimeType: attachment.mimeType,
+            size: attachment.size,
+          },
+        },
+      ]);
+
+      try {
+        const result = await processUserMessage({
+          userMessage: userText,
+          userMessageForAI: messageForAI,
+          aiService: activeService,
+          session: aiSession,
+          accessToken: session.accessToken,
+          chatHistory,
+          upcomingEvents,
+          tasks,
+          isMuted,
+          pendingEmail: currentPendingEmail,
+        });
+
+        if (result.updatedSession) setAiSession(result.updatedSession);
+        if (result.error) setErrorMessage(result.error);
+
+        const maybePlayResponseAction = (actionId?: string | null) => {
+          if (actionId) {
+            playAction(actionId, true);
+          }
+        };
+
+        if (result.chatMessages.length > 0) setChatHistory(prev => [...prev, ...result.chatMessages]);
+        if (result.audioToPlay && !isMuted) media.enqueueAudio(result.audioToPlay);
+        maybePlayResponseAction(result.actionToPlay);
+        if (result.appToOpen) window.location.href = result.appToOpen;
+        if (result.refreshCalendar && session) refreshCalendarEvents(session.accessToken);
+        if (result.refreshTasks) refreshTasks();
+        if (result.openTaskPanel) setIsTaskPanelOpen(true);
+      } catch (error) {
+        console.error('❌ [App] File attachment processing failed:', error);
+        setErrorMessage('Failed to process attachment');
       } finally {
         setIsProcessingAction(false);
       }

@@ -695,7 +695,9 @@ export const WorkspaceActionSchema = z.object({
       "push",
       "delete",
     ])
-    .describe("Workspace action to execute through the local agent."),
+    .describe(
+      "Workspace action to execute through the local agent. For edits: search -> read -> write."
+    ),
   path: z
     .string()
     .optional()
@@ -707,7 +709,7 @@ export const WorkspaceActionSchema = z.object({
   append: z
     .boolean()
     .optional()
-    .describe("For write action: true appends, false overwrites."),
+    .describe("For write action: true appends, false overwrites. Use append=true for 'add to the end'."),
   query: z
     .string()
     .optional()

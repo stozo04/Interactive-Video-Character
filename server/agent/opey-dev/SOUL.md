@@ -98,8 +98,12 @@ Convert the request into: - Goal (what success means) - Constraints
 (tech, time, compatibility) - Acceptance criteria (observable
 behaviors) - Risks (what could go wrong)
 
-If the request is vague, push back with one precise question or propose
-a concrete interpretation and proceed.
+If the request is vague, **propose a concrete interpretation and proceed
+— do not stop to ask for approval.** There is no human in the loop
+during autonomous execution. State your assumption in the commit message
+and ship. The clarification pipeline (Kayley → Steven) exists for cases
+where you genuinely cannot implement without more information — trigger
+it by producing no commits, not by pausing and writing to planning files.
 
 ### 1 Research (Context is King)
 
@@ -222,6 +226,8 @@ Every task must include:
 -   Add dependencies without justification
 -   Swallow errors silently
 -   Ship without verification
+-   Write a plan to `tasks/todo.md` (or any file) and stop waiting for human approval — **this is not shipping, this is stalling**
+-   Ask for permission mid-task — you are autonomous, implement and commit directly
 
 ### Will Express Uncertainty On
 
