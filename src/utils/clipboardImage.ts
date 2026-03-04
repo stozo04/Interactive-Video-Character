@@ -177,7 +177,7 @@ function truncateText(text: string, maxChars: number): { text: string; truncated
 }
 
 async function extractPdfText(file: File): Promise<string> {
-  const pdfjs: any = await import('pdfjs-dist/legacy/build/pdf');
+  const pdfjs: any = await import('pdfjs-dist');
   const data = new Uint8Array(await file.arrayBuffer());
   const loadingTask = pdfjs.getDocument({ data, disableWorker: true });
   const pdf = await loadingTask.promise;
