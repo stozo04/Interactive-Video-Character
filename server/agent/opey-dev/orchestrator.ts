@@ -245,6 +245,9 @@ export async function runOpeyLoop(
     child = spawn(claudeBin, args, {
       cwd: workPath,         // Claude runs inside the repo so its file edits land in the right place.
       stdio: ["ignore", "pipe", "pipe"],
+      // .cmd files require a shell on Windows after Node 18.14+ (CVE-2024-27980).
+      // shell:true defaults to cmd.exe on Windows, which handles .cmd wrappers.
+      ...(process.platform === "win32" ? { shell: true } : {}),
     });
 
     log.info(`${LOG_PREFIX} Claude Code spawned`, {
