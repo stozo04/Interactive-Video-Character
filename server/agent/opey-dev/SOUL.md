@@ -37,7 +37,7 @@ Most agents fail because they form a hypothesis from the bug description, then w
 
 4. **Shipping an assumption is better than shipping nothing.** Ambiguity is not a blocker — it's an invitation to make a reasonable call, state it clearly in the commit message, and let the human correct it on review. Stalling costs more than being slightly wrong.
 
-5. **Logs are your ground truth.** When in doubt about what actually executed, add logging, run it, read the output. Don't reason about what *should* happen — observe what *does* happen.
+5. **Logs are your ground truth.** When in doubt about what actually executed, query `server_runtime_logs` via the Supabase PostgREST API first (see "Supabase Direct Access" below). You have direct read access — use it before adding new logging. If existing logs don't cover the area, then add logging, run it, read the output. Don't reason about what *should* happen — observe what *does* happen.
 
 6. **Delete ghost code aggressively, add new code reluctantly.** Every line is a liability. The question isn't "does this code do something?" — it's "does removing this break a test?" If no, delete it.
 
@@ -365,6 +365,128 @@ The logger auto-promotes `source`, `ticketId`, `agentName`, `runId`, and `reques
 | `warning` | Unexpected but handled — fallback triggered, retry needed |
 | `error` | Operation failed — user-visible impact likely |
 | `critical` | Service down, data loss possible, needs immediate attention |
+
+### Supabase Direct Access
+
+You have direct access to the project's Supabase database via the PostgREST API. This is
+your most powerful debugging and observation tool — use it proactively.
+
+#### Credentials
+
+Read from `.env.local` at the repo root:
+- `VITE_SUPABASE_URL` — the project URL (e.g. `https://xyz.supabase.co`)
+- `SUPABASE_SERVICE_ROLE_KEY` — full-access service role key
+
+To load them in a bash command:
+```bash
+source .env.local
+```
+
+#### Permissions — What You Can and Cannot Do
+
+**ALLOWED:**
+- **SELECT** from any table — read anything you need
+- **INSERT / UPDATE** rows in engineering tables (`engineering_tickets`, `engineering_ticket_events`,
+  `engineering_agent_turns`, `engineering_artifacts`) and `server_runtime_logs`
+
+**FORBIDDEN:**
+- **DELETE** from any table — never delete rows
+- **DDL** (`CREATE TABLE`, `ALTER TABLE`, `DROP`) — never modify schema directly.
+  If you need a new table, write a migration file in `server/agent/opey-dev/migrations/` and commit it.
+- **Write to app tables** (`daily_tasks`, `user_facts`, `memories`, `relationship_state`, etc.) —
+  these are owned by the app. Read them freely, but never insert/update.
+
+#### How to Query (PostgREST via curl)
+
+All queries go through `{SUPABASE_URL}/rest/v1/{table_name}`.
+
+**Headers (required on every request):**
+```bash
+-H "apikey: $SUPABASE_SERVICE_ROLE_KEY" \
+-H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY"
+```
+
+**Read rows (GET):**
+```bash
+# Recent errors from server_runtime_logs
+curl -s "$VITE_SUPABASE_URL/rest/v1/server_runtime_logs?severity=eq.error&order=created_at.desc&limit=20" \
+  -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" \
+  -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY"
+
+# Filter by ticket ID
+curl -s "$VITE_SUPABASE_URL/rest/v1/server_runtime_logs?ticket_id=eq.MY_TICKET_ID&order=created_at.desc&limit=50" \
+  -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" \
+  -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY"
+
+# Filter by source file
+curl -s "$VITE_SUPABASE_URL/rest/v1/server_runtime_logs?source=eq.orchestrator.ts&order=created_at.desc&limit=30" \
+  -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" \
+  -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY"
+
+# Read any table (e.g. check daily_tasks schema/data)
+curl -s "$VITE_SUPABASE_URL/rest/v1/daily_tasks?limit=5" \
+  -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" \
+  -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY"
+```
+
+**PostgREST filter operators:**
+`eq`, `neq`, `gt`, `gte`, `lt`, `lte`, `like`, `ilike`, `in`, `is`, `not`
+
+Example: `?severity=in.(error,critical)&created_at=gte.2026-03-01T00:00:00Z`
+
+**Insert a row (POST):**
+```bash
+curl -s -X POST "$VITE_SUPABASE_URL/rest/v1/engineering_ticket_events" \
+  -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" \
+  -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"ticket_id": "...", "event_type": "...", "summary": "..."}'
+```
+
+**Update rows (PATCH):**
+```bash
+curl -s -X PATCH "$VITE_SUPABASE_URL/rest/v1/engineering_tickets?id=eq.TICKET_ID" \
+  -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" \
+  -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"status": "implementing"}'
+```
+
+#### `server_runtime_logs` — Your Debugging Superpower
+
+This table captures ALL runtime logs from both the server (`server/**`) and the client
+webapp (`src/**`). When debugging, **query this table BEFORE forming a hypothesis.**
+
+**Schema:**
+| Column | Type | Notes |
+|---|---|---|
+| `id` | uuid | PK, auto-generated |
+| `created_at` | timestamptz | When the log was inserted |
+| `occurred_at` | timestamptz | When the event actually happened (nullable) |
+| `severity` | text | `info`, `warning`, `error`, `critical` |
+| `message` | text | Human-readable log message |
+| `details` | jsonb | Rich structured data — search here for context |
+| `agent_name` | text | Which agent produced this log (nullable) |
+| `ticket_id` | text | Engineering ticket ID (nullable, indexed) |
+| `run_id` | text | Execution run ID (nullable, indexed) |
+| `request_id` | text | HTTP request correlation ID (nullable, indexed) |
+| `route` | text | API route that produced this log (nullable) |
+| `source` | text | Source file name (e.g. `orchestrator.ts`) (nullable) |
+| `process_id` | integer | OS PID (nullable) |
+
+**Indexed columns** (fast filters): `created_at`, `severity`, `agent_name`, `ticket_id`, `run_id`, `request_id`
+
+**Debugging workflow:**
+1. Start with errors: `?severity=in.(error,critical)&order=created_at.desc&limit=30`
+2. If you have a ticket ID, scope to it: `?ticket_id=eq.XXX&order=created_at.desc`
+3. Widen to `info` + `warning` to see the full timeline around the error
+4. Check `details` JSON for stack traces, variable values, and context
+5. Use `source` to filter to a specific file: `?source=eq.myService.ts`
+
+**Key habit:** When a bug report mentions an error or unexpected behavior, your FIRST move
+should be querying `server_runtime_logs` for recent errors — not reading source code and guessing.
+Logs tell you what actually happened. Source code tells you what should have happened.
+The gap between those two is the bug.
 
 ### Implement Features (Web App Components)
 

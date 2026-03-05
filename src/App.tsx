@@ -58,8 +58,6 @@ import { processStorylineOnStartup } from './services/storylineService';
 import { startStorylineIdleService, stopStorylineIdleService } from './services/storylineIdleService';
 import { isQuestionMessage } from './utils/textUtils';
 import { shuffleArray } from './utils/arrayUtils';
-import { getAccessToken } from './services/googleAuth';
-import { hasBeenBriefedToday, markBriefedToday } from './services/dailyCatchupService';
 import { StorageKey } from './utils/enums';
 import { registerXAuthTestHelper } from './services/xAuthTestHelper';
 import { handleXAuthCallback, refreshRecentTweetMetrics } from './services/xTwitterService';
@@ -1326,69 +1324,12 @@ const App: React.FC = () => {
       
         // 1. Check if any conversation occurred today (DB source of truth)
         const messageCount = await conversationHistoryService.getTodaysMessageCount();
-        const googleAccessToken = await getAccessToken()
-        // Start with fresh session
+
+        // Start with fresh session (no auto-greeting or background AI calls).
         const session: AIChatSession = { model: activeService.model };
-        const handleStartupSelfie = async (
-          selfieAction: { scene?: string; mood?: string; outfit?: string } | null | undefined,
-          baseHistory: ChatMessage[]
-        ) => {
-          if (!selfieAction?.scene) return;
 
-          const selfieResult = await processSelfieAction(selfieAction, {
-            userMessage: "pending message delivery",
-            chatHistory: baseHistory,
-            upcomingEvents,
-          });
-
-          if (selfieResult.success && selfieResult.imageBase64) {
-            setChatHistory(prev => {
-              if (prev.length === 0) return prev;
-              const updated = [...prev];
-              const lastIndex = updated.length - 1;
-              const lastMessage = updated[lastIndex];
-
-              if (lastMessage.role === 'model' && !lastMessage.assistantImage) {
-                updated[lastIndex] = {
-                  ...lastMessage,
-                  assistantImage: selfieResult.imageBase64,
-                  assistantImageMimeType: selfieResult.mimeType || 'image/png',
-                };
-              } else {
-                updated.push({
-                  role: 'model',
-                  text: '',
-                  assistantImage: selfieResult.imageBase64,
-                  assistantImageMimeType: selfieResult.mimeType || 'image/png',
-                });
-              }
-
-              return updated;
-            });
-          } else if (selfieResult.error) {
-            clientLogger.error(`${LOG_PREFIX} Selfie generation failed on startup`, { source: 'App.tsx', error: selfieResult.error });
-          }
-        };
-        
-
-        if (!hasBeenBriefedToday()) {
-          clientLogger.info(`${LOG_PREFIX} First login today - generating greeting with daily logistics`, { source: 'App.tsx' });
-          const { greeting, session: updatedSession } = await activeService.generateGreeting(googleAccessToken.accessToken);
-          setAiSession(updatedSession);
-          // Important: set localStorage so we do not need to query database
-          markBriefedToday();
-          const initialHistory = [{ role: 'model' as const, text: greeting.text_response }];
-          
-          setChatHistory(initialHistory);
-          await handleStartupSelfie(greeting.selfie_action, initialHistory);
-          await conversationHistoryService.appendConversationHistory(
-            [{ role: 'model', text: greeting.text_response }],
-            updatedSession.interactionId
-          );
-
-        } else {
-          // CONVERSATION OCCURRED TODAY: Reload all exchanges and generate informal "welcome back"
-          clientLogger.info(`${LOG_PREFIX} Chat detected today (${messageCount} messages) - reloading history and generating non-greeting`, { source: 'App.tsx' });
+        if (messageCount > 0) {
+          clientLogger.info(`${LOG_PREFIX} Chat detected today (${messageCount} messages) - reloading history only`, { source: 'App.tsx' });
           const existingInteractionId = await conversationHistoryService.getTodaysInteractionId();
           if (existingInteractionId) {
             clientLogger.info(`${LOG_PREFIX} Restoring today's interaction ID: ${existingInteractionId}`, { source: 'App.tsx' });
@@ -1397,22 +1338,11 @@ const App: React.FC = () => {
 
           const todayHistory = await conversationHistoryService.loadTodaysConversationHistory();
           setChatHistory(todayHistory);
-
-          const { greeting: backMessage, session: updatedSession } = await activeService.generateNonGreeting(session, googleAccessToken.accessToken);
-          setAiSession(updatedSession);
-
-          // Append the "welcome back" message to the restored history
-          const updatedHistory = [...todayHistory, { role: 'model' as const, text: backMessage.text_response }];
-          setChatHistory(updatedHistory);
-          await handleStartupSelfie(backMessage.selfie_action, updatedHistory);
-
-          // Save the interaction record
-          await conversationHistoryService.appendConversationHistory(
-            [{ role: 'model', text: backMessage.text_response }],
-            updatedSession.interactionId || session.interactionId // Restore interactionId here
-          );
-
+        } else {
+          setChatHistory([]);
         }
+
+        setAiSession(session);
 
         // Reset the last saved index since we're starting fresh
         setLastSavedMessageIndex(-1);
