@@ -30,6 +30,19 @@ export interface ScopedLogger {
 }
 
 // ============================================================
+// Request-scoped logger — returned by clientLogger.withRequestId()
+// Writes request_id, route, and source columns directly.
+// ============================================================
+export interface RequestScopedLogger {
+  log(
+    severity: LogSeverity,
+    message: string,
+    route: string,
+    details?: Record<string, unknown>,
+  ): void;
+}
+
+// ============================================================
 // ClientLogger class
 // ============================================================
 class ClientLogger {
@@ -73,6 +86,20 @@ class ClientLogger {
     };
   }
 
+  /**
+   * Returns a logger that auto-injects request_id, route, and source
+   * into every Supabase write. Used by GeminiService to correlate all
+   * log entries from a single conversation.
+   */
+  withRequestId(requestId: string, source: string = 'gemini_service'): RequestScopedLogger {
+    return {
+      log: (severity, message, route, details) => {
+        this.emitLocal(severity, message, details);
+        void this.writeWithContext(severity, message, { request_id: requestId, route, source }, details);
+      },
+    };
+  }
+
   // ---- Internals -------------------------------------------------
 
   private emitLocal(severity: LogSeverity, message: string, details?: Record<string, unknown>): void {
@@ -88,6 +115,32 @@ class ClientLogger {
       case 'warning':  console.warn(`${LOG_PREFIX} Warning`, payload); break;
       case 'error':    console.error(`${LOG_PREFIX} Error`, payload); break;
       case 'critical': console.error(`${LOG_PREFIX} Critical`, payload); break;
+    }
+  }
+
+  private async writeWithContext(
+    severity: LogSeverity,
+    message: string,
+    context: { request_id: string; route: string; source: string },
+    details?: Record<string, unknown>,
+  ): Promise<void> {
+    try {
+      const { error } = await supabase.from(TABLE_NAME).insert({
+        severity,
+        message,
+        details:     details ?? {},
+        source:      context.source,
+        request_id:  context.request_id,
+        route:       context.route,
+        process_id:  null,
+        occurred_at: new Date().toISOString(),
+      });
+
+      if (error) {
+        console.warn(`${LOG_PREFIX} Failed to write log to Supabase`, { message: error.message });
+      }
+    } catch (err) {
+      console.warn(`${LOG_PREFIX} Unexpected logging failure`, { err });
     }
   }
 

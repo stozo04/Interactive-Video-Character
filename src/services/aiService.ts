@@ -71,6 +71,8 @@ export interface IAIChatService {
     response: AIActionResponse;
     session: AIChatSession;
     audioData?: string;
+    conversationLogId: string;
+    tokenUsage: import('./conversationHistoryService').TurnTokenUsage;
   }>;
 
   generateGreeting(googleAccessToken: string): Promise<{

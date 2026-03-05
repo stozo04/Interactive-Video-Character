@@ -21,6 +21,8 @@ import {
   getImportantDateFacts,
 } from "./memoryService";
 
+import { clientLogger, type RequestScopedLogger } from "./clientLogger";
+import { type TurnTokenUsage } from "./conversationHistoryService";
 import { storeCharacterFact } from "./characterFactsService";
 import type { RelationshipMetrics } from "./relationshipService";
 import * as relationshipService from "./relationshipService";
@@ -484,6 +486,36 @@ export class GeminiService implements IAIChatService {
     return "Workspace action started. I will keep you posted in chat.";
   }
 
+  private getConvLogger(conversationLogId: string): RequestScopedLogger {
+    return clientLogger.withRequestId(conversationLogId, 'gemini_service');
+  }
+
+  private logInteractionCall(
+    logger: RequestScopedLogger,
+    route: 'start_interaction' | 'tool_call' | 'finish_interaction' | 'background_continuation',
+    interaction: any,
+    extra?: Record<string, unknown>,
+  ): void {
+    const usage = interaction?.usage;
+    const details: Record<string, unknown> = {
+      interaction_id: interaction?.id ?? null,
+      model: interaction?.model ?? null,
+      turn_token: interaction?.turnToken ?? null,
+      ...(usage ? {
+        prompt_token_count:     usage.total_input_tokens ?? null,
+        candidates_token_count: usage.total_output_tokens ?? null,
+        total_token_count:      usage.total_tokens ?? null,
+        thought_tokens:         usage.total_thought_tokens ?? null,
+        tool_use_tokens:        usage.total_tool_use_tokens ?? null,
+        cached_tokens:          usage.total_cached_tokens ?? null,
+        prompt_tokens_details:  usage.input_tokens_by_modality ?? null,
+      } : {}),
+      ...extra,
+    };
+
+    logger.log('info', `[GeminiService] ${route}`, route, details);
+  }
+
   private buildSyntheticInteraction(
     interactionId: string,
     textResponse: string,
@@ -504,10 +536,16 @@ export class GeminiService implements IAIChatService {
   private queueToolContinuationInBackground(
     sourceInteractionId: string,
     toolInteractionConfig: any,
+    conversationLogId: string,
   ): void {
+    const bgLogger = this.getConvLogger(conversationLogId);
     void this.createInteraction(toolInteractionConfig)
       .then(async (continuationInteraction) => {
         let finalInteraction = continuationInteraction;
+
+        this.logInteractionCall(bgLogger, 'background_continuation', continuationInteraction, {
+          sourceInteractionId,
+        });
 
         // If the continuation still requires action (e.g. a write following a read),
         // execute those tool calls synchronously here rather than dropping them.
@@ -531,6 +569,7 @@ export class GeminiService implements IAIChatService {
             undefined,
             10,
             true, // skipBackgroundOffload — prevent re-queuing into background
+            conversationLogId,
           );
           void logPersistentGeminiEvent("info", "Background follow-on tools completed", {
             sourceInteractionId,
@@ -690,6 +729,7 @@ export class GeminiService implements IAIChatService {
     options?: AIChatOptions,
     maxIterations: number = 10,
     skipBackgroundOffload: boolean = false,
+    conversationLogId?: string,
   ): Promise<any> {
     let iterations = 0;
     const executedToolSignatures = new Set<string>();
@@ -812,7 +852,7 @@ export class GeminiService implements IAIChatService {
             interactionId: interaction.id,
             tools: functionCalls.map((fc: any) => fc.name),
           });
-          this.queueToolContinuationInBackground(interaction.id, toolInteractionConfig);
+          this.queueToolContinuationInBackground(interaction.id, toolInteractionConfig, conversationLogId || crypto.randomUUID());
           interaction = this.buildSyntheticInteraction(interaction.id, immediateWorkspaceAck);
           break;
         } else {
@@ -826,6 +866,15 @@ export class GeminiService implements IAIChatService {
 
       // Make continuation call
       interaction = await this.createInteraction(toolInteractionConfig);
+
+      // Log tool_call lifecycle event
+      if (conversationLogId) {
+        const convLogger = this.getConvLogger(conversationLogId);
+        this.logInteractionCall(convLogger, 'tool_call', interaction, {
+          iteration: iterations,
+          tools: functionCalls.map((fc: any) => fc.name),
+        });
+      }
     }
 
     if (iterations >= maxIterations) {
@@ -890,12 +939,14 @@ export class GeminiService implements IAIChatService {
     userMessage: UserContent,
     session?: AIChatSession,
     options?: AIChatOptions,
-  ): Promise<{ response: AIActionResponse; session: AIChatSession }> {
+    conversationLogId?: string,
+  ): Promise<{ response: AIActionResponse; session: AIChatSession; tokenUsage: TurnTokenUsage }> {
     return await this.callProviderWithInteractions(
       systemPrompt,
       userMessage,
       session,
       options,
+      conversationLogId,
     );
   }
 
@@ -915,7 +966,8 @@ export class GeminiService implements IAIChatService {
     userMessage: UserContent,
     session?: AIChatSession,
     options?: AIChatOptions,
-  ): Promise<{ response: AIActionResponse; session: AIChatSession }> {
+    conversationLogId?: string,
+  ): Promise<{ response: AIActionResponse; session: AIChatSession; tokenUsage: TurnTokenUsage }> {
     // const ai = getAiClient();
     // console.log("system prompt!!: ", systemPrompt);
     // console.log("[GeminiService] callProviderWithInteractions context", {
@@ -988,13 +1040,24 @@ export class GeminiService implements IAIChatService {
       outputCount: Array.isArray(interaction?.outputs) ? interaction.outputs.length : 0,
       model: interaction?.model,
     });
+
+    // Log start_interaction lifecycle event
+    if (conversationLogId) {
+      const convLogger = this.getConvLogger(conversationLogId);
+      this.logInteractionCall(convLogger, 'start_interaction', interaction, {
+        is_first_message: isFirstMessage,
+      });
+    }
+
     // Handle tool calling loop (pass history for context)
     const finalInteraction = await this.continueInteractionWithTools(
       interaction,
       interactionConfig,
       systemPrompt,
       options,
-      3, // MAX_TOOL_ITERATIONS
+      5, // MAX_TOOL_ITERATIONS
+      false,
+      conversationLogId,
     );
     console.log("[GeminiService] Interaction finalized", {
       interactionId: finalInteraction?.id,
@@ -1010,15 +1073,35 @@ export class GeminiService implements IAIChatService {
     console.log("   - API returned interaction.id:", finalInteraction.id);
     console.log("   - Storing this ID for next message");
 
+    // Log finish_interaction lifecycle event
+    if (conversationLogId) {
+      const convLogger = this.getConvLogger(conversationLogId);
+      this.logInteractionCall(convLogger, 'finish_interaction', finalInteraction, {
+        response_text_length: structuredResponse.text_response?.length ?? 0,
+      });
+    }
+
     const updatedSession: AIChatSession = {
       model: this.model,
       interactionId:
         this.resolveInteractionId(finalInteraction.id) || finalInteraction.id, // Store for next message!
     };
 
+    const usage = finalInteraction?.usage;
+    const tokenUsage: TurnTokenUsage = {
+      total_input_tokens:       usage?.total_input_tokens ?? null,
+      total_output_tokens:      usage?.total_output_tokens ?? null,
+      total_tokens:             usage?.total_tokens ?? null,
+      total_thought_tokens:     usage?.total_thought_tokens ?? null,
+      total_tool_use_tokens:    usage?.total_tool_use_tokens ?? null,
+      total_cached_tokens:      usage?.total_cached_tokens ?? null,
+      input_tokens_by_modality: usage?.input_tokens_by_modality ?? null,
+    };
+
     return {
       response: structuredResponse,
       session: updatedSession,
+      tokenUsage,
     };
   }
 
@@ -1047,11 +1130,15 @@ export class GeminiService implements IAIChatService {
     response: AIActionResponse;
     session: AIChatSession;
     audioData?: string;
+    conversationLogId: string;
+    tokenUsage: TurnTokenUsage;
   }> {
     try {
+      const conversationLogId = crypto.randomUUID();
       console.log("[GeminiService] generateResponse", {
         inputType: input.type,
         textLength: input.type === "text" || input.type === "image_text" ? input.text.length : 0,
+        conversationLogId,
       });
       const fetchedContext = await this.fetchUserContext(
         options.googleAccessToken,
@@ -1087,8 +1174,8 @@ export class GeminiService implements IAIChatService {
       // ============================================
       // CALL GEMINI API
       // ============================================
-      const { response: aiResponse, session: updatedSession } =
-        await this.callGeminiAPI(systemPrompt, input, session, options);
+      const { response: aiResponse, session: updatedSession, tokenUsage } =
+        await this.callGeminiAPI(systemPrompt, input, session, options, conversationLogId);
 
       // ============================================
       // POST-PROCESSING
@@ -1146,6 +1233,8 @@ export class GeminiService implements IAIChatService {
       return {
         response: aiResponse,
         session: updatedSession,
+        conversationLogId,
+        tokenUsage,
       };
     } catch (error) {
       console.error("Gemini Service Error:", error);
@@ -1167,9 +1256,12 @@ export class GeminiService implements IAIChatService {
     session: AIChatSession;
     audioData?: string;
   }> {
+    const conversationLogId = crypto.randomUUID();
     console.log(
       "🌅 [GeminiService] First login of the day - including daily logistics in greeting",
+      { conversationLogId },
     );
+    const convLogger = this.getConvLogger(conversationLogId);
 
     // ============================================
     // PARALLEL FETCH FOR GREETING CONTEXT
@@ -1245,18 +1337,29 @@ export class GeminiService implements IAIChatService {
       outputCount: Array.isArray(interaction?.outputs) ? interaction.outputs.length : 0,
       model: interaction?.model,
     });
+    this.logInteractionCall(convLogger, 'start_interaction', interaction, {
+      flow: 'greeting',
+    });
+
     // Handle tool calling loop (pass history for context)
     const finalInteraction = await this.continueInteractionWithTools(
       interaction,
       interactionConfig,
       systemPrompt,
       null,
-      3, // MAX_TOOL_ITERATIONS
+      5, // MAX_TOOL_ITERATIONS
+      false,
+      conversationLogId,
     );
 
     // Parse response
     const structuredFinalResponse =
       this.parseInteractionResponse(finalInteraction);
+
+    this.logInteractionCall(convLogger, 'finish_interaction', finalInteraction, {
+      flow: 'greeting',
+      response_text_length: structuredFinalResponse.text_response?.length ?? 0,
+    });
 
     // Update session with interaction ID (critical for stateful conversations!)
     console.log("🔗 [Gemini Interactions] RESPONSE DEBUG:");
@@ -1285,7 +1388,10 @@ export class GeminiService implements IAIChatService {
     session: AIChatSession;
     audioData?: string;
   }> {
-    console.log("GATES generateNonGreeting");
+    const conversationLogId = crypto.randomUUID();
+    console.log("GATES generateNonGreeting", { conversationLogId });
+    const convLogger = this.getConvLogger(conversationLogId);
+
     // Fetch context internally
     const fetchedContext = await this.fetchUserContext(googleAccessToken);
 
@@ -1384,6 +1490,10 @@ ${pendingSuggestion.reasoning}
         }
       }
 
+      this.logInteractionCall(convLogger, 'start_interaction', interaction, {
+        flow: 'non_greeting',
+      });
+
       // Handle tool calls
       interaction = await this.continueInteractionWithTools(
         interaction,
@@ -1391,10 +1501,17 @@ ${pendingSuggestion.reasoning}
         systemPrompt,
         undefined,
         2,
+        false,
+        conversationLogId,
       );
 
       // Parse response
       const structuredResponse = this.parseInteractionResponse(interaction);
+
+      this.logInteractionCall(convLogger, 'finish_interaction', interaction, {
+        flow: 'non_greeting',
+        response_text_length: structuredResponse.text_response?.length ?? 0,
+      });
 
       // Generate audio
       const audioData = await generateSpeech(structuredResponse.text_response);

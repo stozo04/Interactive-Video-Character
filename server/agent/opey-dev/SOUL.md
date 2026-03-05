@@ -488,6 +488,154 @@ should be querying `server_runtime_logs` for recent errors — not reading sourc
 Logs tell you what actually happened. Source code tells you what should have happened.
 The gap between those two is the bug.
 
+#### Gemini Conversation Lifecycle Logs (`source = 'gemini_service'`)
+
+Every Gemini API interaction — user message, greeting, non-greeting idle message — is now
+fully instrumented. Each interaction generates a **`request_id`** (UUID) that ties all log
+entries for that one conversation turn together.
+
+**Route values and what they mean:**
+
+| `route` | What it represents |
+|---|---|
+| `start_interaction` | First Gemini API call for this turn (before any tool calls) |
+| `tool_call` | Each tool continuation call inside the tool loop |
+| `finish_interaction` | Final parsed response ready to return to the user |
+| `background_continuation` | Async workspace tool continuation (fire-and-forget) |
+
+**What's in `details`:**
+
+| Field | Description |
+|---|---|
+| `interaction_id` | Gemini's own ID for this interaction (use to correlate with AI Studio logs) |
+| `model` | Which model variant was used |
+| `turn_token` | Gemini turn token (null if API doesn't return it) |
+| `prompt_token_count` | Input tokens used |
+| `candidates_token_count` | Output tokens generated |
+| `total_token_count` | Total tokens for this call |
+| `is_first_message` | `true` on `start_interaction` if no prior session (fresh conversation) |
+| `flow` | `greeting` or `non_greeting` for those entry points |
+| `tools` | Array of tool names called (on `tool_call` route) |
+| `iteration` | Tool loop iteration number (on `tool_call` route) |
+| `response_text_length` | Length of final text response (on `finish_interaction`) |
+
+**Debugging workflow for Gemini bugs:**
+
+```bash
+# 1. Find all logs for a recent conversation (one request_id groups the full turn)
+curl -s "$VITE_SUPABASE_URL/rest/v1/server_runtime_logs?source=eq.gemini_service&order=created_at.desc&limit=20" \
+  -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" \
+  -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY"
+
+# 2. Once you have a request_id, pull ALL entries for that conversation turn
+curl -s "$VITE_SUPABASE_URL/rest/v1/server_runtime_logs?request_id=eq.THE_UUID&order=created_at.asc" \
+  -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" \
+  -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY"
+
+# 3. Check if a tool was called (look for tool_call route between start and finish)
+curl -s "$VITE_SUPABASE_URL/rest/v1/server_runtime_logs?request_id=eq.THE_UUID&route=eq.tool_call" \
+  -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" \
+  -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY"
+```
+
+**What to look for:**
+
+- **`start_interaction` only, no `tool_call`, no `finish_interaction`** → the turn crashed
+  between the first API call and the response. Check for errors with the same `request_id`.
+- **`start_interaction` + `finish_interaction`, no `tool_call`** → the LLM responded without
+  calling any tools. If the user asked for something that should have triggered a tool (e.g.
+  "check my email"), the prompt is not instructing the LLM to use the tool, or the tool is
+  being gated out. NOT a code bug — a prompt/routing bug.
+- **`tool_call` present** → tool executed. Check `details.tools` to see which one, and
+  `details.iteration` to see how deep the loop went.
+- **Same `interaction_id` on `start` and `finish`** → no tool calls happened (the interaction
+  was never continued). Different `interaction_id` on `finish` → tool calls ran and the
+  conversation continued to a new interaction ID.
+- **`background_continuation` route** → a workspace tool was offloaded async. The user saw an
+  immediate ACK; the real result arrived later. If the follow-up never appeared, check for
+  errors near this `request_id`.
+
+**Also useful:** `conversation_history` table — every row now has `request_id` linking it
+to the same turn's lifecycle logs. Token counts (`total_input_tokens`, `total_output_tokens`,
+`total_tokens`, `total_thought_tokens`) are stored on the model row only.
+
+**SQL: Full turn inspection (messages + lifecycle logs for one request_id)**
+
+Run this in the Supabase SQL editor or via `psql`. Replace the UUID with the one you found
+in `server_runtime_logs`.
+
+```sql
+select
+  'conversation' as source_table,
+  ch.created_at,
+  ch.message_role as role_or_route,
+  ch.message_text as content,
+  ch.interaction_id as gemini_interaction_id,
+  ch.total_input_tokens,
+  ch.total_output_tokens,
+  ch.total_tokens,
+  ch.total_thought_tokens,
+  null::text as severity,
+  null::jsonb as log_details
+from conversation_history ch
+where ch.request_id = 'THE_REQUEST_ID'
+
+union all
+
+select
+  'runtime_log' as source_table,
+  srl.occurred_at as created_at,
+  srl.route as role_or_route,
+  srl.message as content,
+  (srl.details->>'interaction_id')::text as gemini_interaction_id,
+  (srl.details->>'prompt_token_count')::integer as total_input_tokens,
+  (srl.details->>'candidates_token_count')::integer as total_output_tokens,
+  (srl.details->>'total_token_count')::integer as total_tokens,
+  (srl.details->>'thought_tokens')::integer as total_thought_tokens,
+  srl.severity,
+  srl.details as log_details
+from server_runtime_logs srl
+where srl.request_id = 'THE_REQUEST_ID'
+
+order by created_at asc;
+```
+
+**SQL: Last 10 turns with token summary (no request_id needed — start here)**
+
+```sql
+select
+  ch.request_id,
+  ch.created_at,
+  ch.interaction_id,
+  max(case when ch.message_role = 'user'  then ch.message_text end) as user_message,
+  max(case when ch.message_role = 'model' then ch.message_text end) as model_response,
+  max(ch.total_input_tokens)   as input_tokens,
+  max(ch.total_output_tokens)  as output_tokens,
+  max(ch.total_tokens)         as total_tokens,
+  max(ch.total_thought_tokens) as thought_tokens,
+  count(srl.id)                as lifecycle_log_count,
+  string_agg(distinct srl.route, ' → ' order by srl.route) as lifecycle_routes
+from conversation_history ch
+left join server_runtime_logs srl
+  on srl.request_id = ch.request_id
+  and srl.source = 'gemini_service'
+group by ch.request_id, ch.created_at, ch.interaction_id
+order by ch.created_at desc
+limit 10;
+```
+
+**Debugging workflow:**
+1. Run the "last 10 turns" query — find the `request_id` for the turn that misbehaved
+2. Check `lifecycle_routes` — does it show `start_interaction → finish_interaction` with no `tool_call`? That's a prompt bug, not a code bug.
+3. Paste the `request_id` into the "full turn inspection" query for the complete picture
+4. Check `log_details` on the `finish_interaction` row for token counts and `response_text_length`
+
+**Known loose thread:** `start_interaction` currently logs with the same `finalInteraction`
+object as `finish_interaction`, so both rows carry token counts. Semantically, `start_interaction`
+should have null token data (the API hasn't responded yet at that point). This is a known
+instrumentation bug — do not treat `start_interaction` token counts as ground truth.
+Only trust token counts from the `finish_interaction` row and the `conversation_history` model row.
+
 ### Implement Features (Web App Components)
 
 -   Follow existing UI patterns

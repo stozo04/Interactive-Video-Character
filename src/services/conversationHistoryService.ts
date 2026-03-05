@@ -8,8 +8,26 @@ interface ConversationHistoryRow {
   message_role: "user" | "model";
   message_text: string;
   action_id?: string | null;
-  interaction_id: string; // The Gemini interaction ID
+  interaction_id: string; // The Gemini session chain ID
+  request_id?: string | null; // Our UUID — one per turn, links to server_runtime_logs
+  total_input_tokens?: number | null;
+  total_output_tokens?: number | null;
+  total_tokens?: number | null;
+  total_thought_tokens?: number | null;
+  total_tool_use_tokens?: number | null;
+  total_cached_tokens?: number | null;
+  input_tokens_by_modality?: Record<string, unknown>[] | null;
   created_at: string;
+}
+
+export interface TurnTokenUsage {
+  total_input_tokens: number | null;
+  total_output_tokens: number | null;
+  total_tokens: number | null;
+  total_thought_tokens: number | null;
+  total_tool_use_tokens: number | null;
+  total_cached_tokens: number | null;
+  input_tokens_by_modality: Record<string, unknown>[] | null;
 }
 
 /**
@@ -83,7 +101,9 @@ export const loadConversationHistory = async (): Promise<ChatMessage[]> => {
  */
 export const appendConversationHistory = async (
   newMessages: ChatMessage[],
-  interactionId?: string
+  interactionId?: string,
+  conversationLogId?: string,
+  tokenUsage?: TurnTokenUsage,
 ): Promise<void> => {
   if (newMessages.length === 0) {
     return;
@@ -95,7 +115,16 @@ export const appendConversationHistory = async (
         msg.role === "user" ? "user" : ("model" as "user" | "model"),
       message_text: msg.text,
       action_id: null,
-      interaction_id: interactionId || crypto.randomUUID(), // USER REQUIREMENT: Track that id, fallback to GUID
+      interaction_id: interactionId || crypto.randomUUID(),
+      request_id: conversationLogId ?? null,
+      // Token counts only on model rows — user rows have no API response metadata
+      total_input_tokens:        msg.role === "model" ? (tokenUsage?.total_input_tokens ?? null) : null,
+      total_output_tokens:       msg.role === "model" ? (tokenUsage?.total_output_tokens ?? null) : null,
+      total_tokens:              msg.role === "model" ? (tokenUsage?.total_tokens ?? null) : null,
+      total_thought_tokens:      msg.role === "model" ? (tokenUsage?.total_thought_tokens ?? null) : null,
+      total_tool_use_tokens:     msg.role === "model" ? (tokenUsage?.total_tool_use_tokens ?? null) : null,
+      total_cached_tokens:       msg.role === "model" ? (tokenUsage?.total_cached_tokens ?? null) : null,
+      input_tokens_by_modality:  msg.role === "model" ? (tokenUsage?.input_tokens_by_modality ?? null) : null,
     }));
 
     const { error } = await supabase

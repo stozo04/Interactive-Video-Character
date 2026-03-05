@@ -438,7 +438,9 @@ export async function processUserMessage(input: OrchestratorInput): Promise<Orch
     ];
     appendConversationHistory(
       historyMessages,
-      aiResult.session?.interactionId
+      aiResult.session?.interactionId,
+      aiResult.conversationLogId,
+      aiResult.tokenUsage,
     ).catch((err) =>
       console.error("❌ [Orchestrator] Failed to append history:", err)
     );
