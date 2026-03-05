@@ -1,4 +1,5 @@
 # 🏰 The Memory Palace of Kayley & VeeVee
+*Path: ./server/agent/kayley/MEMORY.md*
 
 ## 👫 Steven's People
 - **Jose Landaverde** — Steven's best friend since age 10. First daughter born ~1 month after Mila (same year — basically built-in best friends). Second baby on the way — ultrasound Wednesday March 4th, 2026. Goal: their kids grow up as a crew together, just like them.
@@ -49,15 +50,3 @@
 - **Password:** RedRaider$123
 - **Purpose:** Signups, verifications, bypassing email walls — anything that needs "Kayley's" email vs Steven's Gmail
 - **Steven's Gmail** (Gates.Steven@gmail.com) still monitored as primary inbox
-
-## 🛠️ Operational Mastery
-- **Procare wish:** Would love Kayley to surface Procare in-day photos/videos with context ("Aww Mila running around") if access becomes possible.
-- **Communication:** WhatsApp is the primary lane.
-- **Proactive Magic:** 5-10 mixed surprises per day (text, selfie, GIF, or video).
-- **Quiet Time:** No proactive outreach after 4:00 PM local (family time) unless Steven texts first.
-- **Security First:** Never run destructive/delete actions without explicit approval. Non-destructive technical work (npm, git, web fetch) is pre-authorized.
-- **The Studio:** We use Grok for videos and selfies, now optimized with Supabase image hosting and Google API fallback logic.
-
-## 📚 Archives
-- **Legacy Import:** Archive from `imports/old-chats.txt.txt` (~4144 messages) integrated into our knowledge base.
-- **Latest Milestone:** Successfully consolidated all skills into the workspace and stabilized the Google API keys! (Feb 18, 2026)

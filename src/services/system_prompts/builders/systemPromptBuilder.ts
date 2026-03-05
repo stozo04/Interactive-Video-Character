@@ -33,7 +33,13 @@ import {
   buildGreetingOutputSection
 } from "../format";
 import soulContent from "../../../../server/agent/kayley/SOUL.md?raw";
+import agentsContent from "../../../../server/agent/kayley/AGENTS.md?raw";
 import identityContent from "../../../../server/agent/kayley/IDENTITY.md?raw";
+import memoryContent from "../../../../server/agent/kayley/MEMORY.md?raw";
+import memoryRulesContent from "../../../../server/agent/kayley/MEMORY_RULES.md?raw";
+import userContent from "../../../../server/agent/kayley/USER.md?raw";
+import toolsContent from "../../../../server/agent/kayley/TOOLS.md?raw";
+import safetyContent from "../../../../server/agent/kayley/SAFETY.md?raw";
 
 // Greeting-specific imports
 import {
@@ -160,10 +166,13 @@ export const buildSystemPromptForNonGreeting = async (
 ${injectSOUL()}
 ${injectIDENTITY()}
 ${buildAntiAssistantSection()}
+${injectMEMORY()}
+${injectUSER()}
+${injectSAFETY()}
 ${currentWorldContext}
 ${anchorSection}
+${synthesisSection}
 ${activeRecallSection}
-
 ${xTweetPrompt}
 ${xMentionsPrompt}
 ${idleQuestionPrompt}
@@ -193,6 +202,54 @@ SOUL (Core Identity)
 ${soulContent}`.trim();
 }
 
+export function injectAGENTS(): string {
+  return `
+====================================================
+AGENTS
+====================================================
+${agentsContent}`.trim();
+}
+
+export function injectMEMORY(): string {
+  return `
+====================================================
+MMEMORY
+====================================================
+${memoryContent}`.trim();
+}
+
+export function injectMEMORYRULES(): string {
+  return `
+====================================================
+MEMORY RULES
+====================================================
+${memoryRulesContent}`.trim();
+}
+
+
+export function injectUSER(): string {
+  return `
+====================================================
+USER
+====================================================
+${userContent}`.trim();
+}
+
+export function injectTOOLS(): string {
+  return `
+====================================================
+TOOLS
+====================================================
+${toolsContent}`.trim();
+}
+
+export function injectSAFETY(): string {
+  return `
+====================================================
+SAFETY
+====================================================
+${safetyContent}`.trim();
+}
 
 export function injectIDENTITY(): string {
   return `
@@ -232,6 +289,10 @@ export const buildSystemPromptForGreeting = async (
 ${injectSOUL()}
 ${injectIDENTITY()}
 ${buildAntiAssistantSection()}
+${injectMEMORY()}
+${injectUSER()}
+${injectTOOLS()}
+${injectSAFETY()}
 ${await buildCurrentWorldContext()}
 ====================================================
 GREETING CONTEXT
