@@ -123,7 +123,13 @@ Don’t leave corpses. Don’t delete without asking.
    - Other numbered docs in `docs/` — capture mid-project decisions
    - These are Steven's scratchpad; respect them
 
-3. **Understand project conventions:**
+3. **Image generation dual-provider rule:**
+   - ANY change to image reference selection or content loading MUST be applied to BOTH Gemini and Grok paths
+   - Functions always come in pairs: `...ForGemini` and `...ForGrok` in `referenceSelector.ts` and `referenceImages/index.ts`
+   - `import.meta.glob` (Vite) does NOT work server-side — the sync `getReferenceImage...` functions return null on the server; use the async `fetchReferenceImage...` fallbacks
+   - See `src/utils/referenceImages/index.ts` and `src/services/imageGeneration/referenceSelector.ts`
+
+4. **Understand project conventions:**
    - Supabase tables: `uuid_generate_v4()`, `timestamptz`, `CHECK` constraints, `update_updated_at_column` trigger pattern
    - Services: `LOG_PREFIX` constant, error handling with `console.error`, async functions, no thrown errors from loggers
    - Logging: `server/runtimeLogger.ts` for `server/**`, `src/services/clientLogger.ts` for `src/**` — never bare `console.log()`

@@ -162,16 +162,16 @@ async function buildRealCharacterContext(): Promise<string> {
       }
 
       if (parts.length > 0) {
-        console.log(
-          `✨ [GeminiService] Using real presence context: ${parts.join(", ")}`,
-        );
+        clientLogger.info(`[GeminiService] Using real presence context: ${parts.join(", ")}`);
         return parts.join(", ");
       }
     }
   } catch (error) {
-    console.warn("[GeminiService] Failed to fetch presence state:", error);
-    return "Just hanging out";
+    clientLogger.warning('[GeminiService] Failed to fetch presence state', {
+      error: error instanceof Error ? error.message : String(error),
+    });
   }
+  return "Just hanging out";
 }
 
 const getAiClient = () => {

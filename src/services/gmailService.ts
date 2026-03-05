@@ -202,6 +202,7 @@ class GmailService extends EventTarget {
     const text = await batchResponse.text();
     const parts = text.split(/--batch_.*/);
     const payloads: NewEmailPayload[] = [];
+    const failedIds: string[] = [];
     let skippedParts = 0;
     let parsedParts = 0;
 
@@ -264,7 +265,54 @@ class GmailService extends EventTarget {
       requestedIds: messageIds.length,
       parsedParts,
       skippedParts,
+      failedIds: failedIds.length,
     });
+
+    // Retry transient failures individually after a short delay.
+    // Gmail's History API sometimes fires messageAdded before the message is
+    // fully indexed, causing 404s in the batch. A single retry 3s later usually
+    // succeeds for these races.
+    if (failedIds.length > 0) {
+      this.log.info('retrying failed batch IDs individually', { failedIds });
+      await new Promise(resolve => setTimeout(resolve, 3_000));
+
+      for (const id of failedIds) {
+        try {
+          const res = await fetch(
+            `${this.apiBase}/messages/${id}?format=metadata&metadataHeaders=From&metadataHeaders=Subject&metadataHeaders=Date`,
+            { headers: { Authorization: `Bearer ${accessToken}` } }
+          );
+          const data = await res.json();
+          const headers = Array.isArray(data?.payload?.headers) ? data.payload.headers : null;
+          if (!headers) {
+            this.log.warning('individual retry still missing headers', {
+              messageId: id,
+              errorCode: data?.error?.code ?? null,
+              errorMessage: data?.error?.message ?? null,
+            });
+            continue;
+          }
+          const getHeader = (name: string) =>
+            headers.find((h: any) => h.name === name)?.value || '';
+          payloads.push({
+            id: data.id,
+            threadId: data.threadId || '',
+            from: getHeader('From'),
+            subject: getHeader('Subject'),
+            receivedAt: getHeader('Date'),
+            snippet: data.snippet || '',
+            body: '',
+          });
+          this.log.info('individual retry succeeded', { messageId: id });
+        } catch (err) {
+          this.log.warning('individual retry threw', {
+            messageId: id,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+      }
+    }
+
     return payloads;
   }
 

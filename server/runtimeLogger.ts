@@ -3,7 +3,7 @@
 
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
-type LogSeverity = "info" | "warning" | "error" | "critical";
+type LogSeverity = "verbose" | "info" | "warning" | "error" | "critical";
 
 interface LogEntry {
   severity: LogSeverity;
@@ -31,6 +31,11 @@ class RuntimeLogger {
     // disable logging before `.env` is loaded.
     this.client = null;
     this.hasWarnedMissingEnv = false;
+  }
+
+  public verbose(message: string, details?: Record<string, unknown>): void {
+    this.emitLocal("verbose", message, details);
+    void this.write({ severity: "verbose", message, details });
   }
 
   public info(message: string, details?: Record<string, unknown>): void {
@@ -61,6 +66,7 @@ class RuntimeLogger {
     route?: string;
     source?: string;
   }): {
+    verbose: (message: string, details?: Record<string, unknown>) => void;
     info: (message: string, details?: Record<string, unknown>) => void;
     warning: (message: string, details?: Record<string, unknown>) => void;
     error: (message: string, details?: Record<string, unknown>) => void;
@@ -76,6 +82,8 @@ class RuntimeLogger {
     };
 
     return {
+      verbose: (message, details) =>
+        void this.write({ severity: "verbose", message, details, ...base }),
       info: (message, details) =>
         void this.write({ severity: "info", message, details, ...base }),
       warning: (message, details) =>
@@ -155,6 +163,9 @@ class RuntimeLogger {
     };
 
     switch (severity) {
+      case "verbose":
+        console.log(`${LOG_PREFIX} Verbose`, payload);
+        break;
       case "info":
         console.log(`${LOG_PREFIX} Info`, payload);
         break;

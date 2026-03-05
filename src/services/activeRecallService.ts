@@ -15,8 +15,9 @@ import { getUserFacts, type UserFact } from "./memoryService";
 import { getCharacterFacts, type CharacterFact } from "./characterFactsService";
 import { getActiveStorylines, type LifeStoryline } from "./storylineService";
 import { querySemanticFactEmbeddingMatches, type FactEmbeddingMatch } from "./factEmbeddingsService";
+import { clientLogger } from "./clientLogger";
 
-const LOG_PREFIX = "[ActiveRecall]";
+const log = clientLogger.scoped('ActiveRecall');
 
 // ============================================================================
 // Types
@@ -61,10 +62,10 @@ const ACTIVE_RECALL_ENABLED = true;
 const ACTIVE_RECALL_MODE: ActiveRecallMode = "hybrid";
 const ACTIVE_RECALL_LIMIT = 6;
 const ACTIVE_RECALL_MIN_SCORE = 18;
-const ACTIVE_RECALL_TIMEOUT_MS = 180;
+const ACTIVE_RECALL_TIMEOUT_MS = 300;
 const ACTIVE_RECALL_SEMANTIC_TOP_K = 30;
 const ACTIVE_RECALL_SEMANTIC_MIN_SIM = 0.55;
-const ACTIVE_RECALL_SEMANTIC_TIMEOUT_MS = 350;
+const ACTIVE_RECALL_SEMANTIC_TIMEOUT_MS = 800;
 const MIN_LEXICAL_SIGNAL_FOR_BOOSTS = 6;
 const MIN_KEY_SIGNAL_FOR_BOOSTS = 8;
 const MIN_LEXICAL_SIGNAL_FOR_SELECTION = 4;
@@ -374,7 +375,7 @@ export async function getRankedRecallCandidates(
 
     const messageTokens = tokenize(userMessage);
     if (messageTokens.length === 0) {
-      console.debug(`${LOG_PREFIX} Message too short, no tokens`);
+      log.verbose('Message too short, no tokens');
       return [];
     }
 
@@ -416,7 +417,7 @@ export async function getRankedRecallCandidates(
     const selected = sortAndTrim(scoredWithSignal, config.minScore, maxItems);
     const durationMs = Date.now() - startTime;
 
-    console.log(`${LOG_PREFIX} Retrieved lexical candidates`, {
+    log.info('Retrieved lexical candidates', {
       mode: "lexical",
       messageTokenCount: messageTokens.length,
       candidateCount: candidates.length,
@@ -430,7 +431,7 @@ export async function getRankedRecallCandidates(
 
     return selected;
   } catch (err) {
-    console.error(`${LOG_PREFIX} getRankedRecallCandidates failed`, { err });
+    log.error('getRankedRecallCandidates failed', { err: err instanceof Error ? err.message : String(err) });
     return [];
   }
 }
@@ -479,7 +480,7 @@ export async function getRankedRecallCandidatesSemantic(
   const messageTokens = tokenize(userMessage);
 
   if (messageTokens.length === 0) {
-    console.debug(`${LOG_PREFIX} Semantic retrieval skipped (message too short)`);
+    log.verbose('Semantic retrieval skipped (message too short)');
     return [];
   }
 
@@ -506,7 +507,7 @@ export async function getRankedRecallCandidatesSemantic(
     const selected = sortAndTrim(scored, config.minScore, maxItems);
     const durationMs = Date.now() - startTime;
 
-    console.log(`${LOG_PREFIX} Retrieved semantic candidates`, {
+    log.info('Retrieved semantic candidates', {
       mode: config.mode,
       semanticTopK: config.semanticTopK,
       semanticCandidates: matches.length,
@@ -521,8 +522,8 @@ export async function getRankedRecallCandidatesSemantic(
 
     return selected;
   } catch (err) {
-    console.error(`${LOG_PREFIX} getRankedRecallCandidatesSemantic failed`, {
-      err,
+    log.error('getRankedRecallCandidatesSemantic failed', {
+      err: err instanceof Error ? err.message : String(err),
       mode: config.mode,
     });
     return [];
@@ -544,7 +545,7 @@ export async function buildActiveRecallPromptSection(
 
   if (!config.enabled) return "";
   if (!currentUserMessage) {
-    console.debug(`${LOG_PREFIX} Skipped (no current user message)`);
+    log.verbose('Skipped (no current user message)');
     return "";
   }
 
@@ -583,7 +584,7 @@ export async function buildActiveRecallPromptSection(
         // Lexical fallback may already have been attempted in the semantic branch.
         // If that attempt timed out, avoid a duplicate retry and let outer handler fail-open.
         if (semanticErrorMessage === "LexicalTimeout") {
-          console.warn(`${LOG_PREFIX} Semantic retrieval failed, lexical path timed out`, {
+          log.warning('Semantic retrieval failed, lexical path timed out', {
             mode: config.mode,
             featureEnabled: config.enabled,
             timedOut,
@@ -616,14 +617,14 @@ export async function buildActiveRecallPromptSection(
                 } catch {
                   // lexical also failed, keep empty
                 }
-                console.log(`${LOG_PREFIX} Semantic won race but empty, used lexical fallback`, {
+                log.info('Semantic won race but empty, used lexical fallback', {
                   mode: config.mode,
                   lexicalCount: candidates.length,
                 });
               } else {
                 fallbackUsed = "none";
                 timedOut = false;
-                console.log(`${LOG_PREFIX} Semantic retrieval recovered after timeout window`, {
+                log.info('Semantic retrieval recovered after timeout window', {
                   mode: config.mode,
                   featureEnabled: config.enabled,
                   fallbackUsed,
@@ -631,7 +632,7 @@ export async function buildActiveRecallPromptSection(
                 });
               }
             } else {
-              console.warn(`${LOG_PREFIX} Semantic timeout; using lexical fallback winner`, {
+              log.warning('Semantic timeout; using lexical fallback winner', {
                 mode: config.mode,
                 featureEnabled: config.enabled,
                 timedOut,
@@ -639,16 +640,21 @@ export async function buildActiveRecallPromptSection(
               });
             }
           } catch {
-            console.warn(`${LOG_PREFIX} Semantic timeout race failed; using lexical fallback`, {
+            log.warning('Semantic timeout race failed; using lexical fallback', {
               mode: config.mode,
               featureEnabled: config.enabled,
               timedOut,
               error: semanticErrorMessage,
             });
-            candidates = await lexicalPromise;
+            try {
+              candidates = await lexicalPromise;
+            } catch {
+              // lexical also timed out — fail open with empty
+              candidates = [];
+            }
           }
         } else {
-          console.warn(`${LOG_PREFIX} Semantic retrieval failed, using lexical fallback`, {
+          log.warning('Semantic retrieval failed, using lexical fallback', {
             mode: config.mode,
             featureEnabled: config.enabled,
             timedOut,
@@ -685,7 +691,7 @@ If current user message conflicts, trust the current message.
     const finalSection =
       section.length > SIZE_CAPS.total_section ? truncate(section, SIZE_CAPS.total_section) : section;
 
-    console.log(`${LOG_PREFIX} Built recall section`, {
+    log.info('Built recall section', {
       mode: config.mode,
       selectedCount: candidates.length,
       fallbackUsed,
@@ -700,16 +706,16 @@ If current user message conflicts, trust the current message.
       (err.message === "LexicalTimeout" || err.message === "SemanticTimeout");
 
     if (isTimeout) {
-      console.warn(`${LOG_PREFIX} Failed to build section`, {
-        err,
+      log.warning('Failed to build section', {
+        err: err instanceof Error ? err.message : String(err),
         mode: config.mode,
         featureEnabled: config.enabled,
         timedOut: true,
         fallbackUsed,
       });
     } else {
-      console.error(`${LOG_PREFIX} Failed to build section`, {
-        err,
+      log.error('Failed to build section', {
+        err: err instanceof Error ? err.message : String(err),
         mode: config.mode,
         featureEnabled: config.enabled,
         timedOut: false,

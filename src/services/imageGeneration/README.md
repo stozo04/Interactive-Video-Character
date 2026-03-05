@@ -435,6 +435,37 @@ console.log('📸 [ImageGen] Selection reasoning:', selectionReasoning);
    npm test -- --run -t "referenceSelector"
    ```
 
+## Dual-Provider Rule (Gemini + Grok)
+
+**Any change to reference selection or content loading MUST be applied to both providers.**
+
+Functions always come in pairs:
+
+| Gemini | Grok |
+|--------|------|
+| `selectReferenceImageForGemini` | `selectReferenceImageForGrok` |
+| `getReferenceImageContentForGemini` | `getReferenceImageContentForGrok` |
+| `fetchReferenceImageContentForGemini` | `fetchReferenceImageContentForGrok` |
+
+If you add a new lookup path, a new fallback, or a new scoring factor — do it for both.
+
+## Server-Side Context (Telegram / Node.js)
+
+`import.meta.glob` is a **Vite-only** API. It works in browser-compiled code only. When image generation runs server-side (Telegram handler → Node.js):
+
+- `imageModules` is empty → `REFERENCE_IMAGE_CONTENT_GEMINI` is `{}`
+- `REFERENCE_IMAGE_REGISTRY` still populates (falls back to `config.json`)
+- `getReferenceImageContentForGemini/Grok` return `null` for all IDs
+
+**Solution:** The selectors use a `syncResult ?? await fetchResult` pattern:
+```typescript
+const content = getReferenceImageContentForGemini(id)   // sync (Vite)
+  ?? await fetchReferenceImageContentForGemini(id);      // async (server fallback)
+```
+
+- `fetchReferenceImageContentForGemini` — fetches the Supabase public URL, returns base64
+- `fetchReferenceImageContentForGrok` — returns `metadata.url` directly (Grok takes URLs)
+
 ## Troubleshooting
 
 ### Hairstyle keeps changing every selfie

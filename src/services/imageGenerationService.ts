@@ -44,6 +44,9 @@ import { getCharacterFacts } from "./characterFactsService";
 import { getUserFacts } from "./memoryService";
 import { generateImageEdit } from "@/utils/grokAPIUtils";
 import { supabase } from "./supabaseClient";
+import { clientLogger } from "./clientLogger";
+
+const log = clientLogger.scoped('ImageGen');
 
 const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
 const GEMINI_IMAGEN_MODEL = import.meta.env.VITE_GEMINI_IMAGEN_MODEL;
@@ -90,12 +93,12 @@ export async function generateCompanionSelfie(
   request: SelfieRequest,
 ): Promise<SelfieResult> {
   if (!GEMINI_API_KEY) {
-    console.error("❌ [ImageGen] Missing VITE_GEMINI_API_KEY");
+    log.error('Missing VITE_GEMINI_API_KEY');
     return { success: false, error: "Image generation not configured" };
   }
-  console.log("IMAGE_GENERATOR_SERVICE: ", request);
+  log.verbose('generateCompanionSelfie called', { scene: request.scene, service: IMAGE_GENERATOR_SERVICE });
   try {
-    console.log("📸 [ImageGen] Generating selfie for scene:", request.scene);
+    log.info('Generating selfie', { scene: request.scene });
 
     // ====================================
     // MULTI-REFERENCE SYSTEM
@@ -117,14 +120,12 @@ export async function generateCompanionSelfie(
     };
 
     if (request.userMessage && request.conversationHistory) {
-      console.log(
-        "📸 [ImageGen] Using multi-reference system with dynamic selection",
-      );
+      log.info('Using multi-reference system with dynamic selection');
 
       try {
         // STEP 1: Get current look state
         const currentLookState = await getCurrentLookState();
-        console.log("📸 [ImageGen] Current look state:", currentLookState);
+        log.verbose('Current look state', { currentLookState });
 
         // STEP 2: Detect temporal context (old photo vs current)
         temporalContext = await detectTemporalContextLLMCached(
@@ -132,7 +133,7 @@ export async function generateCompanionSelfie(
           request.userMessage,
           request.conversationHistory,
         );
-        console.log("📸 [ImageGen] Temporal context:", temporalContext);
+        log.verbose('Temporal context', { temporalContext });
 
         // STEP 3: Get additional context for LLM prompt generation (Phase 2)
         // Run all context fetches in parallel for performance
@@ -178,16 +179,15 @@ export async function generateCompanionSelfie(
         };
 
         if (IMAGE_GENERATOR_SERVICE === "gemini") {
-          console.log("Use Gemini to generateImagePrompt");
+          log.verbose('Generating image prompt via Gemini');
           generatedPrompt = await generateImagePrompt(imagePromptContext);
         } else {
-          console.log("Use Grok to generateImagePrompt");
+          log.verbose('Generating image prompt via Grok');
           generatedPrompt = await generateImagePromptGrok(imagePromptContext);
         }
-        console.log("📸 [ImageGen] LLM Generated Prompt:", generatedPrompt);
+        log.verbose('LLM generated prompt', { generatedPrompt });
         // STEP 5: Get recent selfie history for anti-repetition
         const recentHistory = await getRecentSelfieHistory(10);
-        console.log("Image GenerationService - request: ", request);
         // STEP 6: Select reference image using multi-factor scoring (with LLM guidance)
         // Build scene description from location and background
         const sceneDescription = [
@@ -219,28 +219,20 @@ export async function generateCompanionSelfie(
           recentReferenceHistory: recentHistory,
           llmGuidance: generatedPrompt,
         };
-        console.log(
-          "generateCompanionSelfie: selectionContext: ",
-          selectionContext,
-        );
-
         let selection: any;
         if (IMAGE_GENERATOR_SERVICE === "gemini") {
-          console.log("CALLING selectReferenceImageForGemini");
-          selection = selectReferenceImageForGemini(selectionContext);
-          console.log("selectReferenceImage: ", selection);
+          log.verbose('Calling selectReferenceImageForGemini');
+          selection = await selectReferenceImageForGemini(selectionContext);
           selectedReferenceBase64 = selection.base64Content;
         } else {
-          console.log("CALLING selectReferenceImageForGrok");
-          selection = selectReferenceImageForGrok(selectionContext);
-          console.log("selectReferenceImage: ", selection);
+          log.verbose('Calling selectReferenceImageForGrok');
+          selection = await selectReferenceImageForGrok(selectionContext);
           selectedReferenceURL = selection.url;
         }
         selectedReferenceId = selection.referenceId;
         selectionReasoning = selection.reasoning;
 
         const refMetadata = getRefMetadataFromId(selectedReferenceId);
-        console.log("getRefMetadataFromId: ", refMetadata);
         selectedHairstyle = refMetadata.hairstyle;
         selectedOutfitStyle = refMetadata.outfitStyle;
 
@@ -262,7 +254,7 @@ export async function generateCompanionSelfie(
         ]
           .filter(Boolean)
           .join(" ");
-        console.log("📸 [ImageGen] Selected reference:", selectedReferenceId);
+        log.info('Selected reference', { selectedReferenceId, selectedHairstyle: refMetadata.hairstyle });
 
         // STEP 7: Lock current look if this is a "now" photo
         if (
@@ -275,13 +267,12 @@ export async function generateCompanionSelfie(
             "explicit_now_selfie",
             24, // Lock for 24 hours
           );
-          console.log("📸 [ImageGen] Locked current look for 24h");
+          log.info('Locked current look for 24h', { selectedReferenceId });
         }
       } catch (error) {
-        console.error(
-          "❌ [ImageGen] Error in multi-reference system, falling back to legacy:",
-          error,
-        );
+        log.error('Error in multi-reference system, falling back to legacy', {
+          error: error instanceof Error ? error.message : String(error),
+        });
         // Fallback to legacy behavior
         selectedReferenceBase64 = request.referenceImageBase64;
       }
@@ -294,7 +285,7 @@ export async function generateCompanionSelfie(
     // Fallback: if multi-reference system was skipped or errored,
     // build a minimal GeneratedImagePrompt from request params
     if (!generatedPrompt) {
-      console.log("📸 [ImageGen] No LLM prompt generated — building fallback from request params");
+      log.warning('No LLM prompt generated — building fallback from request params');
       generatedPrompt = {
         scene: { location: request.scene || "indoor setting", background: "" },
         type: "selfie",
@@ -310,7 +301,7 @@ export async function generateCompanionSelfie(
       };
     }
 
-    console.log("📸 [ImageGen] generatedPrompt:", generatedPrompt);
+    log.verbose('Final generated prompt', { generatedPrompt });
 
     let fullPrompt = `Use the provided reference image to match the woman's face, hairstyle, and overall look as closely as possible.`;
     fullPrompt += buildImagePrompt(generatedPrompt);
@@ -320,9 +311,8 @@ export async function generateCompanionSelfie(
     // 2. PREPARE REFERENCE IMAGE
 
     if (IMAGE_GENERATOR_SERVICE === "gemini") {
-      console.log("USING GEMINI FOR IMAGE GENERATION");
+      log.info('Using Gemini for image generation');
       const cleanRef = cleanBase64(selectedReferenceBase64);
-      console.log("📸 [ImageGen] Attaching reference for style consistency");
 
       // Reference guidance: maintain face/hair from reference, vary outfit/pose/scene
 
@@ -356,13 +346,12 @@ export async function generateCompanionSelfie(
       );
 
       if (!generatedPart?.inlineData?.data) {
-        console.error("❌ [ImageGen] No image returned from Gemini");
+        log.error('No image returned from Gemini');
         return { success: false, error: "No image generated" };
       }
 
-      console.log("📸 [ImageGen] Full prompt text:", fullPrompt);
-
-      console.log("✅ [ImageGen] Selfie generated successfully!");
+      log.verbose('Full prompt text', { fullPrompt });
+      log.info('Selfie generated successfully');
 
       if (request.forVideo) {
         await uploadSelfieForVideo(
@@ -383,13 +372,10 @@ export async function generateCompanionSelfie(
               scene: request.scene,
             }),
           }).catch((e) =>
-            console.warn(
-              "📸 [ImageGen] Auto-save failed (expected if not in dev):",
-              e,
-            ),
+            log.warning('Auto-save failed (expected if not in dev)', { error: String(e) }),
           );
         } catch (e) {
-          console.warn("📸 [ImageGen] Auto-save error:", e);
+          log.warning('Auto-save error', { error: String(e) });
         }
       }
 
@@ -412,9 +398,9 @@ export async function generateCompanionSelfie(
             timeOfDay: getTimeOfDay(),
           },
         );
-        console.log("📸 [ImageGen] Recorded generation in history");
+        log.info('Recorded generation in history');
       } catch (error) {
-        console.error("❌ [ImageGen] Error recording generation:", error);
+        log.error('Error recording generation', { error: error instanceof Error ? error.message : String(error) });
         // Non-fatal, continue
       }
 
@@ -424,14 +410,12 @@ export async function generateCompanionSelfie(
         mimeType: generatedPart.inlineData.mimeType || "image/png",
       };
     } else {
-      console.log("USING GROK FOR IMAGE GENERATION");
+      log.info('Using Grok for image generation');
       if (!selectedReferenceURL) {
         const fallback = getRandomReferenceImageForGrok();
         selectedReferenceURL = fallback.url;
         selectedReferenceId = selectedReferenceId || fallback.referenceId;
-        console.warn("⚠️ [ImageGen] Missing Grok reference URL; using random fallback", {
-          fallbackReferenceId: fallback.referenceId,
-        });
+        log.warning('Missing Grok reference URL; using random fallback', { fallbackReferenceId: fallback.referenceId });
       }
       const result = await generateImageEdit(GROK_API_KEY, {
         model: GROK_IMAGEN_MODEL,
@@ -442,7 +426,7 @@ export async function generateCompanionSelfie(
         response_format: "b64_json",
       });
 
-      console.log("Success! Image data received.", result);
+      log.info('Grok image data received successfully');
 
       if (request.forVideo) {
         await uploadSelfieForVideo(
@@ -463,13 +447,10 @@ export async function generateCompanionSelfie(
               scene: request.scene,
             }),
           }).catch((e) =>
-            console.warn(
-              "📸 [ImageGen] Auto-save failed (expected if not in dev):",
-              e,
-            ),
+            log.warning('Auto-save failed (expected if not in dev)', { error: String(e) }),
           );
         } catch (e) {
-          console.warn("📸 [ImageGen] Auto-save error:", e);
+          log.warning('Auto-save error', { error: String(e) });
         }
       }
 
@@ -492,9 +473,9 @@ export async function generateCompanionSelfie(
             timeOfDay: getTimeOfDay(),
           },
         );
-        console.log("📸 [ImageGen] Recorded generation in history");
+        log.info('Recorded generation in history');
       } catch (error) {
-        console.error("❌ [ImageGen] Error recording generation:", error);
+        log.error('Error recording generation', { error: error instanceof Error ? error.message : String(error) });
         // Non-fatal, continue
       }
 
@@ -505,7 +486,7 @@ export async function generateCompanionSelfie(
       };
     }
   } catch (error: any) {
-    console.error("❌ [ImageGen] Error generating selfie:", error);
+    log.error('Error generating selfie', { error: error?.message || String(error) });
     if (error?.message?.includes("SAFETY")) {
       return {
         success: false,
@@ -548,9 +529,7 @@ function getRefMetadataFromId(referenceId: string): {
   }
 
   // Last resort fallback - use curly casual as default
-  console.warn(
-    `[ImageGen] Could not determine metadata for ${referenceId}, using defaults`,
-  );
+  log.warning('Could not determine metadata for reference, using defaults', { referenceId });
   return {
     hairstyle: "curly",
     outfitStyle: "casual",
@@ -600,11 +579,7 @@ async function uploadSelfieForVideo(
     : "selfie";
   const filePath = `selfies/selfie_${timestamp}_${safeScene}.${ext}`;
 
-  console.log("📤 [ImageGen][SelfieUpload] Uploading selfie for video:", {
-    bucket: VIDEO_SELFIE_BUCKET,
-    filePath,
-    mimeType,
-  });
+  log.info('Uploading selfie for video', { bucket: VIDEO_SELFIE_BUCKET, filePath, mimeType });
 
   const { error } = await supabase.storage
     .from(VIDEO_SELFIE_BUCKET)
@@ -614,7 +589,7 @@ async function uploadSelfieForVideo(
     });
 
   if (error) {
-    console.error("❌ [ImageGen][SelfieUpload] Upload failed:", error);
+    log.error('SelfieUpload failed', { error: error.message });
     throw new Error("Selfie upload failed");
   }
 
@@ -624,14 +599,12 @@ async function uploadSelfieForVideo(
 
   const publicUrl = data?.publicUrl;
   if (!publicUrl) {
-    console.error("❌ [ImageGen][SelfieUpload] Missing public URL");
+    log.error('SelfieUpload missing public URL');
     throw new Error("Missing selfie public URL");
   }
 
   localStorage.setItem(LATEST_SELFIE_PUBLIC_URL_KEY, publicUrl);
-  console.log("✅ [ImageGen][SelfieUpload] Stored latest selfie URL:", {
-    publicUrl,
-  });
+  log.info('SelfieUpload stored latest selfie URL', { publicUrl });
 }
 
 /**

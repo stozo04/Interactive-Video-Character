@@ -14,7 +14,7 @@
 
 import { supabase } from './supabaseClient';
 
-type LogSeverity = 'info' | 'warning' | 'error' | 'critical';
+type LogSeverity = 'verbose' | 'info' | 'warning' | 'error' | 'critical';
 
 const TABLE_NAME = 'server_runtime_logs';
 const LOG_PREFIX = '[ClientLogger]';
@@ -23,6 +23,7 @@ const LOG_PREFIX = '[ClientLogger]';
 // Scoped logger interface — returned by clientLogger.scoped()
 // ============================================================
 export interface ScopedLogger {
+  verbose(message: string, details?: Record<string, unknown>): void;
   info(message: string, details?: Record<string, unknown>): void;
   warning(message: string, details?: Record<string, unknown>): void;
   error(message: string, details?: Record<string, unknown>): void;
@@ -47,6 +48,11 @@ export interface RequestScopedLogger {
 // ============================================================
 class ClientLogger {
   // ---- Public API ------------------------------------------------
+
+  verbose(message: string, details?: Record<string, unknown>): void {
+    this.emitLocal('verbose', message, details);
+    void this.write('verbose', message, details);
+  }
 
   info(message: string, details?: Record<string, unknown>): void {
     this.emitLocal('info', message, details);
@@ -79,6 +85,7 @@ class ClientLogger {
    */
   scoped(scope: string): ScopedLogger {
     return {
+      verbose:     (msg, details) => this.verbose(`[${scope}] ${msg}`, details),
       info:     (msg, details) => this.info(`[${scope}] ${msg}`, details),
       warning:  (msg, details) => this.warning(`[${scope}] ${msg}`, details),
       error:    (msg, details) => this.error(`[${scope}] ${msg}`, details),
@@ -111,6 +118,7 @@ class ClientLogger {
     };
 
     switch (severity) {
+      case 'verbose':     console.log(`${LOG_PREFIX} Verbose`, payload);  break;
       case 'info':     console.log(`${LOG_PREFIX} Info`, payload);  break;
       case 'warning':  console.warn(`${LOG_PREFIX} Warning`, payload); break;
       case 'error':    console.error(`${LOG_PREFIX} Error`, payload); break;

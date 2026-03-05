@@ -4,6 +4,9 @@
 
 import { ReferenceImageMetadata, HairstyleType, OutfitStyle } from '../../services/imageGeneration/types';
 import configData from './config.json';
+import { clientLogger } from '../../services/clientLogger';
+
+const log = clientLogger.scoped('ReferenceImages');
 
 // Auto-import all images from subfolders
 const imageModules = import.meta.glob<string>('./**/*.jpg', {
@@ -62,14 +65,14 @@ function buildRegistry(): ReferenceImageMetadata[] {
     // Find the folder config
     const folderConfig = config[folder];
     if (!folderConfig) {
-      console.warn(`[ReferenceImages] No config folder found for: ${folder}`);
+      log.warning(`No config folder found for: ${folder}`);
       continue;
     }
 
     // Find the image entry in the folder's images array
     const imageEntry = folderConfig.images.find(img => img.fileName === fileName);
     if (!imageEntry) {
-      console.warn(`[ReferenceImages] No config entry found for: ${pathWithoutPrefix}`);
+      log.warning(`No config entry found for: ${pathWithoutPrefix}`);
       continue;
     }
 
@@ -84,7 +87,7 @@ function buildRegistry(): ReferenceImageMetadata[] {
   }
 
   if (registry.length === 0) {
-    console.warn("[ReferenceImages] No Vite image modules found; falling back to config registry.");
+    log.warning('No Vite image modules found; falling back to config registry.');
     return buildRegistryFromConfig();
   }
 
@@ -101,7 +104,7 @@ function buildContentMapForGemini(): Record<string, string> {
   }
 
   if (Object.keys(contentMap).length === 0) {
-    console.warn("[ReferenceImages] No Gemini base64 content available in this runtime.");
+    log.warning('No Gemini base64 content available in this runtime.');
   }
   return contentMap;
 }
@@ -149,6 +152,33 @@ export function getReferenceImageContentForGrok(referenceId: string): string | n
   if (!metadata) return null;
 
   return REFERENCE_IMAGE_CONTENT_GROK[metadata.fileName] || null;
+}
+
+/**
+ * Server-compatible: fetch reference image as base64 from Supabase public URL.
+ * Used when import.meta.glob (Vite/browser) is unavailable.
+ */
+export async function fetchReferenceImageContentForGemini(referenceId: string): Promise<string | null> {
+  const metadata = REFERENCE_IMAGE_REGISTRY.find(r => r.id === referenceId);
+  if (!metadata?.url) return null;
+  try {
+    const response = await fetch(metadata.url);
+    if (!response.ok) return null;
+    const buffer = await response.arrayBuffer();
+    return Buffer.from(buffer).toString('base64');
+  } catch (err) {
+    log.error('Failed to fetch Gemini reference from URL', { referenceId, err: err instanceof Error ? err.message : String(err) });
+    return null;
+  }
+}
+
+/**
+ * Server-compatible: return the Supabase public URL for a reference image.
+ * Grok takes URLs directly, so no HTTP fetch needed.
+ */
+export async function fetchReferenceImageContentForGrok(referenceId: string): Promise<string | null> {
+  const metadata = REFERENCE_IMAGE_REGISTRY.find(r => r.id === referenceId);
+  return metadata?.url || null;
 }
 
 /**

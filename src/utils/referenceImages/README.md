@@ -176,6 +176,31 @@ Highest score wins.
 
 ---
 
+## Server-Side Context (Telegram / Node.js)
+
+`import.meta.glob` only works in Vite (browser). When this code runs server-side:
+
+- `imageModules` is empty → `REFERENCE_IMAGE_CONTENT_GEMINI` stays `{}`
+- Registry still builds from `config.json` fallback (metadata only)
+- `getReferenceImageContentForGemini` returns `null` for every ID
+
+**Two content function families exist for this reason:**
+
+| Sync (Vite/browser) | Async (server fallback) |
+|---------------------|------------------------|
+| `getReferenceImageContentForGemini(id)` | `fetchReferenceImageContentForGemini(id)` |
+| `getReferenceImageContentForGrok(id)` | `fetchReferenceImageContentForGrok(id)` |
+
+The `fetch...` variants bypass the content map entirely:
+- Gemini: fetches the Supabase URL and returns base64
+- Grok: returns `metadata.url` directly (no HTTP fetch needed)
+
+Callers should use: `syncFn(id) ?? await fetchFn(id)`
+
+## Dual-Provider Rule
+
+**Any new content function or lookup path must be added for BOTH Gemini and Grok.**
+
 ## Troubleshooting
 
 ### Image not appearing
