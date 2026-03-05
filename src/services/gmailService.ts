@@ -437,6 +437,95 @@ class GmailService extends EventTarget {
     console.log(`[GmailService] ✅ Reply sent to ${to} in thread ${threadId}`);
     return true;
   }
+
+  // ==========================================================================
+  // SEARCH EMAILS
+  // ==========================================================================
+
+  /**
+   * Searches Gmail inbox using Gmail search syntax (same as the Gmail search bar).
+   * Returns structured results with dates for the LLM to reason about recency.
+   */
+  async searchEmails(
+    accessToken: string,
+    query: string,
+    maxResults: number = 5
+  ): Promise<GmailSearchResult[]> {
+    const clampedMax = Math.min(Math.max(maxResults, 1), 10);
+    this.log.info('searchEmails', { query, maxResults: clampedMax });
+
+    // 1. List matching message IDs
+    const listResponse = await fetch(
+      `${this.apiBase}/messages?q=${encodeURIComponent(query)}&maxResults=${clampedMax}`,
+      { headers: { Authorization: `Bearer ${accessToken}` } }
+    );
+
+    if (!listResponse.ok) {
+      this.log.warning('searchEmails list failed', { status: listResponse.status });
+      throw new Error(`Gmail search failed: ${listResponse.statusText}`);
+    }
+
+    const listData = await listResponse.json();
+    const messages: Array<{ id: string; threadId: string }> = listData.messages || [];
+
+    if (messages.length === 0) return [];
+
+    // 2. Fetch metadata + snippet for each result
+    const results: GmailSearchResult[] = [];
+
+    for (const msg of messages) {
+      try {
+        const msgResponse = await fetch(
+          `${this.apiBase}/messages/${msg.id}?format=metadata&metadataHeaders=From&metadataHeaders=Subject&metadataHeaders=Date`,
+          { headers: { Authorization: `Bearer ${accessToken}` } }
+        );
+
+        if (!msgResponse.ok) continue;
+
+        const msgData = await msgResponse.json();
+        const headers = msgData.payload?.headers || [];
+        const getHeader = (name: string) =>
+          headers.find((h: any) => h.name === name)?.value || '';
+
+        const result: GmailSearchResult = {
+          messageId: msgData.id,
+          threadId: msgData.threadId || '',
+          from: getHeader('From'),
+          subject: getHeader('Subject'),
+          date: getHeader('Date'),
+          snippet: msgData.snippet || '',
+        };
+
+        // Fetch body for the first result only (to keep token usage reasonable)
+        if (results.length === 0) {
+          const body = await this.fetchMessageBody(accessToken, msg.id);
+          if (body) {
+            result.body = body.length > 800 ? body.slice(0, 800) + '...' : body;
+          }
+        }
+
+        results.push(result);
+      } catch (err) {
+        this.log.warning('searchEmails fetch message failed', {
+          messageId: msg.id,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+
+    this.log.info('searchEmails complete', { query, resultsCount: results.length });
+    return results;
+  }
+}
+
+export interface GmailSearchResult {
+  messageId: string;
+  threadId: string;
+  from: string;
+  subject: string;
+  date: string;
+  snippet: string;
+  body?: string;
 }
 
 // Create a single instance that the whole app can use

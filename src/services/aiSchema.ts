@@ -917,6 +917,12 @@ export type DelegateToEngineeringArgs = z.infer<typeof DelegateToEngineeringSche
 export type EngineeringTicketStatusArgs = z.infer<typeof EngineeringTicketStatusSchema>;
 export type SubmitClarificationArgs = z.infer<typeof SubmitClarificationSchema>;
 
+export const GmailSearchSchema = z.object({
+  query: z.string().describe("Gmail search query"),
+  max_results: z.number().optional().describe("Max results, default 5"),
+});
+export type GmailSearchArgs = z.infer<typeof GmailSearchSchema>;
+
 // Union type for all memory tool arguments
 export type MemoryToolArgs =
   | { tool: "recall_memory"; args: RecallMemoryArgs }
@@ -1011,7 +1017,8 @@ export type MemoryToolArgs =
           | "full";
         reason?: string;
       };
-    };
+    }
+  | { tool: "gmail_search"; args: GmailSearchArgs };
 
 // ============================================
 // Function Declarations for AI Providers
@@ -2109,6 +2116,33 @@ export const GeminiMemoryToolDeclarations = [
         },
       },
       required: ["id", "status"],
+    },
+  },
+  {
+    name: "gmail_search",
+    description:
+      "Search Steven's Gmail inbox. Use when Steven asks to check, find, or look for an email. " +
+      "Returns matching emails with dates — use the dates to judge recency. " +
+      "If results are old or don't match what Steven expects, say so honestly. " +
+      "Query uses Gmail search syntax (e.g., 'from:procare', 'subject:daily summary'). " +
+      "IMPORTANT: Prefer simple keyword queries (e.g., 'atmos energy') over from: filters. " +
+      "Gmail's from: operator is unreliable with partial matches — a keyword search matches subject, body, AND sender.",
+    parameters: {
+      type: "object",
+      properties: {
+        query: {
+          type: "string",
+          description:
+            "Gmail search query. Prefer plain keywords (e.g., 'atmos energy', 'procare mila') " +
+            "which search all fields. Use from:/subject: only when you know the exact sender address. " +
+            "Add newer_than:1d to scope to recent emails.",
+        },
+        max_results: {
+          type: "number",
+          description: "Max emails to return (default 5, max 10)",
+        },
+      },
+      required: ["query"],
     },
   },
 ];

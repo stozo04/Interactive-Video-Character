@@ -1224,7 +1224,8 @@ export type MemoryToolName =
   | 'retrieve_mila_notes'
   | 'resolve_x_tweet'
   | 'post_x_tweet'
-  | 'resolve_x_mention';
+  | 'resolve_x_mention'
+  | 'gmail_search';
 
 /**
  * Optional context passed to tool execution (e.g., access tokens)
@@ -1441,6 +1442,10 @@ export interface ToolCallArgs {
     section: 'background' | 'interests' | 'relationships' | 'challenges' |
              'quirks' | 'goals' | 'preferences' | 'anecdotes' | 'routines' | 'full';
     reason?: string;
+  };
+  gmail_search: {
+    query: string;
+    max_results?: number;
   };
 }
 
@@ -2676,6 +2681,26 @@ export const executeMemoryTool = async (
         }
 
         return `Unknown resolve_x_mention status: ${status}`;
+      }
+      case 'gmail_search': {
+        const { query, max_results } = args as ToolCallArgs['gmail_search'];
+        if (!context?.googleAccessToken) {
+          return formatToolFailure('Gmail not connected. Ask Steven to connect Gmail.');
+        }
+        const { gmailService } = await import('./gmailService');
+        const results = await gmailService.searchEmails(
+          context.googleAccessToken,
+          query,
+          max_results ?? 5
+        );
+        if (results.length === 0) {
+          return 'No emails found matching that search.';
+        }
+        return results.map((r, i) =>
+          `[${i + 1}] From: ${r.from} | Subject: ${r.subject} | Date: ${r.date}\n` +
+          `    Snippet: ${r.snippet}` +
+          (r.body ? `\n    Body: ${r.body}` : '')
+        ).join('\n\n');
       }
       // TODO: CHARACTER_FACTS
       default:
