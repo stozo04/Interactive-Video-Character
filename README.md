@@ -27,7 +27,7 @@
 
 - **Task Management** - Create and track daily tasks to stay on top of your checklist. Your AI helps you stay accountable and on track.
 
-- **Gmail & Calendar Integration** - View calendar events, add/edit/remove appointments, and stay on top of your schedule through natural conversation.
+- **Gmail & Calendar Integration** - Search your inbox on demand ("Did I get a Procare email about Mila?"), view calendar events, add/edit/remove appointments, and stay on top of your schedule through natural conversation.
 
 - **Autonomous Selfies** - Your AI knows when to send selfies based on context and mood, with consistent character appearance powered by AI image generation.
 

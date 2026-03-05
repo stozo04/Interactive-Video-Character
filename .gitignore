@@ -37,6 +37,8 @@ server/.restart-trigger
 dist-ssr
 *.local
 
+*.har
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
