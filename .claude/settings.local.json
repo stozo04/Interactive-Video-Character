@@ -66,7 +66,17 @@
       "Bash(python:*)",
       "Bash(python3:*)",
       "Bash(where:*)",
-      "Bash(cmd.exe:*)"
+      "Bash(cmd.exe:*)",
+      "WebFetch(domain:medium.com)",
+      "WebFetch(domain:ai.google.dev)",
+      "WebFetch(domain:www.philschmid.de)",
+      "WebFetch(domain:wmedia.es)",
+      "WebFetch(domain:composio.dev)",
+      "WebFetch(domain:dev.to)",
+      "WebFetch(domain:geminibyexample.com)",
+      "WebFetch(domain:www.ikangai.com)",
+      "WebFetch(domain:arxiv.org)",
+      "WebFetch(domain:blog.langchain.com)"
     ]
   },
   "enabledPlugins": {
