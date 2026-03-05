@@ -173,6 +173,52 @@ POTENTIAL CONCERNS:
 
 ---
 
+## Logging & Documentation Standards
+
+### Logging by Directory
+
+**`server/**` code** — Always import and use `server/runtimeLogger.ts`:
+```typescript
+import { log } from '../../server/runtimeLogger'; // adjust path as needed
+
+const ctxLog = log.fromContext({ source: 'filename.ts', ticketId: '...' });
+ctxLog.info('Event happened', { detail: 'value' });
+ctxLog.warning('Unexpected condition', { context: 'details' });
+ctxLog.error('Operation failed', { error: err.message });
+```
+
+**`src/**` code** — Always import and use `src/services/clientLogger.ts`:
+```typescript
+import { clientLogger } from './clientLogger';
+
+const log = clientLogger.scoped('ServiceName');
+log.info('Event happened', { detail: 'value' });
+log.warning('Unexpected condition', { context: 'details' });
+log.error('Operation failed', { error: err.message });
+```
+
+**Never use bare `console.log()` in production code** — it only appears in terminal/DevTools and disappears. Logs must go to `server_runtime_logs` table.
+
+### Lessons Learned
+
+After each session, if you've discovered or implemented anything non-trivial, document it:
+
+**Option 1:** Update `C:\Users\gates\.claude\projects\C--Users-gates-Personal-Interactive-Video-Character\memory\MEMORY.md`
+- Best for: patterns, gotchas, architectural insights worth remembering across future sessions
+- Keeps this project's collective knowledge in one place
+
+**Option 2:** Create a new file in `server/agent/opey-dev/lessons_learned/YYYY-MM-DD_<brief-description>.md`
+- Best for: detailed post-mortems, specific bugs fixed, non-obvious discoveries
+- Concatenated and injected into every Opey prompt automatically
+
+**What to include:**
+- Surprising findings (things that violated your assumption)
+- Gotchas and traps (things that failed before you got it right)
+- Non-obvious conventions (patterns you had to learn by reading code)
+- Skip obvious things, skip boilerplate
+
+---
+
 ## Failure Modes to Avoid
 
 1. Making wrong assumptions without checking  
