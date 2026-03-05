@@ -204,6 +204,7 @@ export async function processUserMessage(input: OrchestratorInput): Promise<Orch
         `  Thread ID  : ${pendingEmail.threadId}`,
         `  From       : ${pendingEmail.from}`,
         `  Subject    : ${pendingEmail.subject}`,
+        `  Body       : ${(pendingEmail.body?.trim() || pendingEmail.snippet?.trim() || '(no body)').slice(0, 600)}`,
         ``,
         `Based on Steven's reply, set email_action.action to:`,
         `  "archive"  — if he wants it archived/removed from inbox`,
