@@ -7,6 +7,23 @@
 
 const BASE_URL = 'https://www.googleapis.com/calendar/v3';
 
+export enum CalendarServiceErrorKind {
+  RateLimit = 'rate_limit',
+}
+
+export class CalendarServiceError extends Error {
+  kind: CalendarServiceErrorKind;
+  retryAfterMs?: number;
+  status?: number;
+
+  constructor(message: string, kind: CalendarServiceErrorKind, options?: { retryAfterMs?: number; status?: number }) {
+    super(message);
+    this.kind = kind;
+    this.retryAfterMs = options?.retryAfterMs;
+    this.status = options?.status;
+  }
+}
+
 export interface CalendarEvent {
   id: string;
   summary: string;
@@ -47,6 +64,48 @@ export interface NewEventPayload {
  * Event-driven architecture for Calendar service
  */
 class CalendarService extends EventTarget {
+  private rateLimitCooldownUntil = 0;
+  private rateLimitBackoffMs = 0;
+  private readonly rateLimitBaseMs = 30_000;
+  private readonly rateLimitMaxMs = 5 * 60_000;
+
+  private isRateLimitError(payload: unknown): boolean {
+    if (!payload || typeof payload !== 'object') return false;
+    const errorPayload = payload as {
+      error?: {
+        status?: string;
+        errors?: Array<{ reason?: string }>;
+        details?: Array<{ reason?: string }>;
+      };
+    };
+
+    const error = errorPayload.error;
+    const errorReason = error?.errors?.[0]?.reason;
+    const detailReason = error?.details?.[0]?.reason;
+
+    return (
+      errorReason === 'rateLimitExceeded' ||
+      detailReason === 'RATE_LIMIT_EXCEEDED' ||
+      error?.status === 'PERMISSION_DENIED'
+    );
+  }
+
+  private getRetryAfterMs(response: Response): number | undefined {
+    const retryAfterSeconds = response.headers.get('Retry-After');
+    if (!retryAfterSeconds) return undefined;
+    const parsed = Number(retryAfterSeconds);
+    if (Number.isNaN(parsed)) return undefined;
+    return Math.max(0, parsed * 1000);
+  }
+
+  private enterRateLimitCooldown(retryAfterMs?: number): number {
+    const nextBackoff = this.rateLimitBackoffMs
+      ? Math.min(this.rateLimitBackoffMs * 2, this.rateLimitMaxMs)
+      : this.rateLimitBaseMs;
+    this.rateLimitBackoffMs = retryAfterMs ?? nextBackoff;
+    this.rateLimitCooldownUntil = Date.now() + this.rateLimitBackoffMs;
+    return this.rateLimitBackoffMs;
+  }
 
   private filterValidEvents(events: CalendarEvent[]): CalendarEvent[] {
     return events.filter(event => {
@@ -71,6 +130,15 @@ class CalendarService extends EventTarget {
    */
   async getEvents(accessToken: string, timeMin: string, timeMax: string, maxResults: number = 25): Promise<CalendarEvent[]> {
     try {
+      if (Date.now() < this.rateLimitCooldownUntil) {
+        const retryAfterMs = Math.max(0, this.rateLimitCooldownUntil - Date.now());
+        throw new CalendarServiceError(
+          `Calendar API rate limited. Retry after ${Math.ceil(retryAfterMs / 1000)}s.`,
+          CalendarServiceErrorKind.RateLimit,
+          { retryAfterMs }
+        );
+      }
+
       const params = new URLSearchParams({
         calendarId: "primary",
         timeMin: timeMin,
@@ -99,8 +167,25 @@ class CalendarService extends EventTarget {
       }
 
       if (!response.ok) {
-        const errorText = await response.text();
+        let errorText = '';
+        let errorJson: unknown = null;
+        try {
+          errorJson = await response.json();
+          errorText = JSON.stringify(errorJson);
+        } catch {
+          errorText = await response.text();
+        }
         console.error("Calendar API error:", response.status, errorText);
+
+        if (response.status === 403 && this.isRateLimitError(errorJson)) {
+          const retryAfterMs = this.getRetryAfterMs(response);
+          const cooldownMs = this.enterRateLimitCooldown(retryAfterMs);
+          throw new CalendarServiceError(
+            `Calendar API rate limited. Retry after ${Math.ceil(cooldownMs / 1000)}s.`,
+            CalendarServiceErrorKind.RateLimit,
+            { retryAfterMs: cooldownMs, status: response.status }
+          );
+        }
         throw new Error(
           `Failed to fetch calendar events: ${response.statusText}`
         );
@@ -109,6 +194,8 @@ class CalendarService extends EventTarget {
       const data = await response.json();
       const rawEvents: CalendarEvent[] = data.items || [];
       const events = this.filterValidEvents(rawEvents);
+      this.rateLimitBackoffMs = 0;
+      this.rateLimitCooldownUntil = 0;
       // console.log(`📅 Fetched ${events.length} valid events between ${timeMin} and ${timeMax}`);
       return events;
     } catch (error) {

@@ -14,6 +14,10 @@ import { bot, getStevenChatId } from './telegramClient';
 import { supabaseAdmin as supabase } from '../services/supabaseAdmin';
 import { getTokenAgeDays } from '../services/googleTokenService';
 import { log } from '../runtimeLogger';
+import {
+  appendConversationHistory,
+  getTodaysInteractionId,
+} from '../../src/services/conversationHistoryService';
 
 const LOG_PREFIX = '[EmailBridge]';
 const runtimeLog = log.fromContext({ source: 'telegramEmailBridge', route: 'telegram/email' });
@@ -133,10 +137,28 @@ async function pollPendingEmails(): Promise<void> {
         .update({ whatsapp_sent_at: new Date().toISOString() })
         .eq('id', row.id);
 
+      // Persist the announcement to conversation_history so the LLM remembers
+      // it announced this email on the next user turn.
+      const interactionId = await getTodaysInteractionId();
+      const bridgeLogId = crypto.randomUUID();
+      // NO TOKENS CAPTURED - NO LLM
+      appendConversationHistory(
+        [{ role: 'model', text: row.kayley_summary }],
+        interactionId ?? undefined,
+        bridgeLogId,
+      ).catch((err) => {
+        runtimeLog.error('Failed to persist email announcement to conversation_history', {
+          source: 'telegramEmailBridge',
+          gmailMessageId: row.gmail_message_id,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      });
+
       console.log(`${LOG_PREFIX} Forwarded email notification to Telegram:`, row.gmail_message_id);
       runtimeLog.info('Email notification forwarded to Telegram', {
         source: 'telegramEmailBridge',
         gmailMessageId: row.gmail_message_id,
+        bridgeLogId,
       });
     } catch (err) {
       runtimeLog.error('Failed to forward email notification', {

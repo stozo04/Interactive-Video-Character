@@ -114,7 +114,12 @@ class GmailService extends EventTarget {
           // The API query already guarantees INBOX membership (labelId=INBOX).
           // If labelIds is still absent for some reason, let the message through
           // rather than silently dropping it — that was the original bug.
-          if (!labels.length) return true;
+          if (!labels.length) {
+            this.log.info('message has empty labelIds in history record — passing through filter', {
+              messageId: item.message.id,
+            });
+            return true;
+          }
 
           // IMPORTANT overrides category filtering — if Gmail flagged it as
           // important, surface it regardless of category (e.g. CATEGORY_UPDATES).
@@ -225,10 +230,16 @@ class GmailService extends EventTarget {
 
           if (!headers) {
             skippedParts += 1;
+            // data.error means Gmail returned an API error for this message in the batch
+            // (e.g. 404 Not Found — message not yet indexed, timing race with History API)
             this.log.warning('batch part missing headers', {
               messageId: data?.id ?? null,
               hasPayload: !!data?.payload,
+              errorCode: data?.error?.code ?? null,
+              errorMessage: data?.error?.message ?? null,
             });
+            // Queue for individual retry if we have an ID (transient 404 race)
+            if (data?.id) failedIds.push(data.id);
             continue;
           }
 
@@ -429,12 +440,18 @@ class GmailService extends EventTarget {
     );
 
     if (!response.ok) {
-      const err = await response.text();
-      console.error(`[GmailService] Send reply failed: ${response.statusText}`, err);
+      const errBody = await response.text();
+      this.log.error('sendReply failed', {
+        status: response.status,
+        statusText: response.statusText,
+        to,
+        threadId: threadId ?? null,
+        responseBody: errBody.substring(0, 500),
+      });
       return false;
     }
 
-    console.log(`[GmailService] ✅ Reply sent to ${to} in thread ${threadId}`);
+    this.log.info('sendReply succeeded', { to, threadId: threadId ?? null });
     return true;
   }
 

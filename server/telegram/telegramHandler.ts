@@ -507,11 +507,45 @@ async function executeTelegramEmailAction(
     });
   }
 
+  if (!success) {
+    // Don't burn the DB row — leave it as 'pending' so the user can retry.
+    runtimeLog.warning('Email action failed, row left as pending for retry', {
+      source: 'telegramHandler',
+      action,
+      gmailMessageId: row.gmail_message_id,
+    });
+    if (chatId) {
+      await bot.api.sendMessage(
+        chatId,
+        `Hmm, something went wrong trying to ${action} that email — it didn't go through. Want me to try again?`
+      ).catch(() => {});
+    }
+    return;
+  }
+
   const dbAction = action === 'dismiss' ? 'dismissed' : action;
-  await supabase
+  const { error: updateError } = await supabase
     .from('kayley_email_actions')
     .update({ action_taken: dbAction, actioned_at: new Date().toISOString() })
     .eq('id', row.id);
+
+  if (updateError) {
+    runtimeLog.error('Failed to update kayley_email_actions after successful action', {
+      source: 'telegramHandler',
+      action,
+      dbAction,
+      gmailMessageId: row.gmail_message_id,
+      rowId: row.id,
+      error: updateError.message,
+    });
+  } else {
+    runtimeLog.info('Email action DB row updated', {
+      source: 'telegramHandler',
+      action,
+      dbAction,
+      rowId: row.id,
+    });
+  }
 
   // After successful archive: offer auto-archive rule
   if (action === 'archive' && success) {
@@ -611,15 +645,26 @@ export async function handleTelegramMessage(ctx: Context): Promise<void> {
     runtimeLog.info('Message processing completed', {
       source: 'telegramHandler',
       messageId,
+      conversationLogId: result.conversationLogId ?? null,
       success: result.success,
       hasText: !!result.chatMessages?.[0]?.text,
       hasSelfie: !!result.selfieImage,
       hasGif: !!result.gifQuery,
+      total_tokens: result.tokenUsage?.total_tokens ?? null,
+      total_input_tokens: result.tokenUsage?.total_input_tokens ?? null,
+      total_output_tokens: result.tokenUsage?.total_output_tokens ?? null,
+      total_thought_tokens: result.tokenUsage?.total_thought_tokens ?? null,
     });
 
     // Execute email action if detected
     if (result.detectedEmailAction && pendingEmailData) {
       const { action, reply_body } = result.detectedEmailAction;
+      runtimeLog.info('Executing email action', {
+        source: 'telegramHandler',
+        conversationLogId: result.conversationLogId ?? null,
+        action,
+        gmailMessageId: pendingEmailData.row.gmail_message_id,
+      });
       void executeTelegramEmailAction(action, reply_body, pendingEmailData.row, pendingEmailData.email);
     }
 

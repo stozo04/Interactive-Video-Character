@@ -10,6 +10,8 @@
 import { useState, useCallback, Dispatch, SetStateAction } from 'react';
 import {
   calendarService,
+  CalendarServiceError,
+  CalendarServiceErrorKind,
   type CalendarEvent,
 } from '../services/calendarService';
 import {
@@ -32,6 +34,101 @@ import type { ProactiveSettings } from '../types';
 const CALENDAR_POLL_INTERVAL = 5 * 60 * 1000; // 5 minutes
 const CHECKIN_CHECK_INTERVAL = 2 * 60 * 1000; // 2 minutes
 const INITIAL_CHECKIN_DELAY = 30000; // 30 seconds
+
+const isCalendarRateLimitError = (error: unknown): error is CalendarServiceError => {
+  return error instanceof CalendarServiceError && error.kind === CalendarServiceErrorKind.RateLimit;
+};
+
+
+type CalendarPollSubscriber = {
+  setUpcomingEvents: Dispatch<SetStateAction<CalendarEvent[]>>;
+  setWeekEvents: Dispatch<SetStateAction<CalendarEvent[]>>;
+};
+
+const createCalendarPoller = () => {
+  const subscribers = new Set<CalendarPollSubscriber>();
+  let accessToken: string | null = null;
+  let upcomingIntervalId: NodeJS.Timeout | null = null;
+  let weekIntervalId: NodeJS.Timeout | null = null;
+
+  const setAccessToken = (token: string) => {
+    if (accessToken !== token) {
+      accessToken = token;
+    }
+  };
+
+  const notifyUpcoming = (events: CalendarEvent[]) => {
+    subscribers.forEach(subscriber => subscriber.setUpcomingEvents(events));
+  };
+
+  const notifyWeek = (events: CalendarEvent[]) => {
+    subscribers.forEach(subscriber => subscriber.setWeekEvents(events));
+  };
+
+  const pollUpcoming = async () => {
+    if (!accessToken) return;
+    try {
+      const events = await calendarService.getUpcomingEvents(accessToken);
+      notifyUpcoming(events);
+    } catch (e) {
+      if (isCalendarRateLimitError(e)) {
+        console.warn(`[useCalendar] Calendar poll rate limited. Retry after ${Math.ceil((e.retryAfterMs ?? 0) / 1000)}s.`);
+        return;
+      }
+      console.error('[useCalendar] Calendar poll failed:', e);
+    }
+  };
+
+  const pollWeek = async () => {
+    if (!accessToken) return;
+    try {
+      const events = await calendarService.getWeekEvents(accessToken);
+      notifyWeek(events);
+      cleanupOldCheckins(events.map(e => e.id));
+    } catch (e) {
+      if (isCalendarRateLimitError(e)) {
+        console.warn(`[useCalendar] Week calendar poll rate limited. Retry after ${Math.ceil((e.retryAfterMs ?? 0) / 1000)}s.`);
+        return;
+      }
+      console.error('[useCalendar] Week calendar poll failed:', e);
+    }
+  };
+
+  const start = () => {
+    if (upcomingIntervalId || weekIntervalId) return;
+    pollUpcoming();
+    pollWeek();
+    upcomingIntervalId = setInterval(pollUpcoming, CALENDAR_POLL_INTERVAL);
+    weekIntervalId = setInterval(pollWeek, CALENDAR_POLL_INTERVAL);
+  };
+
+  const stop = () => {
+    if (upcomingIntervalId) {
+      clearInterval(upcomingIntervalId);
+      upcomingIntervalId = null;
+    }
+    if (weekIntervalId) {
+      clearInterval(weekIntervalId);
+      weekIntervalId = null;
+    }
+  };
+
+  const subscribe = (subscriber: CalendarPollSubscriber, token: string) => {
+    subscribers.add(subscriber);
+    setAccessToken(token);
+    start();
+    return () => {
+      subscribers.delete(subscriber);
+      if (subscribers.size === 0) {
+        stop();
+      }
+    };
+  };
+
+  return { subscribe, setAccessToken };
+};
+
+const calendarPoller = createCalendarPoller();
 
 /**
  * Options for the useCalendar hook
@@ -263,56 +360,26 @@ export function useCalendar(options: UseCalendarOptions): UseCalendarResult {
    * Returns a cleanup function that should be called on unmount
    */
   const registerCalendarEffects = useCallback((): (() => void) => {
-    const intervalIds: NodeJS.Timeout[] = [];
-    const timeoutIds: NodeJS.Timeout[] = [];
-
     if (!session || !isAuthConnected) {
-      // console.log('📅 [useCalendar] No session, skipping calendar effects');
+      // console.log('[useCalendar] No session, skipping calendar effects');
       return () => {};
     }
 
     const accessToken = session.accessToken;
+    calendarPoller.setAccessToken(accessToken);
 
-    // Poll upcoming events
-    const pollUpcoming = async () => {
-      try {
-        // console.log('📅 [useCalendar] Polling upcoming events...');
-        const events = await calendarService.getUpcomingEvents(accessToken);
-        setUpcomingEvents(events);
-      } catch (e) {
-        console.error('📅 [useCalendar] Calendar poll failed:', e);
-      }
-    };
+    const unsubscribe = calendarPoller.subscribe(
+      {
+        setUpcomingEvents,
+        setWeekEvents,
+      },
+      accessToken
+    );
 
-    // Poll week events
-    const pollWeekEvents = async () => {
-      try {
-        // console.log('📅 [useCalendar] Polling week events...');
-        const events = await calendarService.getWeekEvents(accessToken);
-        setWeekEvents(events);
-        cleanupOldCheckins(events.map(e => e.id));
-      } catch (e) {
-        console.error('📅 [useCalendar] Week calendar poll failed:', e);
-      }
-    };
-
-    // Start polling immediately
-    pollUpcoming();
-    pollWeekEvents();
-
-    // Set up intervals
-    intervalIds.push(setInterval(pollUpcoming, CALENDAR_POLL_INTERVAL));
-    intervalIds.push(setInterval(pollWeekEvents, CALENDAR_POLL_INTERVAL));
-
-    // console.log('📅 [useCalendar] Calendar effects registered');
-
-    // Return cleanup function
     return () => {
-      // console.log('📅 [useCalendar] Cleaning up calendar effects');
-      intervalIds.forEach(clearInterval);
-      timeoutIds.forEach(clearTimeout);
+      unsubscribe();
     };
-  }, [session, isAuthConnected]);
+  }, [session, isAuthConnected, setUpcomingEvents, setWeekEvents]);
 
   return {
     upcomingEvents,

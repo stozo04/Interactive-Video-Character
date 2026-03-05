@@ -483,6 +483,8 @@ export async function processUserMessage(input: OrchestratorInput): Promise<Orch
 
     result.stage = ProcessingStage.COMPLETE;
     result.success = true;
+    result.conversationLogId = aiResult.conversationLogId;
+    result.tokenUsage = aiResult.tokenUsage;
 
     // Chat message
     result.chatMessages = [

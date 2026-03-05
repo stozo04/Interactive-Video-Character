@@ -642,7 +642,26 @@ async function executeWAEmailAction(
     });
   }
 
-  // Update DB regardless — mark actioned so the row stops being injected
+  if (!success) {
+    runtimeLog.warning('WA email action failed, row left as pending for retry', {
+      source: 'whatsappHandler',
+      action,
+      rowId: row.id,
+      gmailMessageId: row.gmail_message_id,
+    });
+    try {
+      const sock = (await import('./baileyClient')).getActiveSock();
+      const stevenJid = process.env.WHATSAPP_STEVEN_JID;
+      if (sock && stevenJid) {
+        await sock.sendMessage(stevenJid, {
+          text: `Hmm, something went wrong trying to ${action} that email — it didn't go through. Want me to try again?`,
+        });
+      }
+    } catch { /* best-effort */ }
+    return;
+  }
+
+  // Only mark actioned after confirmed success
   const dbAction = action === 'dismiss' ? 'dismissed' : action;
   const { error: updateErr } = await supabase
     .from('kayley_email_actions')
@@ -653,20 +672,20 @@ async function executeWAEmailAction(
     .eq('id', row.id);
 
   if (updateErr) {
-    runtimeLog.error('Failed to update email action in DB', {
+    runtimeLog.error('Failed to update kayley_email_actions after successful action', {
       source: 'whatsappHandler',
       id: row.id,
+      action,
       error: updateErr.message,
     });
+  } else {
+    runtimeLog.info('WA email action executed', {
+      source: 'whatsappHandler',
+      action,
+      dbAction,
+      gmailMessageId: row.gmail_message_id,
+    });
   }
-
-  runtimeLog.info('WA email action executed', {
-    source: 'whatsappHandler',
-    action,
-    dbAction,
-    gmailMessageId: row.gmail_message_id,
-    success,
-  });
 
   // After a successful archive: offer to add the sender to the auto-archive list
   // (but only if they're not already on it)
