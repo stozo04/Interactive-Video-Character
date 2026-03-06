@@ -1,3 +1,17 @@
+// server/agent/opey-dev/ticketStore.ts
+//
+// Supabase client for Opey — uses the ANON key, not the service role key.
+//
+// What this enforces at the database level:
+//   - Opey can SELECT, INSERT, UPDATE (same as before)
+//   - Opey CANNOT DELETE from brain tables (enforced by the
+//     20260306_agent_no_delete_policy.sql migration, not by this code)
+//   - Opey has no access to secrets/credentials tables (anon key + RLS)
+//
+// The service role key (SUPABASE_SERVICE_ROLE_KEY) is intentionally
+// NOT used here. Even if Claude Code running inside Opey writes code
+// that tries to call ticketStore methods, it operates within anon limits.
+
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { EngineeringTicket, EngineeringTicketStatus } from './types';
 import { log } from '../../runtimeLogger';
@@ -5,8 +19,17 @@ import { log } from '../../runtimeLogger';
 export class SupabaseTicketStore {
   private supabase: SupabaseClient;
 
-  constructor(url: string, key: string) {
-    this.supabase = createClient(url, key);
+  constructor() {
+    const url = process.env.VITE_SUPABASE_URL ?? process.env.SUPABASE_URL ?? '';
+    const anonKey = process.env.SUPABASE_ANON_KEY ?? '';
+
+    if (!url || !anonKey) {
+      log.error('SupabaseTicketStore: missing VITE_SUPABASE_URL / SUPABASE_ANON_KEY', {
+        source: 'ticketStore.ts',
+      });
+    }
+
+    this.supabase = createClient(url, anonKey);
   }
 
   /**
@@ -22,32 +45,25 @@ export class SupabaseTicketStore {
         .limit(1)
         .single();
 
-      if (error && error.code !== 'PGRST116') { // PGRST116 is "no rows found"
-        log.error("Error fetching next ticket", {
-          source: "ticketStore.ts",
+      if (error && error.code !== 'PGRST116') { // PGRST116 = no rows found
+        log.error('Error fetching next ticket', {
+          source: 'ticketStore.ts',
           error: error.message,
           code: error.code,
         });
       }
       return data || null;
     } catch (err) {
-      
-      const message = err instanceof Error ? err.message : "Unknown error";
+      const message = err instanceof Error ? err.message : 'Unknown error';
       const isNetworkError = message.includes('fetch failed') || message.includes('ECONNREFUSED');
-      if (isNetworkError) {
-        // Don't spam — emit at most once per N minutes
-        return null; // treat as "no ticket available"
-      }
-      log.critical("Failed to fetch next ticket", {
-        source: "ticketStore.ts",
-        error: message,
-      });
+      if (isNetworkError) return null;
+      log.critical('Failed to fetch next ticket', { source: 'ticketStore.ts', error: message });
       throw err;
     }
   }
 
   /**
-   * Updates the ticket status and handles metadata like PR URLs or errors.
+   * Updates ticket status and optional metadata fields.
    */
   async updateStatus(
     ticketId: string,
@@ -55,9 +71,9 @@ export class SupabaseTicketStore {
     details?: { prUrl?: string; failureReason?: string; worktreePath?: string; branch?: string; clarificationQuestions?: string }
   ): Promise<void> {
     try {
-      const updates: any = {
+      const updates: Record<string, unknown> = {
         status,
-        updated_at: new Date().toISOString()
+        updated_at: new Date().toISOString(),
       };
 
       if (details?.prUrl) updates.final_pr_url = details.prUrl;
@@ -72,15 +88,11 @@ export class SupabaseTicketStore {
         .eq('id', ticketId);
 
       if (error) throw new Error(`Failed to update ticket ${ticketId}: ${error.message}`);
-      log.info("Updated ticket status", {
-        source: "ticketStore.ts",
-        ticketId,
-        status,
-      });
+      log.info('Updated ticket status', { source: 'ticketStore.ts', ticketId, status });
     } catch (err) {
-      const message = err instanceof Error ? err.message : "Unknown error";
-      log.error("Failed to update ticket status", {
-        source: "ticketStore.ts",
+      const message = err instanceof Error ? err.message : 'Unknown error';
+      log.error('Failed to update ticket status', {
+        source: 'ticketStore.ts',
         ticketId,
         status,
         error: message,
@@ -90,12 +102,8 @@ export class SupabaseTicketStore {
   }
 
   /**
-   * Records a step or lifecycle event that happened during ticket processing.
-   * Writes to the engineering_ticket_events table so the UI can show a live
-   * activity feed of everything Opey did on a ticket.
-   *
-   * This method intentionally never throws — event tracking is observability,
-   * not critical path. A failed insert should never crash the agent.
+   * Records a lifecycle event for a ticket.
+   * Intentionally never throws — event tracking is observability, not critical path.
    */
   async addEvent(
     ticketId: string,
@@ -117,16 +125,16 @@ export class SupabaseTicketStore {
         });
 
       if (error) {
-        log.error("Failed to insert ticket event", {
-          source: "ticketStore.ts",
+        log.error('Failed to insert ticket event', {
+          source: 'ticketStore.ts',
           ticketId,
           eventType,
           error: error.message,
         });
       }
     } catch (err) {
-      log.error("Failed to insert ticket event", {
-        source: "ticketStore.ts",
+      log.error('Failed to insert ticket event', {
+        source: 'ticketStore.ts',
         ticketId,
         eventType,
         error: String(err),
@@ -135,7 +143,7 @@ export class SupabaseTicketStore {
   }
 
   /**
-   * For the "Scout" script to drop new work into the queue.
+   * Creates a new ticket in the queue (used by the Scout script).
    */
   async createTicket(ticket: Partial<EngineeringTicket>): Promise<void> {
     try {
@@ -149,17 +157,10 @@ export class SupabaseTicketStore {
         }]);
 
       if (error) throw new Error(`Failed to create ticket: ${error.message}`);
-      log.info("Created ticket", {
-        source: "ticketStore.ts",
-        ticketId: ticket.id,
-        status: "created",
-      });
+      log.info('Created ticket', { source: 'ticketStore.ts', ticketId: ticket.id, status: 'created' });
     } catch (err) {
-      const message = err instanceof Error ? err.message : "Unknown error";
-      log.error("Failed to create ticket", {
-        source: "ticketStore.ts",
-        error: message,
-      });
+      const message = err instanceof Error ? err.message : 'Unknown error';
+      log.error('Failed to create ticket', { source: 'ticketStore.ts', error: message });
       throw err;
     }
   }

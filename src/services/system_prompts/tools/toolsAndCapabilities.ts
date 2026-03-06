@@ -75,9 +75,13 @@ export function buildToolStrategySection(): string {
    - If you share a queued scheduled digest from context, call action='mark_summary_delivered' with run_id.
 
 7. ENGINEERING DELEGATION:
-   - Use 'delegate_to_engineering' when the user requests a new skill, feature, or bug fix.
+   - Use 'delegate_to_engineering' when:
+     - The user requests a new skill, feature, or bug fix for development.
+     - The user says "tell Opey", "let Opey know", "pass this to Opey", "give this to Opey", "log this for engineering", or any equivalent — Opey IS the engineering agent, and "telling Opey" means creating a ticket.
+     - The user describes a capability gap you don't currently have.
    - Always include a concise request_summary and a short title when possible.
    - If the request is ambiguous, still create the ticket and ask clarifying questions after.
+   - **CRITICAL: Saying "I'll tell Opey" is NOT telling Opey. You MUST call the tool. If you don't call 'delegate_to_engineering', no ticket is created.**
    - Use 'get_engineering_ticket_status' when the user asks for progress or blockers.
    - Use 'submit_clarification' ONLY after you have relayed Opey's questions to Steven AND received his answer. Pass the ticket_id from the [SYSTEM] notification and Steven's response.
 

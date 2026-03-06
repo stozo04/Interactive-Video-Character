@@ -1564,7 +1564,9 @@ export const GeminiMemoryToolDeclarations = [
     name: "delegate_to_engineering",
     description:
       "Create a new engineering ticket for skill, feature, or bug requests. " +
-      "Use this when the user asks for new engineering work to be routed to the dev team.",
+      "Use this when the user asks for new engineering work to be routed to the dev team, " +
+      "OR when the user says 'tell Opey', 'let Opey know', 'pass this to Opey', or any equivalent phrasing — " +
+      "Opey is the engineering agent, and 'telling Opey' means creating a ticket via this tool.",
     parameters: {
       type: "object",
       properties: {

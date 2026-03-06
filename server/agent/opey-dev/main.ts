@@ -337,29 +337,20 @@ export interface OpeyDevHandle {
 }
 
 export function startOpeyDev(opts: {
-  supabaseUrl: string;
-  supabaseKey: string;
   workspaceRoot: string;
 }): OpeyDevHandle {
-  const missing: string[] = [];
-  if (!opts.supabaseUrl) missing.push("supabaseUrl");
-  if (!opts.supabaseKey) missing.push("supabaseKey");
-  if (!opts.workspaceRoot) missing.push("workspaceRoot");
-
-  if (missing.length > 0) {
-    console.error(`${LOG_PREFIX} DISABLED — missing config: ${missing.join(", ")}`);
+  if (!opts.workspaceRoot) {
+    console.error(`${LOG_PREFIX} DISABLED — missing workspaceRoot`);
     return { stop: () => {} };
   }
 
   console.log(`${LOG_PREFIX} Starting`, {
     pollIntervalSec: POLL_INTERVAL_MS / 1000,
     backend: ORCHESTRATOR_BACKEND,
-    supabaseUrl: opts.supabaseUrl,
-    supabaseKey: `${opts.supabaseKey.slice(0, 20)}...`,
     workspaceRoot: opts.workspaceRoot,
   });
 
-  const store = new SupabaseTicketStore(opts.supabaseUrl, opts.supabaseKey);
+  const store = new SupabaseTicketStore();
   const manager = new BranchManager(opts.workspaceRoot);
 
   // Run immediately, then poll
