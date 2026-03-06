@@ -7,6 +7,7 @@ import { createWorkspaceAgentRouter } from "./routes/workspaceAgentRoutes";
 import { createAgentRouter } from "./routes/agentRoutes";
 import { startOpeyDev } from "./agent/opey-dev/main";
 import { startCronScheduler } from "./scheduler/cronScheduler";
+import { startCalendarHeartbeat } from "./services/calendarHeartbeat";
 import { log } from "./runtimeLogger";
 
 const LOG_PREFIX = "[WorkspaceAgent]";
@@ -110,8 +111,6 @@ runtimeLog.info("Starting Opey development agent system", {
 });
 
 const opeyDevHandle = startOpeyDev({
-  supabaseUrl,
-  supabaseKey: supabaseServiceRoleKey,
   workspaceRoot,
 });
 
@@ -175,6 +174,10 @@ runtimeLog.info("Cron scheduler started", {
   schedulerId: cronSchedulerId,
   tickMs: cronTickMs,
 });
+
+// Calendar heartbeat: 15-minute interval, 8am-7pm CST
+const calendarHeartbeat = startCalendarHeartbeat();
+runtimeLog.info("Calendar heartbeat started", { source: "serverIndex" });
 
 // 6) HTTP server: routes incoming requests to the right handler.
 runtimeLog.info("Creating HTTP server", {
@@ -354,6 +357,11 @@ function shutdown(signal: string): void {
     source: "serverIndex",
   });
   cronScheduler.stop();
+
+  runtimeLog.info("Stopping calendar heartbeat", {
+    source: "serverIndex",
+  });
+  calendarHeartbeat.stop();
 
   runtimeLog.info("Closing HTTP server", {
     source: "serverIndex",
