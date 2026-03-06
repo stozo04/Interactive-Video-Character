@@ -12,6 +12,7 @@ import { spawn } from "node:child_process";
 import { startWhatsAppClient, isWhatsAppConnected } from "./baileyClient";
 import { handleWhatsAppMessage } from "./whatsappHandler";
 import { startEmailBridge } from "./emailBridge";
+import { startWhatsAppEngineeringTicketBridge } from "./engineeringTicketBridge";
 import { startGmailPoller } from "../services/gmailPoller";
 import { log } from "../runtimeLogger";
 import fs from "fs";
@@ -184,6 +185,9 @@ async function main() {
 
     // Forward any browser-caught emails that haven't been sent to WA yet
     startEmailBridge();
+
+    // Forward engineering ticket lifecycle notifications to WhatsApp
+    startWhatsAppEngineeringTicketBridge();
 
     console.log(`${LOG_PREFIX} Waiting for QR scan or session restore...`);
     runtimeLog.info("WhatsApp bridge initialized and waiting for connection", {

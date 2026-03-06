@@ -213,7 +213,7 @@ setTimeout(() => process.exit(0), 300);
 
 ### Clarification Loop
 
-When Opey produces no commits AND no uncommitted file changes, the ticket is set to `needs_clarification` with his output stored in `clarification_questions`. Kayley (the AI companion) detects this via Supabase Realtime, relays the questions to the user, and POSTs the answer to `/multi-agent/tickets/:id/clarify`. The ticket resets to `created` with the Q&A appended to `additional_details`. Max **3 clarification rounds** — tracked by counting `--- CLARIFICATION ---` markers in `additional_details`. After 3 rounds Opey ships best-effort or fails.
+When Opey produces no commits AND no uncommitted file changes, the ticket is set to `needs_clarification` with his output stored in `clarification_questions`. Kayley (the AI companion) detects this via Supabase Realtime in the web app, relays the questions to the user, and POSTs the answer to `/multi-agent/tickets/:id/clarify`. Telegram and WhatsApp now have server-side engineering ticket bridges that proactively push `needs_clarification`, `completed`, `failed`, and `pr_ready` status updates even when no browser tab is open. The ticket resets to `created` with the Q&A appended to `additional_details`. Max **3 clarification rounds** — tracked by counting `--- CLARIFICATION ---` markers in `additional_details`. After 3 rounds Opey ships best-effort or fails.
 
 ### Auto-Commit
 

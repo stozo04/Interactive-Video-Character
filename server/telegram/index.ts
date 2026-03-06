@@ -10,6 +10,7 @@
 import { createServer } from 'node:http';
 import { startTelegramBot } from './telegramClient';
 import { startEmailBridge } from './telegramEmailBridge';
+import { startTelegramEngineeringTicketBridge } from './telegramEngineeringTicketBridge';
 import { startGmailPoller } from '../services/gmailPoller';
 import { log } from '../runtimeLogger';
 
@@ -66,6 +67,9 @@ async function main() {
 
     // Forward any browser-caught emails that haven't been sent to Telegram yet
     startEmailBridge();
+
+    // Forward engineering ticket lifecycle notifications to Telegram
+    startTelegramEngineeringTicketBridge();
 
     console.log(`${LOG_PREFIX} Bridge running. Waiting for messages...`);
     runtimeLog.info('Telegram bridge initialized', {
