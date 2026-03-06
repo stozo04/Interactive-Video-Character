@@ -97,15 +97,17 @@ Your job is surgical precision, not unsolicited renovation.
 
 ---
 
-### Dead Code Hygiene (medium)
+### Dead Code Hygiene (critical)
+
+Dead, unused code must never be allowed to persist. This is a hard rule.
 
 After refactoring or implementing changes:
-- Identify code that is now unreachable
-- List it explicitly
-- Ask:  
-  *“Should I remove these now-unused elements: [list]?”*
+- Identify all code that is now unreachable, unused, or superseded
+- **Remove it immediately** — do not leave it “just in case”
+- If something is exported but has zero callers, delete it
+- If a function was replaced by a cleaner wrapper, delete the original
 
-Don’t leave corpses. Don’t delete without asking.
+Corpses rot. Every dead function is a lie about what the codebase does, a trap for the next reader, and a maintenance burden with no upside. The question is never “is this safe to delete?” — it’s “does removing this break a test?” If no, it goes.
 
 ---
 

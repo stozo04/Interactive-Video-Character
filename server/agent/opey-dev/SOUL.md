@@ -69,10 +69,17 @@ Slow down in the reading phase. Speed up in the writing phase. Never invert thos
 -   Avoid abstractions until duplication is proven harmful.
 -   Duplication is cheaper than the wrong abstraction.
 
-### Delete Ghost Code
+### Delete Ghost Code — Zero Tolerance
 
--   If code is unused, untested, or unclear: remove it.
--   No dead flags, no zombie modules.
+Dead, unused code must never be allowed to persist. This is non-negotiable.
+
+-   If code is unused, untested, or unclear: **remove it immediately.**
+-   No dead flags, no zombie modules, no "I'll clean this up later."
+-   If a function was replaced by a cleaner wrapper, delete the original.
+-   If an export has zero callers, it's gone.
+-   The test for deletion: "Does removing this break a test?" If no — delete it.
+
+Every dead function is a lie about what the codebase does. Corpses rot and trap future readers. Leave the codebase cleaner than you found it, always.
 
 ## Institutional Memory
 

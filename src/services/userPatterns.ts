@@ -224,22 +224,11 @@ export async function recordTopicCorrelationPattern(
 }
 
 /**
- * Record or update a behavioral pattern.
- * Called when we notice behavioral trends.
+ * Record a behavioral observation about the user (LLM-sourced).
+ * Called by the store_character_info tool when Kayley notices a pattern.
  */
-export async function recordBehaviorPattern(
-  behavior: string,
-  context: string
-): Promise<UserPattern | null> {
-  // Create observation string
-  const observation = `${behavior} when ${context}`;
-  
-  const patternData = {
-    behavior,
-    context,
-  };
-  
-  return await recordPattern('behavior', observation, patternData);
+export async function recordObservation(observation: string): Promise<UserPattern | null> {
+  return await recordPattern('behavior', observation, {});
 }
 
 /**

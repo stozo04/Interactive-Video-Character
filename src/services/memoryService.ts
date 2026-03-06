@@ -1193,6 +1193,15 @@ export function consumeTaskMutationSignal(): boolean {
   return v;
 }
 
+// Same pattern for calendar_action function tool — signals the orchestrator to
+// set refreshCalendar=true after a create/delete runs via the tool loop.
+let _calendarMutationPending = false;
+export function consumeCalendarMutationSignal(): boolean {
+  const v = _calendarMutationPending;
+  _calendarMutationPending = false;
+  return v;
+}
+
 export type MemoryToolName =
   | 'web_search'
   | 'workspace_action'
@@ -1205,6 +1214,7 @@ export type MemoryToolName =
   | 'store_user_info'
   | 'task_action'
   | 'calendar_action'
+  | 'store_self_info'
   | 'store_character_info'
   | 'resolve_open_loop'
   | 'resolve_idle_question'
@@ -1227,7 +1237,8 @@ export type MemoryToolName =
   | 'resolve_x_mention'
   | 'gmail_search'
   | 'read_agent_file'
-  | 'write_agent_file';
+  | 'write_agent_file'
+  | 'query_database';
 
 /**
  * Optional context passed to tool execution (e.g., access tokens)
@@ -1357,10 +1368,17 @@ export interface ToolCallArgs {
     timeMin?: string;
     timeMax?: string;
   };
-  store_character_info: {
-    category: 'quirk' | 'relationship' | 'experience' | 'preference' | 'detail' |'other';
+  store_self_info: {
+    category: 'quirk' | 'relationship' | 'experience' | 'preference' | 'detail' | 'other';
     key: string;
     value: string;
+  };
+  store_character_info: {
+    observation: string;
+  };
+  query_database: {
+    query: string;
+    reason: string;
   };
   resolve_open_loop: {
     topic: string;
@@ -2114,6 +2132,7 @@ export const executeMemoryTool = async (
               });
               
               console.log('📅 Created calendar event:', newEvent);
+              _calendarMutationPending = true;
               return sanitizeForGemini(`✓ Created calendar event: "${summary}"`);
             } catch (error) {
               console.error('Calendar create error:', error);
@@ -2150,7 +2169,8 @@ export const executeMemoryTool = async (
               if (deletedCount === 0) {
                 return 'Could not find any events to delete.';
               }
-              
+
+              _calendarMutationPending = true;
               return `✓ Deleted ${deletedCount} calendar event(s)`;
             } catch (error) {
               console.error('Calendar delete error:', error);
@@ -2211,18 +2231,21 @@ export const executeMemoryTool = async (
             return `Unknown calendar action: ${action}`;
         }
       }
-      case 'store_character_info': {
+      case 'store_self_info': {
         const { storeCharacterFact } = await import('./characterFactsService');
-        const { category, key, value } = args as ToolCallArgs['store_character_info'];
-
-        // We use the default characterId 'kayley'
-        // We pass no sourceMessageId since this comes from a tool call, not a specific message scan
-        // Since this is an explicit choice by the AI, we treat it with high confidence (1.0 default).
-        const success = await storeCharacterFact(category, key, value);
-
+        const { category, key, value } = args as ToolCallArgs['store_self_info'];
+        const success = await storeCharacterFact(category as any, key, value);
         return success
-          ? `✓ Stored character fact: ${key} = "${value}"`
-          : `Failed to store fact (it might process duplicates automatically).`;
+          ? `✓ Stored self-fact: ${key} = "${value}"`
+          : `Failed to store self-fact (may be a duplicate).`;
+      }
+      case 'store_character_info': {
+        const { recordObservation } = await import('./userPatterns');
+        const { observation } = args as ToolCallArgs['store_character_info'];
+        const pattern = await recordObservation(observation);
+        return pattern
+          ? `✓ Stored behavioral observation: "${observation}"`
+          : `Failed to store behavioral observation.`;
       }
       case 'resolve_open_loop': {
         const { resolveLoopsByTopic, dismissLoopsByTopic } = await import('./presenceDirector');
@@ -2271,14 +2294,8 @@ export const executeMemoryTool = async (
           : `Failed to update idle question ${id}.`;
       }
       case 'resolve_idle_browse_note': {
-        const { updateIdleBrowseNoteStatus } = await import('./idleThinkingService');
-        const { id, status } = args as ToolCallArgs['resolve_idle_browse_note'];
-        console.log("[Memory Tool] resolve_idle_browse_note called:", { id, status });
-
-        const success = await updateIdleBrowseNoteStatus(id, status);
-        return success
-          ? `OK: idle browse note ${status} (${id})`
-          : `Failed to update idle browse note ${id}.`;
+        // Browse note feature is currently disabled (commented out in idleThinkingService)
+        return `OK: idle browse note acknowledged (feature inactive).`;
       }
       case 'tool_suggestion': {
         const {
@@ -2715,7 +2732,7 @@ export const executeMemoryTool = async (
         const { filename } = args as ToolCallArgs['read_agent_file'];
         const READABLE_FILES = new Set([
           'SOUL.md', 'IDENTITY.md', 'MEMORY.md', 'USER.md', 'TOOLS.md',
-          'HEARTBEAT.md', 'AGENTS.md', 'SAFETY.md', 'MEMORY_RULES.md',
+          'HEARTBEAT.md', 'AGENTS.md', 'SAFETY.md', 'SECURITY.md',
         ]);
         if (!READABLE_FILES.has(filename)) {
           return formatToolFailure(`File "${filename}" is not in the readable whitelist.`);
@@ -2735,9 +2752,9 @@ export const executeMemoryTool = async (
       }
       case 'write_agent_file': {
         const { filename, content } = args as ToolCallArgs['write_agent_file'];
-        const WRITABLE_FILES = new Set(['MEMORY.md', 'HEARTBEAT.md']);
+        const WRITABLE_FILES = new Set(['MEMORY.md', 'HEARTBEAT.md', 'IDENTITY.md', 'SOUL.md', 'USER.md']);
         if (!WRITABLE_FILES.has(filename)) {
-          return formatToolFailure(`File "${filename}" is not writable. Only MEMORY.md and HEARTBEAT.md can be written to.`);
+          return formatToolFailure(`File "${filename}" is not writable. Writable files: MEMORY.md, HEARTBEAT.md, IDENTITY.md, SOUL.md, USER.md.`);
         }
         try {
           const fs = await import('fs');
@@ -2749,7 +2766,35 @@ export const executeMemoryTool = async (
           return formatToolFailure(`Failed to write "${filename}": ${err instanceof Error ? err.message : String(err)}`);
         }
       }
-      // TODO: CHARACTER_FACTS
+      case 'query_database': {
+        const { query, reason } = args as ToolCallArgs['query_database'];
+        console.log(`🔍 [Memory Tool] query_database called. Reason: ${reason}`);
+
+        const normalized = query.trim().toUpperCase();
+        if (!normalized.startsWith('SELECT')) {
+          return 'ERROR: Only SELECT queries are allowed.';
+        }
+        const blocked = ['INSERT', 'UPDATE', 'DELETE', 'DROP', 'ALTER', 'TRUNCATE', 'CREATE', 'GRANT'];
+        for (const kw of blocked) {
+          if (normalized.includes(kw)) {
+            return `ERROR: ${kw} operations are not allowed in query_database.`;
+          }
+        }
+
+        try {
+          const { data, error } = await supabase.rpc('kayley_read_query', {
+            sql_query: query,
+            max_rows: 50,
+          });
+          if (error) {
+            console.error('[Memory Tool] query_database error:', error);
+            return `Query error: ${error.message}`;
+          }
+          return JSON.stringify(data, null, 2);
+        } catch (err) {
+          return `Query failed: ${err instanceof Error ? err.message : String(err)}`;
+        }
+      }
       default:
         return `Unknown tool: ${toolName}`;
     }

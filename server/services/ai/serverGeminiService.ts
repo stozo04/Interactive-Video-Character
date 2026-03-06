@@ -36,7 +36,6 @@ import {
 } from "../../../src/services/promptUtils";
 import { generateSpeech } from "../../../src/services/elevenLabsService";
 import { getImportantDateFacts } from "../../../src/services/memoryService";
-import { storeCharacterFact } from "../../../src/services/characterFactsService";
 import * as relationshipService from "../../../src/services/relationshipService";
 import * as taskService from "../../../src/services/taskService";
 import { calendarService } from "../../../src/services/calendarService";
@@ -106,14 +105,12 @@ function normalizeAiResponse(rawJson: any, rawText: string): AIActionResponse {
     text_response: rawJson.text_response || rawJson.response || rawText,
     user_transcription: rawJson.user_transcription || null,
     open_app: rawJson.open_app || null,
-    calendar_action: rawJson.calendar_action || null,
     news_action: rawJson.news_action || null,
     whiteboard_action: wbAction,
     game_move: rawJson.game_move,
     selfie_action: rawJson.selfie_action || null,
     gif_action: rawJson.gif_action || null,
     video_action: rawJson.video_action || null,
-    store_self_info: rawJson.store_self_info || null,
     almost_moment_used: rawJson.almost_moment_used || null,
     fulfilling_promise_id: rawJson.fulfilling_promise_id || null,
     email_action: rawJson.email_action || null,
@@ -243,7 +240,9 @@ export class ServerGeminiService implements IAIChatService {
         getLastInteractionDate(),
       ]);
 
-    relationshipData.lastInteractionAt = lastInteractionAt;
+    if (relationshipData) {
+      relationshipData.lastInteractionAt = lastInteractionAt;
+    }
 
     let upcomingEvents: CalendarEvent[] = [];
     try {
@@ -358,13 +357,6 @@ export class ServerGeminiService implements IAIChatService {
         runtimeLog.warning("Failed to handle promise fulfillment", { error: String(err) })
       );
 
-      if (aiResponse.store_self_info) {
-        const { category, key, value } = aiResponse.store_self_info;
-        storeCharacterFact(category as any, key, value).catch((err) =>
-          runtimeLog.warning("Failed to store character fact", { error: String(err) })
-        );
-      }
-
       return {
         response: aiResponse,
         session: { model: this.model, interactionId: sessionId },
@@ -406,7 +398,7 @@ export class ServerGeminiService implements IAIChatService {
 
     const greetingContext: DailyLogisticsContext = {
       chatHistory: [],
-      lastInteractionDateUtc: ctx.relationship?.lastInteractionAt,
+      lastInteractionDateUtc: ctx.relationship?.lastInteractionAt ?? new Date(),
       importantDateFacts: importantDateFacts.map((f) => ({
         key: f.fact_key,
         value: f.fact_value,
@@ -418,7 +410,7 @@ export class ServerGeminiService implements IAIChatService {
     };
 
     const systemPrompt = await buildSystemPromptForGreeting(greetingContext);
-    const greetingPrompt = buildGreetingPrompt(ctx.relationship);
+    const greetingPrompt = buildGreetingPrompt(ctx.relationship!);
 
     const tools = createCallableTools({ googleAccessToken });
     const sessionId = `greeting-${conversationLogId}`;
@@ -506,7 +498,7 @@ ${pendingSuggestion.reasoning}
     }
 
     const nonGreetingPrompt = buildNonGreetingPrompt(
-      ctx.relationship?.lastInteractionAt,
+      ctx.relationship?.lastInteractionAt ?? new Date(),
       ctx.characterContext,
     );
 

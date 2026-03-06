@@ -23,13 +23,11 @@ import {
 
 // Action handlers
 import {
-  processCalendarAction,
   processNewsAction,
   processSelfieAction,
   processVideoAction,
   parseTaskActionFromResponse,
   detectTaskCompletionFallback,
-  type CalendarAction,
   type NewsAction,
   type SelfieAction,
   type VideoAction,
@@ -38,7 +36,7 @@ import {
 import { appendConversationHistory } from './conversationHistoryService';
 import { extractAndRecordTopics } from './topicExhaustionService';
 import { refreshConversationAnchor } from './conversationAnchorService';
-import { consumeTaskMutationSignal } from './memoryService';
+import { consumeTaskMutationSignal, consumeCalendarMutationSignal } from './memoryService';
 import { clientLogger } from './clientLogger';
 
 const log = clientLogger.scoped('MessageOrchestrator');
@@ -117,7 +115,8 @@ export function formatEventsForContext(events: CalendarEvent[]): string {
     .map((event) => {
       const start = event.start?.dateTime || event.start?.date || 'No start time';
       const end = event.end?.dateTime || event.end?.date || 'No end time';
-      return `- ${event.summary} (ID: ${event.id})\n  Start: ${start}\n  End: ${end}`;
+      const loc = event.location ? `\n  Location: ${event.location}` : '';
+      return `- ${event.summary} (ID: ${event.id})\n  Start: ${start}\n  End: ${end}${loc}`;
     })
     .join('\n');
 }
@@ -263,62 +262,38 @@ export async function processUserMessage(input: OrchestratorInput): Promise<Orch
       result.openTaskPanel = true;
     }
 
-    // Set refresh flags when task_action ran as a function tool (function-tool path).
-    // When Kayley uses the task_action function tool, geminiChatService executes it
-    // inside the AI interaction loop — the task is written to DB but response.task_action
-    // is never populated, so determineActionType returns NONE. consumeTaskMutationSignal
-    // bridges that gap: memoryService sets it on any create/complete/delete, and we
-    // consume it here to trigger a UI refresh.
+    // Set refresh flags when task_action or calendar_action ran as a function tool.
+    // The function tool runs inside the AI interaction loop before the response reaches
+    // the orchestrator, so response fields are never populated for these. Mutation signals bridge the gap.
     if (consumeTaskMutationSignal()) {
       result.refreshTasks = true;
       result.openTaskPanel = true;
+    }
+    if (consumeCalendarMutationSignal()) {
+      result.refreshCalendar = true;
     }
 
     // ========================================================================
     // PHASE 6: TASK ACTION DETECTION (execution stays in App.tsx)
     // ========================================================================
 
-    // Detect task action from response or fallback detection
-    let detectedTask: TaskAction | null | undefined = response.task_action as
-      | TaskAction
-      | undefined;
+    // Fallback task detection from text (task_action now runs as function tool;
+    // consumeTaskMutationSignal above handles refreshTasks. These fallbacks catch
+    // edge cases where text hints at task intent without a tool call.)
+    let detectedTask: TaskAction | null | undefined = null;
     if (!detectedTask && response.text_response) {
       detectedTask = parseTaskActionFromResponse(response.text_response);
     }
     if (!detectedTask) {
       detectedTask = detectTaskCompletionFallback(userMessage, tasks);
     }
-
-    // Pass task action directly to App.tsx
     if (detectedTask) {
       result.detectedTaskAction = detectedTask;
-      console.log(
-        `📋 [Orchestrator] Detected task action: ${detectedTask.action}`
-      );
     }
 
     // ========================================================================
     // PHASE 4: EXECUTE ACTION HANDLERS
     // ========================================================================
-
-    // Calendar Action
-    if (actionType === ActionType.CALENDAR) {
-      const calendarAction = response.calendar_action as
-        | CalendarAction
-        | undefined;
-      if (calendarAction?.action && accessToken) {
-        const calendarResult = await processCalendarAction(calendarAction, {
-          accessToken,
-          currentEvents: upcomingEvents,
-        });
-        if (calendarResult.handled) {
-          result.refreshCalendar = true;
-          console.log(
-            `📅 [Orchestrator] Calendar action executed: ${calendarResult.action}`
-          );
-        }
-      }
-    }
 
     // News Action
     if (actionType === ActionType.NEWS) {

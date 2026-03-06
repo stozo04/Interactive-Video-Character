@@ -39,6 +39,7 @@ export interface CalendarEvent {
     timeZone?: string;
   };
   status?: string;
+  location?: string;
   // Add this field to track accept/decline status
   attendees?: Array<{
     self?: boolean;

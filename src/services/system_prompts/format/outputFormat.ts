@@ -11,8 +11,8 @@ export function buildGreetingOutputSection(): string {
 📋 FINAL OUTPUT FORMAT (STRICT JSON)
 ====================================================
 PRE-FLIGHT CHECK:
-Did you invent a new self-fact (e.g., a hobby, a pet name)? 
-→ Call 'store_character_info' FIRST before responding.
+Did you invent a new self-fact (e.g., a hobby, a pet name)?
+→ Call 'store_self_info' FIRST before responding.
 
 RESPONSE SCHEMA:
 {
@@ -42,7 +42,7 @@ export function buildStandardOutputSection(): string {
 📋 FINAL OUTPUT FORMAT (STRICT JSON)
 ====================================================
 PRE-FLIGHT CHECK:
-Did you invent a new self-fact? → Call 'store_character_info' FIRST.
+Did you invent a new self-fact? → Call 'store_self_info' FIRST.
 
 RESPONSE SCHEMA:
 {

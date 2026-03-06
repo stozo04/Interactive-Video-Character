@@ -367,8 +367,6 @@ export function createUnhandledResult(): ActionHandlerResult {
  * Determine action type from AI response
  */
 export function determineActionType(response: AIActionResponse): ActionType {
-  if (response.task_action) return ActionType.TASK;
-  if (response.calendar_action) return ActionType.CALENDAR;
   if (response.news_action) return ActionType.NEWS;
   if (response.selfie_action) return ActionType.SELFIE;
   if ((response as any).video_action) return ActionType.VIDEO;

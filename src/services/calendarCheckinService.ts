@@ -110,12 +110,13 @@ export function buildEventCheckinPrompt(event: CalendarEvent, type: CheckinType)
   const startTime = new Date(event.start.dateTime || event.start.date || '');
   const timeStr = startTime.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
   const dayStr = startTime.toLocaleDateString([], { weekday: 'long' });
+  const locationNote = event.location ? `\nLocation: ${event.location}` : '';
 
   switch (type) {
     case 'day_before':
       return `
 [SYSTEM EVENT: UPCOMING_EVENT_PREVIEW]
-The user has "${eventName}" scheduled for tomorrow (${dayStr}) at ${timeStr}.
+The user has "${eventName}" scheduled for tomorrow (${dayStr}) at ${timeStr}.${locationNote}
 
 Your goal: Casually mention this upcoming event.
 - Be curious/supportive: "I see you have ${eventName} tomorrow..."
@@ -127,7 +128,7 @@ Your goal: Casually mention this upcoming event.
     case 'approaching':
       return `
 [SYSTEM EVENT: EVENT_APPROACHING]
-The user has "${eventName}" coming up in a few hours (at ${timeStr}).
+The user has "${eventName}" coming up in a few hours (at ${timeStr}).${locationNote}
 
 Your goal: Gentle reminder with offer to help.
 - "Your ${eventName} is coming up at ${timeStr}..."
@@ -138,7 +139,7 @@ Your goal: Gentle reminder with offer to help.
     case 'starting_soon':
       return `
 [SYSTEM EVENT: EVENT_STARTING_SOON]
-The user has "${eventName}" starting very soon (at ${timeStr}).
+The user has "${eventName}" starting very soon (at ${timeStr}).${locationNote}
 
 Your goal: Quick heads-up reminder.
 - "Heads up - ${eventName} is in about 20 minutes!"

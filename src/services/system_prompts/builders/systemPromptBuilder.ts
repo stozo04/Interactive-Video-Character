@@ -56,9 +56,7 @@ import { DailyLogisticsContext } from "./dailyCatchupBuilder";
 import { ensureDailyNotesRowForToday, getAllDailyNotes, getAllLessonsLearned, getAllMilaMilestoneNotes, getPinnedUserFacts, getUserFacts, UserFact } from "@/services/memoryService";
 import {
   buildAnsweredIdleQuestionsPromptSection,
-  buildIdleBrowseNotesPromptSection,
   buildIdleQuestionPromptSection,
-  buildToolSuggestionsPromptSection,
   buildXTweetPromptSection,
 } from "../../idleThinkingService";
 import { buildMentionsPromptSection } from "../../xMentionService";
@@ -124,8 +122,6 @@ export const buildSystemPromptForNonGreeting = async (
   // Shared sections fetched in parallel (needed by both paths)
   const [
     idleQuestionPrompt,
-    idleBrowseNotesPrompt,
-    toolSuggestionsPrompt,
     xTweetPrompt,
     xMentionsPrompt,
     scheduledDigestsPrompt,
@@ -140,8 +136,6 @@ export const buildSystemPromptForNonGreeting = async (
     promisesContext
   ] = await Promise.all([
     buildIdleQuestionPromptSection(),
-    buildIdleBrowseNotesPromptSection(),
-    buildToolSuggestionsPromptSection(),
     buildXTweetPromptSection(),
     buildMentionsPromptSection(),
     buildScheduledDigestsContext(),
@@ -560,7 +554,8 @@ Direction: This is the user's calendar (Steven). Do not frame these events as yo
     // as raw YYYY-MM-DD to avoid timezone shifts that create fake clock times.
     if (startDateOnly) {
       if (startDateOnly === todayIsoDate) {
-        eventsToday.push(`- "${event.summary}" (all day)`);
+        const loc = event.location ? ` — Location: ${event.location}` : '';
+        eventsToday.push(`- "${event.summary}" (all day)${loc}`);
       }
       return;
     }
@@ -582,7 +577,8 @@ Direction: This is the user's calendar (Steven). Do not frame these events as yo
         minute: "2-digit",
         timeZoneName: "short",
       });
-      eventsToday.push(`- "${event.summary}" at ${timeStr}`);
+      const loc = event.location ? ` — Location: ${event.location}` : '';
+      eventsToday.push(`- "${event.summary}" at ${timeStr}${loc}`);
     }
   });
 

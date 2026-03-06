@@ -42,62 +42,6 @@ export const AIActionResponseSchema = z.object({
     ),
 
   /**
-   * Calendar management actions - used when user wants to create/delete calendar events
-   * NOTE: task_action has been moved to a function tool (see GeminiMemoryToolDeclarations)
-   */
-  calendar_action: z
-    .object({
-      action: z
-        .enum(["create", "delete", "list"])
-        .describe(
-          "The calendar action to perform: 'create' to add a new event, 'delete' to remove event(s), 'list' to fetch events"
-        ),
-      event_id: z
-        .string()
-        .optional()
-        .describe(
-          "Single event ID from the calendar list (for deleting one event)"
-        ),
-      event_ids: z
-        .array(z.string())
-        .optional()
-        .describe(
-          "Array of event IDs to delete (for deleting multiple events)"
-        ),
-      delete_all: z
-        .boolean()
-        .optional()
-        .describe("If true, delete ALL events in the calendar list"),
-      summary: z.string().optional().describe("The event title/summary"),
-      start: z
-        .string()
-        .optional()
-        .describe("For create: ISO datetime string for event start"),
-      end: z
-        .string()
-        .optional()
-        .describe("For create: ISO datetime string for event end"),
-      timeZone: z
-        .string()
-        .optional()
-        .describe("Timezone for the event, default: America/Chicago"),
-      days: z
-        .number()
-        .optional()
-        .describe("For list: number of days to look ahead (default: 7)"),
-      timeMin: z
-        .string()
-        .optional()
-        .describe("For list: ISO start time filter"),
-      timeMax: z.string().optional().describe("For list: ISO end time filter"),
-    })
-    .nullable()
-    .optional()
-    .describe(
-      "Calendar action if the user wants to create or delete calendar event(s)"
-    ),
-
-  /**
    * For Tic-Tac-Toe: The cell position (0-8) where AI wants to place its mark.
    * Cell positions: [0,1,2] (top row), [3,4,5] (middle row), [6,7,8] (bottom row)
    */
@@ -274,59 +218,6 @@ export const AIActionResponseSchema = z.object({
     ),
 
   /**
-   * Task action - used when user wants to manage their checklist
-   */
-  task_action: z
-    .object({
-      action: z
-        .enum(["create", "complete", "delete", "list"])
-        .describe("The task action to perform"),
-      task_text: z
-        .string()
-        .optional()
-        .describe(
-          "For create: the task description. For complete/delete: partial text to match the task."
-        ),
-      priority: z
-        .enum(["low", "medium", "high"])
-        .optional()
-        .describe("Priority level for new tasks"),
-    })
-    .nullable()
-    .optional()
-    .describe("Task management action"),
-
-  /**
-   * Store new facts about yourself (Kayley) that emerge in conversation.
-   * Use this when you share something NEW about yourself that isn't in your profile.
-   * This ensures you remember it in future conversations!
-   */
-  store_self_info: z
-    .object({
-      category: z
-        .enum(["quirk", "experience", "preference", "relationship", "detail"])
-        .describe(
-          "Category of the fact: 'quirk' (habits, personality), 'experience' (stories, events), " +
-            "'preference' (new likes/dislikes), 'relationship' (new friends/connections), 'detail' (specific facts)"
-        ),
-      key: z
-        .string()
-        .describe(
-          "A short, descriptive key for the fact (e.g., 'smoke_alarm_incident', 'new_coffee_order', 'met_yoga_friend')"
-        ),
-      value: z
-        .string()
-        .describe(
-          "The fact to remember (e.g., 'Set off smoke alarm making toast twice in one week')"
-        ),
-    })
-    .nullable()
-    .optional()
-    .describe(
-      "Store a NEW fact about yourself (Kayley) that you just shared. Use when you mention something not in your profile."
-    ),
-
-  /**
    * Track when you use an "almost moment" - those vulnerable, retreat-into-safety expressions
    * where you almost say something deeper but pull back.
    * Examples: "You're kind of... anyway.", "I was going to say something but never mind."
@@ -340,7 +231,7 @@ export const AIActionResponseSchema = z.object({
         .string()
         .uuid()
         .describe(
-          "MUST be the exact UUID from THE UNSAID section of the system prompt (e.g. '3f2504e0-4f89-11d3-9a0c-0305e82c3301'). Do NOT invent your own ID."
+          "MUST be the exact UUID from THE UNSAID section of the system prompt. Only populate almost_moment_used if the UNSAID section is present in this prompt. If no UNSAID section exists, leave this entire field null. Do NOT invent your own ID."
         ),
       stage: z
         .enum([
@@ -820,7 +711,7 @@ export const CronJobActionSchema = z.object({
     .optional()
     .describe("How Kayley should summarize results for web_search jobs."),
   schedule_type: z
-    .enum(["daily", "one_time"])
+    .enum(["daily", "one_time", "monthly", "weekly"])
     .optional()
     .describe("Schedule type for create/update."),
   timezone: z
@@ -947,7 +838,7 @@ export type MemoryToolArgs =
   | { tool: "retrieve_mila_notes"; args: RetrieveMilaNotesArgs }
   | {
       tool: "store_character_info";
-      args: { category: string; key: string; value: string };
+      args: { observation: string };
     }
   | {
       tool: "resolve_open_loop";
@@ -1106,10 +997,10 @@ export const GeminiMemoryToolDeclarations = [
     },
   },
   {
-    name: "store_character_info",
+    name: "store_self_info",
     description:
       "Save NEW facts about yourself (Kayley) that emerge in conversation. " +
-      "Use this when you make up a new detail about your life (plant name, item names, new hobby, preferences, etc.). " +
+      "Use when you invent or share a new detail about your own life (plant name, item names, new hobby, preferences, etc.). " +
       "Categories: quirk (habits, personality), experience (new stories), preference (new likes/dislikes), " +
       "relationship (new people in your life), detail (specific facts like named objects). " +
       "Only for details NOT in your core character profile!",
@@ -1126,7 +1017,7 @@ export const GeminiMemoryToolDeclarations = [
             "detail",
             "other",
           ],
-          description: "Category of the fact regarding yourself",
+          description: "Category of the fact about yourself",
         },
         key: {
           type: "string",
@@ -1140,6 +1031,25 @@ export const GeminiMemoryToolDeclarations = [
         },
       },
       required: ["category", "key", "value"],
+    },
+  },
+  {
+    name: "store_character_info",
+    description:
+      "Save a behavioral observation about Steven into user_patterns. " +
+      "Use when you notice something meaningful about HOW Steven thinks, reacts, or operates — not facts, but patterns. " +
+      "Examples: 'tends to catastrophize under work deadlines', 'lights up when talking about Mila', 'deflects with humor when vulnerable'. " +
+      "Do NOT use for plain facts (names, dates, job details) — use store_user_info for those.",
+    parameters: {
+      type: "object",
+      properties: {
+        observation: {
+          type: "string",
+          description:
+            "A concise behavioral observation (e.g., 'tends to catastrophize under deadlines', 'lights up talking about Mila')",
+        },
+      },
+      required: ["observation"],
     },
   },
   {
@@ -2152,7 +2062,7 @@ export const GeminiMemoryToolDeclarations = [
       "Use this to refresh your knowledge when you need specific details " +
       "(e.g., your tools list, user details, memory notes, heartbeat state). " +
       "Available files: SOUL.md, IDENTITY.md, MEMORY.md, USER.md, TOOLS.md, " +
-      "HEARTBEAT.md, AGENTS.md, SAFETY.md, MEMORY_RULES.md",
+      "HEARTBEAT.md, AGENTS.md, SAFETY.md, SECURITY.md",
     parameters: {
       type: "object",
       properties: {
@@ -2167,7 +2077,7 @@ export const GeminiMemoryToolDeclarations = [
             "HEARTBEAT.md",
             "AGENTS.md",
             "SAFETY.md",
-            "MEMORY_RULES.md",
+            "SECURITY.md",
           ],
           description: "The filename to read from your personal files directory",
         },
@@ -2176,20 +2086,47 @@ export const GeminiMemoryToolDeclarations = [
     },
   },
   {
+    name: "query_database",
+    description:
+      "Run a read-only SELECT query against your memory database. " +
+      "Use for self-audits and proactive maintenance: checking if you wrote daily notes today, " +
+      "verifying a fact before storing a duplicate, finding stale promises, reviewing storylines. " +
+      "ONLY SELECT queries are allowed — no INSERT, UPDATE, DELETE, DROP, or ALTER. " +
+      "Results are limited to 50 rows. " +
+      "Limit: 1-2 queries per conversation turn, not on every turn. " +
+      "Available tables: character_facts, context_synthesis, conversation_anchor, " +
+      "conversation_history, daily_tasks, kayley_daily_notes, kayley_lessons_learned, " +
+      "kayley_monthly_notes, life_storylines, promises, user_facts, user_patterns",
+    parameters: {
+      type: "object",
+      properties: {
+        query: {
+          type: "string",
+          description: "A SELECT query. Must start with SELECT. No mutations allowed.",
+        },
+        reason: {
+          type: "string",
+          description: "Why you are running this query (for audit logging)",
+        },
+      },
+      required: ["query", "reason"],
+    },
+  },
+  {
     name: "write_agent_file",
     description:
       "Write to one of your personal files. " +
-      "Use this to update your memory notes or heartbeat state. " +
-      "Only MEMORY.md and HEARTBEAT.md are writable. " +
-      "For MEMORY.md: append new observations, update existing notes, or reorganize. " +
-      "For HEARTBEAT.md: update your current emotional/mental state.",
+      "IMPORTANT: This tool REPLACES the entire file. You MUST call read_agent_file first " +
+      "to get the current content, then include ALL existing content plus your changes in the write call. " +
+      "Writable files: MEMORY.md, HEARTBEAT.md, IDENTITY.md, SOUL.md, USER.md. " +
+      "When writing SOUL.md or IDENTITY.md, tell Steven what you changed after writing.",
     parameters: {
       type: "object",
       properties: {
         filename: {
           type: "string",
-          enum: ["MEMORY.md", "HEARTBEAT.md"],
-          description: "The filename to write to (only MEMORY.md and HEARTBEAT.md are writable)",
+          enum: ["MEMORY.md", "HEARTBEAT.md", "IDENTITY.md", "SOUL.md", "USER.md"],
+          description: "The filename to write to",
         },
         content: {
           type: "string",

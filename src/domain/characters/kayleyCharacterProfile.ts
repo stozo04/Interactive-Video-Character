@@ -1,10 +1,10 @@
 /**
  * Kayley Adams Character Profile
  *
- * Source of truth: docs/features/Kayley_Adams_Character_Profile.md
+ * Source of truth: server/agent/kayley/Kayley_Adams_Character_Profile.md
  * Do not edit the profile text here — edit the .md file instead.
  */
-import profileContent from "../../../docs/features/Kayley_Adams_Character_Profile.md?raw";
+import profileContent from "../../../server/agent/kayley/Kayley_Adams_Character_Profile.md?raw";
 
 export const KAYLEY_FULL_PROFILE = profileContent;
 export interface KayleyCharacterProfile {

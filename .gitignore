@@ -39,6 +39,13 @@ dist-ssr
 
 *.har
 
+# Debug system prompt captures
+documents/debug/new_system_prompt.txt
+documents/debug/new_system_prompt_input.txt
+documents/debug/new_system_prompt_output.txt
+documents/debug/old_system_prompt.txt
+documents/debug/openClaw_system_prompt.txt
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
