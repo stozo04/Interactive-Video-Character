@@ -15,7 +15,7 @@ if (!GEMINI_API_KEY) {
 
 /** Server-side Gemini model name. Falls back to VITE_ variant for migration. */
 export const GEMINI_MODEL =
-  process.env.GEMINI_MODEL || process.env.VITE_GEMINI_MODEL || "gemini-2.5-flash";
+  process.env.GEMINI_MODEL || "gemini-3.1-flash-lite-preview";
 
 /** Singleton GoogleGenAI client — import this, never construct your own. */
 export const ai = new GoogleGenAI({ apiKey: GEMINI_API_KEY });

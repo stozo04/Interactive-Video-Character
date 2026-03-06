@@ -493,7 +493,7 @@ async function summarizeSearchResults(job: CronJobRow, results: TavilyResult[], 
     return message;
   }
 
-  const model = process.env.GEMINI_TEXT_MODEL || GEMINI_MODEL;
+  const model = GEMINI_MODEL;
   const context = results.slice(0, 5).map((r, i) => `Result ${i + 1}:\nTitle: ${r.title || "N/A"}\nURL: ${r.url || "N/A"}\nSnippet: ${r.content || "N/A"}`).join("\n\n");
   const instruction = job.instruction?.trim().length
     ? job.instruction.trim()
@@ -650,7 +650,7 @@ async function requestMonthlyMemoryRollover(input: {
   soulContent: string;
   identityContent: string;
 }): Promise<{ updatedSoul: string; updatedIdentity: string; changeSummary: string }> {
-  const model = process.env.GEMINI_TEXT_MODEL || GEMINI_MODEL;
+  const model = GEMINI_MODEL;
   const prompt = `You are Kayley performing a monthly memory rollover.
 Use ONLY the provided monthly notes as the source of truth. Do not invent new facts.
 Task:
