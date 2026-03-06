@@ -198,6 +198,7 @@ export interface MultiAgentCreateTicketResult {
 const LOG_PREFIX = "[MultiAgentService]";
 const DEFAULT_AGENT_BASE_URL = "http://localhost:4010";
 const DEFAULT_WHATSAPP_BRIDGE_URL = "http://localhost:4011";
+const DEFAULT_TELEGRAM_BRIDGE_URL = "http://localhost:4012";
 
 function getWhatsAppBaseUrl(): string {
   const configuredUrl = import.meta.env.VITE_WHATSAPP_BRIDGE_URL as string | undefined;
@@ -208,6 +209,17 @@ function getWhatsAppBaseUrl(): string {
     return "/whatsapp-bridge"; // goes through Vite proxy → 127.0.0.1:4011
   }
   return DEFAULT_WHATSAPP_BRIDGE_URL;
+}
+
+function getTelegramBaseUrl(): string {
+  const configuredUrl = import.meta.env.VITE_TELEGRAM_BRIDGE_URL as string | undefined;
+  if (configuredUrl && configuredUrl.trim()) {
+    return configuredUrl.trim().replace(/\/+$/, "");
+  }
+  if (import.meta.env.DEV) {
+    return "/telegram-bridge"; // goes through Vite proxy → 127.0.0.1:4012
+  }
+  return DEFAULT_TELEGRAM_BRIDGE_URL;
 }
 
 function getBaseUrl(): string {
@@ -320,6 +332,12 @@ export interface WhatsAppHealthResult {
   error?: string;
 }
 
+export interface TelegramHealthResult {
+  ok: boolean;
+  latencyMs?: number;
+  error?: string;
+}
+
 export interface WhatsAppRestartResult {
   ok: boolean;
   message?: string;
@@ -365,6 +383,28 @@ export async function getWhatsAppHealth(): Promise<WhatsAppHealthResult> {
     return { ok: true, connected: body.connected === true, latencyMs };
   } catch {
     return { ok: false, connected: false, error: "WhatsApp bridge is unreachable." };
+  }
+}
+
+export async function getTelegramHealth(): Promise<TelegramHealthResult> {
+  const endpoint = `${getTelegramBaseUrl()}/health`;
+  const t0 = Date.now();
+
+  try {
+    const response = await fetch(endpoint, {
+      method: "GET",
+      headers: { Accept: "application/json" },
+    });
+    const latencyMs = Date.now() - t0;
+    const body = await parseResponse<{ ok?: boolean }>(response);
+
+    if (!response.ok || body.ok !== true) {
+      return { ok: false, error: `Telegram bridge returned ${response.status}.` };
+    }
+
+    return { ok: true, latencyMs };
+  } catch {
+    return { ok: false, error: "Telegram bridge is unreachable." };
   }
 }
 

@@ -46,6 +46,11 @@ export default defineConfig(({ mode }) => {
             changeOrigin: true,
             rewrite: (path) => path.replace(/^\/whatsapp-bridge/, ''),
           },
+          '/telegram-bridge': {
+            target: 'http://127.0.0.1:4012',
+            changeOrigin: true,
+            rewrite: (path) => path.replace(/^\/telegram-bridge/, ''),
+          },
         },
       },
       plugins: [

@@ -3,7 +3,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { GmailConnectButton } from './GmailConnectButton';
 import { hasXScope, isXConnected, initXAuth, revokeXAuth } from '../services/xTwitterService';
 import { supabase } from '../services/supabaseClient';
-import { getMultiAgentHealth, getWhatsAppHealth } from '../services/multiAgentService';
+import { getMultiAgentHealth, getTelegramHealth, getWhatsAppHealth } from '../services/multiAgentService';
 import type { ProactiveSettings } from '../types';
 
 interface SettingsPanelProps {
@@ -48,6 +48,8 @@ export function SettingsPanel({
   // --------------------------------------------------------------------------
   const [waStatus, setWaStatus] = useState<'ok' | 'unreachable' | null>(null);
   const [waLatencyMs, setWaLatencyMs] = useState<number | null>(null);
+  const [tgStatus, setTgStatus] = useState<'ok' | 'unreachable' | null>(null);
+  const [tgLatencyMs, setTgLatencyMs] = useState<number | null>(null);
 
   const checkXConnection = useCallback(async () => {
     try {
@@ -86,7 +88,11 @@ export function SettingsPanel({
     setIsServerHealthLoading(true);
     setServerHealthError(null);
     try {
-      const [multiAgent, whatsapp] = await Promise.all([getMultiAgentHealth(), getWhatsAppHealth()]);
+      const [multiAgent, whatsapp, telegram] = await Promise.all([
+        getMultiAgentHealth(),
+        getWhatsAppHealth(),
+        getTelegramHealth(),
+      ]);
 
       if (!multiAgent.ok) {
         setServerHealthStatus('unreachable');
@@ -99,6 +105,9 @@ export function SettingsPanel({
 
       setWaStatus(whatsapp.ok && whatsapp.connected ? 'ok' : 'unreachable');
       setWaLatencyMs(typeof whatsapp.latencyMs === 'number' ? whatsapp.latencyMs : null);
+
+      setTgStatus(telegram.ok ? 'ok' : 'unreachable');
+      setTgLatencyMs(typeof telegram.latencyMs === 'number' ? telegram.latencyMs : null);
     } catch (error) {
       console.error('Server health check failed:', error);
       setServerHealthStatus('unreachable');
@@ -106,6 +115,8 @@ export function SettingsPanel({
       setServerHealthError('Server health check failed.');
       setWaStatus('unreachable');
       setWaLatencyMs(null);
+      setTgStatus('unreachable');
+      setTgLatencyMs(null);
     } finally {
       setIsServerHealthLoading(false);
     }
@@ -369,6 +380,22 @@ export function SettingsPanel({
                     {waStatus
                       ? `WhatsApp: ${waStatus}${waLatencyMs !== null ? ` (${waLatencyMs}ms)` : ''}`
                       : 'WhatsApp: unknown'}
+                  </span>
+                </div>
+                <div className="flex items-center gap-2 text-xs text-gray-400 mt-1">
+                  <span
+                    className={`h-2.5 w-2.5 rounded-full ${
+                      tgStatus === 'ok'
+                        ? 'bg-green-400'
+                        : tgStatus === 'unreachable'
+                          ? 'bg-red-400'
+                          : 'bg-amber-400'
+                    }`}
+                  />
+                  <span>
+                    {tgStatus
+                      ? `Telegram: ${tgStatus}${tgLatencyMs !== null ? ` (${tgLatencyMs}ms)` : ''}`
+                      : 'Telegram: unknown'}
                   </span>
                 </div>
                 {serverHealthError && (
