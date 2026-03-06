@@ -35,10 +35,7 @@ import CharacterManagementView from './components/CharacterManagementView';
 import { SettingsPanel } from './components/SettingsPanel';
 import { LoginPage } from './components/LoginPage';
 import { TaskPanel } from './components/TaskPanel';
-import { WhiteboardView } from './components/WhiteboardView';
 import AdminDashboardView from './components/AdminDashboardView';
-import { WhiteboardAction } from './services/whiteboardModes';
-import { handleWhiteboardCapture as handleWhiteboardCaptureHandler } from './handlers/whiteboardHandler';
 import { processSelfieAction, processTaskAction } from './handlers/messageActions';
 import { agentClient } from './services/agentClient';
 import { useGoogleAuth } from './contexts/GoogleAuthContext';
@@ -51,7 +48,6 @@ import { useGmail } from './hooks/useGmail';
 import { useIdleTracking } from './hooks/useIdleTracking';
 import { useCharacterActions } from './hooks/useCharacterActions';
 import { useCharacterManagement } from './hooks/useCharacterManagement';
-import { useAIService } from './contexts/AIServiceContext';
 import { AIChatSession } from './services/aiService';
 import { startCleanupScheduler, stopCleanupScheduler } from './services/loopCleanupService';
 import { processStorylineOnStartup } from './services/storylineService';
@@ -85,7 +81,7 @@ if (import.meta.env.DEV) {
 // ============================================================================
 const ACTION_VIDEO_BUCKET = 'character-action-videos';
 
-type View = 'loading' | 'selectCharacter' | 'createCharacter' | 'chat' | 'manageCharacter' | 'whiteboard' | 'admin';
+type View = 'loading' | 'selectCharacter' | 'createCharacter' | 'chat' | 'manageCharacter' | 'admin';
 
 interface DisplayCharacter {
   profile: CharacterProfile;
@@ -190,8 +186,6 @@ const App: React.FC = () => {
   // AUTH & CORE SERVICES
   // --------------------------------------------------------------------------
   const { session, status: authStatus, signOut, refreshSession } = useGoogleAuth();
-  const activeService = useAIService();
-
   // --------------------------------------------------------------------------
   // X OAUTH CALLBACK HANDLER
   // --------------------------------------------------------------------------
@@ -1734,23 +1728,6 @@ const App: React.FC = () => {
     setCurrentActionId(null);
   };
 
-  // Whiteboard AI Interaction Handler (extracted to src/handlers/whiteboardHandler.ts)
-  const handleWhiteboardCapture = async (
-    base64: string,
-    userMessage: string,
-    modeContext: string
-  ): Promise<{ textResponse: string; whiteboardAction?: WhiteboardAction | null }> => {
-    return handleWhiteboardCaptureHandler(base64, userMessage, modeContext, {
-      selectedCharacter,
-      session,
-      aiSession,
-      activeService,
-      setAiSession,
-      playAction,
-      isMutedRef,
-      enqueueAudio: media.enqueueAudio,
-    });
-  };
 
   // ==========================================================================
   // RENDER
@@ -1920,7 +1897,6 @@ const App: React.FC = () => {
                   <ChatPanel
                     history={chatHistory}
                     onSendMessage={handleSendMessage}
-                onOpenWhiteboard={() => setView('whiteboard')}
                     isSending={isProcessingAction}
                     onUserActivity={markInteraction}
                   />
@@ -1929,13 +1905,6 @@ const App: React.FC = () => {
         )}
 
 
-        {view === 'whiteboard' && (
-          <WhiteboardView
-            onSendToAI={handleWhiteboardCapture}
-            onClose={() => setView('chat')}
-            disabled={isProcessingAction}
-          />
-        )}
 
           {view === 'admin' && (
             <AdminDashboardView

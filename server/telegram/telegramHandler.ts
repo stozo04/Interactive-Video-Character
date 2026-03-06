@@ -446,13 +446,26 @@ async function loadPendingEmailFromDB(): Promise<{ row: PendingEmailRow; email: 
 
   if (error || !data) return null;
 
+  // Fetch email body from Gmail so the model has content to reason about
+  let body = '';
+  try {
+    const accessToken = await getValidGoogleToken();
+    body = await gmailService.fetchMessageBody(accessToken, data.gmail_message_id);
+  } catch (err) {
+    runtimeLog.warning('Could not fetch email body for pending email', {
+      source: 'telegramHandler',
+      gmailMessageId: data.gmail_message_id,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+
   const email: NewEmailPayload = {
     id:         data.gmail_message_id,
     threadId:   data.gmail_thread_id   ?? '',
     from:       data.from_address      ?? '',
     subject:    data.subject           ?? '',
-    snippet:    '',
-    body:       '',
+    snippet:    body.slice(0, 200),
+    body,
     receivedAt: '',
   };
 
@@ -665,7 +678,7 @@ export async function handleTelegramMessage(ctx: Context): Promise<void> {
         action,
         gmailMessageId: pendingEmailData.row.gmail_message_id,
       });
-      void executeTelegramEmailAction(action, reply_body, pendingEmailData.row, pendingEmailData.email);
+      await executeTelegramEmailAction(action, reply_body, pendingEmailData.row, pendingEmailData.email);
     }
 
     await sendOrchestratorResult(chatId, result);

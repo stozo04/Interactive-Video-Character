@@ -38,6 +38,16 @@ if (process.env.GEMINI_API_BASE_URL) {
   env.VITE_GEMINI_PROXY_URL = process.env.GEMINI_API_BASE_URL;
 }
 
+// Alias server-only GEMINI_API_KEY as VITE_GEMINI_API_KEY so that src/ services
+// (topicExhaustionService, conversationAnchorService, etc.) work when imported
+// server-side. This only runs in Node — the browser never sees this value.
+if (!env.VITE_GEMINI_API_KEY && process.env.GEMINI_API_KEY) {
+  env.VITE_GEMINI_API_KEY = process.env.GEMINI_API_KEY;
+}
+if (!env.VITE_GEMINI_MODEL && process.env.GEMINI_MODEL) {
+  env.VITE_GEMINI_MODEL = process.env.GEMINI_MODEL;
+}
+
 // 3. Set the global that the loader hook will rewrite references to
 (globalThis as any).__importMetaEnv = env;
 
