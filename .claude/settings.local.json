@@ -76,7 +76,10 @@
       "WebFetch(domain:geminibyexample.com)",
       "WebFetch(domain:www.ikangai.com)",
       "WebFetch(domain:arxiv.org)",
-      "WebFetch(domain:blog.langchain.com)"
+      "WebFetch(domain:blog.langchain.com)",
+      "WebFetch(domain:moltsbooks.com)",
+      "WebFetch(domain:googleapis.github.io)",
+      "Bash(npx tsx:*)"
     ]
   },
   "enabledPlugins": {

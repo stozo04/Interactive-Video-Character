@@ -41,7 +41,7 @@
 
 - **Real-World Awareness** - Time-aware, location-aware, and news-aware. Your AI can search the web and understands what's happening in your world right now.
 
-- **Multi-Provider Support** - Choose from Google Gemini, OpenAI GPT, or xAI Grok as your AI backend.
+- **Server-Side AI Brain** - All AI intelligence runs on a central Node.js server (port 4010). The browser is a thin client — the Gemini API key never reaches the browser. Web, Telegram, and WhatsApp all share the same intelligence layer.
 
 ---
 
@@ -98,12 +98,17 @@
 
    Run the SQL files in `supabase/migrations/` against your Supabase project.
 
-5. **Run the development server**
+5. **Start the agent server** (terminal 1)
    ```bash
-   npm run dev
+   npm run agent:dev
    ```
 
-6. **Open your browser**
+6. **Start the web UI** (terminal 2)
+   ```bash
+   npm run dev:web
+   ```
+
+7. **Open your browser**
 
    Navigate to [http://localhost:3000](http://localhost:3000)
 
@@ -166,18 +171,30 @@ ai-interactive-chat/
 
 ## Environment Variables
 
+### Server-only (never exposed to browser)
+
 | Variable | Description | Required |
 |----------|-------------|----------|
-| `VITE_GEMINI_API_KEY` | Google Gemini API key | Optional* |
-| `VITE_CHATGPT_API_KEY` | OpenAI API key | Optional* |
-| `VITE_GROK_API_KEY` | xAI Grok API key | Optional* |
-| `NEXT_PUBLIC_SUPABASE_URL` | Supabase project URL | Yes |
-| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Supabase anon key | Yes |
-| `GOOGLE_CLIENT_ID` | Google OAuth client ID used by server token refresh | Yes |
-| `GOOGLE_CLIENT_SECRET` | Google OAuth client secret used by server token refresh | Yes |
-| `VITE_USER_ID` | Your user identifier | Yes |
+| `GEMINI_API_KEY` | Google Gemini API key (server-side AI brain) | Yes |
+| `GEMINI_MODEL` | Model name, e.g. `gemini-2.5-flash` | Yes |
+| `SUPABASE_URL` | Supabase project URL | Yes |
+| `SUPABASE_SERVICE_ROLE_KEY` | Supabase service role key | Yes |
+| `GOOGLE_CLIENT_ID` | Google OAuth client ID (server token refresh) | Yes |
+| `GOOGLE_CLIENT_SECRET` | Google OAuth client secret | Yes |
+| `TELEGRAM_BOT_TOKEN` | Telegram bot token | Optional |
+| `WHATSAPP_STEVEN_JID` | WhatsApp user JID | Optional |
 
-\* At least one AI provider must be configured
+### Browser (`VITE_` prefix — safe to expose)
+
+| Variable | Description | Required |
+|----------|-------------|----------|
+| `VITE_SUPABASE_URL` | Supabase project URL (real-time subscriptions) | Yes |
+| `VITE_SUPABASE_ANON_KEY` | Supabase anon key | Yes |
+| `VITE_USER_ID` | Your user identifier | Yes |
+| `VITE_GOOGLE_CLIENT_ID` | Google OAuth client ID (browser OAuth flow) | Yes |
+| `VITE_GROK_API_KEY` | xAI Grok API key (image generation) | Optional |
+| `VITE_ElEVEN_LABS_VOICE_ID` | ElevenLabs voice ID (TTS) | Optional |
+| `VITE_GIPHY_API_KEY` | Giphy API key (GIF search) | Optional |
 
 See `.env.example` for the complete list of available configuration options.
 

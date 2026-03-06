@@ -33,6 +33,10 @@ export default defineConfig(({ mode }) => {
             changeOrigin: true,
             rewrite: (path) => path.replace(/^\/api\/x/, ''),
           },
+          '/agent': {
+            target: 'http://127.0.0.1:4010',
+            changeOrigin: true,
+          },
           '/multi-agent': {
             target: 'http://127.0.0.1:4010',
             changeOrigin: true,

@@ -94,12 +94,13 @@ const createCalendarPoller = () => {
     }
   };
 
-  const start = () => {
-    if (upcomingIntervalId || weekIntervalId) return;
+  const start = (): boolean => {
+    if (upcomingIntervalId || weekIntervalId) return false;
     pollUpcoming();
     pollWeek();
     upcomingIntervalId = setInterval(pollUpcoming, CALENDAR_POLL_INTERVAL);
     weekIntervalId = setInterval(pollWeek, CALENDAR_POLL_INTERVAL);
+    return true;
   };
 
   const stop = () => {
@@ -116,7 +117,11 @@ const createCalendarPoller = () => {
   const subscribe = (subscriber: CalendarPollSubscriber, token: string) => {
     subscribers.add(subscriber);
     setAccessToken(token);
-    start();
+    const started = start();
+    if (!started) {
+      pollUpcoming();
+      pollWeek();
+    }
     return () => {
       subscribers.delete(subscriber);
       if (subscribers.size === 0) {

@@ -202,7 +202,7 @@ async function processNewEmail(email: NewEmailPayload): Promise<void> {
     return;
   }
 
-  // 1. Dedup — browser may have already caught and announced this email
+  // 1a. Dedup — browser may have already caught and announced this email
   const { data: existing } = await supabase
     .from('kayley_email_actions')
     .select('id')
@@ -215,6 +215,30 @@ async function processNewEmail(email: NewEmailPayload): Promise<void> {
       gmailMessageId: email.id,
     });
     return;
+  }
+
+  // 1b. Reply-echo guard — if Kayley replied to this thread within the last 5 minutes,
+  // skip this new message. Prevents self-addressed test emails and auto-responders from
+  // appearing as new announcements immediately after Kayley sends a reply.
+  if (email.threadId) {
+    const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+    const { data: recentReply } = await supabase
+      .from('kayley_email_actions')
+      .select('id, actioned_at')
+      .eq('gmail_thread_id', email.threadId)
+      .eq('action_taken', 'reply')
+      .gte('actioned_at', fiveMinutesAgo)
+      .maybeSingle();
+
+    if (recentReply) {
+      runtimeLog.info('Skipping email — reply-echo in same thread within 5 minutes', {
+        source: 'gmailPoller',
+        gmailMessageId: email.id,
+        threadId: email.threadId,
+        repliedAt: recentReply.actioned_at,
+      });
+      return;
+    }
   }
 
   // 2. Fetch full body for a richer announcement (history API only returns snippet)

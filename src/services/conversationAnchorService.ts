@@ -398,17 +398,36 @@ async function generateAnchorViaLLM(
         temperature: 0.3,
         systemInstruction: systemPrompt,
         responseMimeType: "application/json",
+        responseSchema: {
+          type: "object" as any,
+          properties: {
+            anchor_summary: { type: "string" as any },
+            unresolved_asks: { type: "array" as any, items: { type: "string" as any } },
+            active_emotional_context: { type: "string" as any },
+            pending_commitments: { type: "array" as any, items: { type: "string" as any } },
+          },
+          required: ["anchor_summary", "unresolved_asks", "active_emotional_context", "pending_commitments"],
+        },
       },
     });
 
     const text = response.text?.trim() || "";
-    const jsonMatch = text.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) {
+    // Extract first balanced JSON object (greedy regex matches to last '}', causing parse failures)
+    const firstBrace = text.indexOf("{");
+    if (firstBrace === -1) {
       console.warn(`${LOG_PREFIX} No JSON in LLM response`);
       return null;
     }
-
-    const parsed = JSON.parse(jsonMatch[0]);
+    let depth = 0, end = -1;
+    for (let i = firstBrace; i < text.length; i++) {
+      if (text[i] === "{") depth++;
+      else if (text[i] === "}") { depth--; if (depth === 0) { end = i; break; } }
+    }
+    if (end === -1) {
+      console.warn(`${LOG_PREFIX} Unbalanced JSON in LLM response`);
+      return null;
+    }
+    const parsed = JSON.parse(text.slice(firstBrace, end + 1));
 
     // Validate structure
     return {

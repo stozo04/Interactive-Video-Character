@@ -8,13 +8,14 @@ This folder hosts the Workspace Agent server that powers multi-agent workflows a
 
 ## What It Does
 
-- Starts the Workspace Agent HTTP server (default port `4010`).
+- Starts the central Agent HTTP server (default port `4010`).
 - Loads environment variables from root `.env.local` and root `.env` (highest to lowest priority).
 - Starts background services:
   - Opey dev ticket polling loop (reads `engineering_tickets`).
   - Cron scheduler for scheduled digests and reminders.
+- Serves `/agent/*` routes — the **central AI intelligence gateway** for all clients (Web, Telegram, WhatsApp).
 - Serves `/multi-agent/*` API routes for tickets, events, turns, and chats (Supabase-backed).
-- Provides a lightweight `/multi-agent/health` endpoint for liveness checks.
+- Provides liveness endpoints at `/agent/health` and `/multi-agent/health`.
 
 ## Dev Setup (High Level)
 
@@ -35,6 +36,56 @@ npm run dev
 ```bash
 npm run agent:dev
 ```
+
+## Kayley Agent API
+
+The `/agent` routes are the **single entry point** for all AI interactions. Every client (Web, Telegram, WhatsApp) routes through here. The server holds all intelligence — clients are thin.
+
+Base path: `/agent`
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/agent/health` | `GET` | `{ status: "ok", sessions: <n> }` — active SDK Chat sessions |
+| `/agent/message` | `POST` | Process a user message. Returns `OrchestratorResult`. |
+| `/agent/greeting` | `POST` | Generate a first-login daily greeting. |
+
+### POST /agent/message — Request Body
+
+```typescript
+{
+  message: string;           // User's text message
+  messageForAI?: string;     // Optional alternate text sent to LLM (e.g. image descriptions)
+  sessionId: string;         // Client-scoped ID, e.g. "web-main", "telegram-123"
+  googleAccessToken?: string; // Passed to Calendar/Gmail tools
+  chatHistory?: ChatMessage[]; // Recent turns for context
+  upcomingEvents?: CalendarEvent[];
+  tasks?: Task[];
+  isMuted?: boolean;
+  pendingEmail?: NewEmailPayload;
+  userContent?: {            // For image/audio input
+    type: 'text' | 'audio' | 'image_text';
+    // ... type-specific fields
+  };
+}
+```
+
+### Architecture
+
+```
+server/services/ai/
+  geminiClient.ts          ← Singleton GoogleGenAI instance (server-only API key)
+  chatSessionManager.ts    ← SDK Chat session lifecycle, TTL eviction (2hr)
+  toolBridge.ts            ← Wraps executeMemoryTool as SDK CallableTool
+  serverGeminiService.ts   ← Implements IAIChatService, automatic function calling
+
+server/routes/agentRoutes.ts  ← HTTP gateway for /agent/*
+```
+
+### SDK Chat Sessions
+
+Sessions are stored in-memory keyed by `sessionId`. On server restart, history is reloaded from the `conversation_history` Supabase table. Sessions expire after 2 hours of inactivity.
+
+---
 
 ## CORS / Proxy Notes
 
@@ -67,6 +118,11 @@ Required for persistence (values not listed here):
 
 - `SUPABASE_URL`
 - `SUPABASE_SERVICE_ROLE_KEY` (or `SUPABASE_ANON_KEY`)
+
+Required for Kayley AI:
+
+- `GEMINI_API_KEY` — server-only, never exposed to the browser
+- `GEMINI_MODEL` — e.g. `gemini-2.5-flash`
 
 Optional:
 

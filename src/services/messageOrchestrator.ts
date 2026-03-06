@@ -39,6 +39,9 @@ import { appendConversationHistory } from './conversationHistoryService';
 import { extractAndRecordTopics } from './topicExhaustionService';
 import { refreshConversationAnchor } from './conversationAnchorService';
 import { consumeTaskMutationSignal } from './memoryService';
+import { clientLogger } from './clientLogger';
+
+const log = clientLogger.scoped('MessageOrchestrator');
 
 // ============================================================================
 // CALENDAR QUERY DETECTION
@@ -206,15 +209,19 @@ export async function processUserMessage(input: OrchestratorInput): Promise<Orch
         `  Subject    : ${pendingEmail.subject}`,
         `  Body       : ${(pendingEmail.body?.trim() || pendingEmail.snippet?.trim() || '(no body)').slice(0, 600)}`,
         ``,
-        `Based on Steven's reply, set email_action.action to:`,
-        `  "archive"  — if he wants it archived/removed from inbox`,
-        `  "reply"    — if he wants to respond (compose reply_body in your casual Kayley voice)`,
-        `  "dismiss"  — if he wants to ignore it with no action`,
-        `Always populate message_id. Populate thread_id + reply_body when replying.`,
+        `Based on Steven's message, choose email_action.action:`,
+        `  "reply"    — Steven wants to send a reply TO THE EMAIL SENDER.`,
+        `               Triggered by: "respond saying X", "reply saying X", "say X", "tell them X", "send them X".`,
+        `               Use Steven's exact words as reply_body in your Kayley voice.`,
+        `  "archive"  — Steven wants it removed from inbox, no reply sent.`,
+        `               Triggered by: "archive it", "delete it", "get rid of it", "done", "handled".`,
+        `  "dismiss"  — Steven wants to ignore it with no action.`,
+        `CRITICAL: "respond saying X" means reply TO THE SENDER with X — NOT an acknowledgment to Steven.`,
+        `Always populate message_id. Populate thread_id + reply_body when action is "reply".`,
       ].join('\n');
 
       textToSend = `${textToSend}\n\n${emailContext}`;
-      console.log(`📧 [Orchestrator] Injected pending email context for message: ${pendingEmail.id}`);
+      log.info(`Injected pending email context`, { emailId: pendingEmail.id });
     }
 
     // Build input and options for AI service
@@ -376,7 +383,7 @@ export async function processUserMessage(input: OrchestratorInput): Promise<Orch
 
       if (isValid) {
         result.detectedEmailAction = emailAction as any;
-        console.log(`📧 [Orchestrator] Email action detected: ${emailAction!.action}${emailAction!.message_id ? ` for message ${emailAction!.message_id}` : ` to ${emailAction!.to}`}`);
+        log.info(`Email action detected`, { action: emailAction!.action, messageId: emailAction!.message_id, to: emailAction!.to });
       }
     }
 
