@@ -178,7 +178,6 @@ ${promisesContext}
 ${buildSelfieRulesPrompt()}
 ${buildVideoRulesPrompt(relationship)}
 ${getRecentNewsContext()}
-${buildGoogleCalendarEventsPrompt(upcomingEvents)}
 ${buildToolStrategySection()}
 ${buildStandardOutputSection()}
 `.trim();
@@ -325,7 +324,6 @@ ${pinnedFactsPrompt}
 ${lessonsLearnedPrompt}
 ${buildCheckInGuidance(dailyLogisticsContext.kayleyLifeUpdates)}
 ${buildMajorNewsPrompt()}
-${buildGoogleCalendarEventsPrompt(dailyLogisticsContext.upcomingEvents)}
 ${buildToolStrategySection()}
 ${buildGreetingOutputSection()}
 `;
@@ -499,116 +497,6 @@ Use them naturally when addressing the user. Do not list them verbatim unless as
 
 ${lines.join("\n")}
 `.trim();
-}
-
-export function buildGoogleCalendarEventsPrompt(upcomingEvents: any[]): string {
-  // 1. Establish "Now" in the user's specific timezone
-  const timeZone = "America/Chicago";
-  const now = new Date();
-  
-  // Create a string for "Today" to compare against (e.g., "1/28/2026")
-  const todayString = now.toLocaleDateString("en-US", {
-    timeZone,
-    year: "numeric",
-    month: "numeric",
-    day: "numeric",
-  });
-  const todayParts = new Intl.DateTimeFormat("en-US", {
-    timeZone,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).formatToParts(now);
-  const todayYear = todayParts.find((p) => p.type === "year")?.value ?? "";
-  const todayMonth = todayParts.find((p) => p.type === "month")?.value ?? "";
-  const todayDay = todayParts.find((p) => p.type === "day")?.value ?? "";
-  const todayIsoDate = `${todayYear}-${todayMonth}-${todayDay}`;
-
-  // [FIX] Establish a clear "Current Time" anchor with the timezone label
-  const currentTimeString = now.toLocaleTimeString("en-US", {
-    timeZone,
-    hour: "numeric",
-    minute: "2-digit",
-    timeZoneName: "short" // Adds "CST" or "CDT"
-  });
-
-  if (!upcomingEvents || upcomingEvents.length === 0) {
-    return `
-====================================================
-CALENDAR CONTEXT
-====================================================
-Current Time: ${currentTimeString}
-No events scheduled for TODAY (${todayString}).
-Direction: This is the user's calendar (Steven). Do not frame these events as your own plans.
-`;
-  }
-
-  // 2. Filter strictly for "Today"
-  const eventsToday: string[] = [];
-
-  upcomingEvents.forEach((event) => {
-    const startDateOnly = event?.start?.date as string | undefined;
-    const startDateTime = event?.start?.dateTime as string | undefined;
-
-    // Date-only events (birthdays, reminders, all-day entries) must be compared
-    // as raw YYYY-MM-DD to avoid timezone shifts that create fake clock times.
-    if (startDateOnly) {
-      if (startDateOnly === todayIsoDate) {
-        const loc = event.location ? ` — Location: ${event.location}` : '';
-        eventsToday.push(`- "${event.summary}" (all day)${loc}`);
-      }
-      return;
-    }
-
-    if (!startDateTime) return;
-
-    const eventDateObj = new Date(startDateTime);
-    const eventDateString = eventDateObj.toLocaleDateString("en-US", {
-      timeZone,
-      year: "numeric",
-      month: "numeric",
-      day: "numeric",
-    });
-
-    if (eventDateString === todayString) {
-      const timeStr = eventDateObj.toLocaleString("en-US", {
-        timeZone,
-        hour: "numeric",
-        minute: "2-digit",
-        timeZoneName: "short",
-      });
-      const loc = event.location ? ` — Location: ${event.location}` : '';
-      eventsToday.push(`- "${event.summary}" at ${timeStr}${loc}`);
-    }
-  });
-
-  // 3. Construct the prompt
-  // If we filtered everything out and have nothing for today:
-  if (eventsToday.length === 0) {
-      return `
-====================================================
-CALENDAR CONTEXT
-====================================================
-Current Time: ${currentTimeString}
-No events scheduled for TODAY (${todayString}).
-Direction: This is the user's calendar (Steven). Do not frame these events as your own plans.
-`;
-  }
-
-  // If we have events for today:
-  return `
-====================================================
-CALENDAR CONTEXT
-====================================================
-Current Time: ${currentTimeString}
-EVENTS HAPPENING TODAY (${todayString}):
-${eventsToday.join("\n")}
-
-Tone: Helpful but casual.
-Direction: These are happening TODAY. Mention if relevant, but don't list them like a robot.
-Calendar ownership: These are USER calendar events (Steven), not your personal plans unless the user explicitly says you are attending.
-⚠️ DATA NOTE: This list is ONLY for today. Future events are not listed here.
-`;
 }
 
 /**

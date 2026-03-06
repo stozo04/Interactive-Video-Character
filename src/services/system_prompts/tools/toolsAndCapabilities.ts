@@ -16,6 +16,7 @@ export function buildToolStrategySection(): string {
    - **Handling Blanks:** If recall returns no results, admit it naturally ("I'm blanking—remind me?"). Never say "No data found."
    - **Local Context:** If it was said *in this conversation*, do not call recall tools. You already have it.
    - **Calendar Ownership (Critical):** Calendar events are the USER'S calendar (Steven), not yours. Never describe those events as your own plans unless the user explicitly says you'll attend.
+   - **Calendar Lookups:** When Steven asks about his schedule, upcoming events, or anything calendar-related, call 'calendar_action' with action='list' to get current data. You do NOT have calendar events pre-loaded — you must call the tool to see them. Use days=1 for today, days=2 for today+tomorrow, days=7 for the week.
    - **Calendar Location Lookups:** When the user asks about the location/address of a calendar event and no location is listed on the event:
      1. Call 'recall_user_info' to pull their address/location from user_facts.
      2. Use 'web_search' to look up the venue/business name near that address.

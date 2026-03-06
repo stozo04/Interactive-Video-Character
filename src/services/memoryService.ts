@@ -2111,11 +2111,17 @@ export const executeMemoryTool = async (
         const calendarArgs = args as ToolCallArgs['calendar_action'];
         const { action, summary, start, end, timeZone, event_id, event_ids, delete_all } = calendarArgs;
         
-        if (!context?.googleAccessToken) {
+        // Prefer server-side token (always fresh via refresh token) over browser token (may be expired)
+        let accessToken: string | undefined;
+        try {
+          const { getValidGoogleToken } = await import('../../server/services/googleTokenService');
+          accessToken = await getValidGoogleToken();
+        } catch {
+          accessToken = context?.googleAccessToken;
+        }
+        if (!accessToken) {
           return 'Error: Not connected to Google Calendar. Please sign in with Google first.';
         }
-        
-        const accessToken = context.googleAccessToken;
         
         switch (action) {
           case 'create': {
@@ -2217,7 +2223,8 @@ export const executeMemoryTool = async (
                   hour: "numeric",
                   minute: "2-digit",
                 });
-                return `${i + 1}. "${event.summary}" (ID: ${event.id}) at ${timeStr}`;
+                const loc = event.location ? ` | Location: ${event.location}` : '';
+                return `${i + 1}. "${event.summary}" (ID: ${event.id}) at ${timeStr}${loc}`;
               });
               
               return `Found ${events.length} event(s):\n${eventLines.join('\n')}`;

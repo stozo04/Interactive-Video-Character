@@ -10,10 +10,8 @@
  */
 
 import type { AIChatOptions, UserContent } from './aiService';
-import type { CalendarEvent } from './calendarService';
 import {
   ActionType,
-  CalendarQueryType,
   ProcessingStage,
   type OrchestratorInput,
   type OrchestratorResult,
@@ -41,85 +39,6 @@ import { clientLogger } from './clientLogger';
 
 const log = clientLogger.scoped('MessageOrchestrator');
 
-// ============================================================================
-// CALENDAR QUERY DETECTION
-// ============================================================================
-
-// Keywords that indicate calendar-related queries
-const CALENDAR_READ_KEYWORDS = [
-  'calendar',
-  'schedule',
-  'meeting',
-  'meetings',
-  'event',
-  'events',
-  'today',
-  'tomorrow',
-  'appointment',
-  'appointments',
-  'plan',
-  'plans',
-];
-
-// Keywords that indicate calendar modification intent
-const CALENDAR_WRITE_KEYWORDS = ['delete', 'remove', 'cancel', 'add', 'create', 'schedule'];
-
-/**
- * Detects if a user message is asking about their calendar
- *
- * @param message - The user's message
- * @returns CalendarQueryType indicating READ, WRITE, or NONE
- */
-export function detectCalendarQuery(message: string): CalendarQueryType {
-  const lower = message.toLowerCase();
-
-  // Check for write operations first (they take priority)
-  const hasWriteKeyword = CALENDAR_WRITE_KEYWORDS.some((kw) => lower.includes(kw));
-  if (hasWriteKeyword) {
-    // "schedule a meeting" is WRITE, but "what's my schedule" is READ
-    // Check if it's "schedule" used as a noun vs verb
-    if (lower.includes('schedule a') || lower.includes('schedule an')) {
-      return CalendarQueryType.WRITE;
-    }
-    // Other write keywords are always write operations
-    if (CALENDAR_WRITE_KEYWORDS.filter((kw) => kw !== 'schedule').some((kw) => lower.includes(kw))) {
-      return CalendarQueryType.WRITE;
-    }
-  }
-
-  // Check for read operations
-  const hasReadKeyword = CALENDAR_READ_KEYWORDS.some((kw) => lower.includes(kw));
-  if (hasReadKeyword) {
-    return CalendarQueryType.READ;
-  }
-
-  return CalendarQueryType.NONE;
-}
-
-// ============================================================================
-// EVENT FORMATTING
-// ============================================================================
-
-/**
- * Formats calendar events into a readable string for AI context
- *
- * @param events - Array of calendar events
- * @returns Formatted string with event details including IDs
- */
-export function formatEventsForContext(events: CalendarEvent[]): string {
-  if (!events || events.length === 0) {
-    return '';
-  }
-
-  return events
-    .map((event) => {
-      const start = event.start?.dateTime || event.start?.date || 'No start time';
-      const end = event.end?.dateTime || event.end?.date || 'No end time';
-      const loc = event.location ? `\n  Location: ${event.location}` : '';
-      return `- ${event.summary} (ID: ${event.id})\n  Start: ${start}\n  End: ${end}${loc}`;
-    })
-    .join('\n');
-}
 
 // ============================================================================
 // MAIN ORCHESTRATOR
@@ -165,22 +84,8 @@ export async function processUserMessage(input: OrchestratorInput): Promise<Orch
     // PHASE 1: PRE-PROCESSING
     // ========================================================================
 
-    // Detect if this is a calendar query
-    const calendarQueryType = detectCalendarQuery(userMessage);
-    let calendarContext = "";
-
-    if (calendarQueryType !== CalendarQueryType.NONE) {
-      console.log(
-        `📅 [Orchestrator] Detected calendar query: ${calendarQueryType}`
-      );
-
-      if (upcomingEvents && upcomingEvents.length > 0) {
-        calendarContext = formatEventsForContext(upcomingEvents);
-        console.log(
-          `📅 [Orchestrator] Injected ${upcomingEvents.length} events into context`
-        );
-      }
-    }
+    // Calendar events are now fetched on-demand via the check_calendar tool.
+    // No per-message calendar injection needed.
 
     // ========================================================================
     // PHASE 2: AI CALL
@@ -189,14 +94,7 @@ export async function processUserMessage(input: OrchestratorInput): Promise<Orch
     result.stage = ProcessingStage.AI_CALL;
     console.log(`⚡ [Orchestrator] Calling AI service...`);
 
-    // Build message with calendar context if needed
-    const baseTextForAI = userMessageForAI ?? userMessage;
-    let textToSend = baseTextForAI;
-    if (calendarContext && calendarQueryType === CalendarQueryType.WRITE) {
-      textToSend = `${baseTextForAI}\n\n[LIVE USER CALENDAR DATA (STEVEN) - ${upcomingEvents.length} EVENTS:\n${calendarContext}]\n\n⚠️ DELETE REMINDER: Use calendar_action with exact event_id from above.`;
-    } else if (calendarContext) {
-      textToSend = `${baseTextForAI}\n\n[LIVE USER CALENDAR DATA (STEVEN) - ${upcomingEvents.length} EVENTS:\n${calendarContext}]`;
-    }
+    let textToSend = userMessageForAI ?? userMessage;
 
     // Append pending email context if Kayley is waiting on a decision
     if (pendingEmail) {
@@ -233,7 +131,7 @@ export async function processUserMessage(input: OrchestratorInput): Promise<Orch
     const options: AIChatOptions = {
       // Pass original message to intent detection (keeps payload small)
       // Intent detection doesn't need calendar data - only main chat does
-      originalMessageForIntent: calendarContext ? userMessage : undefined,
+      originalMessageForIntent: undefined,
       chatHistory,
       googleAccessToken: accessToken,
       audioMode: isMuted ? "none" : "sync",
