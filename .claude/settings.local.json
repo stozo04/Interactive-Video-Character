@@ -78,7 +78,8 @@
       "WebFetch(domain:arxiv.org)",
       "WebFetch(domain:blog.langchain.com)",
       "WebFetch(domain:moltsbooks.com)",
-      "WebFetch(domain:googleapis.github.io)"
+      "WebFetch(domain:googleapis.github.io)",
+      "Bash(npx tsx:*)"
     ]
   },
   "enabledPlugins": {

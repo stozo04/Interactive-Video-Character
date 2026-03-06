@@ -1225,7 +1225,9 @@ export type MemoryToolName =
   | 'resolve_x_tweet'
   | 'post_x_tweet'
   | 'resolve_x_mention'
-  | 'gmail_search';
+  | 'gmail_search'
+  | 'read_agent_file'
+  | 'write_agent_file';
 
 /**
  * Optional context passed to tool execution (e.g., access tokens)
@@ -1446,6 +1448,13 @@ export interface ToolCallArgs {
   gmail_search: {
     query: string;
     max_results?: number;
+  };
+  read_agent_file: {
+    filename: string;
+  };
+  write_agent_file: {
+    filename: string;
+    content: string;
   };
 }
 
@@ -2701,6 +2710,44 @@ export const executeMemoryTool = async (
           `    Snippet: ${r.snippet}` +
           (r.body ? `\n    Body: ${r.body}` : '')
         ).join('\n\n');
+      }
+      case 'read_agent_file': {
+        const { filename } = args as ToolCallArgs['read_agent_file'];
+        const READABLE_FILES = new Set([
+          'SOUL.md', 'IDENTITY.md', 'MEMORY.md', 'USER.md', 'TOOLS.md',
+          'HEARTBEAT.md', 'AGENTS.md', 'SAFETY.md', 'MEMORY_RULES.md',
+        ]);
+        if (!READABLE_FILES.has(filename)) {
+          return formatToolFailure(`File "${filename}" is not in the readable whitelist.`);
+        }
+        try {
+          const fs = await import('fs');
+          const path = await import('path');
+          const filePath = path.default.resolve(process.cwd(), 'server/agent/kayley', filename);
+          if (!fs.default.existsSync(filePath)) {
+            return formatToolFailure(`File "${filename}" does not exist.`);
+          }
+          const content = fs.default.readFileSync(filePath, 'utf-8');
+          return content || '(File is empty)';
+        } catch (err) {
+          return formatToolFailure(`Failed to read "${filename}": ${err instanceof Error ? err.message : String(err)}`);
+        }
+      }
+      case 'write_agent_file': {
+        const { filename, content } = args as ToolCallArgs['write_agent_file'];
+        const WRITABLE_FILES = new Set(['MEMORY.md', 'HEARTBEAT.md']);
+        if (!WRITABLE_FILES.has(filename)) {
+          return formatToolFailure(`File "${filename}" is not writable. Only MEMORY.md and HEARTBEAT.md can be written to.`);
+        }
+        try {
+          const fs = await import('fs');
+          const path = await import('path');
+          const filePath = path.default.resolve(process.cwd(), 'server/agent/kayley', filename);
+          fs.default.writeFileSync(filePath, content, 'utf-8');
+          return `Successfully wrote ${content.length} characters to ${filename}.`;
+        } catch (err) {
+          return formatToolFailure(`Failed to write "${filename}": ${err instanceof Error ? err.message : String(err)}`);
+        }
       }
       // TODO: CHARACTER_FACTS
       default:

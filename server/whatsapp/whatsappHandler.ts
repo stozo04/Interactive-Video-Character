@@ -1,5 +1,5 @@
 import { sentMessageIds, type WASocket } from "./baileyClient";
-import { geminiChatService } from "../../src/services/geminiChatService";
+import { serverGeminiService } from "../services/ai/serverGeminiService";
 import { processUserMessage } from "../../src/services/messageOrchestrator";
 import {
   loadTodaysConversationHistory,
@@ -799,7 +799,7 @@ export async function handleWhatsAppMessage(
 
     const interactionId = await getTodaysInteractionId();
     const session = interactionId
-      ? { model: geminiChatService.model, interactionId }
+      ? { model: serverGeminiService.model, interactionId }
       : null;
 
     runtimeLog.info("Interaction context loaded", {
@@ -844,7 +844,7 @@ export async function handleWhatsAppMessage(
     const result = await processUserMessage({
       userMessage: text,
       userContent,
-      aiService: geminiChatService,
+      aiService: serverGeminiService,
       session,
       accessToken: undefined,
       chatHistory,

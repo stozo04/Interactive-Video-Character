@@ -2145,6 +2145,60 @@ export const GeminiMemoryToolDeclarations = [
       required: ["query"],
     },
   },
+  {
+    name: "read_agent_file",
+    description:
+      "Read one of your personal files on-demand. " +
+      "Use this to refresh your knowledge when you need specific details " +
+      "(e.g., your tools list, user details, memory notes, heartbeat state). " +
+      "Available files: SOUL.md, IDENTITY.md, MEMORY.md, USER.md, TOOLS.md, " +
+      "HEARTBEAT.md, AGENTS.md, SAFETY.md, MEMORY_RULES.md",
+    parameters: {
+      type: "object",
+      properties: {
+        filename: {
+          type: "string",
+          enum: [
+            "SOUL.md",
+            "IDENTITY.md",
+            "MEMORY.md",
+            "USER.md",
+            "TOOLS.md",
+            "HEARTBEAT.md",
+            "AGENTS.md",
+            "SAFETY.md",
+            "MEMORY_RULES.md",
+          ],
+          description: "The filename to read from your personal files directory",
+        },
+      },
+      required: ["filename"],
+    },
+  },
+  {
+    name: "write_agent_file",
+    description:
+      "Write to one of your personal files. " +
+      "Use this to update your memory notes or heartbeat state. " +
+      "Only MEMORY.md and HEARTBEAT.md are writable. " +
+      "For MEMORY.md: append new observations, update existing notes, or reorganize. " +
+      "For HEARTBEAT.md: update your current emotional/mental state.",
+    parameters: {
+      type: "object",
+      properties: {
+        filename: {
+          type: "string",
+          enum: ["MEMORY.md", "HEARTBEAT.md"],
+          description: "The filename to write to (only MEMORY.md and HEARTBEAT.md are writable)",
+        },
+        content: {
+          type: "string",
+          description: "The full content to write to the file (replaces existing content)",
+        },
+      },
+      required: ["filename", "content"],
+    },
+  },
 ];
 
 // ============================================

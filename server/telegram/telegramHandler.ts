@@ -8,7 +8,7 @@
 import type { Context } from 'grammy';
 import { InputFile } from 'grammy';
 import { bot, getStevenChatId } from './telegramClient';
-import { geminiChatService } from '../../src/services/geminiChatService';
+import { serverGeminiService } from '../services/ai/serverGeminiService';
 import { processUserMessage } from '../../src/services/messageOrchestrator';
 import {
   loadTodaysConversationHistory,
@@ -618,7 +618,7 @@ export async function handleTelegramMessage(ctx: Context): Promise<void> {
     // -----------------------------------------------------------------------
     const interactionId = await getTodaysInteractionId();
     const session = interactionId
-      ? { model: geminiChatService.model, interactionId }
+      ? { model: serverGeminiService.model, interactionId }
       : null;
 
     const [chatHistory, pendingEmailData] = await Promise.all([
@@ -632,7 +632,7 @@ export async function handleTelegramMessage(ctx: Context): Promise<void> {
     const result = await processUserMessage({
       userMessage: text,
       userContent,
-      aiService: geminiChatService,
+      aiService: serverGeminiService,
       session,
       accessToken: undefined,
       chatHistory,

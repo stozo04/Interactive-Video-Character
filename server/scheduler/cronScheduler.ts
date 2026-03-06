@@ -4,6 +4,7 @@ import path from "node:path";
 import { toZonedTime, fromZonedTime } from "date-fns-tz";
 import { addDays, addMonths, lastDayOfMonth, set } from "date-fns";
 import { log } from "../runtimeLogger";
+import { ai, GEMINI_MODEL } from "../services/ai/geminiClient";
 import { runCodeCleanerBatch } from "./codeCleanerHandler";
 import { runTidyBranchCleanup } from "./tidyBranchCleanupHandler";
 
@@ -403,11 +404,6 @@ function getTavilyApiKey(): string | null {
   return apiKey && apiKey.trim().length > 0 ? apiKey.trim() : null;
 }
 
-function getGeminiApiKey(): string | null {
-  const apiKey = process.env.GEMINI_API_KEY || process.env.VITE_GEMINI_API_KEY;
-  return apiKey && apiKey.trim().length > 0 ? apiKey.trim() : null;
-}
-
 function buildFallbackSummary(jobTitle: string, results: TavilyResult[]): string {
   if (!results.length) return `I checked the web for "${jobTitle}" but did not find strong results right now.`;
   const topItems = results.slice(0, 3).map((r, i) => `${i + 1}. ${r.title || "Untitled result"} (${r.url || "N/A"})`);
@@ -486,16 +482,6 @@ async function summarizeSearchResults(job: CronJobRow, results: TavilyResult[], 
     resultCount: results.length,
   });
 
-  const geminiApiKey = getGeminiApiKey();
-  if (!geminiApiKey) {
-    log.warning("Gemini API key missing, using fallback summary", {
-      source: "SearchSummarizer",
-      jobId: job.id,
-      jobTitle: job.title,
-    });
-    return buildFallbackSummary(job.title, results);
-  }
-
   if (!results.length) {
     const message = `I looked up "${query}" and found no major updates right now.`;
     log.info("Search returned no results", {
@@ -507,7 +493,7 @@ async function summarizeSearchResults(job: CronJobRow, results: TavilyResult[], 
     return message;
   }
 
-  const model = process.env.GEMINI_TEXT_MODEL || process.env.VITE_GEMINI_MODEL || "gemini-2.0-flash";
+  const model = process.env.GEMINI_TEXT_MODEL || GEMINI_MODEL;
   const context = results.slice(0, 5).map((r, i) => `Result ${i + 1}:\nTitle: ${r.title || "N/A"}\nURL: ${r.url || "N/A"}\nSnippet: ${r.content || "N/A"}`).join("\n\n");
   const instruction = job.instruction?.trim().length
     ? job.instruction.trim()
@@ -531,53 +517,40 @@ Instruction from schedule: ${instruction}
 Search Query: ${query}
 Results: ${context}`.trim();
 
-  log.info("Sending request to Gemini API", {
-    source: "SearchSummarizer",
-    jobId: job.id,
-    jobTitle: job.title,
-    model,
-    promptLength: prompt.length,
-  });
+  try {
+    const response = await ai.models.generateContent({
+      model,
+      contents: prompt,
+    });
 
-  const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(geminiApiKey)}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ contents: [{ role: "user", parts: [{ text: prompt }] }] }),
-  });
+    const text = response.text?.trim();
+    if (!text) {
+      log.warning("Gemini returned empty response, using fallback summary", {
+        source: "SearchSummarizer",
+        jobId: job.id,
+        jobTitle: job.title,
+      });
+      return buildFallbackSummary(job.title, results);
+    }
 
-  if (!response.ok) {
+    log.info("Gemini summarization completed successfully", {
+      source: "SearchSummarizer",
+      jobId: job.id,
+      jobTitle: job.title,
+      summaryLength: text.length,
+      model,
+    });
+
+    return text;
+  } catch (error) {
     log.warning("Gemini API request failed, using fallback summary", {
       source: "SearchSummarizer",
       jobId: job.id,
       jobTitle: job.title,
-      status: response.status,
-      statusText: response.statusText,
+      error: error instanceof Error ? error.message : String(error),
     });
     return buildFallbackSummary(job.title, results);
   }
-
-  const data = await response.json();
-  const text = data?.candidates?.[0]?.content?.parts?.map((p: any) => (typeof p?.text === "string" ? p.text : "")).join("\n").trim();
-
-  if (!text) {
-    log.warning("Gemini returned empty response, using fallback summary", {
-      source: "SearchSummarizer",
-      jobId: job.id,
-      jobTitle: job.title,
-      responseStructure: data?.candidates ? "valid" : "invalid",
-    });
-    return buildFallbackSummary(job.title, results);
-  }
-
-  log.info("Gemini summarization completed successfully", {
-    source: "SearchSummarizer",
-    jobId: job.id,
-    jobTitle: job.title,
-    summaryLength: text.length,
-    model,
-  });
-
-  return text;
 }
 
 async function fetchMonthlyNotes(client: SupabaseClient, monthKey: string): Promise<string> {
@@ -677,12 +650,7 @@ async function requestMonthlyMemoryRollover(input: {
   soulContent: string;
   identityContent: string;
 }): Promise<{ updatedSoul: string; updatedIdentity: string; changeSummary: string }> {
-  const geminiApiKey = getGeminiApiKey();
-  if (!geminiApiKey) {
-    throw new Error("Missing Gemini API key for monthly memory rollover.");
-  }
-
-  const model = process.env.GEMINI_TEXT_MODEL || process.env.VITE_GEMINI_MODEL || "gemini-2.0-flash";
+  const model = process.env.GEMINI_TEXT_MODEL || GEMINI_MODEL;
   const prompt = `You are Kayley performing a monthly memory rollover.
 Use ONLY the provided monthly notes as the source of truth. Do not invent new facts.
 Task:
@@ -713,21 +681,12 @@ ${input.identityContent}
     promptLength: prompt.length,
   });
 
-  const response = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(geminiApiKey)}`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ contents: [{ role: "user", parts: [{ text: prompt }] }] }),
-    },
-  );
+  const response = await ai.models.generateContent({
+    model,
+    contents: prompt,
+  });
 
-  if (!response.ok) {
-    throw new Error(`Gemini rollover request failed (${response.status}).`);
-  }
-
-  const data = await response.json();
-  const text = data?.candidates?.[0]?.content?.parts?.map((p: any) => (typeof p?.text === "string" ? p.text : "")).join("\n").trim();
+  const text = response.text?.trim();
   if (!text) {
     throw new Error("Gemini rollover response was empty.");
   }

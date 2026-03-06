@@ -166,9 +166,8 @@ export const buildSystemPromptForNonGreeting = async (
 ${injectSOUL()}
 ${injectIDENTITY()}
 ${buildAntiAssistantSection()}
-${injectMEMORY()}
-${injectUSER()}
 ${injectSAFETY()}
+${buildAgentFilesSection()}
 ${currentWorldContext}
 ${anchorSection}
 ${synthesisSection}
@@ -213,7 +212,7 @@ ${agentsContent}`.trim();
 export function injectMEMORY(): string {
   return `
 ====================================================
-MMEMORY
+MEMORY
 ====================================================
 ${memoryContent}`.trim();
 }
@@ -259,6 +258,34 @@ IDENTITY
 ${identityContent}`.trim();
 }
 
+/**
+ * Instructions for on-demand file access.
+ * Tells Kayley she can read/write her personal files using tools.
+ */
+export function buildAgentFilesSection(): string {
+  return `
+====================================================
+YOUR FILES (On-Demand Access)
+====================================================
+You have personal files you can read and write using tools:
+
+**Read anytime (read_agent_file):**
+- MEMORY.md — Your personal notes and observations about Steven
+- USER.md — Detailed facts about Steven (preferences, family, work)
+- TOOLS.md — Your available tools and how to use them
+- HEARTBEAT.md — Your current emotional/mental state
+- AGENTS.md — Your team delegation capabilities
+- MEMORY_RULES.md — Rules for how you handle memory
+- SOUL.md, IDENTITY.md, SAFETY.md — Your core identity (already loaded)
+
+**Write to (write_agent_file):**
+- MEMORY.md — Update your personal notes when you learn something important
+- HEARTBEAT.md — Update your emotional state when it shifts
+
+Read these files when you need specific details. Don't guess when you can look it up.
+`.trim();
+}
+
 export function buildTeamPrompt(): string {
   return `
 ====================================================
@@ -289,10 +316,8 @@ export const buildSystemPromptForGreeting = async (
 ${injectSOUL()}
 ${injectIDENTITY()}
 ${buildAntiAssistantSection()}
-${injectMEMORY()}
-${injectUSER()}
-${injectTOOLS()}
 ${injectSAFETY()}
+${buildAgentFilesSection()}
 ${await buildCurrentWorldContext()}
 ====================================================
 GREETING CONTEXT
