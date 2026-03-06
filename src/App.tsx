@@ -463,26 +463,6 @@ const App: React.FC = () => {
     }
   }, []);
 
-
-  // Storyline Idle Service: Generate storyline suggestions during user absence
-  useEffect(() => {
-    try {
-      startStorylineIdleService();
-      return () => {
-        stopStorylineIdleService();
-      };
-    } catch (e) {
-      clientLogger.error(`${LOG_PREFIX} [StorylineIdle] Error starting idle service`, { source: 'App.tsx', error: e instanceof Error ? e.message : String(e) });
-    }
-  }, []);
-
-  // Storyline Processing: Check for missed days on app startup
-  useEffect(() => {
-    processStorylineOnStartup().catch(error => {
-      clientLogger.error(`${LOG_PREFIX} [Storylines] Error in startup processing`, { source: 'App.tsx', error: error instanceof Error ? error.message : String(error) });
-    });
-  }, []); // Run once on mount
-
   // X Tweet Metrics: Refresh engagement metrics every 30 minutes
   useEffect(() => {
     const METRICS_INTERVAL = 30 * 60 * 1000; // 30 minutes

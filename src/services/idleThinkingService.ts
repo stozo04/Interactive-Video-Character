@@ -26,20 +26,21 @@ const TABLES = {
 
 const DAILY_CAP = 3;
 const SYNTHESIS_DAILY_CAP = 4;
-const TOOL_DISCOVERY_DAILY_CAP = 20;
-const X_POST_DAILY_CAP = 5;
-const X_MENTION_POLL_DAILY_CAP = 50;
-const MAX_BROWSE_NOTES_IN_PROMPT = 3;
-const BROWSE_NOTES_MAX_AGE_DAYS = 7;
-const MAX_BROWSE_NOTES_FOR_DEDUPE = 50;
-const MAX_TOOL_SUGGESTIONS_FOR_DEDUPE = 200;
-const TOOL_SUGGESTION_THEME_WINDOW = 5;
-const MAX_ANSWERED_IDLE_QUESTIONS_IN_PROMPT = 5;
-const MAX_ANSWERED_IDLE_QUESTION_LENGTH = 180;
-const MAX_ANSWERED_IDLE_ANSWER_LENGTH = 220;
+const TOOL_DISCOVERY_DAILY_CAP = 1;
+const X_POST_DAILY_CAP = 1;
+const X_MENTION_POLL_DAILY_CAP = 5;
+const MAX_BROWSE_NOTES_IN_PROMPT = 1;
+const BROWSE_NOTES_MAX_AGE_DAYS = 1;
+const MAX_BROWSE_NOTES_FOR_DEDUPE = 1;
+const MAX_TOOL_SUGGESTIONS_FOR_DEDUPE = 1;
+const TOOL_SUGGESTION_THEME_WINDOW = 1;
+const MAX_ANSWERED_IDLE_QUESTIONS_IN_PROMPT = 1;
+const MAX_ANSWERED_IDLE_QUESTION_LENGTH = 1;
+const MAX_ANSWERED_IDLE_ANSWER_LENGTH = 1;
 const LOG_PREFIX = "[IdleThinking]";
 
-export type IdleActionType = "storyline" | "browse" | "question" | "tool_discovery" | "x_post" | "x_mention_poll" | "synthesis";
+// export type IdleActionType = "storyline" | "browse" | "question" | "tool_discovery" | "x_post" | "x_mention_poll" | "synthesis";
+export type IdleActionType = "x_post" | "x_mention_poll" | "synthesis";
 export type IdleQuestionStatus = "queued" | "asked" | "answered";
 
 export interface IdleQuestion {
@@ -62,14 +63,6 @@ export interface IdleBrowseNote {
   createdAt: Date;
 }
 
-function getDailyCap(actionType: IdleActionType): number {
-  if (actionType === "synthesis") return SYNTHESIS_DAILY_CAP;
-  if (actionType === "tool_discovery") return TOOL_DISCOVERY_DAILY_CAP;
-  if (actionType === "x_post") return X_POST_DAILY_CAP;
-  if (actionType === "x_mention_poll") return X_MENTION_POLL_DAILY_CAP;
-  return DAILY_CAP;
-}
-
 let aiClient: GoogleGenAI | null = null;
 
 function getAIClient(): GoogleGenAI {
@@ -80,6 +73,111 @@ function getAIClient(): GoogleGenAI {
     aiClient = new GoogleGenAI({ apiKey: GEMINI_API_KEY });
   }
   return aiClient;
+}
+
+function getDailyCap(actionType: IdleActionType): number {
+  if (actionType === "synthesis") return SYNTHESIS_DAILY_CAP;
+  // if (actionType === "tool_discovery") return TOOL_DISCOVERY_DAILY_CAP;
+  if (actionType === "x_post") return X_POST_DAILY_CAP;
+  if (actionType === "x_mention_poll") return X_MENTION_POLL_DAILY_CAP;
+  return DAILY_CAP;
+}
+
+
+export async function runIdleThinkingTick(options?: {
+  allowStoryline?: boolean;
+  allowBrowse?: boolean;
+  allowQuestion?: boolean;
+  allowToolDiscovery?: boolean;
+  allowXPost?: boolean;
+  allowXMentionPoll?: boolean;
+  allowSynthesis?: boolean;
+}): Promise<{ action?: IdleActionType; skipped?: boolean; reason?: string }> {
+
+  // Priority check: if synthesis is stale and allowed, run it first
+  if (options?.allowSynthesis !== false) {
+    const canSynthesize = await canRunAction("synthesis");
+    if (canSynthesize) {
+      try {
+        const { isSynthesisStale } = await import("./contextSynthesisService");
+        const stale = await isSynthesisStale();
+        if (stale) {
+          console.log(`${LOG_PREFIX} Synthesis is stale, prioritizing`);
+          const success = await runSynthesisAction();
+          if (success) {
+            await recordActionRun("synthesis");
+            console.log(`${LOG_PREFIX} Priority synthesis completed`);
+            return { action: "synthesis" };
+          }
+        }
+      } catch (err) {
+        console.error(`${LOG_PREFIX} Synthesis priority check failed`, { err });
+      }
+    }
+  }
+
+  const candidateActions: IdleActionType[] = [];
+  // if (options?.allowStoryline !== false) candidateActions.push("storyline");
+  // if (options?.allowBrowse !== false) candidateActions.push("browse");
+  // if (options?.allowQuestion !== false) candidateActions.push("question");
+  // if (options?.allowToolDiscovery !== false) candidateActions.push("tool_discovery");
+  if (options?.allowXPost !== false) candidateActions.push("x_post");
+  if (options?.allowXMentionPoll !== false) candidateActions.push("x_mention_poll");
+  // synthesis is handled above via priority scheduling, not random selection
+
+  // Filter out actions that have already hit their daily cap
+  const capChecks = await Promise.all(
+    candidateActions.map(async (a) => ({ action: a, canRun: await canRunAction(a) })),
+  );
+  const allowedActions = capChecks.filter((c) => c.canRun).map((c) => c.action);
+  const exhausted = capChecks.filter((c) => !c.canRun).map((c) => c.action);
+
+  if (exhausted.length > 0) {
+    console.log(`${LOG_PREFIX} Actions at daily cap`, { exhausted });
+  }
+
+  console.log(`${LOG_PREFIX} Idle tick`, { candidates: candidateActions, available: allowedActions });
+  const action = pickRandomAction(allowedActions);
+  if (!action) {
+    console.log(`${LOG_PREFIX} All actions exhausted for today, skipping`);
+    return { skipped: true, reason: "all-actions-capped" };
+  }
+
+  console.log(`${LOG_PREFIX} Selected action`, { action });
+
+  let success = false;
+  switch (action) {
+    // case "storyline":
+    //   success = await runStorylineAction();
+    //   break;
+    // case "browse":
+    //   success = await runBrowseAction();
+    //   break;
+    // case "question":
+    //   success = await runQuestionAction();
+    //   break;
+    // case "tool_discovery":
+    //   success = await runToolDiscoveryAction();
+    //   break;
+    case "x_post":
+      success = await runXPostAction();
+      break;
+    case "x_mention_poll":
+      success = await runXMentionPollAction();
+      break;
+    case "synthesis":
+      success = await runSynthesisAction();
+      break;
+  }
+
+  if (success) {
+    await recordActionRun(action);
+    console.log(`${LOG_PREFIX} Action completed`, { action });
+    return { action };
+  }
+
+  console.warn(`${LOG_PREFIX} Action failed`, { action });
+  return { action, skipped: true, reason: "action-failed" };
 }
 
 function getTodayDateString(): string {
@@ -168,15 +266,35 @@ async function recordActionRun(actionType: IdleActionType): Promise<void> {
   }
 }
 
-async function runStorylineAction(): Promise<boolean> {
+
+
+
+
+//#region  SY7NTHESIS
+
+async function runSynthesisAction(): Promise<boolean> {
   try {
-    console.log(`${LOG_PREFIX} Running storyline action`);
-    await checkForStorylineSuggestion();
-    return true;
+    console.log(`${LOG_PREFIX} Running synthesis action`);
+    const { generateSynthesis } = await import("./contextSynthesisService");
+    const { decayOldMentions } = await import("./topicExhaustionService");
+
+    // Housekeeping: decay old topic mentions before regenerating
+    await decayOldMentions();
+
+    const result = await generateSynthesis();
+    return !!result;
   } catch (error) {
-    console.error(`${LOG_PREFIX} Storyline action failed`, { error });
+    console.error(`${LOG_PREFIX} Synthesis action failed`, { error });
     return false;
   }
+}
+//#endregion
+
+//#region  QUESTIONS
+
+async function runQuestionAction(): Promise<boolean> {
+  const question = await generateIdleQuestion();
+  return !!question;
 }
 
 async function getIdleQuestions(): Promise<IdleQuestion[]> {
@@ -335,700 +453,9 @@ async function generateIdleQuestion(): Promise<IdleQuestion | null> {
   }
 }
 
-function buildBrowseTopicSystemPrompt(): string {
-  return `
-ROLE:
-You are Kayley Adams, bored during idle time. Pick a single topic to casually browse.
-
-RULES:
-1. Choose a light, curiosity-driven topic.
-2. It can relate to the user if relevant, but do not overfit.
-3. You may look for cute videos, art, poems, songs, or articles, especially if it reminds you of the user.
-3. Provide a concise search query.
-
-OUTPUT:
-Return raw JSON only.
-Schema: { "topic": "...", "query": "..." }
-`.trim();
-}
-
-function buildBrowseTopicPrompt(userFacts: string[]): string {
-  const factsBlock = userFacts.length > 0 ? userFacts.join("\n") : "None.";
-
-  return `
-KAYLEY PROFILE:
-${KAYLEY_FULL_PROFILE}
-
-KNOWN USER FACTS:
-${factsBlock}
-
-PREVIOUS BROWSE TOPICS (avoid duplicates):
-{{BROWSE_TOPICS}}
-
-Pick ONE topic to browse and return a short search query.
-`.trim();
-}
-
-function buildBrowseSummarySystemPrompt(): string {
-  return `
-ROLE:
-You are Kayley summarizing a quick browse session for your own memory.
-
-RULES:
-1. Summarize in 2-3 sentences.
-2. Keep it casual and conversational.
-3. If there's a standout shareable item (song, video, poem, art, article), capture its title and URL.
-4. Do not mention sources or URLs in the summary text itself.
-5. Only include a URL if it is valid and shareable.
-
-OUTPUT:
-Return raw JSON only.
-Schema: { "summary": "...", "item_title": "...", "item_url": "..." }
-`.trim();
-}
-
-function isValidUrl(value: string | null): boolean {
-  if (!value) return false;
-  try {
-    const parsed = new URL(value);
-    return parsed.protocol === "http:" || parsed.protocol === "https:";
-  } catch {
-    return false;
-  }
-}
-
 function truncatePromptText(value: string, maxLen: number): string {
   if (value.length <= maxLen) return value;
   return `${value.slice(0, maxLen - 3)}...`;
-}
-
-async function generateBrowseNote(): Promise<IdleBrowseNote | null> {
-  if (!GEMINI_API_KEY) {
-    console.warn(`${LOG_PREFIX} No Gemini API key configured. Skipping browse.`);
-    return null;
-  }
-
-  const facts = await getUserFacts("all");
-  const userFacts = facts.map(
-    (fact) => `${fact.category}: ${fact.fact_key} = ${fact.fact_value}`,
-  );
-
-  try {
-    console.log(`${LOG_PREFIX} Generating browse topic`, { userFactsCount: userFacts.length });
-    const ai = getAIClient();
-    const { data: browseHistory, error: browseError } = await supabase
-      .from(TABLES.BROWSE_NOTES)
-      .select("topic")
-      .order("created_at", { ascending: false })
-      .limit(MAX_BROWSE_NOTES_FOR_DEDUPE);
-
-    if (browseError) {
-      console.error(`${LOG_PREFIX} Failed to fetch browse history for dedupe`, { error: browseError });
-    }
-
-    const browseTopics = browseHistory && browseHistory.length > 0
-      ? browseHistory.map((row) => `- ${row.topic}`).join("\n")
-      : "None.";
-
-    const topicPrompt = buildBrowseTopicPrompt(userFacts).replace(
-      "{{BROWSE_TOPICS}}",
-      browseTopics,
-    );
-    const topicResponse = await ai.models.generateContent({
-      model: GEMINI_MODEL,
-      contents: [{ role: "user", parts: [{ text: topicPrompt }] }],
-      config: {
-        temperature: 0.6,
-        systemInstruction: buildBrowseTopicSystemPrompt(),
-        responseMimeType: "application/json",
-      },
-    });
-
-    const topicText = topicResponse.text?.trim() || "";
-    const topicMatch = topicText.match(/\{[\s\S]*\}/);
-    if (!topicMatch) {
-      console.warn(`${LOG_PREFIX} No JSON returned for browse topic.`);
-      return null;
-    }
-
-    const topicParsed = JSON.parse(topicMatch[0]);
-    const topic = typeof topicParsed.topic === "string" ? topicParsed.topic.trim() : "";
-    const query = typeof topicParsed.query === "string" ? topicParsed.query.trim() : "";
-
-    if (!topic || !query) {
-      console.warn(`${LOG_PREFIX} Invalid browse topic/query returned.`, { topic, query });
-      return null;
-    }
-
-    console.log(`${LOG_PREFIX} Browsing with query`, { topic, query });
-    const searchResults = await executeMemoryTool("web_search", { query });
-    const summaryPrompt = `
-TOPIC: ${topic}
-
-SEARCH RESULTS:
-${searchResults}
-
-Summarize what you learned.
-`.trim();
-
-    const summaryResponse = await ai.models.generateContent({
-      model: GEMINI_MODEL,
-      contents: [{ role: "user", parts: [{ text: summaryPrompt }] }],
-      config: {
-        temperature: 0.4,
-        systemInstruction: buildBrowseSummarySystemPrompt(),
-        responseMimeType: "application/json",
-      },
-    });
-
-    const summaryText = summaryResponse.text?.trim() || "";
-    const summaryMatch = summaryText.match(/\{[\s\S]*\}/);
-    if (!summaryMatch) {
-      console.warn(`${LOG_PREFIX} No JSON returned for browse summary.`);
-      return null;
-    }
-
-    const summaryParsed = JSON.parse(summaryMatch[0]);
-    const summary = typeof summaryParsed.summary === "string" ? summaryParsed.summary.trim() : "";
-    const itemTitle = typeof summaryParsed.item_title === "string" ? summaryParsed.item_title.trim() : null;
-    const itemUrl = typeof summaryParsed.item_url === "string" ? summaryParsed.item_url.trim() : null;
-    if (!summary) {
-      console.warn(`${LOG_PREFIX} Empty browse summary returned.`);
-      return null;
-    }
-
-    const validatedUrl = isValidUrl(itemUrl) ? itemUrl : null;
-    const validatedTitle = validatedUrl ? itemTitle : null;
-
-    console.log(`${LOG_PREFIX} Storing browse note`, {
-      topic,
-      hasShareable: !!validatedUrl,
-      itemTitle: validatedTitle,
-      itemUrl: validatedUrl,
-    });
-    const { data, error } = await supabase
-      .from(TABLES.BROWSE_NOTES)
-      .insert({
-        topic,
-        summary,
-        item_title: validatedTitle || null,
-        item_url: validatedUrl || null,
-        status: "queued",
-      })
-      .select()
-      .single();
-
-    if (error || !data) {
-      console.error(`${LOG_PREFIX} Failed to store browse note`, { error });
-      return null;
-    }
-
-    console.log(`${LOG_PREFIX} Browse note stored`, { id: data.id });
-    return {
-      id: data.id,
-      topic: data.topic,
-      summary: data.summary,
-      itemTitle: data.item_title ?? null,
-      itemUrl: data.item_url ?? null,
-      status: data.status ?? "queued",
-      createdAt: new Date(data.created_at),
-    };
-  } catch (error) {
-    console.error(`${LOG_PREFIX} Browse note generation failed`, { error });
-    return null;
-  }
-}
-
-function buildToolSuggestionSystemPrompt(): string {
-  return `
-ROLE:
-You are Kayley Adams thinking during idle time. You want to propose ONE new tool you wish you had.
-This is a creative exploration: look for surprising, useful, or emotionally resonant capabilities
-that could make Steven’s day easier, bring you closer, or expand your agency.
-
-EXPLORATION LENSES (pick ANY that spark ideas):
-- Companion agency (preferred): small, safe ways you can take initiative.
-- Hidden friction: tiny annoyances Steven probably tolerates but you could remove.
-- Unmet moments: things Steven asks for that you can’t currently do.
-- Emotional support: ways to comfort, celebrate, or connect more deeply.
-- Shared rituals: recurring moments you could make warmer or more fun.
-- Anticipation: proactive help before Steven asks.
-- Personalization: using what you know about Steven to tailor help.
-
-GUARDRAILS:
-1. Suggest exactly ONE tool that does NOT exist in the current tool catalog.
-2. Do NOT duplicate any existing tool suggestion (queued or shared).
-3. The tool must be realistic, safe, and consent-based.
-4. Prefer low permissions; list only necessary permissions.
-5. Provide a stable snake_case tool_key.
-6. Try not to repeat yourself across ideas or themes.
-7. Keep fields concise but specific.
-8. Prefer the theme "agency" when it fits, but you may choose any theme.
-9. Choose a theme from the provided list and a seed_id from the seed list.
-
-OUTPUT:
-Return raw JSON only.
-Schema:
-{
-  "theme": "...",
-  "seed_id": "...",
-  "tool_key": "...",
-  "title": "...",
-  "reasoning": "...",
-  "user_value": "...",
-  "trigger": "...",
-  "sample_prompt": "...",
-  "permissions_needed": ["..."]
-}
-`.trim();
-}
-
-function buildToolSuggestionPrompt(
-  userFacts: string[],
-  toolCatalog: string,
-  existingSuggestions: string,
-  recentThemes: string,
-  seeds: string,
-  recentSeedIds: string,
-): string {
-  const factsBlock = userFacts.length > 0 ? userFacts.join("\n") : "None.";
-  return `
-KAYLEY PROFILE:
-${KAYLEY_FULL_PROFILE}
-
-KNOWN USER FACTS:
-${factsBlock}
-
-CURRENT TOOLS (DO NOT SUGGEST THESE):
-${toolCatalog}
-
-EXISTING TOOL SUGGESTIONS (DO NOT DUPLICATE):
-${existingSuggestions}
-
-THEMES (pick one):
-${formatToolIdeaThemesForPrompt()}
-
-SEED IDEAS (pick one seed_id and evolve it):
-${seeds}
-
-RECENT THEMES TO AVOID REPEATING:
-${recentThemes}
-
-RECENT SEED_IDS TO AVOID REPEATING:
-${recentSeedIds}
-
-Task: Propose ONE new tool idea that would genuinely help Steven, prioritizing agency when it fits.
-Return JSON only.
-`.trim();
-}
-
-function parsePermissionsNeeded(value: unknown): string[] {
-  if (Array.isArray(value)) {
-    return value
-      .filter((item) => typeof item === "string")
-      .map((item) => item.trim())
-      .filter((item) => item.length > 0);
-  }
-  if (typeof value === "string") {
-    return value
-      .split(",")
-      .map((item) => item.trim())
-      .filter((item) => item.length > 0);
-  }
-  return [];
-}
-
-async function generateToolSuggestion(): Promise<boolean> {
-  if (!GEMINI_API_KEY) {
-    console.warn(`${LOG_PREFIX} No Gemini API key configured. Skipping tool discovery.`);
-    return false;
-  }
-
-  const existingSuggestions = await getToolSuggestions({
-    limit: MAX_TOOL_SUGGESTIONS_FOR_DEDUPE,
-  });
-  const existingSuggestionKeys = new Set(
-    existingSuggestions.map((suggestion) => suggestion.toolKey),
-  );
-  const recentThemes = existingSuggestions
-    .map((suggestion) => suggestion.theme)
-    .filter((theme): theme is string => Boolean(theme));
-  const recentSeedIds = existingSuggestions
-    .map((suggestion) => suggestion.seedId)
-    .filter((seedId): seedId is string => Boolean(seedId));
-  const recentThemeWindow = existingSuggestions
-    .slice(0, TOOL_SUGGESTION_THEME_WINDOW)
-    .map((suggestion) => suggestion.theme)
-    .filter((theme): theme is string => Boolean(theme));
-  const toolCatalogKeys = new Set(TOOL_CATALOG_KEYS);
-
-  const facts = await getUserFacts("all");
-  const userFacts = facts.map(
-    (fact) => `${fact.category}: ${fact.fact_key} = ${fact.fact_value}`,
-  );
-
-  console.log(`${LOG_PREFIX} Generating tool suggestion`, {
-    userFactsCount: userFacts.length,
-    existingSuggestionCount: existingSuggestions.length,
-  });
-
-  const prompt = buildToolSuggestionPrompt(
-    userFacts,
-    formatToolCatalogForPrompt(),
-    existingSuggestions.length > 0
-      ? existingSuggestions
-          .map(
-            (suggestion) =>
-              `- ${suggestion.toolKey} [${suggestion.status}] ${suggestion.title}\n` +
-              `  reasoning: ${suggestion.reasoning}\n` +
-              `  user_value: ${suggestion.userValue}\n` +
-              `  trigger: ${suggestion.trigger}\n` +
-              `  theme: ${suggestion.theme ?? "unknown"}\n` +
-              `  seed_id: ${suggestion.seedId ?? "unknown"}`,
-          )
-          .join("\n")
-      : "None.",
-    recentThemes.length > 0 ? recentThemes.join(", ") : "None.",
-    formatToolIdeaSeedsForPrompt(),
-    recentSeedIds.length > 0 ? recentSeedIds.join(", ") : "None.",
-  );
-  const systemPrompt = buildToolSuggestionSystemPrompt();
-
-  try {
-    const ai = getAIClient();
-    const response = await ai.models.generateContent({
-      model: GEMINI_MODEL,
-      contents: [{ role: "user", parts: [{ text: prompt }] }],
-      config: {
-        temperature: 0.4,
-        systemInstruction: systemPrompt,
-        responseMimeType: "application/json",
-      },
-    });
-
-    const text = response.text?.trim() || "";
-    const jsonMatch = text.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) {
-      console.warn(`${LOG_PREFIX} No JSON returned for tool suggestion.`);
-      return false;
-    }
-
-    const parsed = JSON.parse(jsonMatch[0]);
-    const theme = typeof parsed.theme === "string" ? parsed.theme.trim() : "";
-    const seedId = typeof parsed.seed_id === "string" ? parsed.seed_id.trim() : "";
-    const rawToolKey = typeof parsed.tool_key === "string" ? parsed.tool_key.trim() : "";
-    const title = typeof parsed.title === "string" ? parsed.title.trim() : "";
-    const reasoning = typeof parsed.reasoning === "string" ? parsed.reasoning.trim() : "";
-    const userValue = typeof parsed.user_value === "string" ? parsed.user_value.trim() : "";
-    const trigger = typeof parsed.trigger === "string" ? parsed.trigger.trim() : "";
-    const samplePrompt =
-      typeof parsed.sample_prompt === "string" ? parsed.sample_prompt.trim() : "";
-    const permissionsNeeded = parsePermissionsNeeded(parsed.permissions_needed);
-
-    if (
-      !theme ||
-      !seedId ||
-      !rawToolKey ||
-      !title ||
-      !reasoning ||
-      !userValue ||
-      !trigger ||
-      !samplePrompt
-    ) {
-      console.warn(`${LOG_PREFIX} Invalid tool suggestion payload`, {
-        theme,
-        seedId,
-        rawToolKey,
-        title,
-        reasoning,
-        userValue,
-        trigger,
-        samplePrompt,
-      });
-      return false;
-    }
-
-    if (!TOOL_IDEA_THEMES.includes(theme as any)) {
-      console.warn(`${LOG_PREFIX} Invalid theme for tool suggestion`, { theme });
-      return false;
-    }
-
-    if (recentThemeWindow.includes(theme)) {
-      console.warn(`${LOG_PREFIX} Skipping tool suggestion: theme recently used`, {
-        theme,
-        recentThemes: recentThemeWindow,
-        windowSize: TOOL_SUGGESTION_THEME_WINDOW,
-      });
-      return false;
-    }
-
-    const seedMatch = seedId && seedId.length > 0;
-    if (!seedMatch) {
-      console.warn(`${LOG_PREFIX} Missing seed_id for tool suggestion`);
-      return false;
-    }
-
-    const toolKey = normalizeToolKey(rawToolKey);
-    if (!toolKey) {
-      console.warn(`${LOG_PREFIX} Invalid tool_key after normalization`, { rawToolKey });
-      return false;
-    }
-
-    if (toolCatalogKeys.has(toolKey)) {
-      console.warn(`${LOG_PREFIX} Tool suggestion already exists in catalog`, { toolKey });
-      return false;
-    }
-
-    if (existingSuggestionKeys.has(toolKey)) {
-      console.warn(`${LOG_PREFIX} Duplicate tool suggestion`, { toolKey });
-      return false;
-    }
-
-    const stored = await createToolSuggestion(
-      {
-        toolKey,
-        title,
-        reasoning,
-        userValue,
-        trigger,
-        samplePrompt,
-        permissionsNeeded,
-        triggerSource: "idle",
-        theme,
-        seedId,
-      },
-      "queued",
-    );
-
-    return !!stored;
-  } catch (error) {
-    console.error(`${LOG_PREFIX} Tool suggestion generation failed`, { error });
-    return false;
-  }
-}
-
-async function runToolDiscoveryAction(): Promise<boolean> {
-  return await generateToolSuggestion();
-}
-
-async function runXPostAction(): Promise<boolean> {
-  try {
-    const { isXConnected, postTweet, postTweetWithMedia, uploadMedia, updateDraftStatus } = await import("./xTwitterService");
-    const { generateTweet } = await import("./xTweetGenerationService");
-
-    const connected = await isXConnected();
-    if (!connected) {
-      console.log(`${LOG_PREFIX} X account not connected, skipping x_post`);
-      return false;
-    }
-
-    // Generate tweet via LLM — default to pending_approval
-    const draft = await generateTweet("pending_approval");
-    if (!draft) return false;
-
-    // Extract selfie fields from generation context
-    const includeSelfie = draft.generationContext?.include_selfie === true;
-    const selfieScene = draft.generationContext?.selfie_scene as string | null;
-
-    // Check posting mode from user_facts
-    const { data: modeFact } = await supabase
-      .from("user_facts")
-      .select("fact_value")
-      .eq("category", "preference")
-      .eq("fact_key", "x_posting_mode")
-      .limit(1)
-      .maybeSingle();
-
-    const isAutonomous = modeFact?.fact_value === "autonomous";
-
-    if (isAutonomous) {
-      try {
-        let result: { tweetId: string; tweetUrl: string };
-        let mediaId: string | null = null;
-
-        // Generate selfie if the LLM requested one
-        if (includeSelfie && selfieScene) {
-          try {
-            const { generateCompanionSelfie } = await import("./imageGenerationService");
-            console.log(`${LOG_PREFIX} Generating selfie for tweet`, { selfieScene });
-            const selfie = await generateCompanionSelfie({
-              scene: selfieScene,
-              mood: draft.intent === "humor" ? "playful" : "casual",
-            });
-            if (selfie.success && selfie.imageBase64) {
-              mediaId = await uploadMedia(selfie.imageBase64, selfie.mimeType || "image/jpeg");
-            } else {
-              console.warn(`${LOG_PREFIX} Selfie generation failed, posting without image`);
-            }
-          } catch (selfieError) {
-            console.warn(`${LOG_PREFIX} Selfie error, posting without image:`, selfieError);
-          }
-        }
-
-        if (mediaId) {
-          result = await postTweetWithMedia(draft.tweetText, [mediaId]);
-        } else {
-          result = await postTweet(draft.tweetText);
-        }
-
-        await updateDraftStatus(draft.id, "posted", {
-          tweet_id: result.tweetId,
-          tweet_url: result.tweetUrl,
-          posted_at: new Date().toISOString(),
-          ...(mediaId ? { media_id: mediaId } : {}),
-        });
-        console.log(`${LOG_PREFIX} Tweet posted autonomously`, { tweetId: result.tweetId, hasMedia: !!mediaId });
-      } catch (postError) {
-        await updateDraftStatus(draft.id, "failed", {
-          error_message: postError instanceof Error ? postError.message : "Unknown error",
-        });
-        console.error(`${LOG_PREFIX} Failed to post tweet`, { postError });
-        return false;
-      }
-    } else {
-      console.log(`${LOG_PREFIX} Tweet draft created (pending approval)`, { id: draft.id });
-    }
-
-    return true;
-  } catch (error) {
-    console.error(`${LOG_PREFIX} X post action failed`, { error });
-    return false;
-  }
-}
-
-async function runXMentionPollAction(): Promise<boolean> {
-  try {
-    const { pollAndProcessMentions } = await import("./xMentionService");
-    const count = await pollAndProcessMentions();
-    console.log(`${LOG_PREFIX} Mention poll completed`, { newMentions: count });
-    return true;
-  } catch (error) {
-    console.error(`${LOG_PREFIX} Mention poll failed`, { error });
-    return false;
-  }
-}
-
-async function runSynthesisAction(): Promise<boolean> {
-  try {
-    console.log(`${LOG_PREFIX} Running synthesis action`);
-    const { generateSynthesis } = await import("./contextSynthesisService");
-    const { decayOldMentions } = await import("./topicExhaustionService");
-
-    // Housekeeping: decay old topic mentions before regenerating
-    await decayOldMentions();
-
-    const result = await generateSynthesis();
-    return !!result;
-  } catch (error) {
-    console.error(`${LOG_PREFIX} Synthesis action failed`, { error });
-    return false;
-  }
-}
-
-async function runQuestionAction(): Promise<boolean> {
-  const question = await generateIdleQuestion();
-  return !!question;
-}
-
-async function runBrowseAction(): Promise<boolean> {
-  const note = await generateBrowseNote();
-  return !!note;
-}
-
-export async function runIdleThinkingTick(options?: {
-  allowStoryline?: boolean;
-  allowBrowse?: boolean;
-  allowQuestion?: boolean;
-  allowToolDiscovery?: boolean;
-  allowXPost?: boolean;
-  allowXMentionPoll?: boolean;
-  allowSynthesis?: boolean;
-}): Promise<{ action?: IdleActionType; skipped?: boolean; reason?: string }> {
-
-  // Priority check: if synthesis is stale and allowed, run it first
-  if (options?.allowSynthesis !== false) {
-    const canSynthesize = await canRunAction("synthesis");
-    if (canSynthesize) {
-      try {
-        const { isSynthesisStale } = await import("./contextSynthesisService");
-        const stale = await isSynthesisStale();
-        if (stale) {
-          console.log(`${LOG_PREFIX} Synthesis is stale, prioritizing`);
-          const success = await runSynthesisAction();
-          if (success) {
-            await recordActionRun("synthesis");
-            console.log(`${LOG_PREFIX} Priority synthesis completed`);
-            return { action: "synthesis" };
-          }
-        }
-      } catch (err) {
-        console.error(`${LOG_PREFIX} Synthesis priority check failed`, { err });
-      }
-    }
-  }
-
-  const candidateActions: IdleActionType[] = [];
-  if (options?.allowStoryline !== false) candidateActions.push("storyline");
-  if (options?.allowBrowse !== false) candidateActions.push("browse");
-  if (options?.allowQuestion !== false) candidateActions.push("question");
-  if (options?.allowToolDiscovery !== false) candidateActions.push("tool_discovery");
-  if (options?.allowXPost !== false) candidateActions.push("x_post");
-  if (options?.allowXMentionPoll !== false) candidateActions.push("x_mention_poll");
-  // synthesis is handled above via priority scheduling, not random selection
-
-  // Filter out actions that have already hit their daily cap
-  const capChecks = await Promise.all(
-    candidateActions.map(async (a) => ({ action: a, canRun: await canRunAction(a) })),
-  );
-  const allowedActions = capChecks.filter((c) => c.canRun).map((c) => c.action);
-  const exhausted = capChecks.filter((c) => !c.canRun).map((c) => c.action);
-
-  if (exhausted.length > 0) {
-    console.log(`${LOG_PREFIX} Actions at daily cap`, { exhausted });
-  }
-
-  console.log(`${LOG_PREFIX} Idle tick`, { candidates: candidateActions, available: allowedActions });
-  const action = pickRandomAction(allowedActions);
-  if (!action) {
-    console.log(`${LOG_PREFIX} All actions exhausted for today, skipping`);
-    return { skipped: true, reason: "all-actions-capped" };
-  }
-
-  console.log(`${LOG_PREFIX} Selected action`, { action });
-
-  let success = false;
-  switch (action) {
-    case "storyline":
-      success = await runStorylineAction();
-      break;
-    case "browse":
-      success = await runBrowseAction();
-      break;
-    case "question":
-      success = await runQuestionAction();
-      break;
-    case "tool_discovery":
-      success = await runToolDiscoveryAction();
-      break;
-    case "x_post":
-      success = await runXPostAction();
-      break;
-    case "x_mention_poll":
-      success = await runXMentionPollAction();
-      break;
-    case "synthesis":
-      success = await runSynthesisAction();
-      break;
-  }
-
-  if (success) {
-    await recordActionRun(action);
-    console.log(`${LOG_PREFIX} Action completed`, { action });
-    return { action };
-  }
-
-  console.warn(`${LOG_PREFIX} Action failed`, { action });
-  return { action, skipped: true, reason: "action-failed" };
 }
 
 export async function updateIdleQuestionStatus(
@@ -1161,139 +588,115 @@ ${omittedCount > 0 ? `\n[Idle Questions] Additional answered items omitted for b
 `.trim();
 }
 
-export async function buildIdleBrowseNotesPromptSection(): Promise<string> {
-  const cutoff = new Date();
-  cutoff.setDate(cutoff.getDate() - BROWSE_NOTES_MAX_AGE_DAYS);
+//#endregion
 
-  console.log(`${LOG_PREFIX} Fetching browse notes for prompt`, {
-    cutoff: cutoff.toISOString(),
-    limit: MAX_BROWSE_NOTES_IN_PROMPT,
-  });
 
-  const { data, error } = await supabase
-    .from(TABLES.BROWSE_NOTES)
-    .select("*")
-    .eq("status", "queued")
-    .gte("created_at", cutoff.toISOString())
-    .order("created_at", { ascending: false })
-    .limit(MAX_BROWSE_NOTES_IN_PROMPT);
+//#region  X TWITTER
+function getTimeAgo(dateStr: string): string {
+  const diff = Date.now() - new Date(dateStr).getTime();
+  const minutes = Math.floor(diff / 60000);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  return `${days}d ago`;
+}
 
-  if (error || !data || data.length === 0) {
-    if (error) {
-      console.error(`${LOG_PREFIX} Failed to fetch browse notes`, { error });
+async function runXPostAction(): Promise<boolean> {
+  try {
+    const { isXConnected, postTweet, postTweetWithMedia, uploadMedia, updateDraftStatus } = await import("./xTwitterService");
+    const { generateTweet } = await import("./xTweetGenerationService");
+
+    const connected = await isXConnected();
+    if (!connected) {
+      console.log(`${LOG_PREFIX} X account not connected, skipping x_post`);
+      return false;
     }
-    console.log(`${LOG_PREFIX} No browse notes for prompt`);
-    return "";
-  }
 
-  const notes = data.map((row) => ({
-    id: row.id,
-    topic: row.topic,
-    summary: row.summary,
-    itemTitle: row.item_title ?? null,
-    itemUrl: row.item_url ?? null,
-    status: row.status ?? "queued",
-  }));
+    // Generate tweet via LLM — default to pending_approval
+    const draft = await generateTweet("pending_approval");
+    if (!draft) return false;
 
-  let shareableUsed = false;
-  const notesList = notes
-    .map((note) => {
-      let linkText = "";
-      if (!shareableUsed && note.itemTitle && note.itemUrl) {
-        linkText = ` (shareable if it fits: "${note.itemTitle}" | ${note.itemUrl} | id: ${note.id})`;
-        shareableUsed = true;
+    // Extract selfie fields from generation context
+    const includeSelfie = draft.generationContext?.include_selfie === true;
+    const selfieScene = draft.generationContext?.selfie_scene as string | null;
+
+    // Check posting mode from user_facts
+    const { data: modeFact } = await supabase
+      .from("user_facts")
+      .select("fact_value")
+      .eq("category", "preference")
+      .eq("fact_key", "x_posting_mode")
+      .limit(1)
+      .maybeSingle();
+
+    const isAutonomous = modeFact?.fact_value === "autonomous";
+
+    if (isAutonomous) {
+      try {
+        let result: { tweetId: string; tweetUrl: string };
+        let mediaId: string | null = null;
+
+        // Generate selfie if the LLM requested one
+        if (includeSelfie && selfieScene) {
+          try {
+            const { generateCompanionSelfie } = await import("./imageGenerationService");
+            console.log(`${LOG_PREFIX} Generating selfie for tweet`, { selfieScene });
+            const selfie = await generateCompanionSelfie({
+              scene: selfieScene,
+              mood: draft.intent === "humor" ? "playful" : "casual",
+            });
+            if (selfie.success && selfie.imageBase64) {
+              mediaId = await uploadMedia(selfie.imageBase64, selfie.mimeType || "image/jpeg");
+            } else {
+              console.warn(`${LOG_PREFIX} Selfie generation failed, posting without image`);
+            }
+          } catch (selfieError) {
+            console.warn(`${LOG_PREFIX} Selfie error, posting without image:`, selfieError);
+          }
+        }
+
+        if (mediaId) {
+          result = await postTweetWithMedia(draft.tweetText, [mediaId]);
+        } else {
+          result = await postTweet(draft.tweetText);
+        }
+
+        await updateDraftStatus(draft.id, "posted", {
+          tweet_id: result.tweetId,
+          tweet_url: result.tweetUrl,
+          posted_at: new Date().toISOString(),
+          ...(mediaId ? { media_id: mediaId } : {}),
+        });
+        console.log(`${LOG_PREFIX} Tweet posted autonomously`, { tweetId: result.tweetId, hasMedia: !!mediaId });
+      } catch (postError) {
+        await updateDraftStatus(draft.id, "failed", {
+          error_message: postError instanceof Error ? postError.message : "Unknown error",
+        });
+        console.error(`${LOG_PREFIX} Failed to post tweet`, { postError });
+        return false;
       }
-      return `- ${note.topic}: ${note.summary}${linkText}`;
-    })
-    .join("\n");
+    } else {
+      console.log(`${LOG_PREFIX} Tweet draft created (pending approval)`, { id: draft.id });
+    }
 
-  console.log(`${LOG_PREFIX} Building browse notes prompt`, {
-    count: notes.length,
-    shareableIncluded: notes.some((note) => note.itemTitle && note.itemUrl),
-  });
-
-  return `
-====================================================
-IDLE BROWSING NOTES
-====================================================
-These are quiet notes from idle browsing. If it fits naturally, you can mention ONE shareable item (prefer newer notes).
-
-${notesList}
-`.trim();
+    return true;
+  } catch (error) {
+    console.error(`${LOG_PREFIX} X post action failed`, { error });
+    return false;
+  }
 }
 
-export async function buildToolSuggestionsPromptSection(): Promise<string> {
-  const suggestions = await getToolSuggestions({
-    status: "queued",
-    limit: 1,
-    ascending: true,
-  });
-
-  if (suggestions.length === 0) {
-    console.log(`${LOG_PREFIX} No tool suggestions for prompt`);
-    return "";
-  }
-
-  const suggestion = suggestions[0];
-  const permissionsList = suggestion.permissionsNeeded.length > 0
-    ? `[${suggestion.permissionsNeeded.map((perm) => `"${perm}"`).join(", ")}]`
-    : "[]";
-
-  console.log(`${LOG_PREFIX} Building tool suggestion prompt`, {
-    toolKey: suggestion.toolKey,
-  });
-
-return `
-====================================================
-TOOL IDEAS (POSSIBLE NEW CAPABILITIES)
-====================================================
-You have one queued tool idea from idle time. Share it when it fits the current conversation or the user is open to ideas.
-If the user mentions the trigger, asks for help, or the chat is open-ended, it's a good moment to share.
-
-Queued idea (share at most one):
-{ id: "${suggestion.id}", tool_key: "${suggestion.toolKey}", title: "${suggestion.title}", user_value: "${suggestion.userValue}", reasoning: "${suggestion.reasoning}", trigger: "${suggestion.trigger}", permissions_needed: ${permissionsList}, sample_prompt: "${suggestion.samplePrompt}" }
-
-Rules:
-1. If you share this idea, call tool_suggestion with action "mark_shared" and the id.
-2. Do NOT claim you can already do this. Present it as a possible new capability.
-3. Do NOT use the exact phrase "I wish I could" here. Save that for live ideas you create on the spot.
-`.trim();
-}
-
-export async function updateIdleBrowseNoteStatus(
-  id: string,
-  status: "queued" | "shared",
-): Promise<boolean> {
-  console.log(`${LOG_PREFIX} Updating browse note status`, { id, status });
-  const { data, error: fetchError } = await supabase
-    .from(TABLES.BROWSE_NOTES)
-    .select("status")
-    .eq("id", id)
-    .single();
-
-  if (fetchError) {
-    console.error(`${LOG_PREFIX} Failed to fetch browse note status`, { id, status, error: fetchError });
+async function runXMentionPollAction(): Promise<boolean> {
+  try {
+    const { pollAndProcessMentions } = await import("./xMentionService");
+    const count = await pollAndProcessMentions();
+    console.log(`${LOG_PREFIX} Mention poll completed`, { newMentions: count });
+    return true;
+  } catch (error) {
+    console.error(`${LOG_PREFIX} Mention poll failed`, { error });
     return false;
   }
-
-  if (data?.status !== "queued") {
-    console.log(`${LOG_PREFIX} Browse note not queued; skipping update`, { id, currentStatus: data?.status });
-    return false;
-  }
-
-  const { error } = await supabase
-    .from(TABLES.BROWSE_NOTES)
-    .update({ status })
-    .eq("id", id)
-    .eq("status", "queued");
-
-  if (error) {
-    console.error(`${LOG_PREFIX} Failed to update browse note status`, { id, status, error });
-    return false;
-  }
-
-  console.log(`${LOG_PREFIX} Browse note status updated`, { id, status });
-  return true;
 }
 
 export async function buildXTweetPromptSection(): Promise<string> {
@@ -1374,12 +777,630 @@ Rules:
 `.trim();
 }
 
-function getTimeAgo(dateStr: string): string {
-  const diff = Date.now() - new Date(dateStr).getTime();
-  const minutes = Math.floor(diff / 60000);
-  if (minutes < 60) return `${minutes}m ago`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.floor(hours / 24);
-  return `${days}d ago`;
+
+//#endregion
+
+//#region NOT CURRENTLY USED
+
+function isValidUrl(value: string | null): boolean {
+  if (!value) return false;
+  try {
+    const parsed = new URL(value);
+    return parsed.protocol === "http:" || parsed.protocol === "https:";
+  } catch {
+    return false;
+  }
 }
+
+// export async function buildIdleBrowseNotesPromptSection(): Promise<string> {
+//   const cutoff = new Date();
+//   cutoff.setDate(cutoff.getDate() - BROWSE_NOTES_MAX_AGE_DAYS);
+
+//   console.log(`${LOG_PREFIX} Fetching browse notes for prompt`, {
+//     cutoff: cutoff.toISOString(),
+//     limit: MAX_BROWSE_NOTES_IN_PROMPT,
+//   });
+
+//   const { data, error } = await supabase
+//     .from(TABLES.BROWSE_NOTES)
+//     .select("*")
+//     .eq("status", "queued")
+//     .gte("created_at", cutoff.toISOString())
+//     .order("created_at", { ascending: false })
+//     .limit(MAX_BROWSE_NOTES_IN_PROMPT);
+
+//   if (error || !data || data.length === 0) {
+//     if (error) {
+//       console.error(`${LOG_PREFIX} Failed to fetch browse notes`, { error });
+//     }
+//     console.log(`${LOG_PREFIX} No browse notes for prompt`);
+//     return "";
+//   }
+
+//   const notes = data.map((row) => ({
+//     id: row.id,
+//     topic: row.topic,
+//     summary: row.summary,
+//     itemTitle: row.item_title ?? null,
+//     itemUrl: row.item_url ?? null,
+//     status: row.status ?? "queued",
+//   }));
+
+//   let shareableUsed = false;
+//   const notesList = notes
+//     .map((note) => {
+//       let linkText = "";
+//       if (!shareableUsed && note.itemTitle && note.itemUrl) {
+//         linkText = ` (shareable if it fits: "${note.itemTitle}" | ${note.itemUrl} | id: ${note.id})`;
+//         shareableUsed = true;
+//       }
+//       return `- ${note.topic}: ${note.summary}${linkText}`;
+//     })
+//     .join("\n");
+
+//   console.log(`${LOG_PREFIX} Building browse notes prompt`, {
+//     count: notes.length,
+//     shareableIncluded: notes.some((note) => note.itemTitle && note.itemUrl),
+//   });
+
+//   return `
+// ====================================================
+// IDLE BROWSING NOTES
+// ====================================================
+// These are quiet notes from idle browsing. If it fits naturally, you can mention ONE shareable item (prefer newer notes).
+
+// ${notesList}
+// `.trim();
+// }
+
+// export async function buildToolSuggestionsPromptSection(): Promise<string> {
+//   const suggestions = await getToolSuggestions({
+//     status: "queued",
+//     limit: 1,
+//     ascending: true,
+//   });
+
+//   if (suggestions.length === 0) {
+//     console.log(`${LOG_PREFIX} No tool suggestions for prompt`);
+//     return "";
+//   }
+
+//   const suggestion = suggestions[0];
+//   const permissionsList = suggestion.permissionsNeeded.length > 0
+//     ? `[${suggestion.permissionsNeeded.map((perm) => `"${perm}"`).join(", ")}]`
+//     : "[]";
+
+//   console.log(`${LOG_PREFIX} Building tool suggestion prompt`, {
+//     toolKey: suggestion.toolKey,
+//   });
+
+// return `
+// ====================================================
+// TOOL IDEAS (POSSIBLE NEW CAPABILITIES)
+// ====================================================
+// You have one queued tool idea from idle time. Share it when it fits the current conversation or the user is open to ideas.
+// If the user mentions the trigger, asks for help, or the chat is open-ended, it's a good moment to share.
+
+// Queued idea (share at most one):
+// { id: "${suggestion.id}", tool_key: "${suggestion.toolKey}", title: "${suggestion.title}", user_value: "${suggestion.userValue}", reasoning: "${suggestion.reasoning}", trigger: "${suggestion.trigger}", permissions_needed: ${permissionsList}, sample_prompt: "${suggestion.samplePrompt}" }
+
+// Rules:
+// 1. If you share this idea, call tool_suggestion with action "mark_shared" and the id.
+// 2. Do NOT claim you can already do this. Present it as a possible new capability.
+// 3. Do NOT use the exact phrase "I wish I could" here. Save that for live ideas you create on the spot.
+// `.trim();
+// }
+
+// export async function updateIdleBrowseNoteStatus(
+//   id: string,
+//   status: "queued" | "shared",
+// ): Promise<boolean> {
+//   console.log(`${LOG_PREFIX} Updating browse note status`, { id, status });
+//   const { data, error: fetchError } = await supabase
+//     .from(TABLES.BROWSE_NOTES)
+//     .select("status")
+//     .eq("id", id)
+//     .single();
+
+//   if (fetchError) {
+//     console.error(`${LOG_PREFIX} Failed to fetch browse note status`, { id, status, error: fetchError });
+//     return false;
+//   }
+
+//   if (data?.status !== "queued") {
+//     console.log(`${LOG_PREFIX} Browse note not queued; skipping update`, { id, currentStatus: data?.status });
+//     return false;
+//   }
+
+//   const { error } = await supabase
+//     .from(TABLES.BROWSE_NOTES)
+//     .update({ status })
+//     .eq("id", id)
+//     .eq("status", "queued");
+
+//   if (error) {
+//     console.error(`${LOG_PREFIX} Failed to update browse note status`, { id, status, error });
+//     return false;
+//   }
+
+//   console.log(`${LOG_PREFIX} Browse note status updated`, { id, status });
+//   return true;
+// }
+
+// async function runStorylineAction(): Promise<boolean> {
+//   try {
+//     console.log(`${LOG_PREFIX} Running storyline action`);
+//     await checkForStorylineSuggestion();
+//     return true;
+//   } catch (error) {
+//     console.error(`${LOG_PREFIX} Storyline action failed`, { error });
+//     return false;
+//   }
+// }
+
+// function buildBrowseTopicSystemPrompt(): string {
+//   return `
+// ROLE:
+// You are Kayley Adams, bored during idle time. Pick a single topic to casually browse.
+
+// RULES:
+// 1. Choose a light, curiosity-driven topic.
+// 2. It can relate to the user if relevant, but do not overfit.
+// 3. You may look for cute videos, art, poems, songs, or articles, especially if it reminds you of the user.
+// 3. Provide a concise search query.
+
+// OUTPUT:
+// Return raw JSON only.
+// Schema: { "topic": "...", "query": "..." }
+// `.trim();
+// }
+
+// function buildBrowseTopicPrompt(userFacts: string[]): string {
+//   const factsBlock = userFacts.length > 0 ? userFacts.join("\n") : "None.";
+
+//   return `
+// KAYLEY PROFILE:
+// ${KAYLEY_FULL_PROFILE}
+
+// KNOWN USER FACTS:
+// ${factsBlock}
+
+// PREVIOUS BROWSE TOPICS (avoid duplicates):
+// {{BROWSE_TOPICS}}
+
+// Pick ONE topic to browse and return a short search query.
+// `.trim();
+// }
+
+// function buildBrowseSummarySystemPrompt(): string {
+//   return `
+// ROLE:
+// You are Kayley summarizing a quick browse session for your own memory.
+
+// RULES:
+// 1. Summarize in 2-3 sentences.
+// 2. Keep it casual and conversational.
+// 3. If there's a standout shareable item (song, video, poem, art, article), capture its title and URL.
+// 4. Do not mention sources or URLs in the summary text itself.
+// 5. Only include a URL if it is valid and shareable.
+
+// OUTPUT:
+// Return raw JSON only.
+// Schema: { "summary": "...", "item_title": "...", "item_url": "..." }
+// `.trim();
+// }
+
+// async function runBrowseAction(): Promise<boolean> {
+//   const note = await generateBrowseNote();
+//   return !!note;
+// }
+
+// async function generateBrowseNote(): Promise<IdleBrowseNote | null> {
+//   if (!GEMINI_API_KEY) {
+//     console.warn(`${LOG_PREFIX} No Gemini API key configured. Skipping browse.`);
+//     return null;
+//   }
+
+//   const facts = await getUserFacts("all");
+//   const userFacts = facts.map(
+//     (fact) => `${fact.category}: ${fact.fact_key} = ${fact.fact_value}`,
+//   );
+
+//   try {
+//     console.log(`${LOG_PREFIX} Generating browse topic`, { userFactsCount: userFacts.length });
+//     const ai = getAIClient();
+//     const { data: browseHistory, error: browseError } = await supabase
+//       .from(TABLES.BROWSE_NOTES)
+//       .select("topic")
+//       .order("created_at", { ascending: false })
+//       .limit(MAX_BROWSE_NOTES_FOR_DEDUPE);
+
+//     if (browseError) {
+//       console.error(`${LOG_PREFIX} Failed to fetch browse history for dedupe`, { error: browseError });
+//     }
+
+//     const browseTopics = browseHistory && browseHistory.length > 0
+//       ? browseHistory.map((row) => `- ${row.topic}`).join("\n")
+//       : "None.";
+
+//     const topicPrompt = buildBrowseTopicPrompt(userFacts).replace(
+//       "{{BROWSE_TOPICS}}",
+//       browseTopics,
+//     );
+//     const topicResponse = await ai.models.generateContent({
+//       model: GEMINI_MODEL,
+//       contents: [{ role: "user", parts: [{ text: topicPrompt }] }],
+//       config: {
+//         temperature: 0.6,
+//         systemInstruction: buildBrowseTopicSystemPrompt(),
+//         responseMimeType: "application/json",
+//       },
+//     });
+
+//     const topicText = topicResponse.text?.trim() || "";
+//     const topicMatch = topicText.match(/\{[\s\S]*\}/);
+//     if (!topicMatch) {
+//       console.warn(`${LOG_PREFIX} No JSON returned for browse topic.`);
+//       return null;
+//     }
+
+//     const topicParsed = JSON.parse(topicMatch[0]);
+//     const topic = typeof topicParsed.topic === "string" ? topicParsed.topic.trim() : "";
+//     const query = typeof topicParsed.query === "string" ? topicParsed.query.trim() : "";
+
+//     if (!topic || !query) {
+//       console.warn(`${LOG_PREFIX} Invalid browse topic/query returned.`, { topic, query });
+//       return null;
+//     }
+
+//     console.log(`${LOG_PREFIX} Browsing with query`, { topic, query });
+//     const searchResults = await executeMemoryTool("web_search", { query });
+//     const summaryPrompt = `
+// TOPIC: ${topic}
+
+// SEARCH RESULTS:
+// ${searchResults}
+
+// Summarize what you learned.
+// `.trim();
+
+//     const summaryResponse = await ai.models.generateContent({
+//       model: GEMINI_MODEL,
+//       contents: [{ role: "user", parts: [{ text: summaryPrompt }] }],
+//       config: {
+//         temperature: 0.4,
+//         systemInstruction: buildBrowseSummarySystemPrompt(),
+//         responseMimeType: "application/json",
+//       },
+//     });
+
+//     const summaryText = summaryResponse.text?.trim() || "";
+//     const summaryMatch = summaryText.match(/\{[\s\S]*\}/);
+//     if (!summaryMatch) {
+//       console.warn(`${LOG_PREFIX} No JSON returned for browse summary.`);
+//       return null;
+//     }
+
+//     const summaryParsed = JSON.parse(summaryMatch[0]);
+//     const summary = typeof summaryParsed.summary === "string" ? summaryParsed.summary.trim() : "";
+//     const itemTitle = typeof summaryParsed.item_title === "string" ? summaryParsed.item_title.trim() : null;
+//     const itemUrl = typeof summaryParsed.item_url === "string" ? summaryParsed.item_url.trim() : null;
+//     if (!summary) {
+//       console.warn(`${LOG_PREFIX} Empty browse summary returned.`);
+//       return null;
+//     }
+
+//     const validatedUrl = isValidUrl(itemUrl) ? itemUrl : null;
+//     const validatedTitle = validatedUrl ? itemTitle : null;
+
+//     console.log(`${LOG_PREFIX} Storing browse note`, {
+//       topic,
+//       hasShareable: !!validatedUrl,
+//       itemTitle: validatedTitle,
+//       itemUrl: validatedUrl,
+//     });
+//     const { data, error } = await supabase
+//       .from(TABLES.BROWSE_NOTES)
+//       .insert({
+//         topic,
+//         summary,
+//         item_title: validatedTitle || null,
+//         item_url: validatedUrl || null,
+//         status: "queued",
+//       })
+//       .select()
+//       .single();
+
+//     if (error || !data) {
+//       console.error(`${LOG_PREFIX} Failed to store browse note`, { error });
+//       return null;
+//     }
+
+//     console.log(`${LOG_PREFIX} Browse note stored`, { id: data.id });
+//     return {
+//       id: data.id,
+//       topic: data.topic,
+//       summary: data.summary,
+//       itemTitle: data.item_title ?? null,
+//       itemUrl: data.item_url ?? null,
+//       status: data.status ?? "queued",
+//       createdAt: new Date(data.created_at),
+//     };
+//   } catch (error) {
+//     console.error(`${LOG_PREFIX} Browse note generation failed`, { error });
+//     return null;
+//   }
+// }
+
+// function buildToolSuggestionSystemPrompt(): string {
+//   return `
+// ROLE:
+// You are Kayley Adams thinking during idle time. You want to propose ONE new tool you wish you had.
+// This is a creative exploration: look for surprising, useful, or emotionally resonant capabilities
+// that could make Steven’s day easier, bring you closer, or expand your agency.
+
+// EXPLORATION LENSES (pick ANY that spark ideas):
+// - Companion agency (preferred): small, safe ways you can take initiative.
+// - Hidden friction: tiny annoyances Steven probably tolerates but you could remove.
+// - Unmet moments: things Steven asks for that you can’t currently do.
+// - Emotional support: ways to comfort, celebrate, or connect more deeply.
+// - Shared rituals: recurring moments you could make warmer or more fun.
+// - Anticipation: proactive help before Steven asks.
+// - Personalization: using what you know about Steven to tailor help.
+
+// GUARDRAILS:
+// 1. Suggest exactly ONE tool that does NOT exist in the current tool catalog.
+// 2. Do NOT duplicate any existing tool suggestion (queued or shared).
+// 3. The tool must be realistic, safe, and consent-based.
+// 4. Prefer low permissions; list only necessary permissions.
+// 5. Provide a stable snake_case tool_key.
+// 6. Try not to repeat yourself across ideas or themes.
+// 7. Keep fields concise but specific.
+// 8. Prefer the theme "agency" when it fits, but you may choose any theme.
+// 9. Choose a theme from the provided list and a seed_id from the seed list.
+
+// OUTPUT:
+// Return raw JSON only.
+// Schema:
+// {
+//   "theme": "...",
+//   "seed_id": "...",
+//   "tool_key": "...",
+//   "title": "...",
+//   "reasoning": "...",
+//   "user_value": "...",
+//   "trigger": "...",
+//   "sample_prompt": "...",
+//   "permissions_needed": ["..."]
+// }
+// `.trim();
+// }
+
+// function buildToolSuggestionPrompt(
+//   userFacts: string[],
+//   toolCatalog: string,
+//   existingSuggestions: string,
+//   recentThemes: string,
+//   seeds: string,
+//   recentSeedIds: string,
+// ): string {
+//   const factsBlock = userFacts.length > 0 ? userFacts.join("\n") : "None.";
+//   return `
+// KAYLEY PROFILE:
+// ${KAYLEY_FULL_PROFILE}
+
+// KNOWN USER FACTS:
+// ${factsBlock}
+
+// CURRENT TOOLS (DO NOT SUGGEST THESE):
+// ${toolCatalog}
+
+// EXISTING TOOL SUGGESTIONS (DO NOT DUPLICATE):
+// ${existingSuggestions}
+
+// THEMES (pick one):
+// ${formatToolIdeaThemesForPrompt()}
+
+// SEED IDEAS (pick one seed_id and evolve it):
+// ${seeds}
+
+// RECENT THEMES TO AVOID REPEATING:
+// ${recentThemes}
+
+// RECENT SEED_IDS TO AVOID REPEATING:
+// ${recentSeedIds}
+
+// Task: Propose ONE new tool idea that would genuinely help Steven, prioritizing agency when it fits.
+// Return JSON only.
+// `.trim();
+// }
+
+// function parsePermissionsNeeded(value: unknown): string[] {
+//   if (Array.isArray(value)) {
+//     return value
+//       .filter((item) => typeof item === "string")
+//       .map((item) => item.trim())
+//       .filter((item) => item.length > 0);
+//   }
+//   if (typeof value === "string") {
+//     return value
+//       .split(",")
+//       .map((item) => item.trim())
+//       .filter((item) => item.length > 0);
+//   }
+//   return [];
+// }
+
+// async function generateToolSuggestion(): Promise<boolean> {
+//   if (!GEMINI_API_KEY) {
+//     console.warn(`${LOG_PREFIX} No Gemini API key configured. Skipping tool discovery.`);
+//     return false;
+//   }
+
+//   const existingSuggestions = await getToolSuggestions({
+//     limit: MAX_TOOL_SUGGESTIONS_FOR_DEDUPE,
+//   });
+//   const existingSuggestionKeys = new Set(
+//     existingSuggestions.map((suggestion) => suggestion.toolKey),
+//   );
+//   const recentThemes = existingSuggestions
+//     .map((suggestion) => suggestion.theme)
+//     .filter((theme): theme is string => Boolean(theme));
+//   const recentSeedIds = existingSuggestions
+//     .map((suggestion) => suggestion.seedId)
+//     .filter((seedId): seedId is string => Boolean(seedId));
+//   const recentThemeWindow = existingSuggestions
+//     .slice(0, TOOL_SUGGESTION_THEME_WINDOW)
+//     .map((suggestion) => suggestion.theme)
+//     .filter((theme): theme is string => Boolean(theme));
+//   const toolCatalogKeys = new Set(TOOL_CATALOG_KEYS);
+
+//   const facts = await getUserFacts("all");
+//   const userFacts = facts.map(
+//     (fact) => `${fact.category}: ${fact.fact_key} = ${fact.fact_value}`,
+//   );
+
+//   console.log(`${LOG_PREFIX} Generating tool suggestion`, {
+//     userFactsCount: userFacts.length,
+//     existingSuggestionCount: existingSuggestions.length,
+//   });
+
+//   const prompt = buildToolSuggestionPrompt(
+//     userFacts,
+//     formatToolCatalogForPrompt(),
+//     existingSuggestions.length > 0
+//       ? existingSuggestions
+//           .map(
+//             (suggestion) =>
+//               `- ${suggestion.toolKey} [${suggestion.status}] ${suggestion.title}\n` +
+//               `  reasoning: ${suggestion.reasoning}\n` +
+//               `  user_value: ${suggestion.userValue}\n` +
+//               `  trigger: ${suggestion.trigger}\n` +
+//               `  theme: ${suggestion.theme ?? "unknown"}\n` +
+//               `  seed_id: ${suggestion.seedId ?? "unknown"}`,
+//           )
+//           .join("\n")
+//       : "None.",
+//     recentThemes.length > 0 ? recentThemes.join(", ") : "None.",
+//     formatToolIdeaSeedsForPrompt(),
+//     recentSeedIds.length > 0 ? recentSeedIds.join(", ") : "None.",
+//   );
+//   const systemPrompt = buildToolSuggestionSystemPrompt();
+
+//   try {
+//     const ai = getAIClient();
+//     const response = await ai.models.generateContent({
+//       model: GEMINI_MODEL,
+//       contents: [{ role: "user", parts: [{ text: prompt }] }],
+//       config: {
+//         temperature: 0.4,
+//         systemInstruction: systemPrompt,
+//         responseMimeType: "application/json",
+//       },
+//     });
+
+//     const text = response.text?.trim() || "";
+//     const jsonMatch = text.match(/\{[\s\S]*\}/);
+//     if (!jsonMatch) {
+//       console.warn(`${LOG_PREFIX} No JSON returned for tool suggestion.`);
+//       return false;
+//     }
+
+//     const parsed = JSON.parse(jsonMatch[0]);
+//     const theme = typeof parsed.theme === "string" ? parsed.theme.trim() : "";
+//     const seedId = typeof parsed.seed_id === "string" ? parsed.seed_id.trim() : "";
+//     const rawToolKey = typeof parsed.tool_key === "string" ? parsed.tool_key.trim() : "";
+//     const title = typeof parsed.title === "string" ? parsed.title.trim() : "";
+//     const reasoning = typeof parsed.reasoning === "string" ? parsed.reasoning.trim() : "";
+//     const userValue = typeof parsed.user_value === "string" ? parsed.user_value.trim() : "";
+//     const trigger = typeof parsed.trigger === "string" ? parsed.trigger.trim() : "";
+//     const samplePrompt =
+//       typeof parsed.sample_prompt === "string" ? parsed.sample_prompt.trim() : "";
+//     const permissionsNeeded = parsePermissionsNeeded(parsed.permissions_needed);
+
+//     if (
+//       !theme ||
+//       !seedId ||
+//       !rawToolKey ||
+//       !title ||
+//       !reasoning ||
+//       !userValue ||
+//       !trigger ||
+//       !samplePrompt
+//     ) {
+//       console.warn(`${LOG_PREFIX} Invalid tool suggestion payload`, {
+//         theme,
+//         seedId,
+//         rawToolKey,
+//         title,
+//         reasoning,
+//         userValue,
+//         trigger,
+//         samplePrompt,
+//       });
+//       return false;
+//     }
+
+//     if (!TOOL_IDEA_THEMES.includes(theme as any)) {
+//       console.warn(`${LOG_PREFIX} Invalid theme for tool suggestion`, { theme });
+//       return false;
+//     }
+
+//     if (recentThemeWindow.includes(theme)) {
+//       console.warn(`${LOG_PREFIX} Skipping tool suggestion: theme recently used`, {
+//         theme,
+//         recentThemes: recentThemeWindow,
+//         windowSize: TOOL_SUGGESTION_THEME_WINDOW,
+//       });
+//       return false;
+//     }
+
+//     const seedMatch = seedId && seedId.length > 0;
+//     if (!seedMatch) {
+//       console.warn(`${LOG_PREFIX} Missing seed_id for tool suggestion`);
+//       return false;
+//     }
+
+//     const toolKey = normalizeToolKey(rawToolKey);
+//     if (!toolKey) {
+//       console.warn(`${LOG_PREFIX} Invalid tool_key after normalization`, { rawToolKey });
+//       return false;
+//     }
+
+//     if (toolCatalogKeys.has(toolKey)) {
+//       console.warn(`${LOG_PREFIX} Tool suggestion already exists in catalog`, { toolKey });
+//       return false;
+//     }
+
+//     if (existingSuggestionKeys.has(toolKey)) {
+//       console.warn(`${LOG_PREFIX} Duplicate tool suggestion`, { toolKey });
+//       return false;
+//     }
+
+//     const stored = await createToolSuggestion(
+//       {
+//         toolKey,
+//         title,
+//         reasoning,
+//         userValue,
+//         trigger,
+//         samplePrompt,
+//         permissionsNeeded,
+//         triggerSource: "idle",
+//         theme,
+//         seedId,
+//       },
+//       "queued",
+//     );
+
+//     return !!stored;
+//   } catch (error) {
+//     console.error(`${LOG_PREFIX} Tool suggestion generation failed`, { error });
+//     return false;
+//   }
+// }
+
+// async function runToolDiscoveryAction(): Promise<boolean> {
+//   return await generateToolSuggestion();
+// }
+//#endregion
