@@ -35,12 +35,9 @@ import CharacterManagementView from './components/CharacterManagementView';
 import { SettingsPanel } from './components/SettingsPanel';
 import { LoginPage } from './components/LoginPage';
 import { TaskPanel } from './components/TaskPanel';
-import { WhiteboardView } from './components/WhiteboardView';
 import AdminDashboardView from './components/AdminDashboardView';
-import { WhiteboardAction } from './services/whiteboardModes';
-import { handleWhiteboardCapture as handleWhiteboardCaptureHandler } from './handlers/whiteboardHandler';
 import { processSelfieAction, processTaskAction } from './handlers/messageActions';
-import { processUserMessage } from './services/messageOrchestrator';
+import { agentClient } from './services/agentClient';
 import { useGoogleAuth } from './contexts/GoogleAuthContext';
 import { useDebounce } from './hooks/useDebounce';
 import { useMediaQueues } from './hooks/useMediaQueues';
@@ -51,7 +48,6 @@ import { useGmail } from './hooks/useGmail';
 import { useIdleTracking } from './hooks/useIdleTracking';
 import { useCharacterActions } from './hooks/useCharacterActions';
 import { useCharacterManagement } from './hooks/useCharacterManagement';
-import { useAIService } from './contexts/AIServiceContext';
 import { AIChatSession } from './services/aiService';
 import { startCleanupScheduler, stopCleanupScheduler } from './services/loopCleanupService';
 import { processStorylineOnStartup } from './services/storylineService';
@@ -85,7 +81,7 @@ if (import.meta.env.DEV) {
 // ============================================================================
 const ACTION_VIDEO_BUCKET = 'character-action-videos';
 
-type View = 'loading' | 'selectCharacter' | 'createCharacter' | 'chat' | 'manageCharacter' | 'whiteboard' | 'admin';
+type View = 'loading' | 'selectCharacter' | 'createCharacter' | 'chat' | 'manageCharacter' | 'admin';
 
 interface DisplayCharacter {
   profile: CharacterProfile;
@@ -190,8 +186,6 @@ const App: React.FC = () => {
   // AUTH & CORE SERVICES
   // --------------------------------------------------------------------------
   const { session, status: authStatus, signOut, refreshSession } = useGoogleAuth();
-  const activeService = useAIService();
-
   // --------------------------------------------------------------------------
   // X OAUTH CALLBACK HANDLER
   // --------------------------------------------------------------------------
@@ -273,6 +267,8 @@ const App: React.FC = () => {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isProcessingAction, setIsProcessingAction] = useState(false);
   const [aiSession, setAiSession] = useState<AIChatSession | null>(null);
+  /** Stable session ID for the server agent — persists for this browser tab's lifetime */
+  const webSessionIdRef = useRef<string>(`web-${crypto.randomUUID()}`);
   const [lastSavedMessageIndex, setLastSavedMessageIndex] = useState<number>(-1);
   const [relationship, setRelationship] = useState<RelationshipMetrics | null>(null);
   const chatHistoryRef = useRef<ChatMessage[]>([]);
@@ -789,36 +785,27 @@ const App: React.FC = () => {
     setIsProcessingAction(true);
 
     try {
-      // 2. Send to AI (Gemini)
-      // Notice we pass the systemPrompt as 'text' but with a special type or just handle it as text
-      const { response, session: updatedSession, audioData } = await activeService.generateResponse(
-        { type: 'text', text: systemPrompt },
-        {
-          chatHistory, // Pass existing history so it knows context
-          googleAccessToken: session?.accessToken,
-        },
-        aiSession || { model: activeService.model }
-      );
+      // 2. Send system prompt through server agent (no user bubble)
+      const result = await agentClient.sendMessage({
+        message: systemPrompt,
+        sessionId: webSessionIdRef.current,
+        googleAccessToken: session?.accessToken,
+        chatHistory,
+        isMuted,
+      });
 
-      setAiSession(updatedSession);
+      if (result.updatedSession) setAiSession(result.updatedSession);
 
       // 3. Add ONLY the AI response to chat history (No user bubble)
-      setChatHistory(prev => [
-        ...prev, 
-        { role: 'model', text: response.text_response }
-      ]);
-      
-      // 4. Save to DB
-      await conversationHistoryService.appendConversationHistory(
-        [{ role: 'model', text: response.text_response }],
-        updatedSession.interactionId
-      );
+      if (result.chatMessages?.length > 0) {
+        setChatHistory(prev => [...prev, ...result.chatMessages]);
+      }
 
-      // 5. Play Audio
-      if (!isMuted && audioData) enqueueAudio(audioData);
-      if (response.open_app) {
-        clientLogger.info(`${LOG_PREFIX} Launching app`, { source: 'App.tsx', url: response.open_app });
-        window.location.href = response.open_app;
+      // 4. Play Audio
+      if (!isMuted && result.audioToPlay) enqueueAudio(result.audioToPlay);
+      if (result.appToOpen) {
+        clientLogger.info(`${LOG_PREFIX} Launching app`, { source: 'App.tsx', url: result.appToOpen });
+        window.location.href = result.appToOpen;
       }
 
     } catch (error) {
@@ -827,15 +814,12 @@ const App: React.FC = () => {
       setIsProcessingAction(false);
     }
   }, [
-    activeService,
     aiSession,
     chatHistory,
     enqueueAudio,
     isMuted,
-    relationship,
     selectedCharacter,
     session,
-    upcomingEvents,
     playAction
   ]);
 
@@ -927,7 +911,6 @@ const App: React.FC = () => {
     snoozeUntil,
     proactiveSettings.checkins,
     proactiveSettings.news,
-    activeService,
     selectedCharacter,
     session,
     relationship,
@@ -1326,7 +1309,8 @@ const App: React.FC = () => {
         const messageCount = await conversationHistoryService.getTodaysMessageCount();
 
         // Start with fresh session (no auto-greeting or background AI calls).
-        const session: AIChatSession = { model: activeService.model };
+        // Model is managed server-side; this is informational only.
+        const session: AIChatSession = { model: import.meta.env.VITE_GEMINI_MODEL || 'gemini-2.5-flash' };
 
         if (messageCount > 0) {
           clientLogger.info(`${LOG_PREFIX} Chat detected today (${messageCount} messages) - reloading history only`, { source: 'App.tsx' });
@@ -1478,36 +1462,28 @@ const App: React.FC = () => {
       ]);
 
       try {
-        const sessionToUse: AIChatSession = aiSession || { model: activeService.model };
-        const { response, session: updatedSession, audioData } = await activeService.generateResponse(
-          {
+        const result = await agentClient.sendMessage({
+          message: userText,
+          userContent: {
             type: 'image_text',
             text: trimmedMessage || "What do you think of this?",
             imageData: attachment.base64,
             mimeType: attachment.mimeType,
           },
-          {
-            chatHistory: chatHistory,
-            googleAccessToken: session?.accessToken,
-          },
-          sessionToUse
-        );
+          sessionId: webSessionIdRef.current,
+          googleAccessToken: session?.accessToken,
+          chatHistory,
+          isMuted,
+        });
 
-        setAiSession(updatedSession);
-        setChatHistory(prev => [...prev, { role: 'model' as const, text: response.text_response }]);
-
-        await conversationHistoryService.appendConversationHistory(
-          [{ role: 'user', text: userText }, { role: 'model', text: response.text_response }],
-          updatedSession?.interactionId || aiSession?.interactionId
-        );
-
-        if (!isMuted && audioData) {
-          enqueueAudio(audioData);
+        if (result.updatedSession) setAiSession(result.updatedSession);
+        if (result.chatMessages?.length > 0) {
+          setChatHistory(prev => [...prev, ...result.chatMessages]);
         }
-
-        if (response.open_app) {
-          clientLogger.info(`${LOG_PREFIX} Launching app`, { source: 'App.tsx', url: response.open_app });
-          window.location.href = response.open_app;
+        if (!isMuted && result.audioToPlay) enqueueAudio(result.audioToPlay);
+        if (result.appToOpen) {
+          clientLogger.info(`${LOG_PREFIX} Launching app`, { source: 'App.tsx', url: result.appToOpen });
+          window.location.href = result.appToOpen;
         }
       } catch (error) {
         clientLogger.error(`${LOG_PREFIX} Error sending image`, { source: 'App.tsx', error: error instanceof Error ? error.message : String(error) });
@@ -1526,12 +1502,11 @@ const App: React.FC = () => {
       ]);
       const messageForAI = trimmedMessage || `[User sent a GIF: "${attachment.title}"]`;
       try {
-        const result = await processUserMessage({
-          userMessage: userText,
-          userMessageForAI: messageForAI,
-          aiService: activeService,
-          session: aiSession,
-          accessToken: session.accessToken,
+        const result = await agentClient.sendMessage({
+          message: userText,
+          messageForAI,
+          sessionId: webSessionIdRef.current,
+          googleAccessToken: session.accessToken,
           chatHistory,
           upcomingEvents,
           tasks,
@@ -1571,12 +1546,11 @@ const App: React.FC = () => {
       ]);
 
       try {
-        const result = await processUserMessage({
-          userMessage: userText,
-          userMessageForAI: messageForAI,
-          aiService: activeService,
-          session: aiSession,
-          accessToken: session.accessToken,
+        const result = await agentClient.sendMessage({
+          message: userText,
+          messageForAI,
+          sessionId: webSessionIdRef.current,
+          googleAccessToken: session.accessToken,
           chatHistory,
           upcomingEvents,
           tasks,
@@ -1628,11 +1602,10 @@ const App: React.FC = () => {
       // ============================================
       // ORCHESTRATOR: AI Call + Background Processing
       // ============================================
-      const result = await processUserMessage({
-        userMessage:  trimmedMessage,
-        aiService:    activeService,
-        session:      aiSession,
-        accessToken:  session.accessToken,
+      const result = await agentClient.sendMessage({
+        message:          trimmedMessage,
+        sessionId:        webSessionIdRef.current,
+        googleAccessToken: session.accessToken,
         chatHistory,
         upcomingEvents,
         tasks,
@@ -1755,23 +1728,6 @@ const App: React.FC = () => {
     setCurrentActionId(null);
   };
 
-  // Whiteboard AI Interaction Handler (extracted to src/handlers/whiteboardHandler.ts)
-  const handleWhiteboardCapture = async (
-    base64: string,
-    userMessage: string,
-    modeContext: string
-  ): Promise<{ textResponse: string; whiteboardAction?: WhiteboardAction | null }> => {
-    return handleWhiteboardCaptureHandler(base64, userMessage, modeContext, {
-      selectedCharacter,
-      session,
-      aiSession,
-      activeService,
-      setAiSession,
-      playAction,
-      isMutedRef,
-      enqueueAudio: media.enqueueAudio,
-    });
-  };
 
   // ==========================================================================
   // RENDER
@@ -1941,7 +1897,6 @@ const App: React.FC = () => {
                   <ChatPanel
                     history={chatHistory}
                     onSendMessage={handleSendMessage}
-                onOpenWhiteboard={() => setView('whiteboard')}
                     isSending={isProcessingAction}
                     onUserActivity={markInteraction}
                   />
@@ -1950,13 +1905,6 @@ const App: React.FC = () => {
         )}
 
 
-        {view === 'whiteboard' && (
-          <WhiteboardView
-            onSendToAI={handleWhiteboardCapture}
-            onClose={() => setView('chat')}
-            disabled={isProcessingAction}
-          />
-        )}
 
           {view === 'admin' && (
             <AdminDashboardView

@@ -33,7 +33,13 @@ import {
   buildGreetingOutputSection
 } from "../format";
 import soulContent from "../../../../server/agent/kayley/SOUL.md?raw";
+import agentsContent from "../../../../server/agent/kayley/AGENTS.md?raw";
 import identityContent from "../../../../server/agent/kayley/IDENTITY.md?raw";
+import memoryContent from "../../../../server/agent/kayley/MEMORY.md?raw";
+import memoryRulesContent from "../../../../server/agent/kayley/MEMORY_RULES.md?raw";
+import userContent from "../../../../server/agent/kayley/USER.md?raw";
+import toolsContent from "../../../../server/agent/kayley/TOOLS.md?raw";
+import safetyContent from "../../../../server/agent/kayley/SAFETY.md?raw";
 
 // Greeting-specific imports
 import {
@@ -160,10 +166,12 @@ export const buildSystemPromptForNonGreeting = async (
 ${injectSOUL()}
 ${injectIDENTITY()}
 ${buildAntiAssistantSection()}
+${injectSAFETY()}
+${buildAgentFilesSection()}
 ${currentWorldContext}
 ${anchorSection}
+${synthesisSection}
 ${activeRecallSection}
-
 ${xTweetPrompt}
 ${xMentionsPrompt}
 ${idleQuestionPrompt}
@@ -193,6 +201,54 @@ SOUL (Core Identity)
 ${soulContent}`.trim();
 }
 
+export function injectAGENTS(): string {
+  return `
+====================================================
+AGENTS
+====================================================
+${agentsContent}`.trim();
+}
+
+export function injectMEMORY(): string {
+  return `
+====================================================
+MEMORY
+====================================================
+${memoryContent}`.trim();
+}
+
+export function injectMEMORYRULES(): string {
+  return `
+====================================================
+MEMORY RULES
+====================================================
+${memoryRulesContent}`.trim();
+}
+
+
+export function injectUSER(): string {
+  return `
+====================================================
+USER
+====================================================
+${userContent}`.trim();
+}
+
+export function injectTOOLS(): string {
+  return `
+====================================================
+TOOLS
+====================================================
+${toolsContent}`.trim();
+}
+
+export function injectSAFETY(): string {
+  return `
+====================================================
+SAFETY
+====================================================
+${safetyContent}`.trim();
+}
 
 export function injectIDENTITY(): string {
   return `
@@ -200,6 +256,34 @@ export function injectIDENTITY(): string {
 IDENTITY
 ====================================================
 ${identityContent}`.trim();
+}
+
+/**
+ * Instructions for on-demand file access.
+ * Tells Kayley she can read/write her personal files using tools.
+ */
+export function buildAgentFilesSection(): string {
+  return `
+====================================================
+YOUR FILES (On-Demand Access)
+====================================================
+You have personal files you can read and write using tools:
+
+**Read anytime (read_agent_file):**
+- MEMORY.md — Your personal notes and observations about Steven
+- USER.md — Detailed facts about Steven (preferences, family, work)
+- TOOLS.md — Your available tools and how to use them
+- HEARTBEAT.md — Your current emotional/mental state
+- AGENTS.md — Your team delegation capabilities
+- MEMORY_RULES.md — Rules for how you handle memory
+- SOUL.md, IDENTITY.md, SAFETY.md — Your core identity (already loaded)
+
+**Write to (write_agent_file):**
+- MEMORY.md — Update your personal notes when you learn something important
+- HEARTBEAT.md — Update your emotional state when it shifts
+
+Read these files when you need specific details. Don't guess when you can look it up.
+`.trim();
 }
 
 export function buildTeamPrompt(): string {
@@ -232,6 +316,8 @@ export const buildSystemPromptForGreeting = async (
 ${injectSOUL()}
 ${injectIDENTITY()}
 ${buildAntiAssistantSection()}
+${injectSAFETY()}
+${buildAgentFilesSection()}
 ${await buildCurrentWorldContext()}
 ====================================================
 GREETING CONTEXT

@@ -57,7 +57,9 @@ export async function buildPromisesContext(): Promise<string> {
   const promisesList = conversationalPromises.map(formatPromise).join("\n");
 
   return `
-====================================================OPEN COMMITMENTS====================================================
+====================================================
+OPEN PROMISES
+====================================================
 Tone: Reliable but organic.
 Direction: You have pending commitments. Check the "Status" below. If a promise is marked "READY" (or the conversation context is perfect), fulfill ONE commitment naturally.
 

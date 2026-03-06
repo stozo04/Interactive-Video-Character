@@ -33,9 +33,6 @@ export * from "./core";
 // Soul sections (Phase 4 + Phase 6)
 export * from "./soul";
 
-// Tools sections (Phase 5)
-export * from "./tools";
-
 // Format sections (Phase 5)
 export * from "./format";
 

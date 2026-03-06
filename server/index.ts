@@ -4,6 +4,7 @@ import dotenv from "dotenv";
 import { routeAnthropicRequest } from "./routes/anthropicRoutes";
 import { createMultiAgentRouter } from "./routes/multiAgentRoutes";
 import { createWorkspaceAgentRouter } from "./routes/workspaceAgentRoutes";
+import { createAgentRouter } from "./routes/agentRoutes";
 import { startOpeyDev } from "./agent/opey-dev/main";
 import { startCronScheduler } from "./scheduler/cronScheduler";
 import { log } from "./runtimeLogger";
@@ -145,6 +146,11 @@ runtimeLog.info("Workspace agent router created", {
   workspaceRoot,
 });
 
+// Create agent router (Kayley brain — single entry point for all clients)
+runtimeLog.info("Creating agent router", { source: "serverIndex" });
+const routeAgentRequest = createAgentRouter();
+runtimeLog.info("Agent router created", { source: "serverIndex" });
+
 // 5) Background services.
 // Cron scheduler: handles scheduled "Kayley" digests and promise reminders.
 const cronTickMs = Number(process.env.CRON_TICK_MS || 60_000);
@@ -198,7 +204,18 @@ const server = createServer(async (req, res) => {
       }
     }
 
-    // a) Anthropic-specific routes (Claude CLI runner).
+    // a) Agent routes (Kayley brain — primary path for all clients).
+    const handledAgent = await routeAgentRequest(req, res);
+    if (handledAgent) {
+      runtimeLog.info("Request handled by agent router", {
+        source: "serverIndex",
+        requestId,
+        statusCode: res.statusCode,
+      });
+      return;
+    }
+
+    // b) Anthropic-specific routes (Claude CLI runner).
     runtimeLog.info("Attempting to route through Anthropic handler", {
       source: "serverIndex",
       requestId,
