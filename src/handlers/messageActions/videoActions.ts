@@ -10,7 +10,6 @@
 import { generateCompanionVideo } from '../../services/grokVideoGenerationService';
 import { getKayleyPresenceState } from '../../services/kayleyPresenceService';
 import type { ChatMessage } from '../../types';
-import type { CalendarEvent } from '../../services/calendarService';
 
 /**
  * Video action from AI response
@@ -28,7 +27,6 @@ export interface VideoAction {
 export interface VideoActionContext {
   userMessage: string;
   chatHistory: ChatMessage[];
-  upcomingEvents: CalendarEvent[];
 }
 
 /**
@@ -70,13 +68,6 @@ export async function processVideoAction(
       expiresAt: kayleyState?.expiresAt,
     });
 
-    // Prepare upcoming events for outfit context
-    const formattedEvents = context.upcomingEvents.map((event) => ({
-      title: event.summary,
-      startTime: new Date(event.start.dateTime || event.start.date || ""),
-      isFormal: isFormalEvent(event.summary),
-    }));
-
     // Prepare conversation history
     const conversationHistory = context.chatHistory.slice(-10).map((msg) => ({
       role: msg.role === "user" ? "user" : ("assistant" as const),
@@ -90,7 +81,7 @@ export async function processVideoAction(
       outfit: videoAction.outfit,
       userMessage: context.userMessage,
       conversationHistory,
-      upcomingEvents: formattedEvents,
+      upcomingEvents: [],
       presenceOutfit: kayleyState?.currentOutfit,
       presenceMood: kayleyState?.currentMood,
       duration: videoAction.duration,
@@ -122,18 +113,3 @@ export async function processVideoAction(
   }
 }
 
-/**
- * Check if an event is formal based on its summary
- */
-function isFormalEvent(summary: string): boolean {
-  const lowerSummary = summary.toLowerCase();
-  return (
-    lowerSummary.includes('dinner') ||
-    lowerSummary.includes('meeting') ||
-    lowerSummary.includes('presentation') ||
-    lowerSummary.includes('interview') ||
-    lowerSummary.includes('conference') ||
-    lowerSummary.includes('gala') ||
-    lowerSummary.includes('wedding')
-  );
-}

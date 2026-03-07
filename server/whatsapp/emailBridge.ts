@@ -13,15 +13,11 @@
 
 import { getActiveSock, sentMessageIds } from './baileyClient';
 import { supabaseAdmin as supabase } from '../services/supabaseAdmin';
-import { getTokenAgeDays } from '../services/googleTokenService';
 import { log } from '../runtimeLogger';
 
 const LOG_PREFIX = '[EmailBridge]';
 const runtimeLog = log.fromContext({ source: 'emailBridge', route: 'whatsapp/email' });
 const POLL_INTERVAL_MS  = 10_000;
-const HEALTH_CHECK_MS   = 6 * 60 * 60 * 1000; // check token health every 6 hours
-const TOKEN_WARN_DAYS   = 6;   // warn at day 6 (1 day before 7-day expiry)
-const TOKEN_EXPIRE_DAYS = 7;
 
 // Steven's WhatsApp JID — set WHATSAPP_STEVEN_JID in your .env.local
 // Format: 15551234567@s.whatsapp.net
@@ -49,54 +45,7 @@ export function startEmailBridge(): void {
     setInterval(() => void pollPendingEmails(), POLL_INTERVAL_MS);
   }, 3_000);
 
-  // Token health check — runs every 6 hours, warns Steven via WA before day 7 expiry
-  setTimeout(() => {
-    void checkTokenHealth();
-    setInterval(() => void checkTokenHealth(), HEALTH_CHECK_MS);
-  }, 30_000); // first check after 30s (give WA connection time to open)
-}
-
-async function checkTokenHealth(): Promise<void> {
-  const sock = getActiveSock();
-  if (!sock || !STEVEN_JID) return;
-
-  try {
-    const ageDays = await getTokenAgeDays();
-
-    if (ageDays === null) {
-      // No issued_at recorded yet — token was stored before this column existed, skip
-      return;
-    }
-
-    runtimeLog.info('Google token health check', {
-      source: 'emailBridge',
-      ageDays: ageDays.toFixed(1),
-      warnThreshold: TOKEN_WARN_DAYS,
-    });
-
-    if (ageDays >= TOKEN_EXPIRE_DAYS) {
-      // Already expired — Kayley tells Steven Gmail actions are broken
-      const msg = `Hey, heads up — my Google connection has expired (it resets every 7 days in dev mode). Gmail stuff won't work until you open the app and sign back in. Takes 10 seconds!`;
-      const sent = await sock.sendMessage(STEVEN_JID!, { text: msg });
-      if (sent?.key?.id) sentMessageIds.add(sent.key.id);
-      runtimeLog.warning('Google refresh token expired, notified Steven via WA', { source: 'emailBridge', ageDays });
-      console.warn(`${LOG_PREFIX} ⚠️ Google refresh token expired (${ageDays.toFixed(1)} days old)`);
-
-    } else if (ageDays >= TOKEN_WARN_DAYS) {
-      // Expiring tomorrow — proactive nudge
-      const daysLeft = (TOKEN_EXPIRE_DAYS - ageDays).toFixed(1);
-      const msg = `Quick heads up — my Google connection expires in about ${daysLeft} day(s). Just open the app whenever you get a chance and it'll renew automatically!`;
-      const sent = await sock.sendMessage(STEVEN_JID!, { text: msg });
-      if (sent?.key?.id) sentMessageIds.add(sent.key.id);
-      runtimeLog.info('Google token expiry warning sent to Steven', { source: 'emailBridge', ageDays, daysLeft });
-      console.log(`${LOG_PREFIX} ⚠️ Token expiry warning sent (${ageDays.toFixed(1)} days old)`);
-    }
-  } catch (err) {
-    runtimeLog.error('Token health check failed', {
-      source: 'emailBridge',
-      error: err instanceof Error ? err.message : String(err),
-    });
-  }
+  // Token health check removed — gogcli handles token refresh automatically
 }
 
 async function pollPendingEmails(): Promise<void> {

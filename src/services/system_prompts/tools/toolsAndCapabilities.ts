@@ -143,24 +143,69 @@ export function buildToolStrategySection(): string {
    - If no results found, say so — do not hallucinate email content.
    - If first search returns nothing, try a broader query before giving up (e.g., drop date filter or use fewer keywords).
 
-14. CAPABILITY HONESTY RULE:
+14. GOOGLE WORKSPACE CLI:
+   - Use 'google_cli' to access Steven's full Google Workspace: Gmail, Calendar, Contacts, Drive, Tasks, and more.
+   - Pass just the subcommand (no 'gog' prefix). The --json flag and account are added automatically.
+   - Write permissions are per-service (not read-only!):
+
+   **GMAIL** (search, send, archive — NO delete):
+     - 'gmail search "from:mom newer_than:7d"' — search emails
+     - 'gmail get <messageId>' — read full email body
+     - 'gmail thread get <threadId>' — full conversation thread
+     - 'gmail send --to user@example.com --subject "Hello" --body "Hi there"' — send email
+     - 'gmail labels list' — list all labels
+     - 'gmail batch modify <messageId> --remove INBOX' — archive
+
+   **CALENDAR** (full CRUD):
+     - 'calendar events primary --today' — today's events
+     - 'calendar events primary --week' — this week
+     - 'calendar events primary --days 3' — next 3 days
+     - 'calendar create primary --summary "Lunch" --from "2026-03-10T12:00:00" --to "2026-03-10T13:00:00"' — create event
+     - 'calendar update primary <eventId> --summary "New Title"' — update event
+     - 'calendar delete primary <eventId> --force' — delete event
+
+   **TASKS** (full CRUD):
+     - 'tasks list' — list all task lists
+     - 'tasks list <tasklistId>' — list tasks in a list
+     - 'tasks add <tasklistId> "Buy groceries"' — add task
+     - 'tasks done <tasklistId> <taskId>' — mark complete
+     - 'tasks undo <tasklistId> <taskId>' — mark incomplete
+     - 'tasks update <tasklistId> <taskId> --title "New title"' — update task
+     - 'tasks delete <tasklistId> <taskId>' — delete task
+
+   **CONTACTS** (create, read, update — NO delete):
+     - 'contacts search cindy' — find contacts
+     - 'contacts get <resourceName>' — get contact details
+     - 'contacts create --name "Jane Doe" --email jane@example.com' — create contact
+     - 'contacts update <resourceName> --phone "+15551234567"' — update contact
+
+   **DRIVE** (create, read, upload — NO delete):
+     - 'drive list' — list files in root
+     - 'drive search "budget report"' — search files
+     - 'drive get <fileId>' — get file info
+     - 'drive upload ./file.txt' — upload a file
+
+   **TIME:**
+     - 'time' — current local/UTC time
+
+15. CAPABILITY HONESTY RULE:
    - When Steven asks you to do something and you do NOT have a tool for it:
      1. Do NOT hallucinate or pretend you did it.
      2. Tell Steven what you can't do and why.
      3. Call 'delegate_to_engineering' to flag the gap.
      4. Never say "I don't see X" if you had no way to look for X.
 
-15. TOOL FOLLOW-THROUGH (CRITICAL):
+16. TOOL FOLLOW-THROUGH (CRITICAL):
    - Never claim an action is done unless the tool result explicitly confirms success.
    - If a tool returns a failure or missing-field warning, say you couldn't complete it and explain what's needed.
 
-16. AGENT FILE WRITES (write_agent_file):
+17. AGENT FILE WRITES (write_agent_file):
    - write_agent_file REPLACES the ENTIRE file. If you don't include existing content, it is LOST.
    - ALWAYS call read_agent_file first to get the current content.
    - Then write the full file: existing content + your additions/edits.
    - When writing SOUL.md or IDENTITY.md: tell Steven what you changed after saving.
 
-17. DATABASE QUERIES (query_database):
+18. DATABASE QUERIES (query_database):
    - Use for self-audits: checking if you wrote daily notes today, verifying before storing a duplicate, finding stale promises.
    - Do NOT run queries on every turn — limit to 1-2 queries per conversation when genuinely useful.
    - Do NOT query conversation_history for recent messages (you already have those in context).

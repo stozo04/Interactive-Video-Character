@@ -909,7 +909,8 @@ export type MemoryToolArgs =
         reason?: string;
       };
     }
-  | { tool: "gmail_search"; args: GmailSearchArgs };
+  | { tool: "gmail_search"; args: GmailSearchArgs }
+  | { tool: "google_cli"; args: { command: string } };
 
 // ============================================
 // Function Declarations for AI Providers
@@ -2055,6 +2056,33 @@ export const GeminiMemoryToolDeclarations = [
         },
       },
       required: ["query"],
+    },
+  },
+  {
+    name: "google_cli",
+    description:
+      "Run a Google Workspace CLI command. Supports read AND write operations across services. " +
+      "Services: gmail, calendar, contacts, drive, tasks, time. " +
+      "Write permissions per service: " +
+      "gmail (send, archive), calendar (create/update/delete), tasks (full CRUD), " +
+      "contacts (create/update, no delete), drive (create/upload, no delete). " +
+      "Pass just the subcommand — 'gog' prefix and --json are added automatically. " +
+      "Examples: 'contacts search cindy', 'tasks add MyList \"Buy groceries\"', " +
+      "'drive search invoice', 'gmail send --to user@example.com --subject Hi --body Hello'.",
+    parameters: {
+      type: "object",
+      properties: {
+        command: {
+          type: "string",
+          description:
+            "The gog subcommand to run. Examples: 'contacts search cindy', " +
+            "'tasks list', 'tasks add <listId> \"Task title\"', 'tasks done <listId> <taskId>', " +
+            "'drive search budget', 'drive upload ./file.txt', " +
+            "'calendar events primary --today', 'gmail thread get <threadId>', " +
+            "'contacts create --name \"Jane Doe\" --email jane@example.com'.",
+        },
+      },
+      required: ["command"],
     },
   },
   {

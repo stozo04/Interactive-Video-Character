@@ -64,9 +64,7 @@ export async function processUserMessage(input: OrchestratorInput): Promise<Orch
     userContent,
     aiService,
     session,
-    accessToken,
     chatHistory,
-    upcomingEvents,
     tasks,
     isMuted,
     pendingEmail,
@@ -133,7 +131,6 @@ export async function processUserMessage(input: OrchestratorInput): Promise<Orch
       // Intent detection doesn't need calendar data - only main chat does
       originalMessageForIntent: undefined,
       chatHistory,
-      googleAccessToken: accessToken,
       audioMode: isMuted ? "none" : "sync",
     };
 
@@ -212,7 +209,6 @@ export async function processUserMessage(input: OrchestratorInput): Promise<Orch
         const selfieResult = await processSelfieAction(selfieAction, {
           userMessage,
           chatHistory,
-          upcomingEvents,
         });
         if (selfieResult.handled) {
           if (selfieResult.success && selfieResult.imageBase64) {
@@ -277,7 +273,6 @@ export async function processUserMessage(input: OrchestratorInput): Promise<Orch
         const videoResult = await processVideoAction(videoAction, {
           userMessage,
           chatHistory,
-          upcomingEvents,
         });
         if (videoResult.handled) {
           if (videoResult.success && videoResult.videoUrl) {

@@ -20,11 +20,21 @@ import type {
 } from "../../../src/services/aiService";
 import type { AIActionResponse } from "../../../src/services/aiSchema";
 import type { TurnTokenUsage } from "../../../src/services/conversationHistoryService";
-import type { CalendarEvent } from "../../../src/services/calendarService";
+// CalendarEvent type — minimal definition (calendarService.ts is being removed)
+interface CalendarEvent {
+  id: string;
+  summary: string;
+  description?: string;
+  location?: string;
+  start: { dateTime?: string; date?: string; timeZone?: string };
+  end: { dateTime?: string; date?: string; timeZone?: string };
+  status?: string;
+  attendees?: Array<{ self?: boolean; responseStatus?: string }>;
+}
 import type { RelationshipMetrics } from "../../../src/services/relationshipService";
 
 import { GEMINI_MODEL } from "./geminiClient";
-import { getOrCreateSession, invalidateSession } from "./chatSessionManager";
+import { getOrCreateSession, getSessionHistory, invalidateSession } from "./chatSessionManager";
 import { createCallableTools } from "./toolBridge";
 
 import {
@@ -38,7 +48,7 @@ import { generateSpeech } from "../../../src/services/elevenLabsService";
 import { getImportantDateFacts } from "../../../src/services/memoryService";
 import * as relationshipService from "../../../src/services/relationshipService";
 import * as taskService from "../../../src/services/taskService";
-import { calendarService } from "../../../src/services/calendarService";
+// calendarService removed — calendar now accessed via gogcli tools on demand
 import { recordAlmostMoment } from "../../../src/services/almostMomentsService";
 import { getKayleyPresenceState } from "../../../src/services/kayleyPresenceService";
 import { getLastInteractionDate } from "../../../src/services/conversationHistoryService";
@@ -226,7 +236,7 @@ export class ServerGeminiService implements IAIChatService {
   // Internal context fetching (same as browser GeminiService)
   // ------------------------------------------------------------------
 
-  private async fetchUserContext(googleAccessToken: string): Promise<{
+  private async fetchUserContext(): Promise<{
     relationship: RelationshipMetrics | null;
     upcomingEvents: CalendarEvent[];
     tasks: Task[];
@@ -244,14 +254,9 @@ export class ServerGeminiService implements IAIChatService {
       relationshipData.lastInteractionAt = lastInteractionAt;
     }
 
-    let upcomingEvents: CalendarEvent[] = [];
-    try {
-      upcomingEvents = await calendarService.getUpcomingEvents(googleAccessToken);
-    } catch (e) {
-      runtimeLog.warning("Calendar fetch failed", {
-        error: e instanceof Error ? e.message : String(e),
-      });
-    }
+    // Calendar events are now fetched on-demand via calendar_action tool.
+    // No longer pre-loaded into system prompt context.
+    const upcomingEvents: CalendarEvent[] = [];
 
     return { relationship: relationshipData, upcomingEvents, tasks: tasksData, characterContext };
   }
@@ -294,6 +299,7 @@ export class ServerGeminiService implements IAIChatService {
     const startMs = Date.now();
 
     runtimeLog.info("generateResponse start", {
+      requestId: conversationLogId,
       conversationLogId,
       inputType: input.type,
       sessionId: session?.interactionId,
@@ -301,7 +307,7 @@ export class ServerGeminiService implements IAIChatService {
 
     try {
       // Fetch context
-      const ctx = await this.fetchUserContext(options.googleAccessToken || "");
+      const ctx = await this.fetchUserContext();
 
       // Extract user message for active recall
       const currentUserMessage =
@@ -321,16 +327,31 @@ export class ServerGeminiService implements IAIChatService {
 
       // Create callable tools with context
       const tools = createCallableTools({
-        googleAccessToken: options.googleAccessToken,
         userMessage: currentUserMessage,
       });
 
       // Get or create SDK Chat session
-      const sessionId = session?.interactionId || `server-${conversationLogId}`;
+      // If the previous session was a greeting, upgrade it: carry over the
+      // greeting conversation history but rebuild with the full system prompt
+      // (greeting uses a lean prompt without tool strategy).
+      let sessionId = session?.interactionId || `server-${conversationLogId}`;
+      let greetingHistory: import("@google/genai").Content[] | undefined;
+      if (sessionId.startsWith("greeting-")) {
+        greetingHistory = getSessionHistory(sessionId) ?? undefined;
+        invalidateSession(sessionId);
+        sessionId = `server-${conversationLogId}`;
+        runtimeLog.info("Upgraded greeting session to full session", {
+          requestId: conversationLogId,
+          oldSessionId: session?.interactionId,
+          newSessionId: sessionId,
+          historyLength: greetingHistory?.length || 0,
+        });
+      }
       const chat = getOrCreateSession({
         sessionId,
         systemPrompt,
         tools: [tools],
+        history: greetingHistory,
       });
 
       // Send message — SDK handles tool loop automatically
@@ -343,6 +364,7 @@ export class ServerGeminiService implements IAIChatService {
 
       const elapsedMs = Date.now() - startMs;
       runtimeLog.info("generateResponse complete", {
+        requestId: conversationLogId,
         conversationLogId,
         elapsedMs,
         textLength: aiResponse.text_response?.length || 0,
@@ -365,6 +387,7 @@ export class ServerGeminiService implements IAIChatService {
       };
     } catch (error) {
       runtimeLog.error("generateResponse failed", {
+        requestId: conversationLogId,
         conversationLogId,
         error: error instanceof Error ? error.message : String(error),
         stack: error instanceof Error ? error.stack : undefined,
@@ -377,7 +400,7 @@ export class ServerGeminiService implements IAIChatService {
   // Greeting
   // ------------------------------------------------------------------
 
-  async generateGreeting(googleAccessToken: string): Promise<{
+  async generateGreeting(_googleAccessToken?: string): Promise<{
     greeting: AIActionResponse;
     session: AIChatSession;
     audioData?: string;
@@ -385,10 +408,10 @@ export class ServerGeminiService implements IAIChatService {
     const conversationLogId = crypto.randomUUID();
     const startMs = Date.now();
 
-    runtimeLog.info("generateGreeting start", { conversationLogId });
+    runtimeLog.info("generateGreeting start", { requestId: conversationLogId, conversationLogId });
 
     const [ctx, importantDateFacts] = await Promise.all([
-      this.fetchUserContext(googleAccessToken),
+      this.fetchUserContext(),
       getImportantDateFacts(),
     ]);
 
@@ -412,7 +435,7 @@ export class ServerGeminiService implements IAIChatService {
     const systemPrompt = await buildSystemPromptForGreeting(greetingContext);
     const greetingPrompt = buildGreetingPrompt(ctx.relationship!);
 
-    const tools = createCallableTools({ googleAccessToken });
+    const tools = createCallableTools({});
     const sessionId = `greeting-${conversationLogId}`;
     const chat = getOrCreateSession({
       sessionId,
@@ -425,6 +448,7 @@ export class ServerGeminiService implements IAIChatService {
 
     const elapsedMs = Date.now() - startMs;
     runtimeLog.info("generateGreeting complete", {
+      requestId: conversationLogId,
       conversationLogId,
       elapsedMs,
       textLength: greeting.text_response?.length || 0,
@@ -442,7 +466,7 @@ export class ServerGeminiService implements IAIChatService {
 
   async generateNonGreeting(
     session: AIChatSession,
-    googleAccessToken: string,
+    _googleAccessToken?: string,
   ): Promise<{
     greeting: AIActionResponse;
     session: AIChatSession;
@@ -451,9 +475,9 @@ export class ServerGeminiService implements IAIChatService {
     const conversationLogId = crypto.randomUUID();
     const startMs = Date.now();
 
-    runtimeLog.info("generateNonGreeting start", { conversationLogId });
+    runtimeLog.info("generateNonGreeting start", { requestId: conversationLogId, conversationLogId });
 
-    const ctx = await this.fetchUserContext(googleAccessToken);
+    const ctx = await this.fetchUserContext();
 
     let systemPrompt = await buildSystemPromptForNonGreeting(
       ctx.relationship,
@@ -502,7 +526,7 @@ ${pendingSuggestion.reasoning}
       ctx.characterContext,
     );
 
-    const tools = createCallableTools({ googleAccessToken });
+    const tools = createCallableTools({});
     const sessionId = session.interactionId || `nongreeting-${conversationLogId}`;
     const chat = getOrCreateSession({
       sessionId,
@@ -526,6 +550,7 @@ ${pendingSuggestion.reasoning}
 
     const elapsedMs = Date.now() - startMs;
     runtimeLog.info("generateNonGreeting complete", {
+      requestId: conversationLogId,
       conversationLogId,
       elapsedMs,
       textLength: structuredResponse.text_response?.length || 0,

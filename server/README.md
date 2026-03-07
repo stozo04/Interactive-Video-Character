@@ -53,16 +53,14 @@ Base path: `/agent`
 
 ```typescript
 {
-  message: string;           // User's text message
-  messageForAI?: string;     // Optional alternate text sent to LLM (e.g. image descriptions)
-  sessionId: string;         // Client-scoped ID, e.g. "web-main", "telegram-123"
-  googleAccessToken?: string; // Passed to Calendar/Gmail tools
+  message: string;             // User's text message
+  messageForAI?: string;       // Optional alternate text sent to LLM (e.g. image descriptions)
+  sessionId: string;           // Client-scoped ID, e.g. "web-main", "telegram-123"
   chatHistory?: ChatMessage[]; // Recent turns for context
-  upcomingEvents?: CalendarEvent[];
   tasks?: Task[];
   isMuted?: boolean;
   pendingEmail?: NewEmailPayload;
-  userContent?: {            // For image/audio input
+  userContent?: {              // For image/audio input
     type: 'text' | 'audio' | 'image_text';
     // ... type-specific fields
   };
@@ -124,11 +122,172 @@ Required for Kayley AI:
 - `GEMINI_API_KEY` — server-only, never exposed to the browser
 - `GEMINI_MODEL` — e.g. `gemini-2.5-flash`
 
+Required for Google Workspace (gogcli):
+
+- `GOG_ACCOUNT` — the Gmail address authorized with gogcli (e.g. `gates.steven@gmail.com`)
+- `ZONEINFO` — path to Go timezone database zip (required on Windows/MINGW). e.g. `C:/Users/gates/.local/share/zoneinfo.zip`
+
 Optional:
 
 - `OPEY_BACKEND` (e.g., `claude` or `openai`)
 - `CRON_TICK_MS`
 - `CRON_SCHEDULER_ID`
+
+---
+
+## Google Workspace Access (gogcli)
+
+All Google API access (Gmail, Calendar, Contacts, Drive, Tasks, etc.) goes through **gogcli** (`gog`), a Go CLI binary that wraps Google APIs and handles OAuth token refresh automatically via the OS keyring (Windows Credential Manager).
+
+**There is no browser-side Google OAuth.** The app loads straight to the character selection screen. All Google operations run server-side through the `gog` binary.
+
+### How Kayley Uses Google Workspace (The 3-Step Process)
+
+Kayley (the AI) does NOT directly know CLI commands. She interacts with Google through a **telephone game** with 3 layers:
+
+```
+Step 1: TELL HER IT EXISTS
+  Kayley's system prompt (toolsAndCapabilities.ts) contains a "cheat sheet" of
+  available commands. This is literally her instruction manual. If a command
+  isn't in the cheat sheet, she doesn't know it exists.
+
+Step 2: GIVE HER A BUTTON TO PRESS
+  Tool declarations in aiSchema.ts define "buttons" Kayley can press.
+  She has two main tools for Google:
+    - gmail_search  → dedicated typed tool for email search (high-frequency)
+    - calendar_action → dedicated typed tool for calendar CRUD (high-frequency)
+    - google_cli    → general-purpose tool for EVERYTHING else
+
+  When Kayley wants to do something Google-related, she calls one of these
+  tools with parameters (e.g., { command: "tasks add MyList 'Buy groceries'" }).
+
+Step 3: WIRE THE BUTTON TO GOGCLI
+  The handler in memoryService.ts catches the tool call and translates it into
+  a gog CLI command via gogService.ts. The output is parsed and returned to
+  Kayley as text she can reason about.
+
+  Example flow:
+    User: "What's on my Google Tasks?"
+    Kayley calls: google_cli({ command: "tasks list" })
+    memoryService.ts → gogService.execGeneralCommand("tasks list")
+    gogService.ts → execFile('gog', ['--json', '--account', 'user@gmail.com', 'tasks', 'list'])
+    gog binary → Google Tasks API → JSON response
+    Response flows back up → Kayley reads it → responds naturally
+```
+
+**To add a new Google capability** (e.g., Google Sheets):
+1. Add the service name to `ALLOWED_COMMANDS` in `gogService.ts`
+2. Add write subcommands to `ALLOWED_WRITE_SUBCOMMANDS` if needed
+3. Add example commands to the cheat sheet in `toolsAndCapabilities.ts`
+4. That's it. No new tool declarations needed — `google_cli` handles it.
+
+### Key Files
+
+| File | What It Does |
+|------|--------------|
+| `server/services/gogService.ts` | Core wrapper. Spawns `gog` CLI via `child_process.execFile`. Contains the **permission allowlist**, typed wrappers for hot-path operations, and the general `execGeneralCommand` function. |
+| `src/services/aiSchema.ts` | Tool declarations (the "buttons" Kayley can press). Contains `google_cli` tool definition. |
+| `src/services/memoryService.ts` | Tool handler. Catches `google_cli` calls from Kayley and routes to `gogService.execGeneralCommand()`. |
+| `src/services/system_prompts/tools/toolsAndCapabilities.ts` | The cheat sheet. Rule 14 contains every Google command Kayley knows about. |
+| `server/services/gmailPoller.ts` | Background poller. Uses `searchEmails()` from gogService every 10s to find new emails. |
+| `server/services/calendarHeartbeat.ts` | Background service. Uses `fetchCalendarWindow()` from gogService every 15min for event reminders. |
+
+### Permission Allowlist (gogService.ts)
+
+The `google_cli` tool enforces per-service write permissions. This is the **source of truth** for what Kayley can and cannot do:
+
+```
+SERVICE     ALLOWED WRITES                                          BLOCKED
+─────────── ─────────────────────────────────────────────────────── ──────────
+gmail       send, modify, batch (archive via label removal)         delete
+calendar    create, update, delete                                  (none)
+tasks       create, add, update, done, undo, delete, clear          (none)
+contacts    create, update                                          delete
+drive       create, upload, update, mkdir                            delete
+time        (read-only, no writes)                                  all writes
+```
+
+**Always blocked** regardless of service: `vacation`, `delegates`, `filters` (Gmail admin settings).
+
+The allowlist lives in two constants in `gogService.ts`:
+- `ALLOWED_COMMANDS` — which top-level services are accessible (gmail, calendar, contacts, drive, tasks, time)
+- `ALLOWED_WRITE_SUBCOMMANDS` — per-service map of which write operations are permitted
+
+If a command fails the allowlist check, Kayley gets an error message explaining what's blocked and why.
+
+### Typed Wrappers (Hot Path)
+
+For operations Kayley does constantly, there are dedicated typed wrapper functions in `gogService.ts` that bypass the general allowlist and provide better error handling:
+
+| Function | Used By | What It Does |
+|----------|---------|--------------|
+| `searchEmails(query, max)` | `gmail_search` tool, `gmailPoller.ts` | Gmail search with structured results |
+| `fetchEmailBody(messageId)` | `gmailPoller.ts`, `telegramHandler.ts` | Fetch full email body |
+| `archiveEmail(messageId)` | `telegramHandler.ts`, `whatsappHandler.ts` | Archive by removing INBOX label |
+| `sendReply(messageId, to, subject, body)` | `telegramHandler.ts`, `whatsappHandler.ts` | Reply to an email thread |
+| `sendEmail(to, subject, body)` | `memoryService.ts` (email_action) | Send a new email |
+| `listCalendarEvents(options)` | `calendar_action` tool | List events with date/range filters |
+| `createCalendarEvent(options)` | `calendar_action` tool | Create a calendar event |
+| `deleteCalendarEvent(eventId)` | `calendar_action` tool | Delete a calendar event |
+| `fetchCalendarWindow(min, max)` | `calendarHeartbeat.ts` | Fetch events in a time window |
+
+### Initial Setup (One-Time)
+
+1. **Install gogcli:** Download the binary from https://github.com/steipete/gogcli and place it on PATH (e.g., `~/.local/bin/gog`).
+
+2. **Load OAuth credentials:** Go to Google Cloud Console > Credentials > create a **Desktop** OAuth client > download JSON. Then:
+   ```bash
+   gog auth credentials set ~/path/to/credentials.json
+   ```
+
+3. **Authorize your Google account:**
+   ```bash
+   gog auth add your-email@gmail.com --services all
+   ```
+   This opens a browser. Sign in and grant permissions. The refresh token is stored in Windows Credential Manager and auto-refreshes forever (no 7-day expiry).
+
+4. **Set environment variables** in `.env.local`:
+   ```
+   GOG_ACCOUNT=your-email@gmail.com
+   ZONEINFO=C:/Users/yourname/.local/share/zoneinfo.zip
+   ```
+
+5. **Get the timezone database** (Windows/MINGW only — Go can't find system timezones):
+   ```bash
+   curl -fsSL "https://github.com/golang/go/raw/master/lib/time/zoneinfo.zip" -o ~/.local/share/zoneinfo.zip
+   ```
+   Also add to `~/.bashrc` for terminal use:
+   ```bash
+   export ZONEINFO="C:/Users/yourname/.local/share/zoneinfo.zip"
+   ```
+
+6. **Verify:**
+   ```bash
+   gog gmail search "is:unread" --json --account your-email@gmail.com
+   gog calendar list --json --account your-email@gmail.com
+   ```
+
+### What Was Deleted (2026-03-07)
+
+The entire browser-side Google OAuth flow was removed. These files no longer exist:
+
+| Deleted File | What It Was |
+|--------------|-------------|
+| `src/services/gmailService.ts` | Browser-side Gmail API wrapper (direct REST calls) |
+| `src/services/googleAuth.ts` | Google OAuth GAPI init + token management |
+| `src/services/calendarService.ts` | Browser-side Calendar API wrapper |
+| `src/services/googleApiService.ts` | Google API helper utilities |
+| `src/services/calendarCheckinService.ts` | Browser-side event check-in tracker |
+| `server/services/googleTokenService.ts` | Server-side token persistence + refresh |
+| `src/hooks/useGmail.ts` | Gmail React hook |
+| `src/hooks/useCalendar.ts` | Calendar polling React hook |
+| `src/contexts/GoogleAuthContext.tsx` | Google auth React context + provider |
+| `src/components/GmailConnectButton.tsx` | Gmail sign-in button |
+| `src/components/GoogleTab.tsx` | Admin dashboard Google API settings tab |
+| `src/components/LoginPage.tsx` | Google sign-in gate page |
+| `src/components/AuthWarningBanner.tsx` | Auth status warning banner |
+
+Also removed from the pipeline: `googleAccessToken` and `upcomingEvents` were threaded through 15+ files (App.tsx, agentClient, agentRoutes, messageOrchestrator, serverGeminiService, etc.). All references deleted. Calendar events are now fetched on-demand via the `calendar_action` tool, not pre-loaded per message.
 
 ## Process Management
 

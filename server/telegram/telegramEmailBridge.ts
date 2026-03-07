@@ -12,7 +12,6 @@
 
 import { bot, getStevenChatId } from './telegramClient';
 import { supabaseAdmin as supabase } from '../services/supabaseAdmin';
-import { getTokenAgeDays } from '../services/googleTokenService';
 import { log } from '../runtimeLogger';
 import {
   appendConversationHistory,
@@ -22,9 +21,6 @@ import {
 const LOG_PREFIX = '[EmailBridge]';
 const runtimeLog = log.fromContext({ source: 'telegramEmailBridge', route: 'telegram/email' });
 const POLL_INTERVAL_MS  = 10_000;
-const HEALTH_CHECK_MS   = 6 * 60 * 60 * 1000; // 6 hours
-const TOKEN_WARN_DAYS   = 6;
-const TOKEN_EXPIRE_DAYS = 7;
 
 /**
  * Starts the email bridge polling loop.
@@ -50,49 +46,7 @@ export function startEmailBridge(): void {
     setInterval(() => void pollPendingEmails(), POLL_INTERVAL_MS);
   }, 3_000);
 
-  // Token health check — every 6 hours, warns Steven before day 7 expiry
-  setTimeout(() => {
-    void checkTokenHealth();
-    setInterval(() => void checkTokenHealth(), HEALTH_CHECK_MS);
-  }, 30_000);
-}
-
-async function checkTokenHealth(): Promise<void> {
-  const chatId = getStevenChatId();
-  if (!chatId) return;
-
-  try {
-    const ageDays = await getTokenAgeDays();
-    if (ageDays === null) return;
-
-    runtimeLog.info('Google token health check', {
-      source: 'telegramEmailBridge',
-      ageDays: ageDays.toFixed(1),
-    });
-
-    if (ageDays >= TOKEN_EXPIRE_DAYS) {
-      const msg = `Hey, heads up — my Google connection has expired (it resets every 7 days in dev mode). Gmail stuff won't work until you open the app and sign back in. Takes 10 seconds!`;
-      await bot.api.sendMessage(chatId, msg);
-      runtimeLog.warning('Google refresh token expired, notified Steven via Telegram', {
-        source: 'telegramEmailBridge',
-        ageDays,
-      });
-    } else if (ageDays >= TOKEN_WARN_DAYS) {
-      const daysLeft = (TOKEN_EXPIRE_DAYS - ageDays).toFixed(1);
-      const msg = `Quick heads up — my Google connection expires in about ${daysLeft} day(s). Just open the app whenever you get a chance and it'll renew automatically!`;
-      await bot.api.sendMessage(chatId, msg);
-      runtimeLog.info('Google token expiry warning sent to Steven', {
-        source: 'telegramEmailBridge',
-        ageDays,
-        daysLeft,
-      });
-    }
-  } catch (err) {
-    runtimeLog.error('Token health check failed', {
-      source: 'telegramEmailBridge',
-      error: err instanceof Error ? err.message : String(err),
-    });
-  }
+  // Token health check removed — gogcli handles token refresh automatically
 }
 
 async function pollPendingEmails(): Promise<void> {

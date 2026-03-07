@@ -1,6 +1,5 @@
 // src/components/SettingsPanel.tsx
 import React, { useState, useEffect, useCallback } from 'react';
-import { GmailConnectButton } from './GmailConnectButton';
 import { hasXScope, isXConnected, initXAuth, revokeXAuth } from '../services/xTwitterService';
 import { supabase } from '../services/supabaseClient';
 import { getMultiAgentHealth, getWhatsAppHealth } from '../services/multiAgentService';
@@ -8,15 +7,13 @@ import type { ProactiveSettings } from '../types';
 
 interface SettingsPanelProps {
   className?: string;
-  onGmailConnectionChange?: (isConnected: boolean) => void;
   proactiveSettings?: ProactiveSettings;
   onProactiveSettingsChange?: (updates: Partial<ProactiveSettings>) => void;
   onAdminDashboard?: () => void;
 }
 
 export function SettingsPanel({ 
-  className = '', 
-  onGmailConnectionChange,
+  className = '',
   proactiveSettings,
   onProactiveSettingsChange,
   onAdminDashboard
@@ -374,13 +371,6 @@ export function SettingsPanel({
                 {serverHealthError && (
                   <p className="text-xs text-red-400 mt-2">{serverHealthError}</p>
                 )}
-              </div>
-
-              <div className="border-t border-gray-700 pt-3">
-                <h3 className="text-sm font-medium text-gray-300 mb-3">
-                  Gmail Integration
-                </h3>
-                <GmailConnectButton onConnectionChange={onGmailConnectionChange} />
               </div>
 
               {/* X (Twitter) Integration Section */}

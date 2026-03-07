@@ -11,8 +11,7 @@
 
 import { GoogleGenAI } from '@google/genai';
 import { clientLogger } from './clientLogger';
-import type { NewEmailPayload } from './gmailService';
-import type { CalendarEvent } from './calendarService';
+import type { NewEmailPayload, CalendarEvent } from '../types';
 
 const log = clientLogger.scoped('EmailService');
 

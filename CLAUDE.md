@@ -138,7 +138,15 @@ Corpses rot. Every dead function is a lie about what the codebase does, a trap f
    - No dependencies added without justification
    - Prefer boring, obvious solutions — never clever tricks
 
-4. **Respect the working contract:**
+5. **Google Workspace access — gogcli is the source of truth:**
+   - **All Google API access** (Gmail, Calendar, Contacts, Drive, Tasks) goes through `gogcli` (`gog` CLI binary) — there is NO browser-side Google OAuth
+   - **Key files:** `server/services/gogService.ts` (CLI wrapper + allowlist), `src/services/system_prompts/tools/toolsAndCapabilities.ts` (Kayley's cheat sheet, rule 14), `src/services/aiSchema.ts` (`google_cli` tool declaration)
+   - **How Kayley uses Google:** System prompt cheat sheet → `google_cli` function tool → `gogService.execGeneralCommand()` → `gog` CLI binary
+   - **Per-service write permissions** are enforced in `gogService.ts` via `ALLOWED_WRITE_SUBCOMMANDS` — Gmail (send/archive, no delete), Calendar (full CRUD), Tasks (full CRUD), Contacts (CRU, no delete), Drive (CRU, no delete)
+   - **Old Google OAuth files are deleted** (`gmailService.ts`, `calendarService.ts`, `googleAuth.ts`, `GoogleAuthContext.tsx`, `LoginPage.tsx`, etc.) — see `server/README.md` → "Google Workspace Access (gogcli)" for full architecture doc
+   - **Token refresh is automatic** — gogcli handles it via OS keyring. No token health checks needed in app code.
+
+6. **Respect the working contract:**
    - For non-trivial work: discuss approach + tradeoffs BEFORE coding
    - For bugs: form no hypothesis until you've read the execution path
    - For changes: surface assumptions, ask clarifying questions

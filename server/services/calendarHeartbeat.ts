@@ -8,7 +8,7 @@
 // Delivers to Telegram + WhatsApp.
 // Persists messages to conversation_history so Kayley remembers what she said.
 
-import { getValidGoogleToken } from './googleTokenService';
+import { fetchCalendarWindow as gogFetchCalendarWindow, type GogCalendarEvent } from './gogService';
 import { ai, GEMINI_MODEL } from './ai/geminiClient';
 import { bot, getStevenChatId } from '../telegram/telegramClient';
 import { getActiveSock } from '../whatsapp/baileyClient';
@@ -23,7 +23,6 @@ const runtimeLog = log.fromContext({ source: 'calendarHeartbeat', route: 'server
 
 const TICK_MS = 15 * 60 * 1000;       // 15 minutes
 const WINDOW_MS = 20 * 60 * 1000;     // 20-minute window (covers drift)
-const CALENDAR_API = 'https://www.googleapis.com/calendar/v3';
 const TIMEZONE = 'America/Chicago';
 
 // Dedup: track alerted events so we don't re-alert on the next tick.
@@ -35,16 +34,8 @@ let lastDedupeReset = '';
 // Helpers
 // ============================================================================
 
-interface HeartbeatCalendarEvent {
-  id: string;
-  summary: string;
-  description?: string;
-  location?: string;
-  start: { dateTime?: string; date?: string };
-  end: { dateTime?: string; date?: string };
-  status?: string;
-  attendees?: Array<{ self?: boolean; responseStatus?: string }>;
-}
+// Use GogCalendarEvent from gogService (same shape)
+type HeartbeatCalendarEvent = GogCalendarEvent;
 
 function getCstHour(): number {
   const cstStr = new Date().toLocaleString('en-US', { timeZone: TIMEZONE });
@@ -69,51 +60,11 @@ function dedupeKey(eventId: string, type: 'upcoming' | 'followup'): string {
 }
 
 // ============================================================================
-// Calendar API
+// Calendar API (via gogcli)
 // ============================================================================
 
-async function fetchCalendarWindow(
-  accessToken: string,
-  timeMin: Date,
-  timeMax: Date,
-): Promise<HeartbeatCalendarEvent[]> {
-  const params = new URLSearchParams({
-    calendarId: 'primary',
-    timeMin: timeMin.toISOString(),
-    timeMax: timeMax.toISOString(),
-    singleEvents: 'true',
-    orderBy: 'startTime',
-    maxResults: '10',
-  });
-
-  const response = await fetch(
-    `${CALENDAR_API}/calendars/primary/events?${params}`,
-    {
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        'Content-Type': 'application/json',
-      },
-    },
-  );
-
-  if (!response.ok) {
-    const errText = await response.text();
-    throw new Error(`Calendar API error (${response.status}): ${errText.substring(0, 200)}`);
-  }
-
-  const data = await response.json();
-  const events: HeartbeatCalendarEvent[] = data.items || [];
-
-  // Filter cancelled / declined
-  return events.filter((event) => {
-    if (event.status === 'cancelled') return false;
-    if (event.attendees) {
-      const self = event.attendees.find((a) => a.self);
-      if (self?.responseStatus === 'declined') return false;
-    }
-    return true;
-  });
-}
+// fetchCalendarWindow is now imported from gogService
+// Filtering (cancelled/declined) is handled inside gogService.fetchCalendarWindow
 
 // ============================================================================
 // Message Generation (Gemini)
@@ -239,23 +190,11 @@ async function tick(): Promise<void> {
 
   resetDedupeIfNewDay();
 
-  let accessToken: string;
-  try {
-    accessToken = await getValidGoogleToken();
-  } catch (err) {
-    runtimeLog.error('Failed to get Google token for heartbeat', {
-      source: 'calendarHeartbeat',
-      error: err instanceof Error ? err.message : String(err),
-    });
-    return;
-  }
-
   const now = new Date();
 
   try {
     // --- Upcoming events (starting in the next ~20 min) ---
-    const upcomingEvents = await fetchCalendarWindow(
-      accessToken,
+    const upcomingEvents = await gogFetchCalendarWindow(
       now,
       new Date(now.getTime() + WINDOW_MS),
     );
@@ -281,8 +220,7 @@ async function tick(): Promise<void> {
     }
 
     // --- Recently ended events (ended in the last ~20 min) ---
-    const recentEvents = await fetchCalendarWindow(
-      accessToken,
+    const recentEvents = await gogFetchCalendarWindow(
       new Date(now.getTime() - WINDOW_MS),
       now,
     );

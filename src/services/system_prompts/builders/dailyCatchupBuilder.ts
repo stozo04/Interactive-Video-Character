@@ -11,7 +11,7 @@
  * - generateGreeting (AI service)
  */
 
-import type { CalendarEvent } from '../../calendarService';
+import type { CalendarEvent } from '../../../types';
 import type { ChatMessage, Task } from '../../../types';
 
 export interface OpenLoopContext {

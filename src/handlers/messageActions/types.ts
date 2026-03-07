@@ -9,12 +9,10 @@
  * IMPORTANT: Use enums instead of magic strings!
  */
 
-import type { ChatMessage, Task } from '../../types';
-import type { CalendarEvent } from '../../services/calendarService';
+import type { ChatMessage, Task, NewEmailPayload } from '../../types';
 import type { IAIChatService, AIChatSession, UserContent } from '../../services/aiService';
 import type { AIActionResponse } from '../../services/aiSchema';
 import type { TaskAction } from '../messageActions/taskActions';
-import type { NewEmailPayload } from '../../services/gmailService';
 import type { TurnTokenUsage } from '../../services/conversationHistoryService';
 
 // ============================================================================
@@ -88,14 +86,8 @@ export interface OrchestratorInput {
   /** Current AI session (may be null for first message) */
   session: AIChatSession | null;
 
-  /** Google OAuth access token for calendar/email */
-  accessToken?: string;
-
   /** Current chat history for context */
   chatHistory: ChatMessage[];
-
-  /** Current calendar events (may be refreshed) */
-  upcomingEvents: CalendarEvent[];
 
   /** Current task list */
   tasks: Task[];
@@ -161,8 +153,6 @@ export interface OrchestratorResult {
   /** Token usage for this turn */
   tokenUsage?: TurnTokenUsage;
 
-  /** Updated calendar events (if refreshed) */
-  updatedEvents?: CalendarEvent[];
 
   // ---- Error ----
   /** Error message (if failed) */
@@ -261,14 +251,8 @@ export interface ActionContext {
   /** Current chat history */
   chatHistory: ChatMessage[];
 
-  /** Current calendar events */
-  upcomingEvents: CalendarEvent[];
-
   /** Current tasks */
   tasks: Task[];
-
-  /** Google access token */
-  accessToken?: string;
 
   /** Whether audio is muted */
   isMuted: boolean;

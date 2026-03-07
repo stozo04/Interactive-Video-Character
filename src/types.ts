@@ -97,6 +97,43 @@ export interface ProactiveSettings {
   checkins: boolean;  // Random conversation starters when idle
 }
 
+// ============================================================================
+// Google Service Types (shared across server and client)
+// ============================================================================
+
+export interface CalendarEvent {
+  id: string;
+  summary: string;
+  description?: string;
+  location?: string;
+  start: { dateTime?: string; date?: string; timeZone?: string };
+  end: { dateTime?: string; date?: string; timeZone?: string };
+  status?: string;
+  attendees?: Array<{
+    self?: boolean;
+    responseStatus?: 'needsAction' | 'declined' | 'tentative' | 'accepted';
+    email?: string;
+  }>;
+}
+
+export interface NewEventPayload {
+  summary: string;
+  description?: string;
+  start: { dateTime: string; timeZone: string };
+  end: { dateTime: string; timeZone: string };
+  location?: string;
+}
+
+export interface NewEmailPayload {
+  id: string;
+  threadId: string;
+  from: string;
+  subject: string;
+  snippet: string;
+  body: string;
+  receivedAt: string;
+}
+
 // Default settings - all features enabled
 export const DEFAULT_PROACTIVE_SETTINGS: ProactiveSettings = {
   calendar: true,

@@ -10,19 +10,10 @@ import {
 } from './types';
 import * as dbService from './services/cacheService';
 import { supabase } from './services/supabaseClient';
-import AuthWarningBanner from './components/AuthWarningBanner';
 import * as conversationHistoryService from './services/conversationHistoryService';
 import * as relationshipService from './services/relationshipService';
 import type { RelationshipMetrics } from './services/relationshipService';
-import { gmailService } from './services/gmailService';
-import { generateEmailAnnouncement, generateEmailConfirmation, composePolishedReply } from './services/emailProcessingService';
-import { getUserFacts, formatFactsForAI } from './services/memoryService';
 import { clientLogger } from './services/clientLogger';
-import { 
-  calendarService, 
-  type CalendarEvent,
-  type NewEventPayload 
-} from './services/calendarService';
 import { predictActionFromMessage } from './utils/intentUtils';
 import { prefetchOnIdle, clearPrefetchCache } from './services/prefetchService';
 import ImageUploader from './components/ImageUploader';
@@ -33,18 +24,14 @@ import CharacterSelector from './components/CharacterSelector';
 import LoadingSpinner from './components/LoadingSpinner';
 import CharacterManagementView from './components/CharacterManagementView';
 import { SettingsPanel } from './components/SettingsPanel';
-import { LoginPage } from './components/LoginPage';
 import { TaskPanel } from './components/TaskPanel';
 import AdminDashboardView from './components/AdminDashboardView';
 import { processSelfieAction, processTaskAction } from './handlers/messageActions';
 import { agentClient } from './services/agentClient';
-import { useGoogleAuth } from './contexts/GoogleAuthContext';
 import { useDebounce } from './hooks/useDebounce';
 import { useMediaQueues } from './hooks/useMediaQueues';
 import { useTasks } from './hooks/useTasks';
-import { useCalendar } from './hooks/useCalendar';
 import { useProactiveSettings } from './hooks/useProactiveSettings';
-import { useGmail } from './hooks/useGmail';
 import { useIdleTracking } from './hooks/useIdleTracking';
 import { useCharacterActions } from './hooks/useCharacterActions';
 import { useCharacterManagement } from './hooks/useCharacterManagement';
@@ -182,10 +169,6 @@ function formatWorkspaceRunStatusMessage(run: WorkspaceAgentRun): string | null 
 const LOG_PREFIX = '[App]';
 
 const App: React.FC = () => {
-  // --------------------------------------------------------------------------
-  // AUTH & CORE SERVICES
-  // --------------------------------------------------------------------------
-  const { session, status: authStatus, signOut, refreshSession } = useGoogleAuth();
   // --------------------------------------------------------------------------
   // X OAUTH CALLBACK HANDLER
   // --------------------------------------------------------------------------
@@ -402,39 +385,8 @@ const App: React.FC = () => {
   const nextVideoSrc = media.nextVideoSrc;
 
   // --------------------------------------------------------------------------
-  // GMAIL & CALENDAR INTEGRATION
-  // --------------------------------------------------------------------------
-  // Gmail Hook
-  const {
-    currentPendingEmail,
-    advanceQueue:       advanceEmailQueue,
-    clearQueue:         clearEmailQueue,
-    isConnected:        isGmailConnected,
-  } = useGmail({ session, status: authStatus });
-
-  // Tracks which email ID Kayley has already announced — prevents double-firing
-  // on re-renders while the same email sits at the front of the queue.
-  const announcedEmailIdRef = useRef<string | null>(null);
-  const calendarTriggerRef = useRef<(prompt: string) => void>(() => { });
+  // Calendar events are now fetched server-side on demand via calendar_action tool
   const ticketTerminatedRef = useRef<(ticket: TerminatedTicket) => void>(() => { });
-
-  // Calendar Hook
-  const {
-    upcomingEvents,
-    weekEvents,
-    refreshEvents: refreshCalendarEvents,
-    registerCalendarEffects,
-    checkForApplicableCheckins,
-  } = useCalendar({
-    session,
-    isAuthConnected: authStatus === 'connected',
-    selectedCharacter,
-    proactiveSettings,
-    isSnoozed,
-    isProcessingAction,
-    isSpeaking,
-    triggerSystemMessage: (prompt) => calendarTriggerRef.current(prompt),
-  });
 
   const lastIdleActionAtRef = useRef<number | null>(null);
   const idleThinkingInFlightRef = useRef<boolean>(false);
@@ -660,7 +612,7 @@ const App: React.FC = () => {
   // Supabase Realtime through subscribeToTicketUpdates below.
 
   useEffect(() => {
-    if (view !== 'chat' || !selectedCharacter || !session) {
+    if (view !== 'chat' || !selectedCharacter) {
       return;
     }
 
@@ -699,7 +651,6 @@ const App: React.FC = () => {
             {
               userMessage: 'pending message delivery',
               chatHistory: chatHistoryRef.current,
-              upcomingEvents,
             },
           );
 
@@ -744,7 +695,7 @@ const App: React.FC = () => {
       isDisposed = true;
       window.clearInterval(intervalId);
     };
-  }, [aiSession?.interactionId, selectedCharacter, session, upcomingEvents, view]);
+  }, [aiSession?.interactionId, selectedCharacter, view]);
 
   const handleSpeechStart = useCallback(() => {
     setIsSpeaking(true);
@@ -759,7 +710,7 @@ const App: React.FC = () => {
   // SYSTEM MESSAGE & IDLE BREAKER
   // ==========================================================================
   const triggerSystemMessage = useCallback(async (systemPrompt: string) => {
-    if (!selectedCharacter || !session) return;
+    if (!selectedCharacter) return;
 
     // 1. Show typing indicator immediately
     setIsProcessingAction(true);
@@ -769,7 +720,6 @@ const App: React.FC = () => {
       const result = await agentClient.sendMessage({
         message: systemPrompt,
         sessionId: webSessionIdRef.current,
-        googleAccessToken: session?.accessToken,
         chatHistory,
         isMuted,
       });
@@ -799,16 +749,10 @@ const App: React.FC = () => {
     enqueueAudio,
     isMuted,
     selectedCharacter,
-    session,
     playAction
   ]);
 
-  // Wire up calendar trigger ref
-  useEffect(() => {
-    calendarTriggerRef.current = triggerSystemMessage;
-  }, [triggerSystemMessage]);
-
-  // Keep ticket handler ref current (same pattern as calendarTriggerRef)
+  // Keep ticket handler ref current
   useEffect(() => {
     ticketTerminatedRef.current = (ticket: TerminatedTicket) => {
       let prompt = '';
@@ -829,11 +773,10 @@ const App: React.FC = () => {
   }, [triggerSystemMessage]);
 
   // Subscribe to engineering ticket terminal status changes via Supabase Realtime
-  // Unsubscribes automatically when session/character goes away
   useEffect(() => {
-    if (!selectedCharacter || !session) return;
+    if (!selectedCharacter) return;
     return subscribeToTicketUpdates((ticket) => ticketTerminatedRef.current(ticket));
-  }, [selectedCharacter, session]);
+  }, [selectedCharacter]);
 
   const triggerIdleBreaker = useCallback(async () => {
     // UI Layer: Simple validation and trigger
@@ -892,11 +835,9 @@ const App: React.FC = () => {
     proactiveSettings.checkins,
     proactiveSettings.news,
     selectedCharacter,
-    session,
     relationship,
     tasks,
     chatHistory,
-    upcomingEvents,
     aiSession,
     isMuted,
     enqueueAudio,
@@ -929,7 +870,7 @@ const App: React.FC = () => {
 
   // 🚀 OPTIMIZATION: Pre-fetch context on idle (30s)
   useEffect(() => {
-    if (!selectedCharacter || !session) return;
+    if (!selectedCharacter) return;
 
     const PREFETCH_IDLE_TIMEOUT = 30000; // 30 seconds
     let prefetchTriggered = false;
@@ -951,7 +892,7 @@ const App: React.FC = () => {
       window.clearInterval(interval);
       clearPrefetchCache();
     };
-  }, [lastInteractionAt, isProcessingAction, isSpeaking, selectedCharacter, session]);
+  }, [lastInteractionAt, isProcessingAction, isSpeaking, selectedCharacter]);
 
   // ==========================================================================
   // KEYBOARD SHORTCUTS
@@ -971,262 +912,7 @@ const App: React.FC = () => {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [view, selectedCharacter]);
 
-  // ==========================================================================
-  // GMAIL & CALENDAR POLLING EFFECTS
-  // ==========================================================================
-
-
-  // Calendar polling effects - now handled by useCalendar hook
-  useEffect(() => {
-    return registerCalendarEffects();
-  }, [registerCalendarEffects]);
-
-  // Calendar check-in effect
-  useEffect(() => {
-    if (!selectedCharacter || weekEvents.length === 0 || !proactiveSettings.calendar) return;
-
-    // Check every 2 minutes
-    const interval = setInterval(() => {
-      checkForApplicableCheckins(weekEvents);
-    }, 2 * 60 * 1000);
-
-    // Initial check after delay (to avoid firing on initial load)
-    const initialCheck = setTimeout(() => {
-      checkForApplicableCheckins(weekEvents);
-    }, 30000);
-
-    return () => {
-      clearInterval(interval);
-      clearTimeout(initialCheck);
-    };
-  }, [weekEvents, selectedCharacter, proactiveSettings.calendar, checkForApplicableCheckins]);
-
-  useEffect(() => {
-    const handleAuthError = async () => {
-      clientLogger.info(`${LOG_PREFIX} Google Auth error detected. Attempting forced refresh...`, { source: 'App.tsx' });
-      try {
-        await refreshSession({ force: true, reason: 'gmail_or_calendar_401' });
-      } catch (err) {
-        clientLogger.warning(`${LOG_PREFIX} Background refresh failed`, { source: 'App.tsx', error: err instanceof Error ? err.message : String(err) });
-      }
-    };
-
-    gmailService.addEventListener('auth-error', handleAuthError);
-    calendarService.addEventListener('auth-error', handleAuthError);
-
-    return () => {
-      gmailService.removeEventListener('auth-error', handleAuthError);
-      calendarService.removeEventListener('auth-error', handleAuthError);
-    };
-  }, [refreshSession]); 
-
-  // ==========================================================================
-  // EMAIL: Announce the current pending email (FIFO — one at a time)
-  // Fires a lightweight Gemini call to let Kayley react naturally.
-  // ==========================================================================
-  useEffect(() => {
-    if (!currentPendingEmail || !selectedCharacter) return;
-
-    // Already announced this one — skip (guards against re-renders)
-    if (announcedEmailIdRef.current === currentPendingEmail.id) return;
-    announcedEmailIdRef.current = currentPendingEmail.id;
-
-    const announceEmail = async () => {
-      const log = clientLogger.scoped('App:Email');
-      log.info('Announcing new email', { messageId: currentPendingEmail.id, from: currentPendingEmail.from });
-
-      try {
-        // 1. Load user facts so Kayley knows who Steven is and recognizes senders
-        let userContext: string | undefined;
-        try {
-          const facts = await getUserFacts();
-          if (facts.length > 0) userContext = formatFactsForAI(facts);
-        } catch {
-          // Non-fatal — announcement still works without context
-        }
-
-        // 2. Lightweight Gemini call — Kayley summarizes and asks what to do
-        const announcement = await generateEmailAnnouncement(currentPendingEmail, userContext);
-
-        // 3. Add to chat history so the conversation makes sense when Steven replies
-        setChatHistory(prev => [...prev, { role: 'model' as const, text: announcement }]);
-
-        // 4. Save to conversation_history so email interactions are tracked like any other chat
-        conversationHistoryService.appendConversationHistory(
-          [{ role: 'model', text: announcement }], aiSession?.interactionId
-        ).catch(err => log.error('Failed to save email announcement to conversation_history', { err: String(err) }));
-
-        // 5. Persist to kayley_email_actions as 'pending'.
-        // Note: the server (gmailPoller) may have already written this row — ignore 23505.
-        const { error } = await supabase.from('kayley_email_actions').insert({
-          gmail_message_id: currentPendingEmail.id,
-          gmail_thread_id:  currentPendingEmail.threadId,
-          from_address:     currentPendingEmail.from,
-          subject:          currentPendingEmail.subject,
-          action_taken:     'pending',
-          kayley_summary:   announcement,
-          announced_at:     new Date().toISOString(),
-        });
-        if (error && error.code !== '23505') {
-          log.error('Failed to insert email action record', { err: error.message });
-        }
-
-        log.info('Email announced successfully', { messageId: currentPendingEmail.id });
-      } catch (err) {
-        clientLogger.error('[App:Email] Failed to announce email', { err: String(err) });
-      }
-    };
-
-    announceEmail();
-  }, [currentPendingEmail, selectedCharacter, isMuted]);
-
-  // ==========================================================================
-  // EMAIL: Execute action returned by orchestrator + generate confirmation
-  // ==========================================================================
-  const executeEmailAction = useCallback(async (emailAction: {
-    action: 'archive' | 'reply' | 'dismiss' | 'send';
-    message_id?: string;
-    thread_id?: string;
-    to?: string;
-    subject?: string;
-    reply_body?: string;
-  }) => {
-    if (!session?.accessToken) return;
-
-    const log = clientLogger.scoped('App:Email');
-    log.info('Executing email action', { action: emailAction.action, messageId: emailAction.message_id, to: emailAction.to });
-
-    let success = false;
-
-    // ---- Execute the action against Gmail API ----
-    if (emailAction.action === 'archive') {
-      if (!emailAction.message_id) { log.error('Archive missing message_id'); return; }
-      success = await gmailService.archiveEmail(session.accessToken, emailAction.message_id);
-
-    } else if (emailAction.action === 'reply') {
-      if (!emailAction.reply_body) {
-        log.error('Reply action missing reply_body', { emailAction });
-        return;
-      }
-
-      // Use currentPendingEmail if still in queue; otherwise look up from DB.
-      // Also pulls thread_id from DB when the model didn't include it — which happens
-      // on follow-up replies after the queue was already advanced.
-      let emailContext = currentPendingEmail;
-      if (!emailContext && emailAction.message_id) {
-        const { data } = await supabase
-          .from('kayley_email_actions')
-          .select('from_address, subject, gmail_thread_id')
-          .eq('gmail_message_id', emailAction.message_id)
-          .single();
-        if (data) {
-          // Prefer the DB thread_id — the model may have omitted it
-          if (!emailAction.thread_id && data.gmail_thread_id) {
-            emailAction.thread_id = data.gmail_thread_id;
-          }
-          emailContext = {
-            id: emailAction.message_id, threadId: emailAction.thread_id ?? '',
-            from: data.from_address, subject: data.subject,
-            snippet: '', body: '', receivedAt: '',
-          };
-        }
-      }
-
-      if (!emailContext || !emailAction.thread_id) {
-        log.error('Reply action: missing email context or thread_id (not in queue or DB)', { emailAction });
-        return;
-      }
-
-      // Polish Steven's rough intent into a proper email.
-      // Calendar events are passed so Kayley can reference travel dates, busy periods, etc.
-      log.info('Polishing reply with LLM + calendar context', { eventCount: upcomingEvents.length });
-      const polishedBody = await composePolishedReply(
-        emailAction.reply_body,
-        emailContext,
-        upcomingEvents,
-      );
-      log.info('Reply polished', { original: emailAction.reply_body, polished: polishedBody });
-
-      // Extract plain email address from "Name <email@example.com>"
-      const toMatch = emailContext.from.match(/<(.+?)>/);
-      const toAddress = toMatch ? toMatch[1] : emailContext.from;
-
-      success = await gmailService.sendReply(
-        session.accessToken,
-        emailAction.thread_id,
-        toAddress,
-        emailContext.subject,
-        polishedBody,    // send the polished version, not the raw AI output
-      );
-
-    } else if (emailAction.action === 'send') {
-      // Ad-hoc email — no pending email in queue, Kayley composes from scratch
-      if (!emailAction.to || !emailAction.subject || !emailAction.reply_body) {
-        log.error('Send action missing to, subject, or reply_body', { emailAction });
-        return;
-      }
-
-      // Stub a minimal email payload so composePolishedReply has recipient/subject context
-      const stubEmail = {
-        id: '', threadId: '', from: emailAction.to, subject: emailAction.subject,
-        snippet: '', body: '', receivedAt: new Date().toISOString(),
-      };
-
-      log.info('Polishing ad-hoc email with LLM + calendar context', { to: emailAction.to });
-      const polishedBody = await composePolishedReply(emailAction.reply_body, stubEmail, upcomingEvents);
-      log.info('Ad-hoc email polished', { polished: polishedBody });
-
-      success = await gmailService.sendReply(
-        session.accessToken,
-        null,           // no threadId — creates a new thread
-        emailAction.to,
-        emailAction.subject,
-        polishedBody,
-      );
-
-    } else if (emailAction.action === 'dismiss') {
-      success = true; // No API call needed — just acknowledge and move on
-    }
-
-    if (!success) {
-      log.error('Email action execution failed', { action: emailAction.action });
-      // TIDY: ⚠️ Extra argument `aiSession?.interactionId` passed to setChatHistory — likely a bug (second arg to setState is ignored)
-      setChatHistory(prev => [...prev, { role: 'model' as const, text: "Hmm, something went wrong on my end — couldn't do that. Try again?" }], aiSession?.interactionId);
-      return;
-    }
-
-    // ---- Update DB record (only for queue-based actions that have a message_id) ----
-    if (emailAction.message_id) {
-      const dbAction = emailAction.action === 'dismiss' ? 'dismissed' : emailAction.action;
-      await supabase
-        .from('kayley_email_actions')
-        .update({ action_taken: dbAction, reply_body: emailAction.reply_body ?? null, actioned_at: new Date().toISOString() })
-        .eq('gmail_message_id', emailAction.message_id);
-    }
-
-    // ---- Lightweight Gemini call — Kayley confirms what she did ----
-    try {
-      // Map 'send' → 'reply' for the confirmation message — both mean "email sent"
-      const confirmAction = emailAction.action === 'send' ? 'reply' : emailAction.action;
-      const confirmEmail = currentPendingEmail ?? {
-        id: '', threadId: '', from: emailAction.to ?? '', subject: emailAction.subject ?? '',
-        snippet: '', body: '', receivedAt: new Date().toISOString(),
-      };
-      const confirmation = await generateEmailConfirmation(confirmAction as 'archive' | 'reply' | 'dismiss', confirmEmail as any);
-      setChatHistory(prev => [...prev, { role: 'model' as const, text: confirmation }]);
-
-    } catch (err) {
-      log.error('Failed to generate confirmation', { err: String(err) });
-    }
-
-    log.info('Email action complete', { action: emailAction.action });
-
-    // ---- Only advance the FIFO queue for queue-based actions (not ad-hoc sends) ----
-    if (emailAction.action !== 'send') {
-      advanceEmailQueue();
-      announcedEmailIdRef.current = null; // reset so next email can be announced
-    }
-  }, [session, currentPendingEmail, isMuted, advanceEmailQueue, upcomingEvents]);
+  // Calendar check-ins are now handled server-side via calendarHeartbeat.ts
 
   // ==========================================================================
   // CHARACTER SELECTION & IMAGE UPDATE
@@ -1426,7 +1112,7 @@ const App: React.FC = () => {
     message: string,
     attachment?: PendingChatAttachment
   ) => {
-    if (!selectedCharacter || !session) return;
+    if (!selectedCharacter) return;
     registerInteraction();
     lastIdleActionAtRef.current = null;
     setErrorMessage(null);
@@ -1451,7 +1137,6 @@ const App: React.FC = () => {
             mimeType: attachment.mimeType,
           },
           sessionId: webSessionIdRef.current,
-          googleAccessToken: session?.accessToken,
           chatHistory,
           isMuted,
         });
@@ -1486,12 +1171,10 @@ const App: React.FC = () => {
           message: userText,
           messageForAI,
           sessionId: webSessionIdRef.current,
-          googleAccessToken: session.accessToken,
           chatHistory,
-          upcomingEvents,
+
           tasks,
           isMuted,
-          pendingEmail: currentPendingEmail,
         });
         if (result.updatedSession) setAiSession(result.updatedSession);
         if (result.error) setErrorMessage(result.error);
@@ -1530,12 +1213,10 @@ const App: React.FC = () => {
           message: userText,
           messageForAI,
           sessionId: webSessionIdRef.current,
-          googleAccessToken: session.accessToken,
           chatHistory,
-          upcomingEvents,
+
           tasks,
           isMuted,
-          pendingEmail: currentPendingEmail,
         });
 
         if (result.updatedSession) setAiSession(result.updatedSession);
@@ -1551,7 +1232,6 @@ const App: React.FC = () => {
         if (result.audioToPlay && !isMuted) media.enqueueAudio(result.audioToPlay);
         maybePlayResponseAction(result.actionToPlay);
         if (result.appToOpen) window.location.href = result.appToOpen;
-        if (result.refreshCalendar && session) refreshCalendarEvents(session.accessToken);
         if (result.refreshTasks) refreshTasks();
         if (result.openTaskPanel) setIsTaskPanelOpen(true);
       } catch (error) {
@@ -1585,12 +1265,9 @@ const App: React.FC = () => {
       const result = await agentClient.sendMessage({
         message:          trimmedMessage,
         sessionId:        webSessionIdRef.current,
-        googleAccessToken: session.accessToken,
         chatHistory,
-        upcomingEvents,
         tasks,
         isMuted,
-        pendingEmail: currentPendingEmail, // inject pending email context when present
       });
 
       if (result.updatedSession) setAiSession(result.updatedSession);
@@ -1611,16 +1288,6 @@ const App: React.FC = () => {
         await processTaskAction(result.detectedTaskAction, tasks, {
           handleTaskCreate, handleTaskToggle, handleTaskDelete, setIsTaskPanelOpen,
         });
-      }
-
-      // EMAIL ACTIONS (archive / reply / dismiss a pending email)
-      // Apply the normal chat message first (Kayley's in-chat response),
-      // then execute the Gmail action + generate confirmation.
-      if (result.detectedEmailAction) {
-        if (result.chatMessages.length > 0) setChatHistory(prev => [...prev, ...result.chatMessages]);
-        if (result.audioToPlay && !isMuted) media.enqueueAudio(result.audioToPlay);
-        await executeEmailAction(result.detectedEmailAction);
-        return;
       }
 
       // NEWS ACTIONS (orchestrator fetched, we trigger system message)
@@ -1677,7 +1344,6 @@ const App: React.FC = () => {
       if (result.audioToPlay && !isMuted) media.enqueueAudio(result.audioToPlay);
       maybePlayResponseAction(result.actionToPlay);
       if (result.appToOpen) window.location.href = result.appToOpen;
-      if (result.refreshCalendar && session) refreshCalendarEvents(session.accessToken);
       if (result.refreshTasks) await refreshTasks();
       if (result.openTaskPanel) setIsTaskPanelOpen(true);
 
@@ -1713,13 +1379,8 @@ const App: React.FC = () => {
   // RENDER
   // ==========================================================================
 
-  if (!session || authStatus !== 'connected') {
-    return <LoginPage />;
-  }
-
   return (
     <div className="bg-gray-900 text-gray-100 h-screen overflow-hidden flex flex-col p-4 md:p-8">
-      <AuthWarningBanner />
       <div className="flex-1 flex flex-col relative overflow-hidden chat-container z-10 p-2 sm:p-4">
       {/* Audio Player (Hidden) - plays audio responses sequentially */}
       {media.currentAudioSrc && (

@@ -164,6 +164,14 @@ export default defineConfig(({ mode }) => {
         'process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY': JSON.stringify(env.NEXT_PUBLIC_SUPABASE_ANON_KEY),
         // No need to manually define them here
       },
+      build: {
+        rollupOptions: {
+          // Server-only code dynamically imported from src/ uses node: builtins
+          // (e.g. gogService.ts → node:child_process). Externalize them so
+          // Rollup doesn't try to bundle named exports from browser stubs.
+          external: [/^node:/],
+        },
+      },
       resolve: {
         alias: {
           '@': path.resolve(__dirname, 'src'),

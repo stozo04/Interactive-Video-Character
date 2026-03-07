@@ -2,13 +2,10 @@
  * Calendar Actions Handler
  *
  * Processes structured calendar_action objects from AI responses.
+ * Uses gogcli for all Google Calendar operations (no direct API calls).
  */
 
-import {
-  calendarService,
-  type CalendarEvent,
-  type NewEventPayload,
-} from '../../services/calendarService';
+import type { CalendarEvent } from '../../types';
 
 /**
  * Structured calendar action from AI response
@@ -30,7 +27,6 @@ export interface CalendarAction {
  * Context needed to process calendar actions
  */
 export interface CalendarActionContext {
-  accessToken: string;
   currentEvents: CalendarEvent[];
 }
 
@@ -46,7 +42,9 @@ export interface CalendarActionResult {
 }
 
 /**
- * Process a structured calendar action from AI response
+ * Process a structured calendar action from AI response.
+ * Note: calendar_action is now a function tool handled in memoryService.ts.
+ * This handler is kept for backward compatibility with any JSON-field callers.
  */
 export async function processCalendarAction(
   calendarAction: CalendarAction | null | undefined,
@@ -56,15 +54,58 @@ export async function processCalendarAction(
     return { handled: false };
   }
 
-  const { accessToken, currentEvents } = context;
+  const {
+    createCalendarEvent,
+    deleteCalendarEvent,
+  } = await import('../../../server/services/gogService');
 
   try {
     if (calendarAction.action === 'delete') {
-      return await handleDeleteAction(calendarAction, accessToken, currentEvents);
+      let eventIdsToDelete: string[] = [];
+
+      if (calendarAction.delete_all) {
+        eventIdsToDelete = context.currentEvents.map((e) => e.id);
+      } else if (calendarAction.event_ids && calendarAction.event_ids.length > 0) {
+        eventIdsToDelete = calendarAction.event_ids;
+      } else if (calendarAction.event_id) {
+        eventIdsToDelete = [calendarAction.event_id];
+      }
+
+      if (eventIdsToDelete.length === 0) {
+        return { handled: false };
+      }
+
+      let deletedCount = 0;
+      for (const eventId of eventIdsToDelete) {
+        const ok = await deleteCalendarEvent(eventId);
+        if (ok) deletedCount++;
+      }
+
+      return {
+        handled: true,
+        action: 'delete',
+        deletedCount,
+      };
     }
 
     if (calendarAction.action === 'create') {
-      return await handleCreateAction(calendarAction, accessToken);
+      if (!calendarAction.summary || !calendarAction.start || !calendarAction.end) {
+        console.warn('Calendar create action missing required fields');
+        return { handled: false };
+      }
+
+      await createCalendarEvent({
+        summary: calendarAction.summary,
+        start: calendarAction.start,
+        end: calendarAction.end,
+        timeZone: calendarAction.timeZone || 'America/Chicago',
+      });
+
+      return {
+        handled: true,
+        action: 'create',
+        eventSummary: calendarAction.summary,
+      };
     }
 
     return { handled: false };
@@ -75,85 +116,4 @@ export async function processCalendarAction(
       error: error instanceof Error ? error.message : 'Unknown error',
     };
   }
-}
-
-/**
- * Handle calendar delete action
- */
-async function handleDeleteAction(
-  action: CalendarAction,
-  accessToken: string,
-  currentEvents: CalendarEvent[]
-): Promise<CalendarActionResult> {
-  let eventIdsToDelete: string[] = [];
-
-  if (action.delete_all) {
-    console.log('🗑️ Delete ALL events requested');
-    eventIdsToDelete = currentEvents.map((e) => e.id);
-  } else if (action.event_ids && action.event_ids.length > 0) {
-    console.log(`🗑️ Deleting ${action.event_ids.length} events`);
-    eventIdsToDelete = action.event_ids;
-  } else if (action.event_id) {
-    console.log(`🗑️ Deleting single event: ${action.event_id}`);
-    eventIdsToDelete = [action.event_id];
-  }
-
-  if (eventIdsToDelete.length === 0) {
-    return { handled: false };
-  }
-
-  let deletedCount = 0;
-  for (const eventId of eventIdsToDelete) {
-    try {
-      await calendarService.deleteEvent(accessToken, eventId);
-      deletedCount++;
-      console.log(`✅ Deleted event: ${eventId}`);
-    } catch (deleteErr) {
-      console.error(`❌ Failed to delete event ${eventId}:`, deleteErr);
-    }
-  }
-
-  console.log(`✅ Successfully deleted ${deletedCount}/${eventIdsToDelete.length} events`);
-
-  return {
-    handled: true,
-    action: 'delete',
-    deletedCount,
-  };
-}
-
-/**
- * Handle calendar create action
- */
-async function handleCreateAction(
-  action: CalendarAction,
-  accessToken: string
-): Promise<CalendarActionResult> {
-  if (!action.summary || !action.start || !action.end) {
-    console.warn('Calendar create action missing required fields');
-    return { handled: false };
-  }
-
-  console.log(`📅 Creating event via calendar_action: ${action.summary}`);
-
-  const eventData: NewEventPayload = {
-    summary: action.summary,
-    start: {
-      dateTime: action.start,
-      timeZone: action.timeZone || 'America/Chicago',
-    },
-    end: {
-      dateTime: action.end,
-      timeZone: action.timeZone || 'America/Chicago',
-    },
-  };
-
-  await calendarService.createEvent(accessToken, eventData);
-  console.log('✅ Event created successfully');
-
-  return {
-    handled: true,
-    action: 'create',
-    eventSummary: action.summary,
-  };
 }

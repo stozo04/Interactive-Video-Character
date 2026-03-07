@@ -8,10 +8,8 @@
 //   const greeting = await agentClient.getGreeting({ sessionId, ... });
 
 import type { OrchestratorResult } from '../handlers/messageActions/types';
-import type { ChatMessage, Task } from '../types';
+import type { ChatMessage, Task, NewEmailPayload } from '../types';
 import type { UserContent } from './aiService';
-import type { CalendarEvent } from './calendarService';
-import type { NewEmailPayload } from './gmailService';
 
 const AGENT_BASE_URL = '/agent';
 
@@ -25,9 +23,7 @@ export interface AgentMessageRequest {
   messageForAI?: string;
   userContent?: UserContent;
   sessionId: string;
-  googleAccessToken?: string;
   chatHistory?: ChatMessage[];
-  upcomingEvents?: CalendarEvent[];
   tasks?: Task[];
   isMuted?: boolean;
   pendingEmail?: NewEmailPayload | null;
@@ -35,7 +31,6 @@ export interface AgentMessageRequest {
 
 export interface AgentGreetingRequest {
   sessionId: string;
-  googleAccessToken?: string;
 }
 
 // ============================================================================

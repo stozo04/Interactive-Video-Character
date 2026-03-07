@@ -20,11 +20,6 @@ export interface AIChatOptions {
   chatHistory?: ChatMessage[];
 
   /**
-   * Google OAuth access token for calendar/email operations.
-   */
-  googleAccessToken?: string;
-
-  /**
    * Audio generation behavior for this request.
    * - sync (default): wait for TTS before returning
    * - async: return response immediately; generate TTS in background and call onAudioData
@@ -75,13 +70,13 @@ export interface IAIChatService {
     tokenUsage: import('./conversationHistoryService').TurnTokenUsage;
   }>;
 
-  generateGreeting(googleAccessToken: string): Promise<{
+  generateGreeting(): Promise<{
     greeting: AIActionResponse;
     session: AIChatSession;
     audioData?: string;
   }>;
 
-  generateNonGreeting(session: AIChatSession, googleAccessToken: string): Promise<{
+  generateNonGreeting(session: AIChatSession): Promise<{
     greeting: AIActionResponse;
     session: AIChatSession;
     audioData?: string;
@@ -94,7 +89,6 @@ export interface IAIChatService {
   triggerIdleBreaker?(
     options: {
       chatHistory?: any[];
-      googleAccessToken?: string;
       proactiveSettings?: {
         checkins?: boolean;
         news?: boolean;

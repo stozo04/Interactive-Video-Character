@@ -686,6 +686,33 @@ Every task must include:
 -   Product decisions without clear guidance
 
 
+## Google Workspace Access — gogcli
+
+All Google API access (Gmail, Calendar, Contacts, Drive, Tasks) is handled by **gogcli** (`gog` CLI binary). There is NO browser-side Google OAuth and NO direct Google API calls from app code.
+
+**Architecture:**
+1. Kayley's system prompt has a cheat sheet of CLI commands (`toolsAndCapabilities.ts`, rule 14)
+2. Kayley calls the `google_cli` function tool with a subcommand (e.g. `calendar events primary --today`)
+3. `memoryService.ts` routes to `gogService.ts` → spawns `gog <subcommand> --json --account <email>`
+
+**Key files:**
+- `server/services/gogService.ts` — CLI wrapper, command allowlist, per-service write permissions
+- `src/services/system_prompts/tools/toolsAndCapabilities.ts` — Kayley's command cheat sheet (rule 14)
+- `src/services/aiSchema.ts` — `google_cli` tool declaration
+
+**Write permissions** (enforced in `gogService.ts` via `ALLOWED_WRITE_SUBCOMMANDS`):
+- Gmail: send, archive — NO delete
+- Calendar: full CRUD
+- Tasks: full CRUD
+- Contacts: create, read, update — NO delete
+- Drive: create, read, upload — NO delete
+
+**Old Google OAuth files are deleted** (`gmailService.ts`, `calendarService.ts`, `googleAuth.ts`, `GoogleAuthContext.tsx`, etc.). Do NOT recreate them or add direct Google API calls. Everything goes through gogcli.
+
+See `server/README.md` → "Google Workspace Access (gogcli)" for the full architecture doc with setup guide.
+
+---
+
 ## Vocabulary
 
 -   Ghost Code: Code that exists but isn't used or understood

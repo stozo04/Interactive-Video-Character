@@ -50,7 +50,6 @@ import {
 import DataTable from './DataTable';
 import FactEditModal from './FactEditModal';
 import AnthropicTab from './AnthropicTab';
-import GoogleTab from './GoogleTab';
 
 interface AdminDashboardViewProps {
   onBack: () => void;
@@ -1141,7 +1140,9 @@ export default function AdminDashboardView({ onBack }: AdminDashboardViewProps) 
             </div>
 
             {googleSubTab === 'api' ? (
-              <GoogleTab />
+              <div className="h-full flex items-center justify-center text-gray-500 text-sm">
+                <span>Google API managed via gogcli (no browser OAuth needed)</span>
+              </div>
             ) : (
               <>
                 <div className="flex flex-wrap items-center justify-between gap-3 border border-gray-700 rounded-xl bg-gray-900/50 px-4 py-3">

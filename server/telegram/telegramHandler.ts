@@ -20,10 +20,12 @@ import { generateSpeechBuffer } from './serverAudio';
 import { createSticker } from './serverSticker';
 import { log } from '../runtimeLogger';
 import { supabaseAdmin as supabase } from '../services/supabaseAdmin';
-import { gmailService } from '../../src/services/gmailService';
-import type { NewEmailPayload } from '../../src/services/gmailService';
+import {
+  fetchEmailBody as gogFetchEmailBody,
+  archiveEmail as gogArchiveEmail,
+  sendReply as gogSendReply,
+} from '../services/gogService';
 import { composePolishedReply } from '../../src/services/emailProcessingService';
-import { getValidGoogleToken } from '../services/googleTokenService';
 import {
   addAutoArchiveRule,
   checkAutoArchiveRule,
@@ -446,11 +448,10 @@ async function loadPendingEmailFromDB(): Promise<{ row: PendingEmailRow; email: 
 
   if (error || !data) return null;
 
-  // Fetch email body from Gmail so the model has content to reason about
+  // Fetch email body via gogcli
   let body = '';
   try {
-    const accessToken = await getValidGoogleToken();
-    body = await gmailService.fetchMessageBody(accessToken, data.gmail_message_id);
+    body = await gogFetchEmailBody(data.gmail_message_id);
   } catch (err) {
     runtimeLog.warning('Could not fetch email body for pending email', {
       source: 'telegramHandler',
@@ -459,7 +460,7 @@ async function loadPendingEmailFromDB(): Promise<{ row: PendingEmailRow; email: 
     });
   }
 
-  const email: NewEmailPayload = {
+  const email = {
     id:         data.gmail_message_id,
     threadId:   data.gmail_thread_id   ?? '',
     from:       data.from_address      ?? '',
@@ -476,34 +477,20 @@ async function executeTelegramEmailAction(
   action: 'archive' | 'reply' | 'dismiss',
   replyBody: string | undefined,
   row: PendingEmailRow,
-  email: NewEmailPayload
+  email: { id: string; threadId: string; from: string; subject: string; snippet: string; body: string; receivedAt: string }
 ): Promise<void> {
   const chatId = getStevenChatId();
-  let accessToken: string;
-
-  try {
-    accessToken = await getValidGoogleToken();
-  } catch (err) {
-    const isExpired = err instanceof Error && err.message === 'GOOGLE_REFRESH_TOKEN_EXPIRED';
-    const msg = isExpired
-      ? `I tried to ${action} that email but my Google connection has expired. Open the app and sign back in — takes 10 seconds!`
-      : `I tried to ${action} that email but hit a Google auth error. You may need to reconnect in the app.`;
-    if (chatId) await bot.api.sendMessage(chatId, msg).catch(() => {});
-    return;
-  }
-
   let success = false;
 
   try {
     if (action === 'archive') {
-      success = await gmailService.archiveEmail(accessToken, row.gmail_message_id);
+      success = await gogArchiveEmail(row.gmail_message_id);
     } else if (action === 'reply' && replyBody) {
       const polished = await composePolishedReply(replyBody, email, []);
       const toMatch = email.from.match(/<(.+?)>/);
       const toAddress = toMatch ? toMatch[1] : email.from;
-      success = await gmailService.sendReply(
-        accessToken,
-        row.gmail_thread_id ?? email.threadId,
+      success = await gogSendReply(
+        row.gmail_message_id,
         toAddress,
         email.subject,
         polished
@@ -512,7 +499,7 @@ async function executeTelegramEmailAction(
       success = true;
     }
   } catch (err) {
-    runtimeLog.error('Gmail API call failed during email action', {
+    runtimeLog.error('gogcli call failed during email action', {
       source: 'telegramHandler',
       action,
       gmailMessageId: row.gmail_message_id,

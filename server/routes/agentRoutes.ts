@@ -13,9 +13,7 @@ import { log } from "../runtimeLogger";
 import { serverGeminiService } from "../services/ai/serverGeminiService";
 import { processUserMessage } from "../../src/services/messageOrchestrator";
 import type { UserContent } from "../../src/services/aiService";
-import type { ChatMessage, Task } from "../../src/types";
-import type { CalendarEvent } from "../../src/services/calendarService";
-import type { NewEmailPayload } from "../../src/services/gmailService";
+import type { ChatMessage, Task, NewEmailPayload } from "../../src/types";
 
 const runtimeLog = log.fromContext({ source: "agentRoutes" });
 
@@ -35,9 +33,7 @@ interface AgentMessageRequest {
   messageForAI?: string;
   userContent?: UserContent;
   sessionId: string;
-  googleAccessToken?: string;
   chatHistory?: ChatMessage[];
-  upcomingEvents?: CalendarEvent[];
   tasks?: Task[];
   isMuted?: boolean;
   pendingEmail?: NewEmailPayload | null;
@@ -45,7 +41,6 @@ interface AgentMessageRequest {
 
 interface AgentGreetingRequest {
   sessionId: string;
-  googleAccessToken?: string;
 }
 
 // ============================================================================
@@ -139,7 +134,6 @@ async function handleAgentMessage(req: IncomingMessage, res: ServerResponse): Pr
     runtimeLog.info("Processing agent message", {
       sessionId: body.sessionId,
       messageLength: body.message?.length || 0,
-      hasAccessToken: !!body.googleAccessToken,
       historyCount: body.chatHistory?.length || 0,
     });
 
@@ -153,9 +147,7 @@ async function handleAgentMessage(req: IncomingMessage, res: ServerResponse): Pr
       userContent: body.userContent,
       aiService: serverGeminiService,
       session,
-      accessToken: body.googleAccessToken,
       chatHistory: body.chatHistory || [],
-      upcomingEvents: body.upcomingEvents || [],
       tasks: body.tasks || [],
       isMuted: body.isMuted ?? false,
       pendingEmail: body.pendingEmail,
@@ -205,12 +197,9 @@ async function handleAgentGreeting(req: IncomingMessage, res: ServerResponse): P
 
     runtimeLog.info("Processing agent greeting", {
       sessionId: body.sessionId,
-      hasAccessToken: !!body.googleAccessToken,
     });
 
-    const greetingResult = await serverGeminiService.generateGreeting(
-      body.googleAccessToken || "",
-    );
+    const greetingResult = await serverGeminiService.generateGreeting();
 
     // Store the session for subsequent messages
     if (greetingResult.session) {

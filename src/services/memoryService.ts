@@ -1236,6 +1236,7 @@ export type MemoryToolName =
   | 'post_x_tweet'
   | 'resolve_x_mention'
   | 'gmail_search'
+  | 'google_cli'
   | 'read_agent_file'
   | 'write_agent_file'
   | 'query_database';
@@ -1244,7 +1245,6 @@ export type MemoryToolName =
  * Optional context passed to tool execution (e.g., access tokens)
  */
 export interface ToolExecutionContext {
-  googleAccessToken?: string;
   currentEvents?: Array<{ id: string; summary: string }>;
   userMessage?: string;
 }
@@ -1466,6 +1466,9 @@ export interface ToolCallArgs {
   gmail_search: {
     query: string;
     max_results?: number;
+  };
+  google_cli: {
+    command: string;
   };
   read_agent_file: {
     filename: string;
@@ -2107,37 +2110,24 @@ export const executeMemoryTool = async (
         }
       }
       case 'calendar_action': {
-        const { calendarService } = await import('./calendarService');
+        const gogCal = await import('../../server/services/gogService');
         const calendarArgs = args as ToolCallArgs['calendar_action'];
         const { action, summary, start, end, timeZone, event_id, event_ids, delete_all } = calendarArgs;
-        
-        // Prefer server-side token (always fresh via refresh token) over browser token (may be expired)
-        let accessToken: string | undefined;
-        try {
-          const { getValidGoogleToken } = await import('../../server/services/googleTokenService');
-          accessToken = await getValidGoogleToken();
-        } catch {
-          accessToken = context?.googleAccessToken;
-        }
-        if (!accessToken) {
-          return 'Error: Not connected to Google Calendar. Please sign in with Google first.';
-        }
-        
+
         switch (action) {
           case 'create': {
             if (!summary || !start || !end) {
               return 'Error: Calendar event requires summary, start, and end time.';
             }
-            
+
             try {
-              const tz = timeZone || 'America/Chicago';
-              const newEvent = await calendarService.createEvent(accessToken, {
+              await gogCal.createCalendarEvent({
                 summary,
-                start: { dateTime: start, timeZone: tz },
-                end: { dateTime: end, timeZone: tz },
+                start,
+                end,
+                timeZone: timeZone || 'America/Chicago',
               });
-              
-              console.log('📅 Created calendar event:', newEvent);
+
               _calendarMutationPending = true;
               return sanitizeForGemini(`✓ Created calendar event: "${summary}"`);
             } catch (error) {
@@ -2145,15 +2135,14 @@ export const executeMemoryTool = async (
               return `Error creating calendar event: ${error instanceof Error ? error.message : 'Unknown error'}`;
             }
           }
-          
+
           case 'delete': {
             try {
               let deletedCount = 0;
               let eventIdsToDelete: string[] = [];
-              
-              if (delete_all && context.currentEvents) {
+
+              if (delete_all && context?.currentEvents) {
                 eventIdsToDelete = context.currentEvents.map(e => e.id);
-                console.log('📅 Deleting ALL events:', eventIdsToDelete.length);
               } else if (event_ids && event_ids.length > 0) {
                 eventIdsToDelete = event_ids;
               } else if (event_id) {
@@ -2161,17 +2150,12 @@ export const executeMemoryTool = async (
               } else {
                 return 'Error: No event ID provided for deletion.';
               }
-              
+
               for (const id of eventIdsToDelete) {
-                try {
-                   // Ensure we're using the service from the barrel correctly
-                  await calendarService.deleteEvent(accessToken, id);
-                  deletedCount++;
-                } catch (err) {
-                  console.error(`Failed to delete event ${id}:`, err);
-                }
+                const ok = await gogCal.deleteCalendarEvent(id);
+                if (ok) deletedCount++;
               }
-              
+
               if (deletedCount === 0) {
                 return 'Could not find any events to delete.';
               }
@@ -2187,33 +2171,18 @@ export const executeMemoryTool = async (
           case 'list': {
             try {
               const { days, timeMin, timeMax } = calendarArgs;
-              const now = new Date();
-              
-              // Determine range
-              let startISO: string;
-              let endISO: string;
-              
-              if (timeMin && timeMax) {
-                startISO = timeMin;
-                endISO = timeMax;
-              } else {
-                const startDate = timeMin ? new Date(timeMin) : new Date(now);
-                if (!timeMin) startDate.setUTCHours(0, 0, 0, 0); // Start of today if not specified
 
-                const lookaheadDays = days || 7;
-                const endDate = timeMax ? new Date(timeMax) : new Date(startDate.getTime() + lookaheadDays * 24 * 60 * 60 * 1000);
-                if (!timeMax) endDate.setUTCHours(23, 59, 59, 999);
-                
-                startISO = startDate.toISOString();
-                endISO = endDate.toISOString();
-              }
-              
-              const events = await calendarService.getEvents(accessToken, startISO, endISO, 50);
-              
+              const events = await gogCal.listCalendarEvents({
+                from: timeMin || undefined,
+                to: timeMax || undefined,
+                days: (!timeMin && !timeMax) ? (days || 7) : (days || undefined),
+                max: 50,
+              });
+
               if (events.length === 0) {
-                return `No events found between ${new Date(startISO).toLocaleDateString()} and ${new Date(endISO).toLocaleDateString()}.`;
+                return 'No events found for that time range.';
               }
-              
+
               const eventLines = events.map((event, i) => {
                 const t = new Date(event.start.dateTime || event.start.date || '');
                 const timeStr = t.toLocaleString("en-US", {
@@ -2226,7 +2195,7 @@ export const executeMemoryTool = async (
                 const loc = event.location ? ` | Location: ${event.location}` : '';
                 return `${i + 1}. "${event.summary}" (ID: ${event.id}) at ${timeStr}${loc}`;
               });
-              
+
               return `Found ${events.length} event(s):\n${eventLines.join('\n')}`;
             } catch (error) {
               console.error('Calendar list error:', error);
@@ -2717,23 +2686,34 @@ export const executeMemoryTool = async (
       }
       case 'gmail_search': {
         const { query, max_results } = args as ToolCallArgs['gmail_search'];
-        if (!context?.googleAccessToken) {
-          return formatToolFailure('Gmail not connected. Ask Steven to connect Gmail.');
+        try {
+          const { searchEmails } = await import('../../server/services/gogService');
+          const results = await searchEmails(query, max_results ?? 5);
+          if (results.length === 0) {
+            return 'No emails found matching that search.';
+          }
+          return results.map((r, i) =>
+            `[${i + 1}] From: ${r.from} | Subject: ${r.subject} | Date: ${r.date}\n` +
+            `    Snippet: ${r.snippet}` +
+            (r.body ? `\n    Body: ${r.body}` : '')
+          ).join('\n\n');
+        } catch (err) {
+          return formatToolFailure(`Gmail search failed: ${err instanceof Error ? err.message : String(err)}`);
         }
-        const { gmailService } = await import('./gmailService');
-        const results = await gmailService.searchEmails(
-          context.googleAccessToken,
-          query,
-          max_results ?? 5
-        );
-        if (results.length === 0) {
-          return 'No emails found matching that search.';
+      }
+      case 'google_cli': {
+        const { command } = args as ToolCallArgs['google_cli'];
+        try {
+          const { execGeneralCommand } = await import('../../server/services/gogService');
+          const output = await execGeneralCommand(command);
+          // Truncate if too long to avoid context overflow
+          if (output.length > 2000) {
+            return output.slice(0, 2000) + '\n... (output truncated)';
+          }
+          return output || '(No output)';
+        } catch (err) {
+          return formatToolFailure(`google_cli failed: ${err instanceof Error ? err.message : String(err)}`);
         }
-        return results.map((r, i) =>
-          `[${i + 1}] From: ${r.from} | Subject: ${r.subject} | Date: ${r.date}\n` +
-          `    Snippet: ${r.snippet}` +
-          (r.body ? `\n    Body: ${r.body}` : '')
-        ).join('\n\n');
       }
       case 'read_agent_file': {
         const { filename } = args as ToolCallArgs['read_agent_file'];
