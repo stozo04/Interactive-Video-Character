@@ -85,11 +85,15 @@ export const listServerRuntimeLogsAdmin = async (options?: {
   severity?: RuntimeLogSeverity | 'all';
   limit?: number;
   source?: 'server' | 'client' | 'all';
+  since?: string | null;
+  until?: string | null;
 }): Promise<ServerRuntimeLogRow[]> => {
   try {
     const severity = options?.severity ?? 'all';
     const limit = options?.limit ?? 200;
     const source = options?.source ?? 'all';
+    const since = options?.since ?? null;
+    const until = options?.until ?? null;
 
     let query = supabase
       .from('server_runtime_logs')
@@ -107,6 +111,14 @@ export const listServerRuntimeLogsAdmin = async (options?: {
       // Server logs don't write source='server' — they use service names or null.
       // Exclude client logs to get everything server-originated.
       query = query.neq('source', 'client');
+    }
+
+    if (since) {
+      query = query.gte('occurred_at', since);
+    }
+
+    if (until) {
+      query = query.lte('occurred_at', until);
     }
 
     const { data, error } = await query;

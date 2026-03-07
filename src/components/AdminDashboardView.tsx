@@ -60,9 +60,11 @@ const CHARACTER_CATEGORIES = ['all', 'quirk', 'relationship', 'experience', 'pre
 const AGENT_RUN_LIMIT = 50;
 const SERVER_RUNTIME_LOG_LIMIT_OPTIONS = [50, 100, 200, 500] as const;
 const SERVER_RUNTIME_LOG_SEVERITIES = ['all', 'info', 'warning', 'error', 'critical'] as const;
+const SERVER_RUNTIME_LOG_TIME_WINDOWS = ['all', '10m', '30m', '1h', '6h', '24h', '7d', '30d'] as const;
 type AdminDashboardMode = 'facts' | 'agent' | 'cron' | 'multi_agent' | 'runtime_logs';
 type AgentTab = 'anthropic' | 'openai' | 'google';
 type RuntimeLogSeverityFilter = (typeof SERVER_RUNTIME_LOG_SEVERITIES)[number];
+type RuntimeLogTimeWindow = (typeof SERVER_RUNTIME_LOG_TIME_WINDOWS)[number];
 
 interface CronFormState {
   title: string;
@@ -167,6 +169,8 @@ export default function AdminDashboardView({ onBack }: AdminDashboardViewProps) 
   const [runtimeLogSeverityFilter, setRuntimeLogSeverityFilter] =
     useState<RuntimeLogSeverityFilter>('all');
   const [runtimeLogLimit, setRuntimeLogLimit] = useState<number>(200);
+  const [runtimeLogTimeWindow, setRuntimeLogTimeWindow] =
+    useState<RuntimeLogTimeWindow>('all');
   const [runtimeLogSource, setRuntimeLogSource] = useState<'server' | 'client'>('server');
   const [isRuntimeLogsLoading, setIsRuntimeLogsLoading] = useState(false);
   const [runtimeLogsError, setRuntimeLogsError] = useState<string | null>(null);
@@ -326,10 +330,12 @@ export default function AdminDashboardView({ onBack }: AdminDashboardViewProps) 
     setIsRuntimeLogsLoading(true);
     setRuntimeLogsError(null);
     try {
+      const since = getRuntimeLogSince(runtimeLogTimeWindow);
       const rows = await listServerRuntimeLogsAdmin({
         severity: runtimeLogSeverityFilter,
         limit: runtimeLogLimit,
         source: runtimeLogSource,
+        since,
       });
       setRuntimeLogs(rows);
     } catch (err) {
@@ -339,7 +345,7 @@ export default function AdminDashboardView({ onBack }: AdminDashboardViewProps) 
     } finally {
       setIsRuntimeLogsLoading(false);
     }
-  }, [runtimeLogSeverityFilter, runtimeLogLimit, runtimeLogSource]);
+  }, [runtimeLogSeverityFilter, runtimeLogLimit, runtimeLogSource, runtimeLogTimeWindow]);
 
   useEffect(() => {
     if (mode !== 'facts') {
@@ -1629,7 +1635,7 @@ export default function AdminDashboardView({ onBack }: AdminDashboardViewProps) 
                       {runtimeLogSource === 'server' ? 'Server Runtime Logs' : 'Web Runtime Logs'}
                     </h3>
                     <p className="text-xs text-gray-400 mt-1">
-                      Newest first. Filter by severity to isolate warnings, errors, and critical failures.
+                      Newest first. Filter by severity and time window to isolate spikes and failures.
                     </p>
                   </div>
 
@@ -1645,6 +1651,21 @@ export default function AdminDashboardView({ onBack }: AdminDashboardViewProps) 
                       {SERVER_RUNTIME_LOG_SEVERITIES.map((severity) => (
                         <option key={severity} value={severity}>
                           {severity === 'all' ? 'All severities' : severity}
+                        </option>
+                      ))}
+                    </select>
+
+                    <label className="text-xs text-gray-400">Time</label>
+                    <select
+                      value={runtimeLogTimeWindow}
+                      onChange={(event) =>
+                        setRuntimeLogTimeWindow(event.target.value as RuntimeLogTimeWindow)
+                      }
+                      className="bg-gray-950 border border-gray-700 rounded-lg px-3 py-2 text-xs text-white"
+                    >
+                      {SERVER_RUNTIME_LOG_TIME_WINDOWS.map((window) => (
+                        <option key={window} value={window}>
+                          {formatRuntimeLogTimeWindowLabel(window)}
                         </option>
                       ))}
                     </select>
@@ -1670,6 +1691,9 @@ export default function AdminDashboardView({ onBack }: AdminDashboardViewProps) 
                   </span>
                   <span className="text-[11px] px-2.5 py-1 rounded-full border border-gray-700 bg-gray-800/40 text-gray-400">
                     Filter: {runtimeLogSeverityFilter === 'all' ? 'all severities' : runtimeLogSeverityFilter}
+                  </span>
+                  <span className="text-[11px] px-2.5 py-1 rounded-full border border-gray-700 bg-gray-800/40 text-gray-400">
+                    Time: {formatRuntimeLogTimeWindowLabel(runtimeLogTimeWindow).toLowerCase()}
                   </span>
                   <span className="text-[11px] px-2.5 py-1 rounded-full border border-gray-700 bg-gray-800/40 text-gray-400">
                     Sort: created_at desc
@@ -2133,6 +2157,50 @@ function getCronEventClasses(eventType: string): string {
     return 'bg-blue-900/30 border-blue-600/40 text-blue-300';
   }
   return 'bg-gray-800 border-gray-600 text-gray-300';
+}
+
+function getRuntimeLogSince(window: RuntimeLogTimeWindow): string | null {
+  const now = Date.now();
+
+  switch (window) {
+    case '10m':
+      return new Date(now - 10 * 60 * 1000).toISOString();
+    case '30m':
+      return new Date(now - 30 * 60 * 1000).toISOString();
+    case '1h':
+      return new Date(now - 60 * 60 * 1000).toISOString();
+    case '6h':
+      return new Date(now - 6 * 60 * 60 * 1000).toISOString();
+    case '24h':
+      return new Date(now - 24 * 60 * 60 * 1000).toISOString();
+    case '7d':
+      return new Date(now - 7 * 24 * 60 * 60 * 1000).toISOString();
+    case '30d':
+      return new Date(now - 30 * 24 * 60 * 60 * 1000).toISOString();
+    default:
+      return null;
+  }
+}
+
+function formatRuntimeLogTimeWindowLabel(window: RuntimeLogTimeWindow): string {
+  switch (window) {
+    case '10m':
+      return 'Last 10 minutes';
+    case '30m':
+      return 'Last 30 minutes';
+    case '1h':
+      return 'Last 1 hour';
+    case '6h':
+      return 'Last 6 hours';
+    case '24h':
+      return 'Last 24 hours';
+    case '7d':
+      return 'Last 7 days';
+    case '30d':
+      return 'Last 30 days';
+    default:
+      return 'All time';
+  }
 }
 
 function getRuntimeLogSeverityClasses(severity: RuntimeLogSeverity): string {
