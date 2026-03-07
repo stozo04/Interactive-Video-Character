@@ -143,6 +143,36 @@ export class SupabaseTicketStore {
   }
 
   /**
+   * Finds all tickets stuck in "implementing" and marks them failed.
+   * Called once at startup — any ticket left in "implementing" means the server
+   * crashed mid-run and the Codex process is gone. They'll never self-resolve.
+   */
+  async failOrphanedTickets(): Promise<void> {
+    try {
+      const { data, error } = await this.supabase
+        .from('engineering_tickets')
+        .select('id')
+        .eq('status', 'implementing');
+
+      if (error) {
+        log.error('Failed to query orphaned tickets', { source: 'ticketStore.ts', error: error.message });
+        return;
+      }
+
+      if (!data || data.length === 0) return;
+
+      log.warning(`Found ${data.length} orphaned ticket(s) — marking failed`, { source: 'ticketStore.ts' });
+
+      for (const ticket of data) {
+        await this.updateStatus(ticket.id, 'failed', { failureReason: 'Orphaned by server restart' }).catch(() => {});
+        await this.addEvent(ticket.id, 'orphaned', 'Server restarted while ticket was implementing — marked failed', {});
+      }
+    } catch (err) {
+      log.error('Failed to clean up orphaned tickets', { source: 'ticketStore.ts', error: String(err) });
+    }
+  }
+
+  /**
    * Creates a new ticket in the queue (used by the Scout script).
    */
   async createTicket(ticket: Partial<EngineeringTicket>): Promise<void> {

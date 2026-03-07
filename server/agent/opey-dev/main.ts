@@ -353,6 +353,10 @@ export function startOpeyDev(opts: {
   const store = new SupabaseTicketStore();
   const manager = new BranchManager(opts.workspaceRoot);
 
+  // On startup, any ticket still in "implementing" was orphaned by a previous
+  // server crash mid-run. The Codex process is gone — mark them failed now.
+  void store.failOrphanedTickets();
+
   // Run immediately, then poll
   void processNextTicket(store, manager);
 
