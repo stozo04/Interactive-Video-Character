@@ -46,6 +46,7 @@ export function createCallableTools(context?: ToolExecutionContext): CallableToo
         functionCalls.map(async (fc) => {
           const toolName = fc.name as MemoryToolName;
           const toolArgs = fc.args || {};
+          const startedAt = Date.now();
 
           runtimeLog.info("Executing tool via bridge", {
             tool: toolName,
@@ -54,6 +55,11 @@ export function createCallableTools(context?: ToolExecutionContext): CallableToo
 
           try {
             const result = await executeMemoryTool(toolName, toolArgs, context);
+            runtimeLog.info("tool_call_summary", {
+              tool: toolName,
+              status: "success",
+              durationMs: Date.now() - startedAt,
+            });
             return {
               functionResponse: {
                 name: fc.name,
@@ -64,6 +70,12 @@ export function createCallableTools(context?: ToolExecutionContext): CallableToo
             const errorMsg = err instanceof Error ? err.message : String(err);
             runtimeLog.error("Tool execution failed", {
               tool: toolName,
+              error: errorMsg,
+            });
+            runtimeLog.info("tool_call_summary", {
+              tool: toolName,
+              status: "failed",
+              durationMs: Date.now() - startedAt,
               error: errorMsg,
             });
             return {

@@ -143,7 +143,6 @@ export function buildGreetingPrompt(relationship: RelationshipMetrics): string {
  */
 export function buildNonGreetingPrompt(
   lastInteractionAt: Date,
-  kayleyActivity?: string | null,
 ): string {
 
   console.log("lastInteractionAt: ", lastInteractionAt)
@@ -155,11 +154,7 @@ export function buildNonGreetingPrompt(
   });
 
   console.log('timeString = ', timeString)
-  const kayleyContext = kayleyActivity
-    ? `\n🌟 YOUR CURRENT CONTEXT: You are currently "${kayleyActivity}".`
-    : "";
-
-  const context = `CURRENT TIME: ${timeString}${kayleyContext}`;
+  const context = `CURRENT TIME: ${timeString}`;
   const jsonGuardrail = `\n\n⚠️ CRITICAL: Your entire response must be ONLY the JSON object. No preamble. Put all conversational text inside "text_response".`;
 
   let prompt =  `Generate a natural response that delivers the pending message.

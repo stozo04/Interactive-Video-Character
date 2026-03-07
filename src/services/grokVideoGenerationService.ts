@@ -57,8 +57,6 @@ export interface VideoRequest {
   outfit?: string;
   userMessage?: string;
   conversationHistory?: Array<{ role: string; content: string }>;
-  presenceOutfit?: string;
-  presenceMood?: string;
   upcomingEvents?: Array<{ title: string; startTime: Date; isFormal: boolean }>;
 
   // Video-specific options
@@ -482,8 +480,6 @@ export async function generateCompanionVideo(
       userMessage: request.userMessage,
       conversationHistory: request.conversationHistory,
       upcomingEvents: request.upcomingEvents,
-      presenceOutfit: request.presenceOutfit,
-      presenceMood: request.presenceMood,
       forVideo: true,
     });
 

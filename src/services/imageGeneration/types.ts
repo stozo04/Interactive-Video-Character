@@ -94,10 +94,6 @@ export interface ReferenceSelectionContext {
     isFormal: boolean;
   }>;
 
-  // Presence context (from presence_contexts table)
-  presenceOutfit?: string; // "just got back from the gym"
-  presenceMood?: string; // "feeling cute today"
-
   // Anti-repetition tracking
   recentReferenceHistory?: Array<{
     referenceImageId: string;

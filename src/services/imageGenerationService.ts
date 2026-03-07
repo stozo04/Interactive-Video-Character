@@ -67,8 +67,6 @@ export interface SelfieRequest {
   referenceImageBase64?: string; // Manual override (for backward compatibility)
   userMessage?: string; // User's message that triggered selfie
   conversationHistory?: Array<{ role: string; content: string }>; // Recent messages
-  presenceOutfit?: string; // From presence_contexts table
-  presenceMood?: string; // From presence_contexts table
   upcomingEvents?: Array<{ title: string; startTime: Date; isFormal: boolean }>; // From calendar
   forVideo?: boolean; // Upload selfie for video generation
 
@@ -208,8 +206,6 @@ export async function generateCompanionSelfie(
           mood: generatedPrompt.moodExpression,
           outfit: outfitDescription,
           userMessage: request.userMessage,
-          presenceOutfit: request.presenceOutfit,
-          presenceMood: request.presenceMood,
           upcomingEvents: request.upcomingEvents || [],
           currentSeason: getCurrentSeason(),
           timeOfDay: getTimeOfDay(),

@@ -8,7 +8,6 @@
  */
 
 import { generateCompanionVideo } from '../../services/grokVideoGenerationService';
-import { getKayleyPresenceState } from '../../services/kayleyPresenceService';
 import type { ChatMessage } from '../../types';
 
 /**
@@ -55,19 +54,6 @@ export async function processVideoAction(
   console.log("🎬 Scene:", videoAction.scene, "Mood:", videoAction.mood);
 
   try {
-    // Get Kayley's current presence state
-    const kayleyState = await getKayleyPresenceState();
-
-    // DEBUG: Log presence state usage
-    console.log("🎬 [Video Generation] Presence State:", {
-      hasState: !!kayleyState,
-      outfit: kayleyState?.currentOutfit,
-      mood: kayleyState?.currentMood,
-      activity: kayleyState?.currentActivity,
-      location: kayleyState?.currentLocation,
-      expiresAt: kayleyState?.expiresAt,
-    });
-
     // Prepare conversation history
     const conversationHistory = context.chatHistory.slice(-10).map((msg) => ({
       role: msg.role === "user" ? "user" : ("assistant" as const),
@@ -82,8 +68,6 @@ export async function processVideoAction(
       userMessage: context.userMessage,
       conversationHistory,
       upcomingEvents: [],
-      presenceOutfit: kayleyState?.currentOutfit,
-      presenceMood: kayleyState?.currentMood,
       duration: videoAction.duration,
     });
 

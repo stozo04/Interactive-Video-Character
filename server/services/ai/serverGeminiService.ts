@@ -50,7 +50,6 @@ import { getImportantDateFacts } from "../../../src/services/memoryService";
 import * as relationshipService from "../../../src/services/relationshipService";
 // calendarService removed — calendar now accessed via gogcli tools on demand
 import { recordAlmostMoment } from "../../../src/services/almostMomentsService";
-import { getKayleyPresenceState } from "../../../src/services/kayleyPresenceService";
 import { getLastInteractionDate } from "../../../src/services/conversationHistoryService";
 import { getActiveStorylines } from "../../../src/services/storylineService";
 
@@ -231,6 +230,43 @@ function usedFunctionTool(usageMetadata: any): boolean {
   return typeof toolTokenCount === "number" && toolTokenCount > 0;
 }
 
+function extractFunctionCallNamesFromCandidates(response: any): string[] {
+  const names = new Set<string>();
+  const candidates = Array.isArray(response?.candidates) ? response.candidates : [];
+  for (const candidate of candidates) {
+    const parts = Array.isArray(candidate?.content?.parts) ? candidate.content.parts : [];
+    for (const part of parts) {
+      const name = part?.functionCall?.name || part?.function_call?.name;
+      if (typeof name === "string" && name.trim().length > 0) {
+        names.add(name.trim());
+      }
+    }
+  }
+  return Array.from(names);
+}
+
+function logFunctionCallSignal(params: {
+  requestId: string;
+  conversationLogId: string;
+  phase: "initial_response" | "retry_response" | "final_response";
+  response: any;
+  usageMetadata: any;
+  pseudoToolKeys?: string[];
+}): void {
+  const toolUsePromptTokenCount = params.usageMetadata?.toolUsePromptTokenCount ?? null;
+  const used = usedFunctionTool(params.usageMetadata);
+  const candidateFunctionCalls = extractFunctionCallNamesFromCandidates(params.response);
+  runtimeLog.info("gemini_function_call_signal", {
+    requestId: params.requestId,
+    conversationLogId: params.conversationLogId,
+    phase: params.phase,
+    function_call_used: used,
+    toolUsePromptTokenCount,
+    candidateFunctionCalls,
+    pseudoToolKeys: params.pseudoToolKeys ?? [],
+  });
+}
+
 function buildToolRetryPrompt(pseudoToolKeys: string[]): string {
   const toolList = pseudoToolKeys.join(", ");
   return [
@@ -309,12 +345,10 @@ export class ServerGeminiService implements IAIChatService {
   private async fetchUserContext(): Promise<{
     relationship: RelationshipMetrics | null;
     upcomingEvents: CalendarEvent[];
-    characterContext: string;
   }> {
-    const [relationshipData, characterContext, lastInteractionAt] =
+    const [relationshipData, lastInteractionAt] =
       await Promise.all([
         relationshipService.getRelationship(),
-        this.buildCharacterContext(),
         getLastInteractionDate(),
       ]);
 
@@ -326,26 +360,7 @@ export class ServerGeminiService implements IAIChatService {
     // No longer pre-loaded into system prompt context.
     const upcomingEvents: CalendarEvent[] = [];
 
-    return { relationship: relationshipData, upcomingEvents, characterContext };
-  }
-
-  private async buildCharacterContext(): Promise<string> {
-    try {
-      const presenceState = await getKayleyPresenceState();
-      if (presenceState) {
-        const parts: string[] = [];
-        if (presenceState.currentActivity) parts.push(presenceState.currentActivity);
-        if (presenceState.currentOutfit) parts.push(`wearing ${presenceState.currentOutfit}`);
-        if (presenceState.currentMood) parts.push(`feeling ${presenceState.currentMood}`);
-        if (presenceState.currentLocation) parts.push(`at ${presenceState.currentLocation}`);
-        if (parts.length > 0) return parts.join(", ");
-      }
-    } catch (error) {
-      runtimeLog.warning("Failed to fetch presence state", {
-        error: error instanceof Error ? error.message : String(error),
-      });
-    }
-    return "Just hanging out";
+    return { relationship: relationshipData, upcomingEvents };
   }
 
   // ------------------------------------------------------------------
@@ -387,7 +402,6 @@ export class ServerGeminiService implements IAIChatService {
       const systemPrompt = await buildSystemPromptForNonGreeting(
         ctx.relationship,
         ctx.upcomingEvents,
-        ctx.characterContext,
         session?.interactionId,
         currentUserMessage,
         0,
@@ -441,6 +455,14 @@ export class ServerGeminiService implements IAIChatService {
       // force a one-time retry instructing proper SDK function calling.
       const firstRawJson = tryParseResponseJson(responseText);
       const firstPseudoTools = findPseudoToolKeys(firstRawJson);
+      logFunctionCallSignal({
+        requestId: conversationLogId,
+        conversationLogId,
+        phase: "initial_response",
+        response,
+        usageMetadata: response.usageMetadata,
+        pseudoToolKeys: firstPseudoTools,
+      });
       if (firstPseudoTools.length > 0 && !usedFunctionTool(response.usageMetadata)) {
         runtimeLog.warning("Detected pseudo tool keys without SDK tool call; retrying once", {
           requestId: conversationLogId,
@@ -465,6 +487,14 @@ export class ServerGeminiService implements IAIChatService {
 
         const secondRawJson = tryParseResponseJson(responseText);
         const secondPseudoTools = findPseudoToolKeys(secondRawJson);
+        logFunctionCallSignal({
+          requestId: conversationLogId,
+          conversationLogId,
+          phase: "retry_response",
+          response,
+          usageMetadata: response.usageMetadata,
+          pseudoToolKeys: secondPseudoTools,
+        });
         if (secondPseudoTools.length > 0 && !usedFunctionTool(response.usageMetadata)) {
           runtimeLog.error("Pseudo tool output persisted after retry", {
             requestId: conversationLogId,
@@ -484,6 +514,14 @@ export class ServerGeminiService implements IAIChatService {
         responseText: aiResponse.text_response,
         usageMetadata: response.usageMetadata,
         retryAttempt: firstPseudoTools.length > 0 ? 1 : 0,
+        pseudoToolKeys: firstPseudoTools,
+      });
+      logFunctionCallSignal({
+        requestId: conversationLogId,
+        conversationLogId,
+        phase: "final_response",
+        response,
+        usageMetadata: response.usageMetadata,
         pseudoToolKeys: firstPseudoTools,
       });
 
@@ -602,7 +640,6 @@ export class ServerGeminiService implements IAIChatService {
     let systemPrompt = await buildSystemPromptForNonGreeting(
       ctx.relationship,
       ctx.upcomingEvents,
-      ctx.characterContext,
       session.interactionId,
       undefined,
       0,
@@ -643,7 +680,6 @@ ${pendingSuggestion.reasoning}
 
     const nonGreetingPrompt = buildNonGreetingPrompt(
       ctx.relationship?.lastInteractionAt ?? new Date(),
-      ctx.characterContext,
     );
 
     const tools = createCallableTools({});

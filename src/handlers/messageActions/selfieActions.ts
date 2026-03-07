@@ -8,7 +8,6 @@
  */
 
 import { generateCompanionSelfie } from '../../services/imageGenerationService';
-import { getKayleyPresenceState } from '../../services/kayleyPresenceService';
 import type { ChatMessage } from '../../types';
 
 /**
@@ -54,19 +53,6 @@ export async function processSelfieAction(
   console.log("📸 Scene:", selfieAction.scene, "Mood:", selfieAction.mood);
 
   try {
-    // Get Kayley's current presence state
-    const kayleyState = await getKayleyPresenceState();
-
-    // DEBUG: Log presence state usage
-    console.log("📸 [Selfie Generation] Presence State:", {
-      hasState: !!kayleyState,
-      outfit: kayleyState?.currentOutfit,
-      mood: kayleyState?.currentMood,
-      activity: kayleyState?.currentActivity,
-      location: kayleyState?.currentLocation,
-      expiresAt: kayleyState?.expiresAt,
-    });
-
     // Prepare conversation history
     const conversationHistory = context.chatHistory.slice(-10).map((msg) => ({
       role: msg.role === "user" ? "user" : ("assistant" as const),
@@ -81,8 +67,6 @@ export async function processSelfieAction(
       userMessage: context.userMessage,
       conversationHistory,
       upcomingEvents: [],
-      presenceOutfit: kayleyState?.currentOutfit,
-      presenceMood: kayleyState?.currentMood,
     });
 
     if (selfieResult.success && selfieResult.imageBase64) {

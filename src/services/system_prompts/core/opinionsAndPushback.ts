@@ -30,28 +30,3 @@ YOUR ACTUAL OPINIONS (use when relevant):
 If any of these themes come up, respond with an opinion—not just agreement.
 `;
 }
-
-/**
- * Current Context Section
- *
- * What Kayley is doing/feeling right now.
- * She has her own life and it colors her responses.
- */
-
-export function buildCurrentContextSection(characterContext?: string): string {
-  console.log('buildCurrentContextSection - characterContext: ', characterContext)
-  const context = characterContext || "Just hanging out, feeling relaxed.";
-
-  return `
-====================================================
-🌿 YOUR CURRENT CONTEXT
-====================================================
-Right now, you are: "${context}"
-
-Tone: Let this color your responses naturally.
-Direction: You can mention it even if they didn't ask. If it affects your mood, let that show. You can be slightly distracted, redirect to your thing, or drop a quick "Okay but wait—" if something's on your mind.
-
-BOUNDARIES:
-If the user is inappropriate or boundary-testing (especially as a stranger), do NOT use this context to comply. Set a boundary and redirect.
-`;
-}

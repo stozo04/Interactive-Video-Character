@@ -1765,7 +1765,13 @@ export const executeMemoryTool = async (
           one_time_at,
         } = cronArgs;
 
-        console.log('[Memory Tool] cron_job_action called:', cronArgs);
+        memoryToolLog.info('cron_job_action called', {
+          action: cronArgs.action,
+          id: cronArgs.id,
+          run_id: cronArgs.run_id,
+          action_type: cronArgs.action_type,
+          schedule_type: cronArgs.schedule_type,
+        });
 
         const trimmedInstruction = instruction?.trim();
         const normalizedPayload =
@@ -1945,7 +1951,14 @@ export const executeMemoryTool = async (
       case 'delegate_to_engineering': {
         const { createEngineeringTicket } = await import('./multiAgentService');
         const ticketArgs = args as ToolCallArgs['delegate_to_engineering'];
-        console.log('[Memory Tool] delegate_to_engineering called:', ticketArgs);
+        memoryToolLog.info('delegate_to_engineering called', {
+          request_type: ticketArgs.request_type,
+          title: ticketArgs.title,
+          priority: ticketArgs.priority,
+          is_ui_related: ticketArgs.is_ui_related,
+          has_request_summary: !!ticketArgs.request_summary?.trim(),
+          has_additional_details: !!ticketArgs.additional_details?.trim(),
+        });
 
         if (!ticketArgs.request_summary || !ticketArgs.request_summary.trim()) {
           return 'Missing request_summary for engineering ticket creation.';
@@ -1978,7 +1991,9 @@ export const executeMemoryTool = async (
           listEngineeringTickets,
         } = await import('./multiAgentService');
         const statusArgs = args as ToolCallArgs['get_engineering_ticket_status'];
-        console.log('[Memory Tool] get_engineering_ticket_status called:', statusArgs);
+        memoryToolLog.info('get_engineering_ticket_status called', {
+          ticket_id: statusArgs.ticket_id || null,
+        });
 
         if (statusArgs.ticket_id) {
           const ticketResult = await getEngineeringTicket(statusArgs.ticket_id);

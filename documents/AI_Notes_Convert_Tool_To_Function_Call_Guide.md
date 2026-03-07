@@ -212,6 +212,28 @@ Run these after changes:
 Optional hard test:
 - Force a response that includes a fake top-level `recall_character_profile` key and verify server retry guard catches it.
 
+### How to confirm it was a REAL Gemini function call
+
+You should see **all** of these signals in logs for the same turn:
+
+1. Tool bridge invocation (SDK level)
+- `server/services/ai/toolBridge.ts` logs:
+  - `Executing tool via bridge`
+
+2. Memory tool execution (runtime level)
+- `src/services/memoryService.ts` logs:
+  - `🔧 [Memory Tool] Executing: <tool_name>`
+
+3. Function-call telemetry (Gemini usage metadata)
+- `server/services/ai/serverGeminiService.ts` logs:
+  - `gemini_function_call_signal`
+  - `function_call_used: true`
+  - `toolUsePromptTokenCount: <number > 0>`
+
+Important:
+- `findPseudoToolKeys(...)` is a **guardrail in your code**, not a Gemini mode.
+- It only checks if the model tried to output tool names in JSON instead of calling tools.
+
 ---
 
 ## Common mistakes to avoid
@@ -291,3 +313,20 @@ If you are unsure, default to function call.
   - Replaced `console.log`/`console.error` with `clientLogger.scoped('WebSearch')`
 - Renamed env var `VITE_TAVILY_API_KEY` → `TAVILY_API_KEY` in `.env.local`
 - Added section 13 "WEB SEARCH (FUNCTION TOOL)" to `toolsAndCapabilities.ts`
+
+---
+
+### Engineering + Workspace batch (completed 2026-03-07)
+
+**Tools:** `workspace_action`, `cron_job_action`, `delegate_to_engineering`, `get_engineering_ticket_status`
+
+**What was done:**
+- All 4 tools already wired end-to-end:
+  - Zod schema + args types in `aiSchema.ts`
+  - Gemini declaration in `GeminiMemoryToolDeclarations`
+  - `MemoryToolArgs` union
+  - `PendingToolCall.name` union
+  - `MemoryToolName` + `ToolCallArgs` + `executeMemoryTool` case in `memoryService.ts`
+- Logging cleanup:
+  - replaced remaining `console.log` usage in these cases with `memoryToolLog.info` structured logs
+  - fields are intentionally summarized (no noisy full payload dumps)

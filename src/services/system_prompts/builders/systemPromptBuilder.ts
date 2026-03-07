@@ -14,7 +14,6 @@ import { buildSelfieRulesPrompt } from "./selfiePromptBuilder";
 import { buildVideoRulesPrompt } from "./videoPromptBuilder";
 import { buildAntiAssistantSection } from "../core/antiAssistant";
 import {
-  buildCurrentContextSection,
   buildOpinionsAndPushbackSection,
 } from "../core/opinionsAndPushback";
 import {
@@ -112,7 +111,6 @@ ${toolSuggestionsPrompt}
 export const buildSystemPromptForNonGreeting = async (
   relationship?: RelationshipMetrics | null,
   upcomingEvents: any[] = [],
-  characterContext?: string,
   interactionId?: string | null,
   currentUserMessage?: string, // NEW: for active recall
   messageCount: number = 0,
@@ -170,7 +168,6 @@ ${xTweetPrompt}
 ${xMentionsPrompt}
 ${idleQuestionPrompt}
 ${buildOpinionsAndPushbackSection()}
-${buildCurrentContextSection(characterContext)}
 ${lessonsLearnedPrompt}
 ${storylinePromptContext}
 ${scheduledDigestsPrompt}

@@ -7,7 +7,6 @@
  *
  * Sections:
  * - messageContext.ts     - Semantic intent formatting ✅
- * - characterContext.ts   - "Your Current Context" section
  * - styleOutput.ts        - Style & output rules
  */
 
