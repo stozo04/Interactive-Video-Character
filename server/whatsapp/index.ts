@@ -146,10 +146,11 @@ async function main() {
       messageHandlerType: "async",
     });
 
-    await startWhatsAppClient(async (sock, text, jid, replyJid, userContent) => {
+    await startWhatsAppClient(async (sock, text, jid, replyJid, userContent, inboundMessageId) => {
       runtimeLog.info("WhatsApp message handler callback invoked", {
         source: "whatsappIndex",
         jid,
+        inboundMessageId: inboundMessageId ?? null,
         textLength: text.length,
         hasUserContent: !!userContent,
       });
@@ -162,11 +163,12 @@ async function main() {
           hasUserContent: !!userContent,
         });
 
-        await handleWhatsAppMessage(sock, text, jid, replyJid, userContent);
+        await handleWhatsAppMessage(sock, text, jid, replyJid, userContent, inboundMessageId);
 
         runtimeLog.info("WhatsApp message processed successfully", {
           source: "whatsappIndex",
           jid,
+          inboundMessageId: inboundMessageId ?? null,
         });
       } catch (handlerError) {
         runtimeLog.error("Failed to handle WhatsApp message", {

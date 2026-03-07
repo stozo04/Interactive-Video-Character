@@ -79,7 +79,17 @@
       "WebFetch(domain:blog.langchain.com)",
       "WebFetch(domain:moltsbooks.com)",
       "WebFetch(domain:googleapis.github.io)",
-      "Bash(npx tsx:*)"
+      "Bash(npx tsx:*)",
+      "Bash(unzip -o /tmp/gogcli.zip -d /tmp/gogcli)",
+      "Read(//tmp/**)",
+      "Bash(export:*)",
+      "Bash(gog auth:*)",
+      "Read(//c/Users/gates/Personal/Interactive-Video-Character/$GOROOT/lib/time/**)",
+      "Read(//usr/share/zoneinfo/America/**)",
+      "Read(//usr/lib/go/lib/time/**)",
+      "Bash(ZONEINFO=\"$HOME/.local/share/zoneinfo.zip\" gog calendar:*)",
+      "Bash(ZONEINFO=\"C:/Users/gates/.local/share/zoneinfo.zip\" gog calendar:*)",
+      "Bash(source:*)"
     ]
   },
   "enabledPlugins": {

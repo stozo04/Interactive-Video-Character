@@ -272,50 +272,6 @@ export const AIActionResponseSchema = z.object({
         "Leave null if you're not fulfilling a promise."
     ),
 
-  /**
-   * Email action — set this when:
-   *   (a) Steven tells you what to do with a pending email (archive/reply/dismiss), OR
-   *   (b) Steven asks you to send a new email to someone (action: 'send').
-   */
-  email_action: z
-    .object({
-      action: z
-        .enum(['archive', 'reply', 'dismiss', 'send'])
-        .describe(
-          "'archive' removes from inbox, 'reply' responds in-thread, 'dismiss' leaves it alone, " +
-          "'send' composes and sends a brand-new email (use when Steven asks you to email someone with no pending email in context)"
-        ),
-      message_id: z
-        .string()
-        .optional()
-        .describe("Gmail message ID — required for archive/reply/dismiss (from [PENDING EMAIL ACTION] context). Omit for 'send'."),
-      thread_id: z
-        .string()
-        .optional()
-        .describe("Gmail thread ID — required when action is 'reply' to send in-thread. Omit for 'send'."),
-      to: z
-        .string()
-        .optional()
-        .describe("Recipient email address — required when action is 'send' (e.g. 'katerina@gmail.com'). Omit for archive/reply/dismiss."),
-      subject: z
-        .string()
-        .optional()
-        .describe("Email subject — required when action is 'send'. Omit for archive/reply/dismiss."),
-      reply_body: z
-        .string()
-        .optional()
-        .describe(
-          "The message content Steven wants to convey. Required for 'reply' and 'send'. " +
-          "Write it as a rough draft — it will be polished by a separate step. " +
-          "Include everything Steven wanted to say."
-        ),
-    })
-    .nullable()
-    .optional()
-    .describe(
-      "Email action — set when resolving a [PENDING EMAIL ACTION] (archive/reply/dismiss) " +
-      "OR when Steven explicitly asks you to email someone (send). Leave null otherwise."
-    ),
 });
 
 /**
@@ -787,6 +743,31 @@ export const SubmitClarificationSchema = z.object({
   response: z.string().describe("Steven's answer to Opey's clarifying questions."),
 });
 
+/**
+ * Schema for the email_action tool.
+ * Handles pending email actions (archive/reply/dismiss) and new outbound sends.
+ */
+export const EmailActionToolSchema = z.object({
+  action: z.enum(["archive", "reply", "dismiss", "send"]).describe(
+    "'archive' removes from inbox, 'reply' responds to an existing message, 'dismiss' marks pending email as ignored, 'send' composes a new outbound email."
+  ),
+  message_id: z.string().optional().describe(
+    "Required for archive/reply/dismiss. Gmail message ID from [PENDING EMAIL ACTION] context."
+  ),
+  thread_id: z.string().optional().describe(
+    "Optional Gmail thread ID for replies."
+  ),
+  to: z.string().optional().describe(
+    "Recipient email address. Required for send. Optional override for reply."
+  ),
+  subject: z.string().optional().describe(
+    "Email subject. Required for send. Optional override for reply."
+  ),
+  reply_body: z.string().optional().describe(
+    "Body content to send. Required for reply and send."
+  ),
+});
+
 // Export types for tool arguments
 export type RecallMemoryArgs = z.infer<typeof RecallMemorySchema>;
 export type RecallUserInfoArgs = z.infer<typeof RecallUserInfoSchema>;
@@ -807,6 +788,7 @@ export type CronJobActionArgs = z.infer<typeof CronJobActionSchema>;
 export type DelegateToEngineeringArgs = z.infer<typeof DelegateToEngineeringSchema>;
 export type EngineeringTicketStatusArgs = z.infer<typeof EngineeringTicketStatusSchema>;
 export type SubmitClarificationArgs = z.infer<typeof SubmitClarificationSchema>;
+export type EmailActionToolArgs = z.infer<typeof EmailActionToolSchema>;
 
 export const GmailSearchSchema = z.object({
   query: z.string().describe("Gmail search query"),
@@ -823,6 +805,7 @@ export type MemoryToolArgs =
   | { tool: "delegate_to_engineering"; args: DelegateToEngineeringArgs }
   | { tool: "get_engineering_ticket_status"; args: EngineeringTicketStatusArgs }
   | { tool: "submit_clarification"; args: SubmitClarificationArgs }
+  | { tool: "email_action"; args: EmailActionToolArgs }
   | { tool: "recall_user_info"; args: RecallUserInfoArgs }
   | { tool: "store_user_info"; args: StoreUserInfoArgs }
   | { tool: "resolve_idle_question"; args: ResolveIdleQuestionArgs }
@@ -909,7 +892,6 @@ export type MemoryToolArgs =
         reason?: string;
       };
     }
-  | { tool: "gmail_search"; args: GmailSearchArgs }
   | { tool: "google_cli"; args: { command: string } };
 
 // ============================================
@@ -1335,17 +1317,19 @@ export const GeminiMemoryToolDeclarations = [
   {
     name: "calendar_action",
     description:
-      "Create, delete, or list Google Calendar events. " +
+      "Create, update, delete, or list Google Calendar events. " +
       "Use 'create' to add a new event (requires summary, start time, end time). " +
+      "Use 'update' to modify an event by ID (summary and/or start/end). " +
       "Use 'delete' to remove an event by ID. " +
       "Use 'list' to fetch upcoming events (can specify 'days' for lookahead). " +
+      "This must be executed as a function call, not returned as a JSON output field. " +
       "Examples: 'Add meeting at 2pm to my calendar', 'Delete the dentist appointment', 'What is my schedule for next week?'",
     parameters: {
       type: "object",
       properties: {
         action: {
           type: "string",
-          enum: ["create", "delete", "list"],
+          enum: ["create", "update", "delete", "list"],
           description: "The calendar action to perform",
         },
         summary: {
@@ -1355,12 +1339,12 @@ export const GeminiMemoryToolDeclarations = [
         start: {
           type: "string",
           description:
-            "For create: ISO datetime for event start (e.g., '2025-12-16T14:00:00')",
+            "For create: event start time. Prefer ISO datetime (e.g., '2025-12-16T14:00:00'), but natural date/time phrases are accepted.",
         },
         end: {
           type: "string",
           description:
-            "For create: ISO datetime for event end (e.g., '2025-12-16T15:00:00')",
+            "For create: event end time. Prefer ISO datetime (e.g., '2025-12-16T15:00:00'). If omitted, server defaults to +1 hour from start.",
         },
         timeZone: {
           type: "string",
@@ -1368,7 +1352,7 @@ export const GeminiMemoryToolDeclarations = [
         },
         event_id: {
           type: "string",
-          description: "For delete: the event ID from the calendar list",
+          description: "For update/delete: the event ID from the calendar list",
         },
         event_ids: {
           type: "array",
@@ -1633,6 +1617,45 @@ export const GeminiMemoryToolDeclarations = [
         },
       },
       required: ["ticket_id", "response"],
+    },
+  },
+  {
+    name: "email_action",
+    description:
+      "Execute an email action using Gmail via gogcli. " +
+      "Use action='archive' to archive a pending email, action='reply' to send a reply to a pending email, " +
+      "action='dismiss' to mark a pending email as intentionally ignored, and action='send' to send a new outbound email. " +
+      "This is a function tool and must not be returned as an output JSON field.",
+    parameters: {
+      type: "object",
+      properties: {
+        action: {
+          type: "string",
+          enum: ["archive", "reply", "dismiss", "send"],
+          description: "Email action to perform.",
+        },
+        message_id: {
+          type: "string",
+          description: "Required for archive/reply/dismiss. Gmail message ID from pending email context.",
+        },
+        thread_id: {
+          type: "string",
+          description: "Optional Gmail thread ID for reply context.",
+        },
+        to: {
+          type: "string",
+          description: "Recipient email address. Required for send. Optional override for reply.",
+        },
+        subject: {
+          type: "string",
+          description: "Email subject. Required for send. Optional override for reply.",
+        },
+        reply_body: {
+          type: "string",
+          description: "Body content to send. Required for reply and send.",
+        },
+      },
+      required: ["action"],
     },
   },
   {
@@ -2032,33 +2055,6 @@ export const GeminiMemoryToolDeclarations = [
     },
   },
   {
-    name: "gmail_search",
-    description:
-      "Search Steven's Gmail inbox. Use when Steven asks to check, find, or look for an email. " +
-      "Returns matching emails with dates — use the dates to judge recency. " +
-      "If results are old or don't match what Steven expects, say so honestly. " +
-      "Query uses Gmail search syntax (e.g., 'from:procare', 'subject:daily summary'). " +
-      "IMPORTANT: Prefer simple keyword queries (e.g., 'atmos energy') over from: filters. " +
-      "Gmail's from: operator is unreliable with partial matches — a keyword search matches subject, body, AND sender.",
-    parameters: {
-      type: "object",
-      properties: {
-        query: {
-          type: "string",
-          description:
-            "Gmail search query. Prefer plain keywords (e.g., 'atmos energy', 'procare mila') " +
-            "which search all fields. Use from:/subject: only when you know the exact sender address. " +
-            "Add newer_than:1d to scope to recent emails.",
-        },
-        max_results: {
-          type: "number",
-          description: "Max emails to return (default 5, max 10)",
-        },
-      },
-      required: ["query"],
-    },
-  },
-  {
     name: "google_cli",
     description:
       "Run a Google Workspace CLI command. Supports read AND write operations across services. " +
@@ -2066,6 +2062,7 @@ export const GeminiMemoryToolDeclarations = [
       "Write permissions per service: " +
       "gmail (send, archive), calendar (create/update/delete), tasks (full CRUD), " +
       "contacts (create/update, no delete), drive (create/upload, no delete). " +
+      "This must be executed as a function call, not returned as a JSON output field. " +
       "Pass just the subcommand — 'gog' prefix and --json are added automatically. " +
       "Examples: 'contacts search cindy', 'tasks add MyList \"Buy groceries\"', " +
       "'drive search invoice', 'gmail send --to user@example.com --subject Hi --body Hello'.",
@@ -2079,7 +2076,8 @@ export const GeminiMemoryToolDeclarations = [
             "'tasks list', 'tasks add <listId> \"Task title\"', 'tasks done <listId> <taskId>', " +
             "'drive search budget', 'drive upload ./file.txt', " +
             "'calendar events primary --today', 'gmail thread get <threadId>', " +
-            "'contacts create --name \"Jane Doe\" --email jane@example.com'.",
+            "'contacts create --name \"Jane Doe\" --email jane@example.com'. " +
+            "Wrap multi-word values in quotes (e.g., --summary \"Pizza Night with Andre\").",
         },
       },
       required: ["command"],
@@ -2206,9 +2204,14 @@ export interface PendingToolCall {
     | "delegate_to_engineering"
     | "get_engineering_ticket_status"
     | "submit_clarification"
+    | "email_action"
     | "resolve_x_tweet"
     | "post_x_tweet"
-    | "resolve_x_mention";
+    | "resolve_x_mention"
+    | "google_cli"
+    | "read_agent_file"
+    | "write_agent_file"
+    | "query_database";
   arguments: Record<string, any>;
 }
 

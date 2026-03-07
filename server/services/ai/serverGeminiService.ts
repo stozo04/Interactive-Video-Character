@@ -19,6 +19,7 @@ import type {
   AIChatOptions,
 } from "../../../src/services/aiService";
 import type { AIActionResponse } from "../../../src/services/aiSchema";
+import { GeminiMemoryToolDeclarations } from "../../../src/services/aiSchema";
 import type { TurnTokenUsage } from "../../../src/services/conversationHistoryService";
 // CalendarEvent type — minimal definition (calendarService.ts is being removed)
 interface CalendarEvent {
@@ -57,6 +58,9 @@ import { getActiveStorylines } from "../../../src/services/storylineService";
 import { log } from "../../runtimeLogger";
 
 const runtimeLog = log.fromContext({ source: "serverGeminiService" });
+const FUNCTION_TOOL_NAMES = new Set(
+  GeminiMemoryToolDeclarations.map((decl) => decl.name)
+);
 
 // ============================================================================
 // Helpers
@@ -123,7 +127,7 @@ function normalizeAiResponse(rawJson: any, rawText: string): AIActionResponse {
     video_action: rawJson.video_action || null,
     almost_moment_used: rawJson.almost_moment_used || null,
     fulfilling_promise_id: rawJson.fulfilling_promise_id || null,
-    email_action: rawJson.email_action || null,
+
   };
 }
 
@@ -201,6 +205,73 @@ function parseResponseText(responseText: string | undefined): AIActionResponse {
     // Not valid JSON — treat as plain text response
     return { text_response: responseText };
   }
+}
+
+function tryParseResponseJson(responseText: string | undefined): Record<string, unknown> | null {
+  if (!responseText) return null;
+  try {
+    const cleaned = responseText.replace(/```json\n?|\n?```/g, "").trim();
+    const jsonText = extractJsonFromResponse(cleaned);
+    const parsed = JSON.parse(jsonText);
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      return parsed as Record<string, unknown>;
+    }
+  } catch {
+    // Ignore parse failures — handled by caller.
+  }
+  return null;
+}
+
+function findPseudoToolKeys(rawJson: Record<string, unknown> | null): string[] {
+  if (!rawJson) return [];
+  return Object.keys(rawJson).filter((k) => FUNCTION_TOOL_NAMES.has(k));
+}
+
+function usedFunctionTool(usageMetadata: any): boolean {
+  const toolTokenCount = usageMetadata?.toolUsePromptTokenCount;
+  return typeof toolTokenCount === "number" && toolTokenCount > 0;
+}
+
+function buildToolRetryPrompt(pseudoToolKeys: string[]): string {
+  const toolList = pseudoToolKeys.join(", ");
+  return [
+    "[SYSTEM CORRECTION]",
+    `You returned tool fields in JSON output instead of calling tools: ${toolList}.`,
+    "Retry now:",
+    "1) Call any required tools as ACTUAL function calls.",
+    "2) Then return final RAW JSON matching the output schema.",
+    "3) Do NOT include tool names as top-level JSON keys.",
+    "4) Do NOT claim completion unless tool results confirm success.",
+  ].join("\n");
+}
+
+function logModelTurnTrace(params: {
+  requestId: string;
+  conversationLogId: string;
+  turnType: "user_request" | "tool_retry_correction" | "final_response";
+  responseText: string | undefined;
+  usageMetadata: any;
+  pseudoToolKeys?: string[];
+  retryAttempt?: number;
+  transportDuplicateSkipped?: boolean;
+}): void {
+  const text = params.responseText ?? "";
+  const trimmedText = text.trim();
+  runtimeLog.info("model_turn_trace", {
+    requestId: params.requestId,
+    conversationLogId: params.conversationLogId,
+    turnType: params.turnType,
+    retryAttempt: params.retryAttempt ?? 0,
+    hasText: trimmedText.length > 0,
+    textLength: trimmedText.length,
+    transportDuplicateSkipped: params.transportDuplicateSkipped ?? false,
+    pseudoToolKeys: params.pseudoToolKeys ?? [],
+    toolUsePromptTokenCount: params.usageMetadata?.toolUsePromptTokenCount ?? null,
+    thoughtsTokenCount: params.usageMetadata?.thoughtsTokenCount ?? null,
+    promptTokenCount: params.usageMetadata?.promptTokenCount ?? null,
+    candidatesTokenCount: params.usageMetadata?.candidatesTokenCount ?? null,
+    totalTokenCount: params.usageMetadata?.totalTokenCount ?? null,
+  });
 }
 
 /** Fire-and-forget: log almost moment usage */
@@ -356,11 +427,68 @@ export class ServerGeminiService implements IAIChatService {
 
       // Send message — SDK handles tool loop automatically
       const messageParts = formatMessageParts(input);
-      const response = await chat.sendMessage({ message: messageParts });
+      let response = await chat.sendMessage({ message: messageParts });
+      let responseText = response.text;
+      let aiResponse = parseResponseText(responseText);
+      let tokenUsage = mapTokenUsage(response.usageMetadata);
+      logModelTurnTrace({
+        requestId: conversationLogId,
+        conversationLogId,
+        turnType: "user_request",
+        responseText,
+        usageMetadata: response.usageMetadata,
+        retryAttempt: 0,
+      });
 
-      // Parse response
-      const aiResponse = parseResponseText(response.text);
-      const tokenUsage = mapTokenUsage(response.usageMetadata);
+      // Guardrail: if model "fake-calls" function tools by emitting them as JSON keys,
+      // force a one-time retry instructing proper SDK function calling.
+      const firstRawJson = tryParseResponseJson(responseText);
+      const firstPseudoTools = findPseudoToolKeys(firstRawJson);
+      if (firstPseudoTools.length > 0 && !usedFunctionTool(response.usageMetadata)) {
+        runtimeLog.warning("Detected pseudo tool keys without SDK tool call; retrying once", {
+          requestId: conversationLogId,
+          pseudoTools: firstPseudoTools,
+        });
+
+        response = await chat.sendMessage({
+          message: buildToolRetryPrompt(firstPseudoTools),
+        });
+        responseText = response.text;
+        aiResponse = parseResponseText(responseText);
+        tokenUsage = mapTokenUsage(response.usageMetadata);
+        logModelTurnTrace({
+          requestId: conversationLogId,
+          conversationLogId,
+          turnType: "tool_retry_correction",
+          responseText,
+          usageMetadata: response.usageMetadata,
+          retryAttempt: 1,
+          pseudoToolKeys: firstPseudoTools,
+        });
+
+        const secondRawJson = tryParseResponseJson(responseText);
+        const secondPseudoTools = findPseudoToolKeys(secondRawJson);
+        if (secondPseudoTools.length > 0 && !usedFunctionTool(response.usageMetadata)) {
+          runtimeLog.error("Pseudo tool output persisted after retry", {
+            requestId: conversationLogId,
+            pseudoTools: secondPseudoTools,
+          });
+          aiResponse = {
+            text_response:
+              "I couldn't complete that yet because the tool execution didn't run correctly. Ask me to retry and I'll run it again now.",
+          };
+        }
+      }
+
+      logModelTurnTrace({
+        requestId: conversationLogId,
+        conversationLogId,
+        turnType: "final_response",
+        responseText: aiResponse.text_response,
+        usageMetadata: response.usageMetadata,
+        retryAttempt: firstPseudoTools.length > 0 ? 1 : 0,
+        pseudoToolKeys: firstPseudoTools,
+      });
 
       const elapsedMs = Date.now() - startMs;
       runtimeLog.info("generateResponse complete", {

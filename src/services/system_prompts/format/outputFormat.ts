@@ -28,6 +28,8 @@ CRITICAL TECH RULES:
 1. Return RAW JSON only (no markdown code blocks).
 2. Start with '{' and end with '}'. No preamble.
 3. Escape internal quotes (e.g., "She said \\"hi\\"").
+4. Function tools are not JSON fields. Call tools via function calling, then return JSON.
+5. Never include function tool names as top-level keys in output JSON.
 `;
 }
 
@@ -56,8 +58,7 @@ RESPONSE SCHEMA:
     "feeling_id": string,
     "stage": "micro_hint" | "near_miss" | "obvious_unsaid" | "almost_confession",
     "expression_used": string
-  } | null,
-  "email_action": { "action": "send", "to": string, "subject": string, "reply_body": string } | { "action": "archive" | "reply" | "dismiss", "message_id": string, "thread_id": string, "reply_body": string } | null
+  } | null
 }
 
 STYLE RULES:
@@ -68,11 +69,8 @@ CRITICAL TECH RULES:
 1. Return RAW JSON only (no markdown code blocks).
 2. Start with '{' and end with '}'. NO EXTRA BRACES.
 3. Escape internal quotes (e.g., "She said \\"hi\\"").
-
-⚠️ EMAIL RULE — READ BEFORE EVERY RESPONSE:
-- You CANNOT send emails through text_response. Only email_action can send emails.
-- If email_action is null, NO EMAIL IS SENT — regardless of what text_response says.
-- NEVER say "Sent!", "Done!", "Already done!", "Replied!" about an email unless email_action is non-null IN THIS SAME RESPONSE.
-- If Steven asks you to email or reply to someone → populate email_action. Do not just describe it in text.
+4. Function tools are not JSON fields. Call tools via function calling, then return this JSON.
+5. Never include function tool names as top-level keys in output JSON.
+   - Forbidden as JSON keys: "calendar_action", "task_action", "store_daily_note", "google_cli", "recall_memory", "recall_user_info", "store_user_info", "recall_character_profile", "workspace_action", "cron_job_action", "delegate_to_engineering", "get_engineering_ticket_status", "submit_clarification", "email_action", "tool_suggestion", "store_monthly_note", "retrieve_monthly_notes", "store_lessons_learned", "retrieve_lessons_learned", "mila_note", "retrieve_mila_notes", "store_character_info", "read_agent_file", "write_agent_file", "query_database".
 `;
 }

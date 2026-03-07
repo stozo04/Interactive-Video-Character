@@ -104,15 +104,12 @@ export async function processUserMessage(input: OrchestratorInput): Promise<Orch
         `  Subject    : ${pendingEmail.subject}`,
         `  Body       : ${(pendingEmail.body?.trim() || pendingEmail.snippet?.trim() || '(no body)').slice(0, 600)}`,
         ``,
-        `Based on Steven's message, choose email_action.action:`,
-        `  "reply"    — Steven wants to send a reply TO THE EMAIL SENDER.`,
-        `               Triggered by: "respond saying X", "reply saying X", "say X", "tell them X", "send them X".`,
-        `               Use Steven's exact words as reply_body in your Kayley voice.`,
-        `  "archive"  — Steven wants it removed from inbox, no reply sent.`,
-        `               Triggered by: "archive it", "delete it", "get rid of it", "done", "handled".`,
-        `  "dismiss"  — Steven wants to ignore it with no action.`,
-        `CRITICAL: "respond saying X" means reply TO THE SENDER with X — NOT an acknowledgment to Steven.`,
-        `Always populate message_id. Populate thread_id + reply_body when action is "reply".`,
+        `If Steven chooses an email action, call the FUNCTION TOOL "email_action" (do not put email_action in output JSON):`,
+        `  action="reply"   with message_id + reply_body (+ thread_id optional)`,
+        `  action="archive" with message_id`,
+        `  action="dismiss" with message_id`,
+        `CRITICAL: "respond saying X" means reply TO THE SENDER with X — not just an acknowledgment to Steven.`,
+        `For reply actions, keep Steven's intent in reply_body and run email_action.`,
       ].join('\n');
 
       textToSend = `${textToSend}\n\n${emailContext}`;
@@ -231,28 +228,6 @@ export async function processUserMessage(input: OrchestratorInput): Promise<Orch
             );
           }
         }
-      }
-    }
-
-    // Email Action (archive / reply / dismiss a pending email, OR send a new one)
-    if (actionType === ActionType.EMAIL) {
-      const emailAction = (response as any).email_action as {
-        action: 'archive' | 'reply' | 'dismiss' | 'send';
-        message_id?: string;
-        thread_id?: string;
-        to?: string;
-        subject?: string;
-        reply_body?: string;
-      } | undefined;
-
-      // 'send' requires 'to'; archive/reply/dismiss require 'message_id'
-      const isValid = emailAction?.action === 'send'
-        ? !!emailAction.to
-        : !!(emailAction?.action && emailAction?.message_id);
-
-      if (isValid) {
-        result.detectedEmailAction = emailAction as any;
-        log.info(`Email action detected`, { action: emailAction!.action, messageId: emailAction!.message_id, to: emailAction!.to });
       }
     }
 

@@ -5,6 +5,7 @@
 // All token refresh is handled by gogcli internally.
 
 import { execFile } from 'node:child_process';
+import { fromZonedTime, formatInTimeZone } from 'date-fns-tz';
 import { log } from '../runtimeLogger';
 
 const LOG_PREFIX = '[GogService]';
@@ -14,6 +15,9 @@ const runtimeLog = log.fromContext({ source: 'gogService', route: 'server/gog' }
 const DEFAULT_TIMEOUT_MS = 15_000;
 // Longer timeout for send/modify operations
 const WRITE_TIMEOUT_MS = 30_000;
+const CALENDAR_DEFAULT_TIMEZONE = 'America/Chicago';
+const LOCAL_ISO_NO_ZONE_RE =
+  /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2})?$/;
 
 // GOG_ACCOUNT env var should be set, or pass --account to commands
 const GOG_ACCOUNT = process.env.GOG_ACCOUNT || '';
@@ -446,22 +450,16 @@ export async function createCalendarEvent(options: {
   timeZone?: string;
 }): Promise<any> {
   runtimeLog.info('createCalendarEvent', { source: 'gogService', summary: options.summary });
+  // Product requirement: all calendar times are interpreted in CST.
+  const resolvedTimeZone = CALENDAR_DEFAULT_TIMEZONE;
+  const normalizedStart = normalizeCalendarDateTimeForGog(options.start, resolvedTimeZone);
+  const normalizedEnd = normalizeCalendarDateTimeForGog(options.end, resolvedTimeZone);
 
-  const args = [
-    'calendar', 'create',
-    options.timeZone ? options.start : 'primary',
-  ];
-
-  // If timeZone was specified, calendar ID is 'primary' which is the first positional arg
-  if (!options.timeZone) {
-    // First positional arg is calendarId
-    args.length = 0;
-    args.push('calendar', 'create', 'primary');
-  }
+  const args = ['calendar', 'create', 'primary'];
 
   args.push('--summary', options.summary);
-  args.push('--from', options.start);
-  args.push('--to', options.end);
+  args.push('--from', normalizedStart);
+  args.push('--to', normalizedEnd);
 
   if (options.location) {
     args.push('--location', options.location);
@@ -470,9 +468,80 @@ export async function createCalendarEvent(options: {
     args.push('--attendees', options.attendees);
   }
 
+  runtimeLog.info('createCalendarEvent normalized_window', {
+    source: 'gogService',
+    summary: options.summary,
+    timeZone: resolvedTimeZone,
+    startRaw: options.start,
+    endRaw: options.end,
+    startNormalized: normalizedStart,
+    endNormalized: normalizedEnd,
+  });
+
   const result = await execGogJson<any>(args, WRITE_TIMEOUT_MS);
   runtimeLog.info('createCalendarEvent succeeded', { source: 'gogService', summary: options.summary });
   return result;
+}
+
+/**
+ * Update a calendar event.
+ */
+export async function updateCalendarEvent(options: {
+  eventId: string;
+  summary?: string;
+  start?: string;
+  end?: string;
+  location?: string;
+}): Promise<boolean> {
+  runtimeLog.info('updateCalendarEvent', {
+    source: 'gogService',
+    eventId: options.eventId,
+    hasSummary: !!options.summary,
+    hasStart: !!options.start,
+    hasEnd: !!options.end,
+    hasLocation: !!options.location,
+  });
+
+  const args = ['calendar', 'update', 'primary', options.eventId];
+  if (options.summary) {
+    args.push('--summary', options.summary);
+  }
+  if (options.start) {
+    args.push('--from', options.start);
+  }
+  if (options.end) {
+    args.push('--to', options.end);
+  }
+  if (options.location) {
+    args.push('--location', options.location);
+  }
+
+  try {
+    await execGogRaw(args, WRITE_TIMEOUT_MS);
+    runtimeLog.info('updateCalendarEvent succeeded', {
+      source: 'gogService',
+      eventId: options.eventId,
+    });
+    return true;
+  } catch (err) {
+    runtimeLog.error('updateCalendarEvent failed', {
+      source: 'gogService',
+      eventId: options.eventId,
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return false;
+  }
+}
+
+function normalizeCalendarDateTimeForGog(value: string, timeZone: string): string {
+  const trimmed = value.trim();
+  if (!LOCAL_ISO_NO_ZONE_RE.test(trimmed)) {
+    return trimmed;
+  }
+
+  // Convert local wall-clock time in target timezone -> RFC3339 with UTC offset.
+  const utcDate = fromZonedTime(trimmed, timeZone);
+  return formatInTimeZone(utcDate, timeZone, "yyyy-MM-dd'T'HH:mm:ssXXX");
 }
 
 /**
@@ -522,11 +591,72 @@ const ALWAYS_BLOCKED = new Set([
 ]);
 
 /**
+ * Split a CLI command string into argv-like parts while preserving quoted values.
+ * Supports single quotes, double quotes, and basic escaping inside quoted strings.
+ */
+function splitCommandArgs(command: string): string[] {
+  const tokens: string[] = [];
+  let current = '';
+  let quote: '"' | "'" | null = null;
+  let escaped = false;
+
+  for (const ch of command.trim()) {
+    if (escaped) {
+      current += ch;
+      escaped = false;
+      continue;
+    }
+
+    if (quote) {
+      if (ch === '\\') {
+        escaped = true;
+        continue;
+      }
+      if (ch === quote) {
+        quote = null;
+        continue;
+      }
+      current += ch;
+      continue;
+    }
+
+    if (ch === '"' || ch === "'") {
+      quote = ch;
+      continue;
+    }
+
+    if (/\s/.test(ch)) {
+      if (current.length > 0) {
+        tokens.push(current);
+        current = '';
+      }
+      continue;
+    }
+
+    current += ch;
+  }
+
+  if (escaped) {
+    current += '\\';
+  }
+
+  if (quote) {
+    throw new GogError(`Unterminated quote in command: ${command}`, 1, '');
+  }
+
+  if (current.length > 0) {
+    tokens.push(current);
+  }
+
+  return tokens;
+}
+
+/**
  * Execute a general gog command for the google_cli tool.
  * Write operations are allowed per-service according to ALLOWED_WRITE_SUBCOMMANDS.
  */
 export async function execGeneralCommand(command: string): Promise<string> {
-  const parts = command.trim().split(/\s+/);
+  const parts = splitCommandArgs(command);
   const topLevel = parts[0];
 
   if (!topLevel || !ALLOWED_COMMANDS.has(topLevel)) {

@@ -75,13 +75,26 @@ cleanupTimer.unref(); // Don't prevent process exit
  * If not, a new Chat is created with the provided systemPrompt, tools, and history.
  */
 export function getOrCreateSession(opts: CreateSessionOptions): Chat {
-  const existing = sessions.get(opts.sessionId);
-  if (existing) {
-    existing.lastActivity = Date.now();
-    return existing.chat;
-  }
-
   const model = opts.model || GEMINI_MODEL;
+
+  // Always rebuild the session with fresh config (system prompt + tools).
+  // The Gemini SDK's automaticFunctionCalling may not re-send tool
+  // declarations on subsequent sendMessage() calls within a cached Chat,
+  // causing the model to hallucinate tool use instead of actually calling them.
+  // Rebuilding per-message with carried-over history is safe and reliable.
+  const existing = sessions.get(opts.sessionId);
+  let history = opts.history || [];
+  if (existing) {
+    // Carry over conversation history from the previous session
+    try {
+      const existingHistory = existing.chat.getHistory();
+      if (existingHistory && existingHistory.length > 0) {
+        history = existingHistory;
+      }
+    } catch {
+      // getHistory() can throw if session is in a bad state — start fresh
+    }
+  }
 
   const config: GenerateContentConfig = {
     systemInstruction: opts.systemPrompt,
@@ -94,7 +107,7 @@ export function getOrCreateSession(opts: CreateSessionOptions): Chat {
   const chat = ai.chats.create({
     model,
     config,
-    history: opts.history || [],
+    history,
   });
 
   sessions.set(opts.sessionId, {
@@ -103,12 +116,20 @@ export function getOrCreateSession(opts: CreateSessionOptions): Chat {
     model,
   });
 
-  runtimeLog.info("Created new chat session", {
-    sessionId: opts.sessionId,
-    model,
-    historyLength: opts.history?.length || 0,
-    toolCount: Array.isArray(opts.tools) ? opts.tools.length : 0,
-  });
+  if (!existing) {
+    runtimeLog.info("Created new chat session", {
+      sessionId: opts.sessionId,
+      model,
+      historyLength: history.length,
+      toolCount: Array.isArray(opts.tools) ? opts.tools.length : 0,
+    });
+  } else {
+    runtimeLog.info("Rebuilt chat session with fresh config", {
+      sessionId: opts.sessionId,
+      model,
+      historyLength: history.length,
+    });
+  }
 
   return chat;
 }

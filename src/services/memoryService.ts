@@ -46,15 +46,22 @@ const KAYLEY_DAILY_NOTES_TABLE = 'kayley_daily_notes';
 const KAYLEY_MONTHLY_NOTES_TABLE = 'kayley_monthly_notes';
 const KAYLEY_LESSONS_LEARNED_TABLE = 'kayley_lessons_learned';
 const MILA_MILESTONE_NOTES_TABLE = 'mila_milestone_notes';
+const KAYLEY_EMAIL_ACTIONS_TABLE = 'kayley_email_actions';
 
 const lessonsLogger = clientLogger.scoped('LessonsLearned');
 const workspaceLogger = clientLogger.scoped('WorkspaceAction');
+const calendarToolLogger = clientLogger.scoped('CalendarTool');
 const TOOL_FAILURE_PREFIX = 'TOOL_FAILED:';
 
 // Default limits to prevent context overflow
 const DEFAULT_MEMORY_LIMIT = 5;
 const DEFAULT_RECENT_CONTEXT_COUNT = 6; // Last 3 exchanges (user + model)
 const CST_TIMEZONE = 'America/Chicago';
+const CALENDAR_DEFAULT_TIMEZONE = 'America/Chicago';
+const LOCAL_ISO_DATETIME_RE =
+  /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2}))?$/;
+const DATE_CUE_RE =
+  /\b(?:\d{4}-\d{1,2}-\d{1,2}|\d{1,2}\/\d{1,2}(?:\/\d{2,4})?|jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\b/i;
 
 // ============================================
 // Utility Functions
@@ -144,12 +151,120 @@ function getTodayUtcDateString(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
+function pad2(value: number): string {
+  return String(value).padStart(2, '0');
+}
+
+function formatLocalIsoDateTime(
+  year: number,
+  month: number,
+  day: number,
+  hour: number,
+  minute: number,
+  second = 0,
+): string {
+  return `${year}-${pad2(month)}-${pad2(day)}T${pad2(hour)}:${pad2(minute)}:${pad2(second)}`;
+}
+
+function normalizeCalendarTimeZone(timeZone?: string): string {
+  // Product requirement: calendar times are always interpreted in CST.
+  // Ignore caller-provided timezone values for deterministic behavior.
+  return CALENDAR_DEFAULT_TIMEZONE;
+}
+
+function formatDateAsLocalIsoInTimeZone(date: Date, timeZone: string): string {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  }).formatToParts(date);
+
+  const year = Number(parts.find((p) => p.type === 'year')?.value);
+  const month = Number(parts.find((p) => p.type === 'month')?.value);
+  const day = Number(parts.find((p) => p.type === 'day')?.value);
+  const hour = Number(parts.find((p) => p.type === 'hour')?.value);
+  const minute = Number(parts.find((p) => p.type === 'minute')?.value);
+  const second = Number(parts.find((p) => p.type === 'second')?.value);
+
+  if (
+    Number.isNaN(year) ||
+    Number.isNaN(month) ||
+    Number.isNaN(day) ||
+    Number.isNaN(hour) ||
+    Number.isNaN(minute) ||
+    Number.isNaN(second)
+  ) {
+    return date.toISOString().slice(0, 19);
+  }
+
+  return formatLocalIsoDateTime(year, month, day, hour, minute, second);
+}
+
+function normalizeExplicitCalendarDateTimeInput(raw: string, timeZone: string): string | null {
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+
+  const localIsoMatch = trimmed.match(LOCAL_ISO_DATETIME_RE);
+  if (localIsoMatch) {
+    const year = Number(localIsoMatch[1]);
+    const month = Number(localIsoMatch[2]);
+    const day = Number(localIsoMatch[3]);
+    const hour = Number(localIsoMatch[4]);
+    const minute = Number(localIsoMatch[5]);
+    const second = Number(localIsoMatch[6] ?? '0');
+    return formatLocalIsoDateTime(year, month, day, hour, minute, second);
+  }
+
+  if (DATE_CUE_RE.test(trimmed)) {
+    const parsedWithDateCue = new Date(trimmed);
+    if (!Number.isNaN(parsedWithDateCue.getTime())) {
+      return formatDateAsLocalIsoInTimeZone(parsedWithDateCue, timeZone);
+    }
+  }
+
+  return null;
+}
+
+function addMinutesToLocalIso(localIso: string, minutes: number): string | null {
+  const match = localIso.match(LOCAL_ISO_DATETIME_RE);
+  if (!match) return null;
+
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const hour = Number(match[4]);
+  const minute = Number(match[5]);
+  const second = Number(match[6] ?? '0');
+
+  const baseUtcMs = Date.UTC(year, month - 1, day, hour, minute, second);
+  const next = new Date(baseUtcMs + minutes * 60 * 1000);
+  return formatLocalIsoDateTime(
+    next.getUTCFullYear(),
+    next.getUTCMonth() + 1,
+    next.getUTCDate(),
+    next.getUTCHours(),
+    next.getUTCMinutes(),
+    next.getUTCSeconds(),
+  );
+}
+
 function normalizeMilaNoteInput(note: string): string {
   return note.replace(/^\s*-\s*/, '').trim();
 }
 
 function formatToolFailure(message: string): string {
   return `${TOOL_FAILURE_PREFIX} ${message}`;
+}
+
+function extractEmailAddress(raw: string): string {
+  const trimmed = raw.trim();
+  const match = trimmed.match(/<([^>]+)>/);
+  return (match?.[1] ?? trimmed).trim();
 }
 
 const PINNED_IDENTITY_KEYS = new Set(['name', 'nickname', 'pronouns']);
@@ -1209,6 +1324,7 @@ export type MemoryToolName =
   | 'delegate_to_engineering'
   | 'get_engineering_ticket_status'
   | 'submit_clarification'
+  | 'email_action'
   | 'recall_memory'
   | 'recall_user_info'
   | 'store_user_info'
@@ -1235,7 +1351,6 @@ export type MemoryToolName =
   | 'resolve_x_tweet'
   | 'post_x_tweet'
   | 'resolve_x_mention'
-  | 'gmail_search'
   | 'google_cli'
   | 'read_agent_file'
   | 'write_agent_file'
@@ -1315,6 +1430,14 @@ export interface ToolCallArgs {
     ticket_id: string;
     response: string;
   };
+  email_action: {
+    action: 'archive' | 'reply' | 'dismiss' | 'send';
+    message_id?: string;
+    thread_id?: string;
+    to?: string;
+    subject?: string;
+    reply_body?: string;
+  };
   recall_memory: {
     query: string;
     timeframe?: 'recent' | 'all';
@@ -1356,7 +1479,7 @@ export interface ToolCallArgs {
     priority?: 'low' | 'medium' | 'high';
   };
   calendar_action: {
-    action: 'create' | 'delete' | 'list';
+    action: 'create' | 'update' | 'delete' | 'list';
     summary?: string;
     start?: string;
     end?: string;
@@ -1462,10 +1585,6 @@ export interface ToolCallArgs {
     section: 'background' | 'interests' | 'relationships' | 'challenges' |
              'quirks' | 'goals' | 'preferences' | 'anecdotes' | 'routines' | 'full';
     reason?: string;
-  };
-  gmail_search: {
-    query: string;
-    max_results?: number;
   };
   google_cli: {
     command: string;
@@ -1897,6 +2016,107 @@ export const executeMemoryTool = async (
           ? `Clarification submitted for ticket ${clarifyArgs.ticket_id}. Opey will continue implementing.`
           : `Failed to submit clarification: ${result.error}`;
       }
+      case 'email_action': {
+        const {
+          action,
+          message_id,
+          to,
+          subject,
+          reply_body,
+        } = args as ToolCallArgs['email_action'];
+
+        const {
+          archiveEmail: gogArchiveEmail,
+          sendReply: gogSendReply,
+          sendEmail: gogSendEmail,
+        } = await import('../../server/services/gogService');
+
+        if (action === 'send') {
+          if (!to?.trim() || !subject?.trim() || !reply_body?.trim()) {
+            return formatToolFailure("email_action send requires to, subject, and reply_body.");
+          }
+
+          const success = await gogSendEmail(to.trim(), subject.trim(), reply_body.trim());
+          return success
+            ? sanitizeForGemini(`✓ Sent email to ${to.trim()} with subject "${subject.trim()}"`)
+            : formatToolFailure('Email send failed. No email was sent.');
+        }
+
+        if (!message_id?.trim()) {
+          return formatToolFailure(`email_action ${action} requires message_id.`);
+        }
+
+        let success = false;
+        if (action === 'archive') {
+          success = await gogArchiveEmail(message_id.trim());
+        } else if (action === 'reply') {
+          if (!reply_body?.trim()) {
+            return formatToolFailure('email_action reply requires reply_body.');
+          }
+
+          const { data: pendingRow } = await supabase
+            .from(KAYLEY_EMAIL_ACTIONS_TABLE)
+            .select('from_address, subject')
+            .eq('gmail_message_id', message_id.trim())
+            .eq('action_taken', 'pending')
+            .order('announced_at', { ascending: true })
+            .limit(1)
+            .maybeSingle();
+
+          const recipient = (to?.trim() || extractEmailAddress(pendingRow?.from_address || '')).trim();
+          const subjectLine = (subject?.trim() || pendingRow?.subject?.trim() || 'Re:').trim();
+          if (!recipient) {
+            return formatToolFailure('email_action reply could not determine recipient address.');
+          }
+
+          success = await gogSendReply(
+            message_id.trim(),
+            recipient,
+            subjectLine,
+            reply_body.trim(),
+          );
+        } else if (action === 'dismiss') {
+          success = true;
+        } else {
+          return formatToolFailure(`Unknown email_action: ${action}`);
+        }
+
+        if (!success) {
+          return formatToolFailure(`email_action ${action} failed for message ${message_id.trim()}.`);
+        }
+
+        const dbAction = action === 'dismiss' ? 'dismissed' : action;
+        const { data: pendingRow, error: pendingLookupError } = await supabase
+          .from(KAYLEY_EMAIL_ACTIONS_TABLE)
+          .select('id')
+          .eq('gmail_message_id', message_id.trim())
+          .eq('action_taken', 'pending')
+          .order('announced_at', { ascending: true })
+          .limit(1)
+          .maybeSingle();
+
+        if (pendingLookupError) {
+          console.warn('[Memory Tool] email_action pending row lookup failed', pendingLookupError);
+        }
+
+        if (pendingRow?.id) {
+          const { error: updateError } = await supabase
+            .from(KAYLEY_EMAIL_ACTIONS_TABLE)
+            .update({
+              action_taken: dbAction,
+              actioned_at: new Date().toISOString(),
+            })
+            .eq('id', pendingRow.id);
+
+          if (updateError) {
+            return formatToolFailure(
+              `Email ${action} succeeded but failed to update pending row: ${updateError.message}`
+            );
+          }
+        }
+
+        return sanitizeForGemini(`✓ Email action '${action}' completed.`);
+      }
       case 'recall_memory': {
         const { query, timeframe } = args as ToolCallArgs['recall_memory'];
         const memories = await searchMemories(query, DEFAULT_MEMORY_LIMIT, timeframe);
@@ -2116,23 +2336,230 @@ export const executeMemoryTool = async (
 
         switch (action) {
           case 'create': {
-            if (!summary || !start || !end) {
-              return 'Error: Calendar event requires summary, start, and end time.';
+            if (!summary || !start) {
+              return 'Error: Calendar event requires summary and start time.';
             }
 
+            let parserSource: 'deterministic' | 'gemini' = 'deterministic';
+            let geminiAttempted = false;
             try {
+              const resolvedTimeZone = normalizeCalendarTimeZone(timeZone);
+              calendarToolLogger.info('calendar_create_requested', {
+                summary,
+                startRaw: start,
+                endRaw: end ?? null,
+                resolvedTimeZone,
+                parser_source: parserSource,
+              });
+
+              let normalizedStart = normalizeExplicitCalendarDateTimeInput(start, resolvedTimeZone);
+              let normalizedEnd = end
+                ? normalizeExplicitCalendarDateTimeInput(end, resolvedTimeZone)
+                : (normalizedStart ? addMinutesToLocalIso(normalizedStart, 60) : null);
+
+              if (!normalizedStart || !normalizedEnd) {
+                geminiAttempted = true;
+                const { parseCalendarWindowWithGemini } = await import('../../server/services/ai/calendarTimeParser');
+                const llmParsed = await parseCalendarWindowWithGemini({
+                  summary,
+                  userMessage: context?.userMessage,
+                  startRaw: start,
+                  endRaw: end,
+                  timeZone: resolvedTimeZone,
+                });
+
+                if (llmParsed) {
+                  normalizedStart = llmParsed.start;
+                  normalizedEnd = llmParsed.end;
+                  parserSource = 'gemini';
+                  calendarToolLogger.info('calendar_create_parse_via_llm', {
+                    summary,
+                    normalizedStart,
+                    normalizedEnd,
+                    resolvedTimeZone,
+                    confidence: llmParsed.confidence,
+                    parser_source: parserSource,
+                  });
+                }
+              }
+
+              if (!normalizedStart) {
+                calendarToolLogger.warning('calendar_create_start_parse_failed', {
+                  summary,
+                  startRaw: start,
+                  endRaw: end ?? null,
+                  resolvedTimeZone,
+                  parser_source: parserSource,
+                  gemini_attempted: geminiAttempted,
+                });
+                return 'Error: Could not parse calendar start time. Please provide a clearer date/time.';
+              }
+              if (!normalizedEnd) {
+                calendarToolLogger.warning('calendar_create_end_parse_failed', {
+                  summary,
+                  startRaw: start,
+                  endRaw: end ?? null,
+                  resolvedTimeZone,
+                  parser_source: parserSource,
+                  gemini_attempted: geminiAttempted,
+                });
+                return 'Error: Could not parse calendar end time. Please provide a clearer date/time.';
+              }
+
+              // Guard against inverted/zero windows; default to a 1-hour event.
+              if (normalizedEnd <= normalizedStart) {
+                const plusOneHour = addMinutesToLocalIso(normalizedStart, 60);
+                if (plusOneHour) {
+                  normalizedEnd = plusOneHour;
+                }
+              }
+
               await gogCal.createCalendarEvent({
                 summary,
-                start,
-                end,
-                timeZone: timeZone || 'America/Chicago',
+                start: normalizedStart,
+                end: normalizedEnd,
+                timeZone: resolvedTimeZone,
+              });
+
+              calendarToolLogger.info('calendar_create_succeeded', {
+                summary,
+                normalizedStart,
+                normalizedEnd,
+                resolvedTimeZone,
+                parser_source: parserSource,
+                gemini_attempted: geminiAttempted,
+              });
+              _calendarMutationPending = true;
+              return sanitizeForGemini(`Created calendar event: "${summary}"`);
+            } catch (error) {
+              calendarToolLogger.error('calendar_create_failed', {
+                summary,
+                startRaw: start,
+                endRaw: end ?? null,
+                parser_source: parserSource,
+                gemini_attempted: geminiAttempted,
+                error: error instanceof Error ? error.message : String(error),
+              });
+              console.error('Calendar create error:', error);
+              return `Error creating calendar event: ${error instanceof Error ? error.message : 'Unknown error'}`;
+            }
+          }
+
+          case 'update': {
+            if (!event_id) {
+              return 'Error: event_id is required for calendar update.';
+            }
+            if (!summary && !start && !end) {
+              return 'Error: calendar update requires at least one field (summary, start, or end).';
+            }
+
+            let parserSource: 'deterministic' | 'gemini' = 'deterministic';
+            let geminiAttempted = false;
+
+            try {
+              const resolvedTimeZone = normalizeCalendarTimeZone(timeZone);
+              calendarToolLogger.info('calendar_update_requested', {
+                eventId: event_id,
+                summary: summary ?? null,
+                startRaw: start ?? null,
+                endRaw: end ?? null,
+                resolvedTimeZone,
+                parser_source: parserSource,
+              });
+
+              let normalizedStart = start
+                ? normalizeExplicitCalendarDateTimeInput(start, resolvedTimeZone)
+                : null;
+              let normalizedEnd = end
+                ? normalizeExplicitCalendarDateTimeInput(end, resolvedTimeZone)
+                : null;
+
+              if ((start && !normalizedStart) || (end && !normalizedEnd)) {
+                geminiAttempted = true;
+                const { parseCalendarWindowWithGemini } = await import('../../server/services/ai/calendarTimeParser');
+                const llmParsed = await parseCalendarWindowWithGemini({
+                  summary,
+                  userMessage: context?.userMessage,
+                  startRaw: start || end || '',
+                  endRaw: end,
+                  timeZone: resolvedTimeZone,
+                });
+
+                if (llmParsed) {
+                  parserSource = 'gemini';
+                  if (start && !normalizedStart) normalizedStart = llmParsed.start;
+                  if (end && !normalizedEnd) normalizedEnd = llmParsed.end;
+                  if (start && !end && !normalizedEnd) {
+                    normalizedEnd = addMinutesToLocalIso(normalizedStart || llmParsed.start, 60);
+                  }
+                  calendarToolLogger.info('calendar_update_parse_via_llm', {
+                    eventId: event_id,
+                    normalizedStart: normalizedStart ?? null,
+                    normalizedEnd: normalizedEnd ?? null,
+                    resolvedTimeZone,
+                    parser_source: parserSource,
+                    confidence: llmParsed.confidence,
+                  });
+                }
+              }
+
+              if (start && !normalizedStart) {
+                calendarToolLogger.warning('calendar_update_start_parse_failed', {
+                  eventId: event_id,
+                  startRaw: start,
+                  endRaw: end ?? null,
+                  resolvedTimeZone,
+                  parser_source: parserSource,
+                  gemini_attempted: geminiAttempted,
+                });
+                return 'Error: Could not parse calendar update start time. Please provide a clearer date/time.';
+              }
+              if (end && !normalizedEnd) {
+                calendarToolLogger.warning('calendar_update_end_parse_failed', {
+                  eventId: event_id,
+                  startRaw: start ?? null,
+                  endRaw: end,
+                  resolvedTimeZone,
+                  parser_source: parserSource,
+                  gemini_attempted: geminiAttempted,
+                });
+                return 'Error: Could not parse calendar update end time. Please provide a clearer date/time.';
+              }
+
+              const updated = await gogCal.updateCalendarEvent({
+                eventId: event_id,
+                summary: summary || undefined,
+                start: normalizedStart || undefined,
+                end: normalizedEnd || undefined,
+              });
+
+              if (!updated) {
+                return 'Error updating calendar event: command failed.';
+              }
+
+              calendarToolLogger.info('calendar_update_succeeded', {
+                eventId: event_id,
+                summary: summary ?? null,
+                normalizedStart: normalizedStart ?? null,
+                normalizedEnd: normalizedEnd ?? null,
+                resolvedTimeZone,
+                parser_source: parserSource,
+                gemini_attempted: geminiAttempted,
               });
 
               _calendarMutationPending = true;
-              return sanitizeForGemini(`✓ Created calendar event: "${summary}"`);
+              return sanitizeForGemini(`Updated calendar event: "${event_id}"`);
             } catch (error) {
-              console.error('Calendar create error:', error);
-              return `Error creating calendar event: ${error instanceof Error ? error.message : 'Unknown error'}`;
+              calendarToolLogger.error('calendar_update_failed', {
+                eventId: event_id,
+                summary: summary ?? null,
+                startRaw: start ?? null,
+                endRaw: end ?? null,
+                parser_source: parserSource,
+                gemini_attempted: geminiAttempted,
+                error: error instanceof Error ? error.message : String(error),
+              });
+              return `Error updating calendar event: ${error instanceof Error ? error.message : 'Unknown error'}`;
             }
           }
 
@@ -2683,23 +3110,6 @@ export const executeMemoryTool = async (
         }
 
         return `Unknown resolve_x_mention status: ${status}`;
-      }
-      case 'gmail_search': {
-        const { query, max_results } = args as ToolCallArgs['gmail_search'];
-        try {
-          const { searchEmails } = await import('../../server/services/gogService');
-          const results = await searchEmails(query, max_results ?? 5);
-          if (results.length === 0) {
-            return 'No emails found matching that search.';
-          }
-          return results.map((r, i) =>
-            `[${i + 1}] From: ${r.from} | Subject: ${r.subject} | Date: ${r.date}\n` +
-            `    Snippet: ${r.snippet}` +
-            (r.body ? `\n    Body: ${r.body}` : '')
-          ).join('\n\n');
-        } catch (err) {
-          return formatToolFailure(`Gmail search failed: ${err instanceof Error ? err.message : String(err)}`);
-        }
       }
       case 'google_cli': {
         const { command } = args as ToolCallArgs['google_cli'];

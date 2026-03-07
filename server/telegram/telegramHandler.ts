@@ -40,6 +40,8 @@ import path from 'path';
 const LOG_PREFIX = '[Telegram]';
 const runtimeLog = log.fromContext({ source: 'telegramHandler', route: 'telegram/handler' });
 const TYPING_INDICATOR_INTERVAL_MS = 4500;
+const INBOUND_DEDUPE_TTL_MS = 10 * 60 * 1000;
+const processedInboundMessageKeys = new Map<string, number>();
 
 // ============================================================================
 // AUTO-ARCHIVE CONFIRMATION STATE
@@ -72,6 +74,14 @@ function startTypingIndicator(chatId: number): () => void {
     stopped = true;
     clearInterval(timer);
   };
+}
+
+function pruneInboundMessageCache(nowMs: number): void {
+  for (const [key, timestamp] of processedInboundMessageKeys.entries()) {
+    if (nowMs - timestamp > INBOUND_DEDUPE_TTL_MS) {
+      processedInboundMessageKeys.delete(key);
+    }
+  }
 }
 
 // ============================================================================
@@ -442,7 +452,9 @@ async function loadPendingEmailFromDB(): Promise<{ row: PendingEmailRow; email: 
     .select('id, gmail_message_id, gmail_thread_id, from_address, subject')
     .eq('action_taken', 'pending')
     .not('whatsapp_sent_at', 'is', null) // column name unchanged — just a "messenger_sent_at"
-    .order('announced_at', { ascending: true })
+    // Use most-recent messenger-forwarded pending email so replies map to the
+    // last email Kayley surfaced in chat, not an old stale pending row.
+    .order('whatsapp_sent_at', { ascending: false })
     .limit(1)
     .single();
 
@@ -572,7 +584,49 @@ async function executeTelegramEmailAction(
 
 export async function handleTelegramMessage(ctx: Context): Promise<void> {
   const chatId = ctx.chat!.id;
-  const messageId = `${chatId}_${Date.now()}`;
+  const nowMs = Date.now();
+  const inboundMessageId = (ctx.message as any)?.message_id;
+  const inboundKey =
+    typeof inboundMessageId === 'number'
+      ? `tg:${chatId}:${inboundMessageId}`
+      : null;
+  const messageId = inboundKey ?? `${chatId}_${nowMs}`;
+
+  pruneInboundMessageCache(nowMs);
+  if (inboundKey) {
+    const firstSeenAt = processedInboundMessageKeys.get(inboundKey);
+    if (typeof firstSeenAt === 'number' && nowMs - firstSeenAt < INBOUND_DEDUPE_TTL_MS) {
+      runtimeLog.warning('Skipping duplicate Telegram inbound message', {
+        source: 'telegramHandler',
+        chatId,
+        messageId,
+        inboundMessageId,
+        ageMs: nowMs - firstSeenAt,
+      });
+      runtimeLog.info('model_turn_trace', {
+        source: 'telegramHandler',
+        requestId: messageId,
+        conversationLogId: null,
+        channel: 'telegram',
+        turnType: 'transport_duplicate_skipped',
+        retryAttempt: 0,
+        hasText: false,
+        textLength: 0,
+        transportDuplicateSkipped: true,
+        pseudoToolKeys: [],
+        toolUsePromptTokenCount: null,
+        thoughtsTokenCount: null,
+        promptTokenCount: null,
+        candidatesTokenCount: null,
+        totalTokenCount: null,
+        inboundMessageId,
+        ageMs: nowMs - firstSeenAt,
+      });
+      return;
+    }
+    processedInboundMessageKeys.set(inboundKey, nowMs);
+  }
+
   const stopTyping = startTypingIndicator(chatId);
 
   runtimeLog.info('Telegram message handler invoked', {
@@ -671,6 +725,10 @@ export async function handleTelegramMessage(ctx: Context): Promise<void> {
     await sendOrchestratorResult(chatId, result);
 
   } catch (error) {
+    if (inboundKey) {
+      // If processing failed, allow Telegram retries for this update id.
+      processedInboundMessageKeys.delete(inboundKey);
+    }
     runtimeLog.error('Message processing failed', {
       source: 'telegramHandler',
       messageId,

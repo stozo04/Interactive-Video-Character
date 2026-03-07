@@ -98,7 +98,7 @@ export interface OrchestratorInput {
   /**
    * The email Kayley is currently waiting on Steven to decide about.
    * When set, the orchestrator injects email context into the user message
-   * so the AI can output an email_action in its response.
+   * so the AI can call the email_action FUNCTION TOOL when needed.
    */
   pendingEmail?: NewEmailPayload | null;
 }
@@ -355,6 +355,5 @@ export function determineActionType(response: AIActionResponse): ActionType {
   if (response.selfie_action) return ActionType.SELFIE;
   if ((response as any).video_action) return ActionType.VIDEO;
   if ((response as any).gif_action) return ActionType.GIF;
-  if ((response as any).email_action) return ActionType.EMAIL;
   return ActionType.NONE;
 }

@@ -36,7 +36,14 @@ export function getActiveSock(): WASocket | null { return _activeSock; }
 export function isWhatsAppConnected(): boolean { return _isConnected; }
 
 export async function startWhatsAppClient(
-    onMessage: (sock: WASocket, text: string, jid: string, replyJid: string, userContent?: UserContent) => Promise<void>
+    onMessage: (
+        sock: WASocket,
+        text: string,
+        jid: string,
+        replyJid: string,
+        userContent?: UserContent,
+        inboundMessageId?: string
+    ) => Promise<void>
 ) {
     const { state, saveCreds } = await useMultiFileAuthState(AUTH_DIR);
     const browserDescription = Browsers.windows("Chrome");
@@ -434,7 +441,14 @@ export async function startWhatsAppClient(
                             hasUserContent: !!userContent,
                         });
 
-                        await onMessage(sock, text, remoteJid, remoteJid, userContent || undefined);
+                        await onMessage(
+                            sock,
+                            text,
+                            remoteJid,
+                            remoteJid,
+                            userContent || undefined,
+                            m.key.id || undefined
+                        );
                     } catch (messageError) {
                         runtimeLog.error("Failed to process WhatsApp message", {
                             source: "baileysClient",

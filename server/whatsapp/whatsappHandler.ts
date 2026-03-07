@@ -26,6 +26,7 @@ import {
 import fs from "fs";
 import path from "path";
 const LOG_PREFIX = "[WhatsApp]";
+const INBOUND_DEDUPE_TTL_MS = 10 * 60 * 1000;
 
 // ============================================================================
 // AUTO-ARCHIVE CONFIRMATION STATE
@@ -36,6 +37,15 @@ const LOG_PREFIX = "[WhatsApp]";
 let pendingAutoArchiveConfirm: { email: string; name: string } | null = null;
 const runtimeLog = log.fromContext({ source: "whatsappHandler", route: "whatsapp/handler" });
 const TYPING_INDICATOR_INTERVAL_MS = 4500;
+const processedInboundMessageKeys = new Map<string, number>();
+
+function pruneInboundMessageCache(nowMs: number): void {
+  for (const [key, timestamp] of processedInboundMessageKeys.entries()) {
+    if (nowMs - timestamp > INBOUND_DEDUPE_TTL_MS) {
+      processedInboundMessageKeys.delete(key);
+    }
+  }
+}
 
 async function sendTypingState(sock: WASocket, jid: string, state: "composing" | "paused"): Promise<void> {
   try {
@@ -542,7 +552,7 @@ async function sendAndTrack(
 }
 
 // ==========================================================================
-// PENDING EMAIL: Load oldest pending email that has been forwarded to WA
+// PENDING EMAIL: Load most-recent pending email that has been forwarded to WA
 // ==========================================================================
 
 interface PendingEmailRow {
@@ -559,7 +569,8 @@ async function loadPendingEmailFromDB(): Promise<{ row: PendingEmailRow; email: 
     .select('id, gmail_message_id, gmail_thread_id, from_address, subject')
     .eq('action_taken', 'pending')
     .not('whatsapp_sent_at', 'is', null)  // must have been sent to WA already
-    .order('announced_at', { ascending: true })
+    // Prefer the latest surfaced pending email to avoid acting on stale rows.
+    .order('whatsapp_sent_at', { ascending: false })
     .limit(1)
     .single();
 
@@ -702,9 +713,48 @@ export async function handleWhatsAppMessage(
   text: string,
   jid: string,
   replyJid: string,
-  userContent?: UserContent
+  userContent?: UserContent,
+  inboundMessageId?: string
 ): Promise<void> {
-  const messageId = `${jid}_${Date.now()}`;
+  const nowMs = Date.now();
+  const inboundKey = inboundMessageId ? `wa:${jid}:${inboundMessageId}` : null;
+  const messageId = inboundKey ?? `${jid}_${nowMs}`;
+
+  pruneInboundMessageCache(nowMs);
+  if (inboundKey) {
+    const firstSeenAt = processedInboundMessageKeys.get(inboundKey);
+    if (typeof firstSeenAt === "number" && nowMs - firstSeenAt < INBOUND_DEDUPE_TTL_MS) {
+      runtimeLog.warning("Skipping duplicate WhatsApp inbound message", {
+        source: "whatsappHandler",
+        messageId,
+        jid,
+        inboundMessageId,
+        ageMs: nowMs - firstSeenAt,
+      });
+      runtimeLog.info("model_turn_trace", {
+        source: "whatsappHandler",
+        requestId: messageId,
+        conversationLogId: null,
+        channel: "whatsapp",
+        turnType: "transport_duplicate_skipped",
+        retryAttempt: 0,
+        hasText: false,
+        textLength: 0,
+        transportDuplicateSkipped: true,
+        pseudoToolKeys: [],
+        toolUsePromptTokenCount: null,
+        thoughtsTokenCount: null,
+        promptTokenCount: null,
+        candidatesTokenCount: null,
+        totalTokenCount: null,
+        inboundMessageId,
+        ageMs: nowMs - firstSeenAt,
+      });
+      return;
+    }
+    processedInboundMessageKeys.set(inboundKey, nowMs);
+  }
+
   const stopTyping = startTypingIndicator(sock, replyJid);
 
   runtimeLog.info("WhatsApp message handler invoked", {
@@ -712,6 +762,7 @@ export async function handleWhatsAppMessage(
     messageId,
     jid,
     replyJid,
+    inboundMessageId: inboundMessageId ?? null,
     textLength: text.length,
     textPreview: text.substring(0, 60),
     hasUserContent: !!userContent,
@@ -865,6 +916,10 @@ export async function handleWhatsAppMessage(
 
     await sendOrchestratorResult(sock, replyJid, result);
   } catch (error) {
+    if (inboundKey) {
+      // If processing failed, allow transport retries to process the same message id again.
+      processedInboundMessageKeys.delete(inboundKey);
+    }
     runtimeLog.error("Message processing failed with exception", {
       source: "whatsappHandler",
       messageId,

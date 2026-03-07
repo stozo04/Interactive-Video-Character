@@ -316,7 +316,11 @@ async function pollGmail(): Promise<number> {
 
   try {
     // Search for recent inbox emails (last 2 minutes to cover polling gaps)
-    const results = await searchEmails('newer_than:2m in:inbox', 10);
+    // Exclude Promotions, Social, and Updates categories to reduce notification spam
+    const results = await searchEmails(
+      'newer_than:2m in:inbox -category:promotions -category:social -category:updates',
+      10,
+    );
 
     runtimeLog.info('Poll results', {
       source: 'gmailPoller',
