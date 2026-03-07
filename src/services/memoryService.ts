@@ -2164,12 +2164,6 @@ export const executeMemoryTool = async (
           return `Skipped transient fact: ${key}`;
         }
         const success = await storeUserFact(category, canonicalKey, value);
-        if (success) {
-          // Invalidate synthesis so next idle tick regenerates with new fact
-          import('./contextSynthesisService').then(m => m.invalidateSynthesis()).catch(err =>
-            memoryToolLog.error('Synthesis invalidation failed', { error: err instanceof Error ? err.message : String(err) })
-          );
-        }
         return success
           ? `✓ Stored: ${canonicalKey} = "${value}"`
           : `Failed to store information.`;
@@ -2202,11 +2196,6 @@ export const executeMemoryTool = async (
         const { note } = args as ToolCallArgs['mila_note'];
         memoryToolLog.info('Storing Mila milestone note');
         const success = await appendMilaMilestoneNote(note);
-        if (success) {
-          import('./contextSynthesisService').then(m => m.invalidateSynthesis()).catch(err =>
-            memoryToolLog.error('Synthesis invalidation failed', { error: err instanceof Error ? err.message : String(err) })
-          );
-        }
         return success
           ? 'Mila milestone note stored.'
           : 'Failed to store Mila milestone note.';

@@ -59,13 +59,11 @@ import {
   buildXTweetPromptSection,
 } from "../../idleThinkingService";
 import { buildMentionsPromptSection } from "../../xMentionService";
-import { buildSynthesisPromptSection } from "../../contextSynthesisService";
 import { buildTopicSuppressionPromptSection } from "../../topicExhaustionService";
 import { buildConversationAnchorPromptSection } from "../../conversationAnchorService";
 import { buildActiveRecallPromptSection } from "../../activeRecallService";
 import { clientLogger } from "../../clientLogger";
 
-const USE_CONTEXT_SYNTHESIS = true;
 const MAX_DAILY_NOTES_IN_PROMPT = 25;
 const MAX_DAILY_NOTE_LINE_LENGTH = 180;
 const MAX_LESSONS_LEARNED_IN_PROMPT = 20;
@@ -100,14 +98,6 @@ export interface GreetingContext {
   /** Kayley's recent life updates from storylines */
   kayleyLifeUpdates?: KayleyLifeUpdate[];
 }
-/**
- * 
- * ${synthesisSection}
-${almostMoments.promptSection}
-${topicSuppressionPrompt}
-${idleBrowseNotesPrompt}
-${toolSuggestionsPrompt}
- */
 export const buildSystemPromptForNonGreeting = async (
   relationship?: RelationshipMetrics | null,
   upcomingEvents: any[] = [],
@@ -124,14 +114,16 @@ export const buildSystemPromptForNonGreeting = async (
     xMentionsPrompt,
     scheduledDigestsPrompt,
     lessonsLearnedPrompt,
-    topicSuppressionPrompt, 
-    anchorSection, 
-    activeRecallSection, 
+    topicSuppressionPrompt,
+    anchorSection,
+    activeRecallSection,
     almostMoments,
-    synthesisSection,
     currentWorldContext,
     storylinePromptContext,
-    promisesContext
+    promisesContext,
+    pinnedFactsPrompt,
+    characterFactsPrompt,
+    curiositySection,
   ] = await Promise.all([
     buildIdleQuestionPromptSection(),
     buildXTweetPromptSection(),
@@ -147,22 +139,28 @@ export const buildSystemPromptForNonGreeting = async (
       vulnerabilityExchangeActive: false,
       allowGeneration: false,
     }),
-    buildSynthesisPromptSection(),
     buildCurrentWorldContext(),
     getStorylinePromptContext(messageCount),
-    buildPromisesContext()
+    buildPromisesContext(),
+    buildPinnedFactsPromptSection(),
+    buildCharacterFactsPromptSection(),
+    buildCuriositySection(),
   ]);
 
 
     let prompt = `
 ${injectSOUL()}
 ${injectIDENTITY()}
+${injectUSER()}
+${injectMEMORY()}
+${pinnedFactsPrompt}
+${characterFactsPrompt}
+${curiositySection}
 ${buildAntiAssistantSection()}
 ${injectSAFETY()}
 ${buildAgentFilesSection()}
 ${currentWorldContext}
 ${anchorSection}
-${synthesisSection}
 ${activeRecallSection}
 ${xTweetPrompt}
 ${xMentionsPrompt}
@@ -578,6 +576,18 @@ ${omittedFactsSummary}
 
 ${answeredIdleQuestionsPrompt} 
 `;
+}
+
+export async function buildCharacterFactsPromptSection(): Promise<string> {
+  const formatted = await formatCharacterFactsForPrompt();
+  if (!formatted) return "";
+  return `
+====================================================
+WHO YOU ARE (Learned Facts About Yourself)
+====================================================
+These are facts you have shared or established about yourself across conversations. Stay consistent with them.
+${formatted}
+`.trim();
 }
 
 function truncateFactValue(value: string, maxLen: number): string {

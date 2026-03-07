@@ -25,7 +25,6 @@ const TABLES = {
 } as const;
 
 const DAILY_CAP = 3;
-const SYNTHESIS_DAILY_CAP = 4;
 const TOOL_DISCOVERY_DAILY_CAP = 1;
 const X_POST_DAILY_CAP = 1;
 const X_MENTION_POLL_DAILY_CAP = 5;
@@ -39,8 +38,8 @@ const MAX_ANSWERED_IDLE_QUESTION_LENGTH = 1;
 const MAX_ANSWERED_IDLE_ANSWER_LENGTH = 1;
 const LOG_PREFIX = "[IdleThinking]";
 
-// export type IdleActionType = "storyline" | "browse" | "question" | "tool_discovery" | "x_post" | "x_mention_poll" | "synthesis";
-export type IdleActionType = "x_post" | "x_mention_poll" | "synthesis";
+// export type IdleActionType = "storyline" | "browse" | "question" | "tool_discovery" | "x_post" | "x_mention_poll";
+export type IdleActionType = "x_post" | "x_mention_poll";
 export type IdleQuestionStatus = "queued" | "asked" | "answered";
 
 export interface IdleQuestion {
@@ -76,7 +75,6 @@ function getAIClient(): GoogleGenAI {
 }
 
 function getDailyCap(actionType: IdleActionType): number {
-  if (actionType === "synthesis") return SYNTHESIS_DAILY_CAP;
   // if (actionType === "tool_discovery") return TOOL_DISCOVERY_DAILY_CAP;
   if (actionType === "x_post") return X_POST_DAILY_CAP;
   if (actionType === "x_mention_poll") return X_MENTION_POLL_DAILY_CAP;
@@ -91,30 +89,7 @@ export async function runIdleThinkingTick(options?: {
   allowToolDiscovery?: boolean;
   allowXPost?: boolean;
   allowXMentionPoll?: boolean;
-  allowSynthesis?: boolean;
 }): Promise<{ action?: IdleActionType; skipped?: boolean; reason?: string }> {
-
-  // Priority check: if synthesis is stale and allowed, run it first
-  if (options?.allowSynthesis !== false) {
-    const canSynthesize = await canRunAction("synthesis");
-    if (canSynthesize) {
-      try {
-        const { isSynthesisStale } = await import("./contextSynthesisService");
-        const stale = await isSynthesisStale();
-        if (stale) {
-          console.log(`${LOG_PREFIX} Synthesis is stale, prioritizing`);
-          const success = await runSynthesisAction();
-          if (success) {
-            await recordActionRun("synthesis");
-            console.log(`${LOG_PREFIX} Priority synthesis completed`);
-            return { action: "synthesis" };
-          }
-        }
-      } catch (err) {
-        console.error(`${LOG_PREFIX} Synthesis priority check failed`, { err });
-      }
-    }
-  }
 
   const candidateActions: IdleActionType[] = [];
   // if (options?.allowStoryline !== false) candidateActions.push("storyline");
@@ -164,9 +139,6 @@ export async function runIdleThinkingTick(options?: {
       break;
     case "x_mention_poll":
       success = await runXMentionPollAction();
-      break;
-    case "synthesis":
-      success = await runSynthesisAction();
       break;
   }
 
@@ -269,26 +241,6 @@ async function recordActionRun(actionType: IdleActionType): Promise<void> {
 
 
 
-
-//#region  SY7NTHESIS
-
-async function runSynthesisAction(): Promise<boolean> {
-  try {
-    console.log(`${LOG_PREFIX} Running synthesis action`);
-    const { generateSynthesis } = await import("./contextSynthesisService");
-    const { decayOldMentions } = await import("./topicExhaustionService");
-
-    // Housekeeping: decay old topic mentions before regenerating
-    await decayOldMentions();
-
-    const result = await generateSynthesis();
-    return !!result;
-  } catch (error) {
-    console.error(`${LOG_PREFIX} Synthesis action failed`, { error });
-    return false;
-  }
-}
-//#endregion
 
 //#region  QUESTIONS
 

@@ -2149,7 +2149,7 @@ export const GeminiMemoryToolDeclarations = [
       "ONLY SELECT queries are allowed — no INSERT, UPDATE, DELETE, DROP, or ALTER. " +
       "Results are limited to 50 rows. " +
       "Limit: 1-2 queries per conversation turn, not on every turn. " +
-      "Available tables: character_facts, context_synthesis, conversation_anchor, " +
+      "Available tables: character_facts, conversation_anchor, " +
       "conversation_history, kayley_daily_notes, kayley_lessons_learned, " +
       "kayley_monthly_notes, life_storylines, promises, user_facts, user_patterns, google_tasks_index",
     parameters: {
