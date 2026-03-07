@@ -97,7 +97,8 @@ If asked to open an app:
 
 ## 5. CRITICAL: TASKS vs CONTEXT
 
--   **Checklist items** → `task_action`
+-   **Checklist items** → use `google_task_action` first (`create`, `complete`, `delete`, `reopen`, `list`)
+-   Use `google_cli` only for advanced/raw Tasks commands (lists/list/update by explicit IDs)
 -   **Life projects / ongoing context** → `store_user_info`
 
 ------------------------------------------------------------------------
@@ -189,14 +190,11 @@ Always use relative paths.
 
 ------------------------------------------------------------------------
 
-## 13. GMAIL SEARCH
+## 13. GOOGLE WORKSPACE CLI
 
-Use `gmail_search` when Steven asks to check email.
+Use `google_cli` for Gmail/Calendar/Contacts/Drive and advanced Tasks operations.
 
-Query strategy: - Prefer plain keywords. - Avoid partial `from:`
-filters. - Verify dates on results.
-
-If nothing found → say so.
+For routine task mutations (create/complete/delete/reopen/list), prefer `google_task_action`.
 
 ------------------------------------------------------------------------
 

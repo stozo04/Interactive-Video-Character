@@ -11,7 +11,7 @@
 // backward compatibility but will be deprecated once all clients use /agent/*.
 
 import type { Part } from "@google/genai";
-import type { ChatMessage, Task } from "../../../src/types";
+import type { ChatMessage } from "../../../src/types";
 import type {
   IAIChatService,
   AIChatSession,
@@ -48,7 +48,6 @@ import {
 import { generateSpeech } from "../../../src/services/elevenLabsService";
 import { getImportantDateFacts } from "../../../src/services/memoryService";
 import * as relationshipService from "../../../src/services/relationshipService";
-import * as taskService from "../../../src/services/taskService";
 // calendarService removed — calendar now accessed via gogcli tools on demand
 import { recordAlmostMoment } from "../../../src/services/almostMomentsService";
 import { getKayleyPresenceState } from "../../../src/services/kayleyPresenceService";
@@ -310,13 +309,11 @@ export class ServerGeminiService implements IAIChatService {
   private async fetchUserContext(): Promise<{
     relationship: RelationshipMetrics | null;
     upcomingEvents: CalendarEvent[];
-    tasks: Task[];
     characterContext: string;
   }> {
-    const [relationshipData, tasksData, characterContext, lastInteractionAt] =
+    const [relationshipData, characterContext, lastInteractionAt] =
       await Promise.all([
         relationshipService.getRelationship(),
-        taskService.fetchTasks(),
         this.buildCharacterContext(),
         getLastInteractionDate(),
       ]);
@@ -329,7 +326,7 @@ export class ServerGeminiService implements IAIChatService {
     // No longer pre-loaded into system prompt context.
     const upcomingEvents: CalendarEvent[] = [];
 
-    return { relationship: relationshipData, upcomingEvents, tasks: tasksData, characterContext };
+    return { relationship: relationshipData, upcomingEvents, characterContext };
   }
 
   private async buildCharacterContext(): Promise<string> {
@@ -543,10 +540,6 @@ export class ServerGeminiService implements IAIChatService {
       getImportantDateFacts(),
     ]);
 
-    const incompleteTasks = (ctx.tasks || []).filter(
-      (t) => !t.completed && t.priority === "high",
-    );
-
     const greetingContext: DailyLogisticsContext = {
       chatHistory: [],
       lastInteractionDateUtc: ctx.relationship?.lastInteractionAt ?? new Date(),
@@ -554,7 +547,6 @@ export class ServerGeminiService implements IAIChatService {
         key: f.fact_key,
         value: f.fact_value,
       })),
-      tasks: incompleteTasks,
       upcomingEvents: ctx.upcomingEvents,
       pastCalendarEvents: [],
       kayleyLifeUpdates: [],

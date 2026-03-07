@@ -36,11 +36,13 @@ import sharp from 'sharp';
 import { spawnSync } from 'node:child_process';
 import fs from 'fs';
 import path from 'path';
+import { NewEmailPayload } from '../../src/types';
 
 const LOG_PREFIX = '[Telegram]';
 const runtimeLog = log.fromContext({ source: 'telegramHandler', route: 'telegram/handler' });
 const TYPING_INDICATOR_INTERVAL_MS = 4500;
 const INBOUND_DEDUPE_TTL_MS = 10 * 60 * 1000;
+const TELEGRAM_PHOTO_MAX_BYTES = 9 * 1024 * 1024; // keep below Telegram photo size limits
 const processedInboundMessageKeys = new Map<string, number>();
 
 // ============================================================================
@@ -98,6 +100,48 @@ async function downloadTelegramFile(fileId: string): Promise<Buffer> {
   }
   const arrayBuffer = await response.arrayBuffer();
   return Buffer.from(arrayBuffer);
+}
+
+function decodeBase64Image(rawBase64: string): Buffer {
+  const trimmed = rawBase64.trim();
+  const commaIndex = trimmed.indexOf(',');
+  const normalized =
+    trimmed.startsWith('data:') && commaIndex >= 0
+      ? trimmed.slice(commaIndex + 1)
+      : trimmed;
+  return Buffer.from(normalized, 'base64');
+}
+
+function pickSelfieFilename(mimeType?: string | null): string {
+  const normalized = String(mimeType || '').toLowerCase();
+  if (normalized.includes('png')) return 'selfie.png';
+  if (normalized.includes('webp')) return 'selfie.webp';
+  return 'selfie.jpg';
+}
+
+async function makeTelegramPhotoBuffer(
+  originalBuffer: Buffer,
+): Promise<{ buffer: Buffer; compressed: boolean }> {
+  if (originalBuffer.length <= TELEGRAM_PHOTO_MAX_BYTES) {
+    return { buffer: originalBuffer, compressed: false };
+  }
+
+  // Telegram photo uploads can reject large images; downscale/compress proactively.
+  const firstPass = await sharp(originalBuffer)
+    .rotate()
+    .resize({ width: 1600, height: 1600, fit: 'inside', withoutEnlargement: true })
+    .jpeg({ quality: 82, mozjpeg: true })
+    .toBuffer();
+
+  if (firstPass.length <= TELEGRAM_PHOTO_MAX_BYTES) {
+    return { buffer: firstPass, compressed: true };
+  }
+
+  const secondPass = await sharp(firstPass)
+    .jpeg({ quality: 70, mozjpeg: true })
+    .toBuffer();
+
+  return { buffer: secondPass, compressed: true };
 }
 
 async function extractVideoFrameBuffer(fileId: string): Promise<Buffer | null> {
@@ -363,14 +407,50 @@ async function sendOrchestratorResult(chatId: number, result: OrchestratorResult
       const safeScene = result.selfieMessageText
         ? result.selfieMessageText.substring(0, 30).replace(/[^a-z0-9]/gi, '_').toLowerCase()
         : 'selfie';
-      const filePath = path.join(selfiesDir, `selfie_${timestamp}_${safeScene}.jpg`);
-      const fileBuffer = Buffer.from(result.selfieImage.base64, 'base64');
-      fs.writeFileSync(filePath, fileBuffer);
+      const originalBuffer = decodeBase64Image(result.selfieImage.base64);
+      const filename = pickSelfieFilename(result.selfieImage.mimeType);
+      const filePath = path.join(selfiesDir, `selfie_${timestamp}_${safeScene}_${filename}`);
+      fs.writeFileSync(filePath, originalBuffer);
       console.log(`${LOG_PREFIX} [SELFIE] Saved ${filePath}`);
-
-      await bot.api.sendPhoto(chatId, new InputFile(fileBuffer, 'selfie.jpg'), {
-        caption: result.selfieMessageText || undefined,
+      runtimeLog.info('Preparing selfie for Telegram send', {
+        source: 'telegramHandler',
+        chatId,
+        mimeType: result.selfieImage.mimeType || null,
+        originalBytes: originalBuffer.length,
       });
+
+      const prepared = await makeTelegramPhotoBuffer(originalBuffer);
+
+      try {
+        await bot.api.sendPhoto(chatId, new InputFile(prepared.buffer, 'selfie.jpg'), {
+          caption: result.selfieMessageText || undefined,
+        });
+        runtimeLog.info('Selfie sent as photo', {
+          source: 'telegramHandler',
+          chatId,
+          compressed: prepared.compressed,
+          sentBytes: prepared.buffer.length,
+          originalBytes: originalBuffer.length,
+        });
+      } catch (photoErr) {
+        runtimeLog.warning('sendPhoto failed; falling back to sendDocument', {
+          source: 'telegramHandler',
+          chatId,
+          error: photoErr instanceof Error ? photoErr.message : String(photoErr),
+          originalBytes: originalBuffer.length,
+          sentBytes: prepared.buffer.length,
+        });
+
+        await bot.api.sendDocument(chatId, new InputFile(originalBuffer, filename), {
+          caption: result.selfieMessageText || undefined,
+        });
+        runtimeLog.info('Selfie sent as document fallback', {
+          source: 'telegramHandler',
+          chatId,
+          originalBytes: originalBuffer.length,
+          filename,
+        });
+      }
     } catch (err) {
       runtimeLog.error('Failed to send selfie', {
         source: 'telegramHandler',
@@ -688,10 +768,7 @@ export async function handleTelegramMessage(ctx: Context): Promise<void> {
       userContent,
       aiService: serverGeminiService,
       session,
-      accessToken: undefined,
       chatHistory,
-      upcomingEvents: [],
-      tasks: [],
       isMuted: true,
       pendingEmail: pendingEmailData?.email ?? null,
     });

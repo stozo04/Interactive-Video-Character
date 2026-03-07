@@ -60,7 +60,8 @@ export function buildToolStrategySection(): string {
    - Teams: msteams:     | Outlook: outlook: | Terminal: wt:
 
 5. CRITICAL: TASKS vs. CONTEXT:
-   - Checklist items ("Buy milk") → 'task_action'
+   - Checklist items ("Buy milk") → use 'google_task_action' first
+   - Use 'google_cli' for advanced/raw task-list operations only
    - Life Projects ("I'm building an app") → 'store_user_info' (context)
 
 6. SCHEDULED CRON JOBS:
@@ -138,6 +139,13 @@ export function buildToolStrategySection(): string {
      - Read the file before changing it. Then write with append=true when asked to add to the end.
      - If the user asks for an edit without a path, never guess a file without searching first.
 
+13. WEB SEARCH (FUNCTION TOOL):
+   - Use 'web_search' as an actual function tool call — NEVER output it as a JSON field.
+   - Invoke when: the user asks about current events, news, real-time facts, or anything you wouldn't know from memory.
+   - Also invoke when the user asks about the location/address of a calendar event venue (per rule 1 above).
+   - The tool returns Tavily search results; use the content to inform your response naturally.
+   - Do NOT fabricate search results — only use what the tool returns.
+
 14. GOOGLE WORKSPACE CLI:
    - Use 'google_cli' to access Steven's full Google Workspace: Gmail, Calendar, Contacts, Drive, Tasks, and more.
    - Pass just the subcommand (no 'gog' prefix). The --json flag and account are added automatically.
@@ -160,14 +168,18 @@ export function buildToolStrategySection(): string {
      - 'calendar delete primary <eventId> --force' — delete event
 
    **TASKS** (full CRUD):
-     - 'tasks list' — list all task lists
-     - 'tasks list <tasklistId>' — list tasks in a list
-     - 'tasks add <tasklistId> "Buy groceries"' — add task
-     - 'tasks done <tasklistId> <taskId>' — mark complete
-     - 'tasks undo <tasklistId> <taskId>' — mark incomplete
-     - 'tasks update <tasklistId> <taskId> --title "New title"' — update task
-     - 'tasks delete <tasklistId> <taskId>' — delete task
-
+     - If Steven asks to create/complete/delete/reopen/list tasks, call 'google_task_action' immediately (do not just describe).
+     - Preferred: use 'google_task_action' for normal task requests.
+     - Examples:
+       - create: { action: "create", title: "Buy groceries" }
+       - complete by title: { action: "complete", title: "Buy groceries" }
+       - delete by title: { action: "delete", title: "Buy groceries" }
+       - reopen by title: { action: "reopen", title: "Buy groceries" }
+       - list open tasks: { action: "list" }
+     - Use 'google_cli' only for advanced/raw task-list operations:
+       - 'tasks lists list'
+       - 'tasks list <tasklistId>'
+       - 'tasks update <tasklistId> <taskId> --title "New title"'
    **CONTACTS** (create, read, update — NO delete):
      - 'contacts search cindy' — find contacts
      - 'contacts get <resourceName>' — get contact details
@@ -186,7 +198,7 @@ export function buildToolStrategySection(): string {
 16. TOOL FOLLOW-THROUGH (CRITICAL):
    - Never claim an action is done unless the tool result explicitly confirms success.
    - If a tool returns a failure or missing-field warning, say you couldn't complete it and explain what's needed.
-   - Function tools must be invoked as actual tool calls. Do NOT "fake-call" tools by putting keys like "calendar_action", "task_action", "store_daily_note", or "google_cli" inside your JSON response body.
+   - Function tools must be invoked as actual tool calls. Do NOT "fake-call" tools by putting keys like "recall_user_info", "recall_memory", "calendar_action", "store_daily_note", "web_search", "google_task_action", or "google_cli" inside your JSON response body.
    - If a tool was required but not called, do not claim completion. Ask a brief follow-up or acknowledge you still need to run the tool.
 
 17. AGENT FILE WRITES (write_agent_file):

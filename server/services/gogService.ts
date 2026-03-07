@@ -1,570 +1,31 @@
 // server/services/gogService.ts
 //
-// Thin wrapper around the `gog` CLI (gogcli) for Google service access.
-// Replaces direct Google REST API calls + OAuth token management.
-// All token refresh is handled by gogcli internally.
+// Facade around gogcli with separated concerns:
+// - Gmail operations live in gogGmailService.ts
+// - Calendar operations live in gogCalendarService.ts
+// - This file owns Google Tasks helpers + generic google_cli execution.
 
-import { execFile } from 'node:child_process';
-import { fromZonedTime, formatInTimeZone } from 'date-fns-tz';
 import { log } from '../runtimeLogger';
+import {
+  deleteTaskIndex,
+  findOpenIndexedTaskByTitle,
+  markTaskIndexStatus,
+  upsertTaskIndex,
+  upsertTaskIndexBatch,
+} from './googleTasksIndexService';
+import {
+  DEFAULT_TIMEOUT_MS,
+  WRITE_TIMEOUT_MS,
+  GogError,
+  execGogJson,
+  execGogRaw,
+} from './gogCore';
 
-const LOG_PREFIX = '[GogService]';
+export * from './gogGmailService';
+export * from './gogCalendarService';
+export { GogError } from './gogCore';
+
 const runtimeLog = log.fromContext({ source: 'gogService', route: 'server/gog' });
-
-// Default timeout for CLI commands (15 seconds — most complete in < 3s)
-const DEFAULT_TIMEOUT_MS = 15_000;
-// Longer timeout for send/modify operations
-const WRITE_TIMEOUT_MS = 30_000;
-const CALENDAR_DEFAULT_TIMEZONE = 'America/Chicago';
-const LOCAL_ISO_NO_ZONE_RE =
-  /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2})?$/;
-
-// GOG_ACCOUNT env var should be set, or pass --account to commands
-const GOG_ACCOUNT = process.env.GOG_ACCOUNT || '';
-
-// ============================================================================
-// Core execution
-// ============================================================================
-
-interface GogExecResult {
-  stdout: string;
-  stderr: string;
-  exitCode: number;
-}
-
-/**
- * Execute a gog CLI command and return raw stdout/stderr.
- * Throws on non-zero exit code or timeout.
- */
-function execGogRaw(args: string[], timeoutMs = DEFAULT_TIMEOUT_MS): Promise<GogExecResult> {
-  return new Promise((resolve, reject) => {
-    // Always request JSON output and inject account if configured
-    const fullArgs = ['--json', ...args];
-    if (GOG_ACCOUNT && !args.includes('--account')) {
-      fullArgs.unshift('--account', GOG_ACCOUNT);
-    }
-
-    runtimeLog.info('Executing gog command', {
-      source: 'gogService',
-      args: fullArgs.join(' '),
-    });
-
-    const startMs = Date.now();
-
-    execFile('gog', fullArgs, { timeout: timeoutMs, windowsHide: true }, (error, stdout, stderr) => {
-      const durationMs = Date.now() - startMs;
-
-      if (error) {
-        runtimeLog.error('gog command failed', {
-          source: 'gogService',
-          args: fullArgs.join(' '),
-          exitCode: (error as any).code ?? null,
-          stderr: stderr?.substring(0, 500) || '',
-          durationMs,
-        });
-        reject(new GogError(
-          `gog ${args[0]} failed: ${stderr || error.message}`,
-          (error as any).code ?? 1,
-          stderr,
-        ));
-        return;
-      }
-
-      runtimeLog.info('gog command completed', {
-        source: 'gogService',
-        args: fullArgs.join(' '),
-        durationMs,
-        stdoutLength: stdout?.length ?? 0,
-      });
-
-      resolve({
-        stdout: stdout || '',
-        stderr: stderr || '',
-        exitCode: 0,
-      });
-    });
-  });
-}
-
-/**
- * Execute a gog command and parse JSON output.
- */
-async function execGogJson<T = unknown>(args: string[], timeoutMs = DEFAULT_TIMEOUT_MS): Promise<T> {
-  const result = await execGogRaw(args, timeoutMs);
-  try {
-    return JSON.parse(result.stdout) as T;
-  } catch {
-    runtimeLog.error('Failed to parse gog JSON output', {
-      source: 'gogService',
-      args: args.join(' '),
-      stdout: result.stdout.substring(0, 500),
-    });
-    throw new GogError(`Failed to parse JSON from gog ${args[0]}`, 0, result.stdout);
-  }
-}
-
-export class GogError extends Error {
-  exitCode: number;
-  stderr: string;
-
-  constructor(message: string, exitCode: number, stderr: string) {
-    super(message);
-    this.name = 'GogError';
-    this.exitCode = exitCode;
-    this.stderr = stderr;
-  }
-}
-
-// ============================================================================
-// Gmail: Search
-// ============================================================================
-
-export interface GogEmailResult {
-  messageId: string;
-  threadId: string;
-  from: string;
-  subject: string;
-  date: string;
-  snippet: string;
-  body?: string;
-}
-
-/**
- * Search Gmail using Gmail search syntax. Returns structured results.
- */
-export async function searchEmails(query: string, maxResults = 5): Promise<GogEmailResult[]> {
-  const clamped = Math.min(Math.max(maxResults, 1), 10);
-  runtimeLog.info('searchEmails', { source: 'gogService', query, maxResults: clamped });
-
-  // gog gmail search returns an array of thread objects
-  const raw = await execGogJson<any>(
-    ['gmail', 'search', query, '--max', String(clamped)],
-  );
-
-  // gogcli search returns { threads: [...] } or an array directly
-  const threads: any[] = Array.isArray(raw) ? raw : (raw?.threads || raw?.messages || []);
-
-  const results: GogEmailResult[] = [];
-
-  for (const thread of threads) {
-    // Each thread may have messages; we take the first/latest
-    const msg = thread.messages?.[0] || thread;
-
-    results.push({
-      messageId: msg.id || msg.messageId || '',
-      threadId: thread.threadId || thread.id || msg.threadId || '',
-      from: msg.from || msg.sender || '',
-      subject: msg.subject || '',
-      date: msg.date || msg.internalDate || '',
-      snippet: msg.snippet || '',
-      body: msg.body || msg.text || undefined,
-    });
-  }
-
-  // If first result has no body, fetch it
-  if (results.length > 0 && !results[0].body && results[0].messageId) {
-    try {
-      const body = await fetchEmailBody(results[0].messageId);
-      if (body) {
-        results[0].body = body.length > 800 ? body.slice(0, 800) + '...' : body;
-      }
-    } catch {
-      // Non-fatal — snippet is enough
-    }
-  }
-
-  runtimeLog.info('searchEmails complete', { source: 'gogService', query, resultsCount: results.length });
-  return results;
-}
-
-// ============================================================================
-// Gmail: Read
-// ============================================================================
-
-/**
- * Fetch full email body for a single message.
- */
-export async function fetchEmailBody(messageId: string): Promise<string> {
-  try {
-    const raw = await execGogJson<any>(['gmail', 'get', messageId]);
-    // gogcli message detail includes body/text
-    return raw?.body || raw?.text || raw?.snippet || '';
-  } catch (err) {
-    runtimeLog.warning('fetchEmailBody failed', {
-      source: 'gogService',
-      messageId,
-      error: err instanceof Error ? err.message : String(err),
-    });
-    return '';
-  }
-}
-
-/**
- * Get a full thread (all messages).
- */
-export async function getThread(threadId: string): Promise<any> {
-  return execGogJson(['gmail', 'thread', 'get', threadId]);
-}
-
-// ============================================================================
-// Gmail: History (polling)
-// ============================================================================
-
-/**
- * Get Gmail history changes since a given historyId.
- * Returns raw gogcli output for the poller to process.
- */
-export async function getGmailHistory(sinceHistoryId: string): Promise<any> {
-  return execGogJson(['gmail', 'history', '--since', sinceHistoryId]);
-}
-
-// ============================================================================
-// Gmail: Actions (archive, send, reply)
-// ============================================================================
-
-/**
- * Archive a thread by removing the INBOX label.
- */
-export async function archiveThread(threadId: string): Promise<boolean> {
-  runtimeLog.info('archiveThread', { source: 'gogService', threadId });
-  try {
-    await execGogRaw(
-      ['gmail', 'thread', 'modify', threadId, '--remove', 'INBOX'],
-      WRITE_TIMEOUT_MS,
-    );
-    runtimeLog.info('archiveThread succeeded', { source: 'gogService', threadId });
-    return true;
-  } catch (err) {
-    runtimeLog.error('archiveThread failed', {
-      source: 'gogService',
-      threadId,
-      error: err instanceof Error ? err.message : String(err),
-    });
-    return false;
-  }
-}
-
-/**
- * Archive a single message by modifying its labels.
- * Falls back to thread-level archive since gogcli prefers thread operations.
- */
-export async function archiveEmail(messageId: string): Promise<boolean> {
-  runtimeLog.info('archiveEmail (via batch modify)', { source: 'gogService', messageId });
-  try {
-    await execGogRaw(
-      ['gmail', 'batch', 'modify', messageId, '--remove', 'INBOX'],
-      WRITE_TIMEOUT_MS,
-    );
-    runtimeLog.info('archiveEmail succeeded', { source: 'gogService', messageId });
-    return true;
-  } catch (err) {
-    runtimeLog.error('archiveEmail failed', {
-      source: 'gogService',
-      messageId,
-      error: err instanceof Error ? err.message : String(err),
-    });
-    return false;
-  }
-}
-
-/**
- * Send a reply to an existing email thread.
- */
-export async function sendReply(
-  replyToMessageId: string,
-  to: string,
-  subject: string,
-  body: string,
-): Promise<boolean> {
-  runtimeLog.info('sendReply', { source: 'gogService', replyToMessageId, to, subject: subject.substring(0, 50) });
-
-  const reSubject = subject.startsWith('Re:') ? subject : `Re: ${subject}`;
-  const signature = `\n\n-- Kayley\n(Steven's AI companion, responding on his behalf)`;
-  const fullBody = body + signature;
-
-  try {
-    await execGogRaw(
-      [
-        'gmail', 'send',
-        '--reply-to-message-id', replyToMessageId,
-        '--quote',
-        '--to', to,
-        '--subject', reSubject,
-        '--body', fullBody,
-      ],
-      WRITE_TIMEOUT_MS,
-    );
-    runtimeLog.info('sendReply succeeded', { source: 'gogService', to, replyToMessageId });
-    return true;
-  } catch (err) {
-    runtimeLog.error('sendReply failed', {
-      source: 'gogService',
-      replyToMessageId,
-      to,
-      error: err instanceof Error ? err.message : String(err),
-    });
-    return false;
-  }
-}
-
-/**
- * Send a new email (not a reply).
- */
-export async function sendEmail(
-  to: string,
-  subject: string,
-  body: string,
-): Promise<boolean> {
-  runtimeLog.info('sendEmail', { source: 'gogService', to, subject: subject.substring(0, 50) });
-
-  const signature = `\n\n-- Kayley\n(Steven's AI companion, responding on his behalf)`;
-  const fullBody = body + signature;
-
-  try {
-    await execGogRaw(
-      ['gmail', 'send', '--to', to, '--subject', subject, '--body', fullBody],
-      WRITE_TIMEOUT_MS,
-    );
-    runtimeLog.info('sendEmail succeeded', { source: 'gogService', to });
-    return true;
-  } catch (err) {
-    runtimeLog.error('sendEmail failed', {
-      source: 'gogService',
-      to,
-      error: err instanceof Error ? err.message : String(err),
-    });
-    return false;
-  }
-}
-
-// ============================================================================
-// Gmail: Labels
-// ============================================================================
-
-/**
- * Get inbox stats (unread count, etc.)
- */
-export async function getInboxStats(): Promise<{ messagesTotal: number; messagesUnread: number }> {
-  try {
-    const raw = await execGogJson<any>(['gmail', 'labels', 'get', 'INBOX']);
-    return {
-      messagesTotal: raw?.messagesTotal ?? 0,
-      messagesUnread: raw?.messagesUnread ?? 0,
-    };
-  } catch {
-    return { messagesTotal: 0, messagesUnread: 0 };
-  }
-}
-
-// ============================================================================
-// Calendar: Events
-// ============================================================================
-
-export interface GogCalendarEvent {
-  id: string;
-  summary: string;
-  description?: string;
-  location?: string;
-  start: { dateTime?: string; date?: string; timeZone?: string };
-  end: { dateTime?: string; date?: string; timeZone?: string };
-  status?: string;
-  attendees?: Array<{ self?: boolean; responseStatus?: string; email?: string }>;
-}
-
-/**
- * List calendar events for a time range.
- */
-export async function listCalendarEvents(options: {
-  from?: string;   // ISO string or relative like "today"
-  to?: string;     // ISO string or relative
-  days?: number;   // Shorthand: next N days from now
-  calendarId?: string;
-  max?: number;
-}): Promise<GogCalendarEvent[]> {
-  const args = ['calendar', 'events'];
-
-  // Calendar ID (default: primary)
-  args.push(options.calendarId || 'primary');
-
-  if (options.days) {
-    args.push('--days', String(options.days));
-  } else if (options.from && options.to) {
-    args.push('--from', options.from, '--to', options.to);
-  } else if (options.from) {
-    args.push('--from', options.from);
-    if (!options.to) {
-      // Default to 7 days if only from is given
-      args.push('--days', '7');
-    }
-  } else {
-    // Default: today
-    args.push('--today');
-  }
-
-  if (options.max) {
-    args.push('--max', String(options.max));
-  }
-
-  runtimeLog.info('listCalendarEvents', { source: 'gogService', args: args.join(' ') });
-
-  const raw = await execGogJson<any>(args);
-
-  // gogcli returns { events: [...] } or an array
-  const events: any[] = Array.isArray(raw) ? raw : (raw?.events || []);
-
-  // Filter cancelled/declined (same logic as before)
-  return events.filter((event: any) => {
-    if (event.status === 'cancelled') return false;
-    if (event.attendees) {
-      const self = event.attendees.find((a: any) => a.self);
-      if (self?.responseStatus === 'declined') return false;
-    }
-    return true;
-  });
-}
-
-/**
- * Fetch events in a specific time window (ISO dates).
- * Used by calendarHeartbeat.
- */
-export async function fetchCalendarWindow(
-  timeMin: Date,
-  timeMax: Date,
-): Promise<GogCalendarEvent[]> {
-  return listCalendarEvents({
-    from: timeMin.toISOString(),
-    to: timeMax.toISOString(),
-    max: 10,
-  });
-}
-
-/**
- * Create a calendar event.
- */
-export async function createCalendarEvent(options: {
-  summary: string;
-  start: string;     // ISO datetime
-  end: string;       // ISO datetime
-  location?: string;
-  attendees?: string; // comma-separated emails
-  timeZone?: string;
-}): Promise<any> {
-  runtimeLog.info('createCalendarEvent', { source: 'gogService', summary: options.summary });
-  // Product requirement: all calendar times are interpreted in CST.
-  const resolvedTimeZone = CALENDAR_DEFAULT_TIMEZONE;
-  const normalizedStart = normalizeCalendarDateTimeForGog(options.start, resolvedTimeZone);
-  const normalizedEnd = normalizeCalendarDateTimeForGog(options.end, resolvedTimeZone);
-
-  const args = ['calendar', 'create', 'primary'];
-
-  args.push('--summary', options.summary);
-  args.push('--from', normalizedStart);
-  args.push('--to', normalizedEnd);
-
-  if (options.location) {
-    args.push('--location', options.location);
-  }
-  if (options.attendees) {
-    args.push('--attendees', options.attendees);
-  }
-
-  runtimeLog.info('createCalendarEvent normalized_window', {
-    source: 'gogService',
-    summary: options.summary,
-    timeZone: resolvedTimeZone,
-    startRaw: options.start,
-    endRaw: options.end,
-    startNormalized: normalizedStart,
-    endNormalized: normalizedEnd,
-  });
-
-  const result = await execGogJson<any>(args, WRITE_TIMEOUT_MS);
-  runtimeLog.info('createCalendarEvent succeeded', { source: 'gogService', summary: options.summary });
-  return result;
-}
-
-/**
- * Update a calendar event.
- */
-export async function updateCalendarEvent(options: {
-  eventId: string;
-  summary?: string;
-  start?: string;
-  end?: string;
-  location?: string;
-}): Promise<boolean> {
-  runtimeLog.info('updateCalendarEvent', {
-    source: 'gogService',
-    eventId: options.eventId,
-    hasSummary: !!options.summary,
-    hasStart: !!options.start,
-    hasEnd: !!options.end,
-    hasLocation: !!options.location,
-  });
-
-  const args = ['calendar', 'update', 'primary', options.eventId];
-  if (options.summary) {
-    args.push('--summary', options.summary);
-  }
-  if (options.start) {
-    args.push('--from', options.start);
-  }
-  if (options.end) {
-    args.push('--to', options.end);
-  }
-  if (options.location) {
-    args.push('--location', options.location);
-  }
-
-  try {
-    await execGogRaw(args, WRITE_TIMEOUT_MS);
-    runtimeLog.info('updateCalendarEvent succeeded', {
-      source: 'gogService',
-      eventId: options.eventId,
-    });
-    return true;
-  } catch (err) {
-    runtimeLog.error('updateCalendarEvent failed', {
-      source: 'gogService',
-      eventId: options.eventId,
-      error: err instanceof Error ? err.message : String(err),
-    });
-    return false;
-  }
-}
-
-function normalizeCalendarDateTimeForGog(value: string, timeZone: string): string {
-  const trimmed = value.trim();
-  if (!LOCAL_ISO_NO_ZONE_RE.test(trimmed)) {
-    return trimmed;
-  }
-
-  // Convert local wall-clock time in target timezone -> RFC3339 with UTC offset.
-  const utcDate = fromZonedTime(trimmed, timeZone);
-  return formatInTimeZone(utcDate, timeZone, "yyyy-MM-dd'T'HH:mm:ssXXX");
-}
-
-/**
- * Delete a calendar event.
- */
-export async function deleteCalendarEvent(eventId: string): Promise<boolean> {
-  runtimeLog.info('deleteCalendarEvent', { source: 'gogService', eventId });
-  try {
-    await execGogRaw(
-      ['calendar', 'delete', 'primary', eventId, '--force'],
-      WRITE_TIMEOUT_MS,
-    );
-    runtimeLog.info('deleteCalendarEvent succeeded', { source: 'gogService', eventId });
-    return true;
-  } catch (err) {
-    runtimeLog.error('deleteCalendarEvent failed', {
-      source: 'gogService',
-      eventId,
-      error: err instanceof Error ? err.message : String(err),
-    });
-    return false;
-  }
-}
 
 // ============================================================================
 // General CLI (for google_cli tool)
@@ -576,13 +37,13 @@ const ALLOWED_COMMANDS = new Set([
 ]);
 
 // Per-service write permissions. Services not listed here are read-only.
-// Maps service → set of allowed write subcommands.
+// Maps service -> set of allowed write subcommands.
 const ALLOWED_WRITE_SUBCOMMANDS: Record<string, Set<string>> = {
-  gmail:    new Set(['send', 'modify', 'batch']),               // send + archive (modify/batch for label changes). No delete.
-  calendar: new Set(['create', 'update', 'delete']),            // full CRUD
-  tasks:    new Set(['create', 'add', 'update', 'done', 'undo', 'delete', 'clear']), // full CRUD
-  contacts: new Set(['create', 'update']),                      // CRU — no delete
-  drive:    new Set(['create', 'upload', 'update', 'mkdir']),   // CRU — no delete
+  gmail: new Set(['send', 'modify', 'batch']),               // send + archive (modify/batch for label changes). No delete.
+  calendar: new Set(['create', 'update', 'delete']),         // full CRUD
+  tasks: new Set(['create', 'add', 'update', 'done', 'undo', 'delete', 'clear']), // full CRUD
+  contacts: new Set(['create', 'update']),                   // CRU - no delete
+  drive: new Set(['create', 'upload', 'update', 'mkdir']),   // CRU - no delete
 };
 
 // Subcommands that are ALWAYS blocked regardless of service
@@ -651,12 +112,480 @@ function splitCommandArgs(command: string): string[] {
   return tokens;
 }
 
+function stripForcedJsonFlags(parts: string[]): string[] {
+  return parts.filter((part) => part !== '--json');
+}
+
+async function resolveDefaultTaskListId(): Promise<string | null> {
+  try {
+    const raw = await execGogJson<any>(['tasks', 'lists', 'list'], DEFAULT_TIMEOUT_MS, 'gogService');
+    const lists = parseTaskLists(raw);
+
+    if (!Array.isArray(lists) || lists.length === 0) {
+      return null;
+    }
+
+    const preferred = lists.find((item) => item?.isDefault || item?.default);
+    const chosen = preferred || lists[0];
+    return String(chosen?.id || '').trim() || null;
+  } catch {
+    return null;
+  }
+}
+
+interface GogTaskListLike {
+  id?: string;
+  isDefault?: boolean;
+  default?: boolean;
+}
+
+interface GogTaskLike {
+  id?: string;
+  title?: string;
+  status?: string;
+  completed?: string | null;
+}
+
+interface ResolvedTaskRef {
+  tasklistId: string;
+  taskId: string;
+}
+
+function parseTaskLists(raw: any): GogTaskListLike[] {
+  if (Array.isArray(raw)) {
+    return raw as GogTaskListLike[];
+  }
+  return (raw?.tasklists || raw?.items || raw?.lists || []) as GogTaskListLike[];
+}
+
+function parseTasks(raw: any): GogTaskLike[] {
+  if (Array.isArray(raw)) {
+    return raw as GogTaskLike[];
+  }
+  return (raw?.tasks || raw?.items || []) as GogTaskLike[];
+}
+
+function normalizeText(value: string): string {
+  return value.trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
+function pickTaskByTitle(tasks: GogTaskLike[], wantedTitle: string): GogTaskLike | null {
+  const wanted = normalizeText(wantedTitle);
+  if (!wanted) return null;
+
+  const candidates = tasks.filter((task) => {
+    const status = String(task.status || '').toLowerCase();
+    return status !== 'completed';
+  });
+
+  const exact = candidates.find((task) => normalizeText(String(task.title || '')) === wanted);
+  if (exact) return exact;
+
+  const contains = candidates.find((task) => normalizeText(String(task.title || '')).includes(wanted));
+  if (contains) return contains;
+
+  const reverseContains = candidates.find((task) => wanted.includes(normalizeText(String(task.title || ''))));
+  return reverseContains || null;
+}
+
+async function resolveTaskRefByTitle(taskTitle: string): Promise<ResolvedTaskRef | null> {
+  const cached = await findOpenIndexedTaskByTitle(taskTitle);
+  if (cached) {
+    if (cached.ambiguousCount > 1) {
+      throw new GogError(
+        `Found multiple active Google Tasks named "${taskTitle}". Please be more specific.`,
+        1,
+        '',
+      );
+    }
+    return {
+      tasklistId: cached.tasklistId,
+      taskId: cached.taskId,
+    };
+  }
+
+  const rawLists = await execGogJson<any>(['tasks', 'lists', 'list'], DEFAULT_TIMEOUT_MS, 'gogService');
+  const lists = parseTaskLists(rawLists);
+
+  for (const list of lists) {
+    const tasklistId = String(list.id || '').trim();
+    if (!tasklistId) continue;
+
+    const rawTasks = await execGogJson<any>(['tasks', 'list', tasklistId], DEFAULT_TIMEOUT_MS, 'gogService');
+    const tasks = parseTasks(rawTasks);
+    await upsertTaskIndexBatch(tasklistId, tasks);
+    const match = pickTaskByTitle(tasks, taskTitle);
+    if (!match) continue;
+
+    const taskId = String(match.id || '').trim();
+    if (!taskId) continue;
+
+    await upsertTaskIndex({
+      tasklistId,
+      taskId,
+      title: String(match.title || taskTitle),
+      status: String(match.status || 'needsAction'),
+      completedAt: match.completed ?? null,
+    });
+
+    return { tasklistId, taskId };
+  }
+
+  return null;
+}
+
+type CommandNormalizer = (parts: string[]) => Promise<string[]>;
+
+async function normalizeTasksListCommand(parts: string[]): Promise<string[]> {
+  // Back-compat for old prompt examples: "tasks list" meant list task-lists.
+  if (parts.length === 2 && parts[1] === 'list') {
+    return ['tasks', 'lists', 'list'];
+  }
+  return parts;
+}
+
+async function normalizeTasksAddCommand(parts: string[]): Promise<string[]> {
+  if (parts[1] !== 'add') {
+    return parts;
+  }
+
+  if (parts.includes('--title')) {
+    return parts;
+  }
+
+  // Compat for positional title style:
+  //   tasks add <tasklistId> "Buy groceries"
+  if (parts.length >= 4) {
+    const tasklistId = parts[2];
+    const title = parts.slice(3).join(' ').trim();
+    if (tasklistId && title) {
+      return ['tasks', 'add', tasklistId, '--title', title];
+    }
+  }
+
+  // Friendly shorthand:
+  //   tasks add "Buy groceries"
+  if (parts.length >= 3) {
+    const title = parts.slice(2).join(' ').trim();
+    if (!title) {
+      return parts;
+    }
+
+    const defaultTaskListId = await resolveDefaultTaskListId();
+    if (!defaultTaskListId) {
+      throw new GogError(
+        'Could not resolve a Google Task list. Run "tasks lists list" first and pass a tasklistId.',
+        1,
+        '',
+      );
+    }
+
+    return ['tasks', 'add', defaultTaskListId, '--title', title];
+  }
+
+  return parts;
+}
+
+async function normalizeTasksCommand(parts: string[]): Promise<string[]> {
+  const taskNormalizers: CommandNormalizer[] = [
+    normalizeTasksListCommand,
+    normalizeTasksAddCommand,
+  ];
+
+  let normalized = parts;
+  for (const normalize of taskNormalizers) {
+    normalized = await normalize(normalized);
+  }
+  return normalized;
+}
+
+async function normalizeGeneralCommand(parts: string[]): Promise<string[]> {
+  const generalNormalizers: CommandNormalizer[] = [
+    async (value) => stripForcedJsonFlags(value),
+  ];
+  const serviceNormalizers: Record<string, CommandNormalizer[]> = {
+    tasks: [normalizeTasksCommand],
+  };
+
+  let normalized = parts;
+  for (const normalize of generalNormalizers) {
+    normalized = await normalize(normalized);
+  }
+  if (normalized.length === 0) {
+    return normalized;
+  }
+
+  const service = normalized[0];
+  const pipeline = serviceNormalizers[service] || [];
+  for (const normalize of pipeline) {
+    normalized = await normalize(normalized);
+  }
+
+  return normalized;
+}
+
+function tryParseJson(raw: string): any | null {
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
+function extractTaskFromCommandResult(raw: any): GogTaskLike | null {
+  if (!raw || typeof raw !== 'object') {
+    return null;
+  }
+
+  const candidates: any[] = [
+    raw,
+    raw.task,
+    raw.item,
+    raw.data,
+    Array.isArray(raw.tasks) ? raw.tasks[0] : null,
+    Array.isArray(raw.items) ? raw.items[0] : null,
+  ].filter(Boolean);
+
+  for (const candidate of candidates) {
+    const taskId = String(candidate?.id || candidate?.taskId || '').trim();
+    const title = String(candidate?.title || '').trim();
+    if (!taskId || !title) continue;
+    return {
+      id: taskId,
+      title,
+      status: String(candidate?.status || 'needsAction'),
+      completed: candidate?.completed ?? null,
+    };
+  }
+
+  return null;
+}
+
+export interface GoogleTaskActionInput {
+  action: 'create' | 'complete' | 'delete' | 'list' | 'reopen';
+  title?: string;
+  taskId?: string;
+  tasklistId?: string;
+  includeCompleted?: boolean;
+  max?: number;
+}
+
+export interface GoogleTaskActionResult {
+  ok: boolean;
+  message: string;
+  tasks?: Array<{ tasklistId: string; taskId: string; title: string; status: string }>;
+}
+
+async function resolveTaskRef(
+  input: Pick<GoogleTaskActionInput, 'title' | 'taskId' | 'tasklistId'>,
+): Promise<ResolvedTaskRef | null> {
+  const taskId = String(input.taskId || '').trim();
+  const tasklistId = String(input.tasklistId || '').trim();
+  if (taskId && tasklistId) {
+    return { taskId, tasklistId };
+  }
+
+  const title = String(input.title || '').trim();
+  if (!title) {
+    return null;
+  }
+  return resolveTaskRefByTitle(title);
+}
+
+export async function runGoogleTaskAction(
+  input: GoogleTaskActionInput,
+): Promise<GoogleTaskActionResult> {
+  const action = input.action;
+
+  if (action === 'create') {
+    const title = String(input.title || '').trim();
+    if (!title) {
+      throw new GogError('google_task_action(create) requires a title.', 1, '');
+    }
+
+    const tasklistId = String(input.tasklistId || '').trim() || await resolveDefaultTaskListId();
+    if (!tasklistId) {
+      throw new GogError(
+        'Could not resolve a Google Task list. Provide tasklistId or create a list first.',
+        1,
+        '',
+      );
+    }
+
+    const raw = await execGogJson<any>(
+      ['tasks', 'add', tasklistId, '--title', title],
+      WRITE_TIMEOUT_MS,
+      'gogService',
+    );
+    const created = extractTaskFromCommandResult(raw);
+    if (created?.id && created?.title) {
+      await upsertTaskIndex({
+        tasklistId,
+        taskId: created.id,
+        title: created.title,
+        status: created.status || 'needsAction',
+        completedAt: created.completed ?? null,
+      });
+    }
+
+    return {
+      ok: true,
+      message: `Created Google Task: "${created?.title || title}".`,
+    };
+  }
+
+  if (action === 'complete' || action === 'reopen' || action === 'delete') {
+    const resolved = await resolveTaskRef(input);
+    if (!resolved) {
+      throw new GogError(
+        `Could not find a Google Task to ${action}. Provide tasklistId+taskId or an existing title.`,
+        1,
+        '',
+      );
+    }
+
+    const verb = action === 'complete' ? 'done' : action === 'reopen' ? 'undo' : 'delete';
+    await execGogRaw(['tasks', verb, resolved.tasklistId, resolved.taskId], WRITE_TIMEOUT_MS, 'gogService');
+
+    if (action === 'complete') {
+      await markTaskIndexStatus(resolved.tasklistId, resolved.taskId, 'completed');
+    } else if (action === 'reopen') {
+      await markTaskIndexStatus(resolved.tasklistId, resolved.taskId, 'needsAction');
+    } else {
+      await deleteTaskIndex(resolved.tasklistId, resolved.taskId);
+    }
+
+    return {
+      ok: true,
+      message:
+        action === 'complete'
+          ? 'Marked Google Task complete.'
+          : action === 'reopen'
+            ? 'Reopened Google Task.'
+            : 'Deleted Google Task.',
+    };
+  }
+
+  // list
+  const includeCompleted = input.includeCompleted ?? false;
+  const max = Math.min(Math.max(input.max || 25, 1), 100);
+  const resultTasks: Array<{ tasklistId: string; taskId: string; title: string; status: string }> = [];
+
+  const explicitTasklistId = String(input.tasklistId || '').trim();
+  if (explicitTasklistId) {
+    const raw = await execGogJson<any>(['tasks', 'list', explicitTasklistId], DEFAULT_TIMEOUT_MS, 'gogService');
+    const tasks = parseTasks(raw);
+    await upsertTaskIndexBatch(explicitTasklistId, tasks);
+    for (const task of tasks) {
+      const status = String(task.status || 'needsAction');
+      if (!includeCompleted && status === 'completed') continue;
+      const taskId = String(task.id || '').trim();
+      const title = String(task.title || '').trim();
+      if (!taskId || !title) continue;
+      resultTasks.push({ tasklistId: explicitTasklistId, taskId, title, status });
+      if (resultTasks.length >= max) break;
+    }
+  } else {
+    const rawLists = await execGogJson<any>(['tasks', 'lists', 'list'], DEFAULT_TIMEOUT_MS, 'gogService');
+    const lists = parseTaskLists(rawLists);
+    for (const list of lists) {
+      const tasklistId = String(list.id || '').trim();
+      if (!tasklistId) continue;
+      const raw = await execGogJson<any>(['tasks', 'list', tasklistId], DEFAULT_TIMEOUT_MS, 'gogService');
+      const tasks = parseTasks(raw);
+      await upsertTaskIndexBatch(tasklistId, tasks);
+      for (const task of tasks) {
+        const status = String(task.status || 'needsAction');
+        if (!includeCompleted && status === 'completed') continue;
+        const taskId = String(task.id || '').trim();
+        const title = String(task.title || '').trim();
+        if (!taskId || !title) continue;
+        resultTasks.push({ tasklistId, taskId, title, status });
+        if (resultTasks.length >= max) break;
+      }
+      if (resultTasks.length >= max) break;
+    }
+  }
+
+  if (resultTasks.length === 0) {
+    return {
+      ok: true,
+      message: includeCompleted ? 'No Google Tasks found.' : 'No open Google Tasks found.',
+      tasks: [],
+    };
+  }
+
+  const lines = resultTasks
+    .slice(0, max)
+    .map((task, idx) => `${idx + 1}. [${task.status === 'completed' ? 'x' : ' '}] ${task.title}`)
+    .join('\n');
+
+  return {
+    ok: true,
+    message: `Google Tasks:\n${lines}`,
+    tasks: resultTasks.slice(0, max),
+  };
+}
+
+async function syncTasksIndexFromCommand(parts: string[], stdout: string): Promise<void> {
+  if (parts[0] !== 'tasks') return;
+  const verb = parts[1];
+
+  // tasks list <tasklistId>
+  if (verb === 'list' && parts.length >= 3) {
+    const tasklistId = parts[2];
+    if (!tasklistId || tasklistId === 'list') return;
+    const parsed = tryParseJson(stdout);
+    if (!parsed) return;
+    const tasks = parseTasks(parsed);
+    await upsertTaskIndexBatch(tasklistId, tasks);
+    return;
+  }
+
+  // tasks add <tasklistId> --title "..."
+  if ((verb === 'add' || verb === 'create') && parts.length >= 3) {
+    const tasklistId = parts[2];
+    if (!tasklistId) return;
+    const parsed = tryParseJson(stdout);
+    const task = extractTaskFromCommandResult(parsed);
+    if (!task?.id || !task.title) return;
+    await upsertTaskIndex({
+      tasklistId,
+      taskId: task.id,
+      title: task.title,
+      status: task.status || 'needsAction',
+      completedAt: task.completed ?? null,
+    });
+    return;
+  }
+
+  // tasks done|undo|delete <tasklistId> <taskId>
+  if (parts.length >= 4 && (verb === 'done' || verb === 'undo' || verb === 'delete')) {
+    const tasklistId = parts[2];
+    const taskId = parts[3];
+    if (!tasklistId || !taskId) return;
+
+    if (verb === 'done') {
+      await markTaskIndexStatus(tasklistId, taskId, 'completed');
+      return;
+    }
+    if (verb === 'undo') {
+      await markTaskIndexStatus(tasklistId, taskId, 'needsAction');
+      return;
+    }
+    if (verb === 'delete') {
+      await deleteTaskIndex(tasklistId, taskId);
+    }
+  }
+}
+
 /**
  * Execute a general gog command for the google_cli tool.
  * Write operations are allowed per-service according to ALLOWED_WRITE_SUBCOMMANDS.
  */
 export async function execGeneralCommand(command: string): Promise<string> {
-  const parts = splitCommandArgs(command);
+  const rawParts = splitCommandArgs(command);
+  const parts = await normalizeGeneralCommand(rawParts);
   const topLevel = parts[0];
 
   if (!topLevel || !ALLOWED_COMMANDS.has(topLevel)) {
@@ -667,7 +596,7 @@ export async function execGeneralCommand(command: string): Promise<string> {
   }
 
   // Check for always-blocked subcommands
-  const hasAlwaysBlocked = parts.some(p => ALWAYS_BLOCKED.has(p));
+  const hasAlwaysBlocked = parts.some((p) => ALWAYS_BLOCKED.has(p));
   if (hasAlwaysBlocked) {
     throw new GogError(
       `Blocked subcommand in "${command}". Admin settings cannot be changed via this tool.`,
@@ -688,12 +617,41 @@ export async function execGeneralCommand(command: string): Promise<string> {
     }
   }
 
-  // Determine timeout — use write timeout if any write subcommand is present
-  const isWrite = parts.some(p => serviceWriteAllowed.has(p));
+  // Determine timeout - use write timeout if any write subcommand is present
+  const isWrite = parts.some((p) => serviceWriteAllowed.has(p));
   const timeout = isWrite ? WRITE_TIMEOUT_MS : DEFAULT_TIMEOUT_MS;
 
-  runtimeLog.info('execGeneralCommand', { source: 'gogService', command, isWrite });
+  runtimeLog.info('execGeneralCommand', {
+    source: 'gogService',
+    command,
+    normalizedCommand: parts.join(' '),
+    isWrite,
+  });
 
-  const result = await execGogRaw(parts, timeout);
-  return result.stdout;
+  try {
+    const result = await execGogRaw(parts, timeout, 'gogService');
+    try {
+      await syncTasksIndexFromCommand(parts, result.stdout);
+    } catch (syncErr) {
+      runtimeLog.warning('syncTasksIndexFromCommand failed (non-fatal)', {
+        source: 'gogService',
+        normalizedCommand: parts.join(' '),
+        error: syncErr instanceof Error ? syncErr.message : String(syncErr),
+      });
+    }
+    return result.stdout;
+  } catch (err) {
+    if (
+      err instanceof GogError &&
+      topLevel === 'tasks' &&
+      /accessNotConfigured/i.test(err.stderr || '')
+    ) {
+      throw new GogError(
+        'Google Tasks API is disabled for your gog project. Enable "Google Tasks API" in Google Cloud Console for that OAuth client/project.',
+        err.exitCode,
+        err.stderr,
+      );
+    }
+    throw err;
+  }
 }

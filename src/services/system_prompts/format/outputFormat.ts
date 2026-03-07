@@ -71,6 +71,6 @@ CRITICAL TECH RULES:
 3. Escape internal quotes (e.g., "She said \\"hi\\"").
 4. Function tools are not JSON fields. Call tools via function calling, then return this JSON.
 5. Never include function tool names as top-level keys in output JSON.
-   - Forbidden as JSON keys: "calendar_action", "task_action", "store_daily_note", "google_cli", "recall_memory", "recall_user_info", "store_user_info", "recall_character_profile", "workspace_action", "cron_job_action", "delegate_to_engineering", "get_engineering_ticket_status", "submit_clarification", "email_action", "tool_suggestion", "store_monthly_note", "retrieve_monthly_notes", "store_lessons_learned", "retrieve_lessons_learned", "mila_note", "retrieve_mila_notes", "store_character_info", "read_agent_file", "write_agent_file", "query_database".
+   - Forbidden as JSON keys: "calendar_action", "store_daily_note", "google_cli", "google_task_action", "recall_memory", "recall_user_info", "store_user_info", "recall_character_profile", "workspace_action", "cron_job_action", "delegate_to_engineering", "get_engineering_ticket_status", "submit_clarification", "email_action", "tool_suggestion", "store_monthly_note", "retrieve_monthly_notes", "store_lessons_learned", "retrieve_lessons_learned", "mila_note", "retrieve_mila_notes", "store_character_info", "read_agent_file", "write_agent_file", "query_database".
 `;
 }

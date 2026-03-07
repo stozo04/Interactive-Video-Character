@@ -9,10 +9,9 @@
  * IMPORTANT: Use enums instead of magic strings!
  */
 
-import type { ChatMessage, Task, NewEmailPayload } from '../../types';
+import type { ChatMessage, NewEmailPayload } from '../../types';
 import type { IAIChatService, AIChatSession, UserContent } from '../../services/aiService';
 import type { AIActionResponse } from '../../services/aiSchema';
-import type { TaskAction } from '../messageActions/taskActions';
 import type { TurnTokenUsage } from '../../services/conversationHistoryService';
 
 // ============================================================================
@@ -23,7 +22,6 @@ import type { TurnTokenUsage } from '../../services/conversationHistoryService';
  * Types of actions that can be triggered by AI responses
  */
 export enum ActionType {
-  TASK = 'task',
   CALENDAR = 'calendar',
   NEWS = 'news',
   SELFIE = 'selfie',
@@ -89,9 +87,6 @@ export interface OrchestratorInput {
   /** Current chat history for context */
   chatHistory: ChatMessage[];
 
-  /** Current task list */
-  tasks: Task[];
-
   /** Whether audio is muted */
   isMuted: boolean;
 
@@ -136,12 +131,6 @@ export interface OrchestratorResult {
   // ---- State Refresh Flags ----
   /** Should refresh calendar events */
   refreshCalendar: boolean;
-
-  /** Should refresh task list */
-  refreshTasks: boolean;
-
-  /** Should open task panel */
-  openTaskPanel: boolean;
 
   // ---- Session ----
   /** Updated AI session (if changed) */
@@ -188,9 +177,6 @@ export interface OrchestratorResult {
   /** News prompt for system message (if news action succeeded) */
   newsPrompt?: string;
 
-  /** Detected task action for App.tsx to execute (Phase 6) */
-  detectedTaskAction?: TaskAction;
-
   /** Detected email action for App.tsx to execute (archive / reply / dismiss) */
   detectedEmailAction?: {
     action: 'archive' | 'reply' | 'dismiss';
@@ -231,12 +217,6 @@ export interface ActionHandlerResult {
   /** Should refresh calendar */
   refreshCalendar?: boolean;
 
-  /** Should refresh tasks */
-  refreshTasks?: boolean;
-
-  /** Should open task panel */
-  openTaskPanel?: boolean;
-
   /** Error message (if failed) */
   error?: string;
 }
@@ -250,9 +230,6 @@ export interface ActionContext {
 
   /** Current chat history */
   chatHistory: ChatMessage[];
-
-  /** Current tasks */
-  tasks: Task[];
 
   /** Whether audio is muted */
   isMuted: boolean;
@@ -297,8 +274,6 @@ export function createEmptyResult(stage: ProcessingStage = ProcessingStage.PREPR
     stage,
     chatMessages: [],
     refreshCalendar: false,
-    refreshTasks: false,
-    openTaskPanel: false,
   };
 }
 
@@ -315,8 +290,6 @@ export function createSuccessResult(
     stage: ProcessingStage.COMPLETE,
     chatMessages: [{ role: 'model', text: textResponse }],
     refreshCalendar: false,
-    refreshTasks: false,
-    openTaskPanel: false,
   };
 }
 
@@ -330,8 +303,6 @@ export function createErrorResult(error: string, stage: ProcessingStage = Proces
     stage,
     chatMessages: [],
     refreshCalendar: false,
-    refreshTasks: false,
-    openTaskPanel: false,
     error,
   };
 }

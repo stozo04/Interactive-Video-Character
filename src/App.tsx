@@ -24,13 +24,11 @@ import CharacterSelector from './components/CharacterSelector';
 import LoadingSpinner from './components/LoadingSpinner';
 import CharacterManagementView from './components/CharacterManagementView';
 import { SettingsPanel } from './components/SettingsPanel';
-import { TaskPanel } from './components/TaskPanel';
 import AdminDashboardView from './components/AdminDashboardView';
-import { processSelfieAction, processTaskAction } from './handlers/messageActions';
+import { processSelfieAction } from './handlers/messageActions';
 import { agentClient } from './services/agentClient';
 import { useDebounce } from './hooks/useDebounce';
 import { useMediaQueues } from './hooks/useMediaQueues';
-import { useTasks } from './hooks/useTasks';
 import { useProactiveSettings } from './hooks/useProactiveSettings';
 import { useIdleTracking } from './hooks/useIdleTracking';
 import { useCharacterActions } from './hooks/useCharacterActions';
@@ -284,22 +282,7 @@ const App: React.FC = () => {
   // CUSTOM HOOKS (Extracted from App.tsx for modularity)
   // --------------------------------------------------------------------------
 
-  // Task Management
-  const taskCelebrateRef = useRef<(message: string) => void>(() => {});
-  const taskPlayPositiveRef = useRef<() => void>(() => {});
-  const {
-    tasks,
-    isTaskPanelOpen,
-    setIsTaskPanelOpen,
-    loadTasks,
-    refreshTasks,
-    handleTaskCreate,
-    handleTaskToggle,
-    handleTaskDelete,
-  } = useTasks({
-    onCelebrate: (msg) => taskCelebrateRef.current(msg),
-    onPlayPositiveAction: () => taskPlayPositiveRef.current(),
-  });
+  // Legacy in-app checklist was removed. Tasks now flow through Google Tasks via function tools.
 
   // Proactive Settings & Snooze
   const {
@@ -542,27 +525,6 @@ const App: React.FC = () => {
   // ==========================================================================
   // CALLBACK WIRING & AUDIO HANDLERS
   // ==========================================================================
-
-  // Task celebration callbacks (wired via refs for late binding)
-  useEffect(() => {
-    taskCelebrateRef.current = (message: string) => {
-      if (selectedCharacter && !isMutedRef.current) {
-        setChatHistory(prev => [...prev, { role: 'model', text: message }]);
-      }
-    };
-    taskPlayPositiveRef.current = () => {
-      if (selectedCharacter) {
-        const positiveActions = selectedCharacter.actions.filter(a =>
-          a.name.toLowerCase().includes('happy') ||
-          a.name.toLowerCase().includes('celebrate') ||
-          a.name.toLowerCase().includes('excited')
-        );
-        if (positiveActions.length > 0) {
-          playAction(positiveActions[0].id);
-        }
-      }
-    };
-  }, [selectedCharacter, media, playAction]);
 
   const syncWorkspaceRunStatus = useCallback(
     (run: WorkspaceAgentRun, shouldEmitChatMessage: boolean) => {
@@ -836,7 +798,6 @@ const App: React.FC = () => {
     proactiveSettings.news,
     selectedCharacter,
     relationship,
-    tasks,
     chatHistory,
     aiSession,
     isMuted,
@@ -897,21 +858,6 @@ const App: React.FC = () => {
   // ==========================================================================
   // KEYBOARD SHORTCUTS
   // ==========================================================================
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      // Ctrl/Cmd + T to toggle task panel
-      if ((e.ctrlKey || e.metaKey) && e.key === 't') {
-        e.preventDefault();
-        if (view === 'chat' && selectedCharacter) {
-          setIsTaskPanelOpen(prev => !prev);
-        }
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [view, selectedCharacter]);
-
   // Calendar check-ins are now handled server-side via calendarHeartbeat.ts
 
   // ==========================================================================
@@ -941,10 +887,6 @@ const App: React.FC = () => {
       buildActionKeyMap(character.actions);
     }
 
-
-    // Load tasks (handled by useTasks hook)
-     const currentTasks = await loadTasks();
-    
     // Load snooze state (handled by useProactiveSettings hook)
     loadSnoozeState();
 
@@ -1172,8 +1114,6 @@ const App: React.FC = () => {
           messageForAI,
           sessionId: webSessionIdRef.current,
           chatHistory,
-
-          tasks,
           isMuted,
         });
         if (result.updatedSession) setAiSession(result.updatedSession);
@@ -1214,8 +1154,6 @@ const App: React.FC = () => {
           messageForAI,
           sessionId: webSessionIdRef.current,
           chatHistory,
-
-          tasks,
           isMuted,
         });
 
@@ -1232,8 +1170,6 @@ const App: React.FC = () => {
         if (result.audioToPlay && !isMuted) media.enqueueAudio(result.audioToPlay);
         maybePlayResponseAction(result.actionToPlay);
         if (result.appToOpen) window.location.href = result.appToOpen;
-        if (result.refreshTasks) refreshTasks();
-        if (result.openTaskPanel) setIsTaskPanelOpen(true);
       } catch (error) {
         clientLogger.error(`${LOG_PREFIX} File attachment processing failed`, { source: 'App.tsx', error: error instanceof Error ? error.message : String(error) });
         setErrorMessage('Failed to process attachment');
@@ -1266,7 +1202,6 @@ const App: React.FC = () => {
         message:          trimmedMessage,
         sessionId:        webSessionIdRef.current,
         chatHistory,
-        tasks,
         isMuted,
       });
 
@@ -1282,13 +1217,6 @@ const App: React.FC = () => {
       // ============================================
       // ACTION-SPECIFIC PROCESSING (Phase 6: Simplified)
       // ============================================
-
-      // TASK ACTIONS (Phase 6: Detection in orchestrator, execution here for React callbacks)
-      if (result.detectedTaskAction) {
-        await processTaskAction(result.detectedTaskAction, tasks, {
-          handleTaskCreate, handleTaskToggle, handleTaskDelete, setIsTaskPanelOpen,
-        });
-      }
 
       // NEWS ACTIONS (orchestrator fetched, we trigger system message)
       if (result.newsPrompt) {
@@ -1344,8 +1272,6 @@ const App: React.FC = () => {
       if (result.audioToPlay && !isMuted) media.enqueueAudio(result.audioToPlay);
       maybePlayResponseAction(result.actionToPlay);
       if (result.appToOpen) window.location.href = result.appToOpen;
-      if (result.refreshTasks) await refreshTasks();
-      if (result.openTaskPanel) setIsTaskPanelOpen(true);
 
     } catch (error) {
       clientLogger.error(`${LOG_PREFIX} Message processing failed`, { source: 'App.tsx', error: error instanceof Error ? error.message : String(error) });
@@ -1399,35 +1325,7 @@ const App: React.FC = () => {
           Interactive Video Character
         </h1>
         <div className="absolute top-0 right-0 flex items-center gap-2">
-          {/* Task Panel Toggle - Only visible in chat view */}
-          {view === 'chat' && selectedCharacter && (
-            <button
-              onClick={() => setIsTaskPanelOpen(!isTaskPanelOpen)}
-              className="bg-gradient-to-br from-purple-500 to-indigo-600 text-white rounded-full p-3 shadow-lg transition-all hover:scale-110 relative"
-              title={isTaskPanelOpen ? 'Close checklist' : 'Open checklist'}
-            >
-              {tasks.filter(t => !t.completed).length > 0 && !isTaskPanelOpen && (
-                <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs font-bold rounded-full w-5 h-5 flex items-center justify-center">
-                  {tasks.filter(t => !t.completed).length}
-                </span>
-              )}
-              <svg
-                className="w-5 h-5"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"
-                />
-              </svg>
-            </button>
-          )}
-          
-            <SettingsPanel
+          <SettingsPanel
             proactiveSettings={selectedCharacter ? proactiveSettings : undefined}
             onProactiveSettingsChange={selectedCharacter ? updateProactiveSettings : undefined}
               onAdminDashboard={() => setView('admin')}
@@ -1554,17 +1452,6 @@ const App: React.FC = () => {
           )}
       </main>
       
-      {/* Task Panel - Available in chat view */}
-      {view === 'chat' && selectedCharacter && (
-        <TaskPanel
-          tasks={tasks}
-          isOpen={isTaskPanelOpen}
-          onToggle={() => setIsTaskPanelOpen(!isTaskPanelOpen)}
-          onTaskToggle={handleTaskToggle}
-          onTaskDelete={handleTaskDelete}
-          onTaskCreate={handleTaskCreate}
-        />
-      )}
       </div>
     </div>
   );

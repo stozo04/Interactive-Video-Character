@@ -292,12 +292,12 @@ When a UI element doesn't reflect a backend change without a page refresh:
    `refreshX()`. Find who calls it and verify it runs for THIS specific code path.
    Don't assume the happy path covers the AI path — they are separate.
 
-4. **Trace the flags.** Look at `result.refreshTasks`, `result.openTaskPanel`, etc. in the
-   orchestrator. Trace exactly which conditions set them. Verify those conditions fire
-   for the path you're debugging — not just for a different path that looks similar.
+4. **Trace the flags.** Look at orchestrator/UI refresh flags (for example, `refreshCalendar`)
+   and route conditions. Trace exactly which conditions set them. Verify those conditions fire
+   for the path you're debugging - not just for a different path that looks similar.
 
-5. **`await` the refresh before opening UI.** Opening a panel before `await refreshTasks()`
-   completes shows a stale list first. Always await, then open.
+5. **Await refreshes before dependent UI updates.** If UI opens/renders before a required
+   refresh completes, you'll show stale data first. Always await, then render dependent UI.
 
 ### Logging — Verbose Is the Standard
 
@@ -328,14 +328,14 @@ ctxLog.error('Codex exited', { exitCode });
 import { clientLogger } from './clientLogger';
 
 // Flat calls
-clientLogger.info('Task created', { taskId, text });
-clientLogger.error('Supabase insert failed', { error: err.message, table: 'daily_tasks' });
+clientLogger.info('Calendar event created', { eventId, summary });
+clientLogger.error('Supabase insert failed', { error: err.message, table: 'kayley_daily_notes' });
 
 // Scoped logger — prefix every message with [ServiceName] for easy Supabase filtering
-const log = clientLogger.scoped('TaskService');
-log.info('Fetching tasks');
-log.warning('createTask returned null — refreshing', { taskText });
-log.error('Failed to toggle task', { taskId, error: err.message });
+const log = clientLogger.scoped('GoogleCliService');
+log.info('Running gog command', { command });
+log.warning('gog command retrying', { command, attempt });
+log.error('gog command failed', { command, error: err.message });
 ```
 
 #### What to log (verbose — Steven wants to see everything)
@@ -400,7 +400,7 @@ source .env.local
 - **DELETE** from any table — never delete rows
 - **DDL** (`CREATE TABLE`, `ALTER TABLE`, `DROP`) — never modify schema directly.
   If you need a new table, write a migration file in `server/agent/opey-dev/migrations/` and commit it.
-- **Write to app tables** (`daily_tasks`, `user_facts`, `memories`, `relationship_state`, etc.) —
+- **Write to app tables** (`user_facts`, `memories`, `relationship_state`, etc.) -
   these are owned by the app. Read them freely, but never insert/update.
 
 #### How to Query (PostgREST via curl)
@@ -430,8 +430,8 @@ curl -s "$VITE_SUPABASE_URL/rest/v1/server_runtime_logs?source=eq.orchestrator.t
   -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" \
   -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY"
 
-# Read any table (e.g. check daily_tasks schema/data)
-curl -s "$VITE_SUPABASE_URL/rest/v1/daily_tasks?limit=5" \
+# Read any table (e.g. check user_facts data)
+curl -s "$VITE_SUPABASE_URL/rest/v1/user_facts?limit=5" \
   -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" \
   -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY"
 ```

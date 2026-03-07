@@ -51,6 +51,7 @@ const KAYLEY_EMAIL_ACTIONS_TABLE = 'kayley_email_actions';
 const lessonsLogger = clientLogger.scoped('LessonsLearned');
 const workspaceLogger = clientLogger.scoped('WorkspaceAction');
 const calendarToolLogger = clientLogger.scoped('CalendarTool');
+const memoryToolLog = clientLogger.scoped('MemoryTool');
 const TOOL_FAILURE_PREFIX = 'TOOL_FAILED:';
 
 // Default limits to prevent context overflow
@@ -1296,18 +1297,6 @@ export const formatFactsForAI = (facts: UserFact[]): string => {
 // Tool Execution Handler
 // ============================================
 
-// Signal that a task mutation (create/complete/delete) happened inside a function
-// tool call. Because function tools run inside geminiChatService before the
-// response reaches the orchestrator, the orchestrator never sees task_action in
-// the JSON response and therefore never sets refreshTasks. This flag bridges
-// that gap. Always consume via consumeTaskMutationSignal() — it auto-resets.
-let _taskMutationPending = false;
-export function consumeTaskMutationSignal(): boolean {
-  const v = _taskMutationPending;
-  _taskMutationPending = false;
-  return v;
-}
-
 // Same pattern for calendar_action function tool — signals the orchestrator to
 // set refreshCalendar=true after a create/delete runs via the tool loop.
 let _calendarMutationPending = false;
@@ -1328,7 +1317,6 @@ export type MemoryToolName =
   | 'recall_memory'
   | 'recall_user_info'
   | 'store_user_info'
-  | 'task_action'
   | 'calendar_action'
   | 'store_self_info'
   | 'store_character_info'
@@ -1351,6 +1339,7 @@ export type MemoryToolName =
   | 'resolve_x_tweet'
   | 'post_x_tweet'
   | 'resolve_x_mention'
+  | 'google_task_action'
   | 'google_cli'
   | 'read_agent_file'
   | 'write_agent_file'
@@ -1473,11 +1462,6 @@ export interface ToolCallArgs {
     year: number;
     month: number;
   };
-  task_action: {
-    action: 'create' | 'complete' | 'delete' | 'list';
-    task_text?: string;
-    priority?: 'low' | 'medium' | 'high';
-  };
   calendar_action: {
     action: 'create' | 'update' | 'delete' | 'list';
     summary?: string;
@@ -1586,6 +1570,14 @@ export interface ToolCallArgs {
              'quirks' | 'goals' | 'preferences' | 'anecdotes' | 'routines' | 'full';
     reason?: string;
   };
+  google_task_action: {
+    action: 'create' | 'complete' | 'delete' | 'list' | 'reopen';
+    title?: string;
+    taskId?: string;
+    tasklistId?: string;
+    includeCompleted?: boolean;
+    max?: number;
+  };
   google_cli: {
     command: string;
   };
@@ -1619,40 +1611,42 @@ export const executeMemoryTool = async (
 
   try {
     switch (toolName) {
-      case "web_search":
-      const { query } = args as ToolCallArgs['web_search'];
-      console.log(`🌐 [Search] Kayley is searching for: ${query}`);
+      case "web_search": {
+        const { query } = args as ToolCallArgs['web_search'];
+        const webSearchLog = clientLogger.scoped('WebSearch');
+        webSearchLog.info('Searching', { query });
 
-      try {
-        const response = await fetch("https://api.tavily.com/search", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            api_key: import.meta.env.VITE_TAVILY_API_KEY,
-            query: query,
-            search_depth: "basic",
-            max_results: 5,
-          }),
-        });
+        try {
+          const response = await fetch("https://api.tavily.com/search", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              api_key: process.env.TAVILY_API_KEY,
+              query,
+              search_depth: "basic",
+              max_results: 5,
+            }),
+          });
 
-        if (!response.ok) {
-          throw new Error(`Tavily API error: ${response.statusText}`);
+          if (!response.ok) {
+            throw new Error(`Tavily API error: ${response.statusText}`);
+          }
+
+          const data = await response.json();
+
+          // Clean and join the results into a string for Gemini
+          return data.results
+            .map(
+              (r: any) =>
+                `Source: ${r.title}\nURL: ${r.url}\nContent: ${r.content}`,
+            )
+            .join("\n\n");
+        } catch (error) {
+          webSearchLog.error('Tavily search failed', { error: error instanceof Error ? error.message : String(error) });
+          return "I tried to check the internet, but my internal browser is acting up!";
         }
-
-        const data = await response.json();
-
-        // Clean and join the results into a string for Gemini
-        return data.results
-          .map(
-            (r: any) =>
-              `Source: ${r.title}\nURL: ${r.url}\nContent: ${r.content}`,
-          )
-          .join("\n\n");
-      } catch (error) {
-        console.error("❌ Tavily Search Failed:", error);
-        return "I tried to check the internet, but my internal browser is acting up!";
       }
       case 'workspace_action': {
         const { requestWorkspaceAction } = await import('./projectAgentService');
@@ -2005,7 +1999,7 @@ export const executeMemoryTool = async (
       case 'submit_clarification': {
         const { submitClarification } = await import('./multiAgentService');
         const clarifyArgs = args as ToolCallArgs['submit_clarification'];
-        console.log('[Memory Tool] submit_clarification called:', clarifyArgs);
+        memoryToolLog.info('submit_clarification called', { ticket_id: clarifyArgs.ticket_id });
 
         if (!clarifyArgs.ticket_id || !clarifyArgs.response?.trim()) {
           return 'Missing ticket_id or response for submit_clarification.';
@@ -2151,14 +2145,14 @@ export const executeMemoryTool = async (
         const { category, key, value } = args as ToolCallArgs['store_user_info'];
         const canonicalKey = normalizeUserFactKey(category, key);
         if (isCurrentFactKey(key) || isCurrentFactKey(canonicalKey)) {
-          console.log(`⏭️ [Memory] Skipping current_* fact (transient): ${category}.${canonicalKey}`);
+          memoryToolLog.info('Skipping transient current_* fact', { category, key: canonicalKey });
           return `Skipped transient fact: ${key}`;
         }
         const success = await storeUserFact(category, canonicalKey, value);
         if (success) {
           // Invalidate synthesis so next idle tick regenerates with new fact
           import('./contextSynthesisService').then(m => m.invalidateSynthesis()).catch(err =>
-            console.error('[Memory] Synthesis invalidation failed:', err)
+            memoryToolLog.error('Synthesis invalidation failed', { error: err instanceof Error ? err.message : String(err) })
           );
         }
         return success
@@ -2167,7 +2161,7 @@ export const executeMemoryTool = async (
       }
       case 'store_daily_note': {
         const { note } = args as ToolCallArgs['store_daily_note'];
-        console.log('🗒️ [Memory Tool] Storing daily note');
+        memoryToolLog.info('Storing daily note');
         const success = await appendDailyNote(note);
         return success
           ? '✓ Daily note stored.'
@@ -2175,7 +2169,7 @@ export const executeMemoryTool = async (
       }
       case 'store_monthly_note': {
         const { note } = args as ToolCallArgs['store_monthly_note'];
-        console.log('🗒️ [Memory Tool] Storing monthly note');
+        memoryToolLog.info('Storing monthly note');
         const success = await appendMonthlyNote(note);
         return success
           ? '✓ Monthly note stored.'
@@ -2191,11 +2185,11 @@ export const executeMemoryTool = async (
       }
       case 'mila_note': {
         const { note } = args as ToolCallArgs['mila_note'];
-        console.log('[Memory Tool] Storing Mila milestone note');
+        memoryToolLog.info('Storing Mila milestone note');
         const success = await appendMilaMilestoneNote(note);
         if (success) {
           import('./contextSynthesisService').then(m => m.invalidateSynthesis()).catch(err =>
-            console.error('[Memory] Synthesis invalidation failed:', err)
+            memoryToolLog.error('Synthesis invalidation failed', { error: err instanceof Error ? err.message : String(err) })
           );
         }
         return success
@@ -2203,7 +2197,7 @@ export const executeMemoryTool = async (
           : 'Failed to store Mila milestone note.';
       }
       case 'retrieve_daily_notes': {
-        console.log('📚 [Memory Tool] Retrieving daily notes');
+        memoryToolLog.info('Retrieving daily notes');
         const lines = await getAllDailyNotes();
         if (lines.length === 0) {
           return 'No daily notes recorded yet.';
@@ -2212,7 +2206,7 @@ export const executeMemoryTool = async (
       }
       case 'retrieve_monthly_notes': {
         const { year, month } = args as ToolCallArgs['retrieve_monthly_notes'];
-        console.log('📚 [Memory Tool] Retrieving monthly notes', { year, month });
+        memoryToolLog.info('Retrieving monthly notes', { year, month });
         const { monthKey, lines } = await getMonthlyNotesForMonth(year, month);
         if (lines.length === 0) {
           return `No monthly notes recorded for ${monthKey}.`;
@@ -2230,104 +2224,12 @@ export const executeMemoryTool = async (
       case 'retrieve_mila_notes': {
         const { year, month } = args as ToolCallArgs['retrieve_mila_notes'];
         const monthLabel = `${year}-${String(month).padStart(2, '0')}`;
-        console.log('[Memory Tool] Retrieving Mila milestone notes', { year, month });
+        memoryToolLog.info('Retrieving Mila milestone notes', { year, month });
         const lines = await getMilaMilestonesForMonth(year, month);
         if (lines.length === 0) {
           return `No Mila milestones recorded for ${monthLabel}.`;
         }
         return `Mila milestones for ${monthLabel}:\n${lines.join('\n')}`;
-      }
-      case 'task_action': {
-        // Import taskService functions dynamically to avoid circular dependency
-        const { fetchTasks, createTask, toggleTask, deleteTask } = await import('./taskService');
-        const { action, task_text, priority } = args as ToolCallArgs['task_action'];
-        console.log("ACTION!: ", action);
-        console.log("task_text!: ", task_text);
-        console.log("priority!: ", priority);
-        switch (action) {
-          case "create": {
-            if (!task_text) {
-              return "Error: task_text is required for creating a task.";
-            }
-            await createTask(task_text, priority || "low");
-            _taskMutationPending = true;
-            return `✓ Created task: "${task_text}" (priority: ${
-              priority || "low"
-            })`;
-          }
-
-          case "complete": {
-            if (!task_text) {
-              return "Error: task_text is required for completing a task.";
-            }
-            // Find and complete the task
-            const tasks = await fetchTasks();
-            // console.log("Fetched Tasks: ", tasks);
-            const matchingTask = tasks.find((t) =>
-              t.text.toLowerCase().includes(task_text.toLowerCase())
-            );
-            // console.log("matchingTask: ", matchingTask);
-            if (matchingTask) {
-              await toggleTask(matchingTask.id, false); // false = currently not completed, toggle to complete
-              _taskMutationPending = true;
-              return `✓ Completed task: "${matchingTask.text}"`;
-            }
-            return `Could not find a task matching "${task_text}".`;
-          }
-
-          case "delete": {
-            if (!task_text) {
-              return "Error: task_text is required for deleting a task.";
-            }
-            // Find and delete the task
-            const allTasks = await fetchTasks();
-            const taskToDelete = allTasks.find((t) =>
-              t.text.toLowerCase().includes(task_text.toLowerCase())
-            );
-            if (taskToDelete) {
-              await deleteTask(taskToDelete.id);
-              _taskMutationPending = true;
-              return sanitizeForGemini(
-                `✓ Deleted task: "${taskToDelete.text}"`
-              );
-            }
-            return sanitizeForGemini(
-              `Could not find a task matching "${task_text}"`
-            );
-          }
-
-          case "list": {
-            const taskList = await fetchTasks();
-            if (taskList.length === 0) {
-              return "No tasks on your checklist.";
-            }
-            const incomplete = taskList.filter((t) => !t.completed);
-            const completed = taskList.filter((t) => t.completed);
-
-            let result = `Your checklist (${taskList.length} total):\n`;
-            if (incomplete.length > 0) {
-              result +=
-                "\nPending:\n" +
-                incomplete
-                  .map(
-                    (t) =>
-                      `  [ ] ${t.text}${
-                        t.priority !== "low" ? ` (${t.priority} priority)` : ""
-                      }`
-                  )
-                  .join("\n");
-            }
-            if (completed.length > 0) {
-              result +=
-                "\n\nCompleted:\n" +
-                completed.map((t) => `  [✓] ${t.text}`).join("\n");
-            }
-            return result;
-          }
-
-          default:
-            return `Unknown task action: ${action}`;
-        }
       }
       case 'calendar_action': {
         const gogCal = await import('../../server/services/gogService');
@@ -2689,7 +2591,7 @@ export const executeMemoryTool = async (
       case 'resolve_idle_question': {
         const { updateIdleQuestionStatus } = await import('./idleThinkingService');
         const { id, status, answer_text } = args as ToolCallArgs['resolve_idle_question'];
-        console.log("[Memory Tool] resolve_idle_question called:", { id, status, hasAnswer: !!answer_text });
+        memoryToolLog.info('resolve_idle_question called', { id, status, hasAnswer: !!answer_text });
 
         const success = await updateIdleQuestionStatus(id, status, answer_text);
         return success
@@ -2717,18 +2619,13 @@ export const executeMemoryTool = async (
           sample_prompt,
           permissions_needed,
         } = args as ToolCallArgs['tool_suggestion'];
-        console.log("[Memory Tool] tool_suggestion called:", {
-          action,
-          id,
-          toolKey: tool_key,
-          triggerSource: trigger_source,
-        });
+        memoryToolLog.info('tool_suggestion called', { action, id, toolKey: tool_key, triggerSource: trigger_source });
 
         const { createToolSuggestion, markToolSuggestionShared } = await import('./toolSuggestionService');
 
         if (action === 'mark_shared') {
           if (!id) {
-            console.warn("[Memory Tool] tool_suggestion missing id for mark_shared");
+            memoryToolLog.warning('tool_suggestion missing id for mark_shared');
             return "Missing id for tool_suggestion mark_shared.";
           }
 
@@ -2739,7 +2636,7 @@ export const executeMemoryTool = async (
         }
 
         if (action !== 'create') {
-          console.warn("[Memory Tool] tool_suggestion invalid action", { action });
+          memoryToolLog.warning('tool_suggestion invalid action', { action });
           return `Unknown tool_suggestion action: ${action}`;
         }
 
@@ -2752,7 +2649,7 @@ export const executeMemoryTool = async (
         if (!sample_prompt) missingFields.push("sample_prompt");
 
         if (missingFields.length > 0) {
-          console.warn("[Memory Tool] tool_suggestion missing fields", { missingFields });
+          memoryToolLog.warning('tool_suggestion missing required fields', { missingFields });
           return `Missing required fields for tool_suggestion create: ${missingFields.join(", ")}`;
         }
 
@@ -2761,7 +2658,7 @@ export const executeMemoryTool = async (
         }
 
         if (!trigger_text || !trigger_reason) {
-          console.warn("[Memory Tool] tool_suggestion missing live trigger details");
+          memoryToolLog.warning('tool_suggestion missing live trigger details');
           return "Missing trigger_text or trigger_reason for live tool_suggestion.";
         }
 
@@ -3110,6 +3007,16 @@ export const executeMemoryTool = async (
         }
 
         return `Unknown resolve_x_mention status: ${status}`;
+      }
+      case 'google_task_action': {
+        const taskArgs = args as ToolCallArgs['google_task_action'];
+        try {
+          const { runGoogleTaskAction } = await import('../../server/services/gogService');
+          const result = await runGoogleTaskAction(taskArgs);
+          return result.message;
+        } catch (err) {
+          return formatToolFailure(`google_task_action failed: ${err instanceof Error ? err.message : String(err)}`);
+        }
       }
       case 'google_cli': {
         const { command } = args as ToolCallArgs['google_cli'];

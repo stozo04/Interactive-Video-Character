@@ -38,16 +38,6 @@ export {
   type CalendarActionResult,
 } from './calendarActions';
 
-// Task actions
-export {
-  processTaskAction,
-  parseTaskActionFromResponse,
-  detectTaskCompletionFallback,
-  type TaskAction,
-  type TaskActionHandlers,
-  type TaskActionResult,
-} from './taskActions';
-
 // News actions
 export {
   processNewsAction,

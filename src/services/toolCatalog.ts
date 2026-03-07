@@ -28,15 +28,6 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
     sample_prompts: ["What is the latest in AI this week?"],
   },
   {
-    tool_key: "task_action",
-    name: "Task Manager",
-    description: "Create, complete, delete, or list checklist tasks.",
-    user_value: "Helps you track daily priorities and follow through.",
-    permissions_needed: ["local_tasks"],
-    triggers: ["to-do", "reminder", "checklist"],
-    sample_prompts: ["Add buy milk to my list."],
-  },
-  {
     tool_key: "calendar_action",
     name: "Calendar Manager",
     description: "Create, delete, or list Google Calendar events.",

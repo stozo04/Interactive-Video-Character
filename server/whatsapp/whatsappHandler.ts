@@ -882,10 +882,7 @@ export async function handleWhatsAppMessage(
       userContent,
       aiService: serverGeminiService,
       session,
-      accessToken: undefined,
       chatHistory,
-      upcomingEvents: [],
-      tasks: [],
       isMuted: true,
       pendingEmail: pendingEmailData?.email ?? null,
     });

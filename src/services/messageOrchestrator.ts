@@ -24,17 +24,14 @@ import {
   processNewsAction,
   processSelfieAction,
   processVideoAction,
-  parseTaskActionFromResponse,
-  detectTaskCompletionFallback,
   type NewsAction,
   type SelfieAction,
   type VideoAction,
-  type TaskAction,
 } from '../handlers/messageActions';
 import { appendConversationHistory } from './conversationHistoryService';
 import { extractAndRecordTopics } from './topicExhaustionService';
 import { refreshConversationAnchor } from './conversationAnchorService';
-import { consumeTaskMutationSignal, consumeCalendarMutationSignal } from './memoryService';
+import { consumeCalendarMutationSignal } from './memoryService';
 import { clientLogger } from './clientLogger';
 
 const log = clientLogger.scoped('MessageOrchestrator');
@@ -65,7 +62,6 @@ export async function processUserMessage(input: OrchestratorInput): Promise<Orch
     aiService,
     session,
     chatHistory,
-    tasks,
     isMuted,
     pendingEmail,
   } = input;
@@ -148,39 +144,11 @@ export async function processUserMessage(input: OrchestratorInput): Promise<Orch
     console.log(`🎯 [Orchestrator] Action type: ${actionType}`);
     result.actionType = actionType;
 
-    // Set refresh flags based on action type (JSON response path)
-    if (actionType === ActionType.TASK) {
-      result.refreshTasks = true;
-      result.openTaskPanel = true;
-    }
-
-    // Set refresh flags when task_action or calendar_action ran as a function tool.
+    // Set refresh flags when calendar_action ran as a function tool.
     // The function tool runs inside the AI interaction loop before the response reaches
-    // the orchestrator, so response fields are never populated for these. Mutation signals bridge the gap.
-    if (consumeTaskMutationSignal()) {
-      result.refreshTasks = true;
-      result.openTaskPanel = true;
-    }
+    // the orchestrator, so response fields are never populated for these.
     if (consumeCalendarMutationSignal()) {
       result.refreshCalendar = true;
-    }
-
-    // ========================================================================
-    // PHASE 6: TASK ACTION DETECTION (execution stays in App.tsx)
-    // ========================================================================
-
-    // Fallback task detection from text (task_action now runs as function tool;
-    // consumeTaskMutationSignal above handles refreshTasks. These fallbacks catch
-    // edge cases where text hints at task intent without a tool call.)
-    let detectedTask: TaskAction | null | undefined = null;
-    if (!detectedTask && response.text_response) {
-      detectedTask = parseTaskActionFromResponse(response.text_response);
-    }
-    if (!detectedTask) {
-      detectedTask = detectTaskCompletionFallback(userMessage, tasks);
-    }
-    if (detectedTask) {
-      result.detectedTaskAction = detectedTask;
     }
 
     // ========================================================================

@@ -16,6 +16,7 @@ AGENTS.md
 .env.*
 !.env.example
 *.env
+google_credentials.json
 
 # Logs
 logs

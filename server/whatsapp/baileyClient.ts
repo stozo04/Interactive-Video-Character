@@ -55,7 +55,7 @@ export async function startWhatsAppClient(
     let stopped = false;
 
     try {
-        const latestVersionResult = await fetchLatestWaWebVersion();
+        const latestVersionResult = await fetchLatestWaWebVersion({});
         if ("error" in latestVersionResult && latestVersionResult.error) {
             console.warn(`${LOG_PREFIX} Failed to fetch latest WA Web version, using Baileys default`, {
                 error: latestVersionResult.error,
@@ -184,7 +184,7 @@ export async function startWhatsAppClient(
         // Make socket available for proactive sends (emailBridge, etc.)
         _activeSock = sock;
 
-        sock.ev.on('connection.update', (update) => {
+        sock.ev.on('connection.update', (update: any) => {
             const { connection, lastDisconnect, qr } = update;
 
             if (qr) {
@@ -319,14 +319,14 @@ export async function startWhatsAppClient(
             );
         });
 
-        sock.ev.on('creds.update', (creds) => {
+        sock.ev.on('creds.update', (_creds: any) => {
             runtimeLog.info("WhatsApp credentials updated", {
                 source: "baileysClient",
             });
             saveCreds();
         });
 
-        sock.ev.on('messages.upsert', async (event) => {
+        sock.ev.on('messages.upsert', async (event: any) => {
             if (event.type !== "notify") {
                 runtimeLog.info("WhatsApp messages.upsert non-notify event received", {
                     source: "baileysClient",

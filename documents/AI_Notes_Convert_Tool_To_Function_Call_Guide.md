@@ -5,27 +5,10 @@ This guide shows exactly how to convert one tool to true SDK function calling.
 
 I will use `recall_character_profile` as the concrete example, but the same process applies to:
 
-- `recall_memory`
-- `web_search`
 - `workspace_action`
 - `cron_job_action`
 - `delegate_to_engineering`
 - `get_engineering_ticket_status`
-- `submit_clarification`
-- `recall_user_info`
-- `store_user_info`
-- `resolve_idle_question`
-- `resolve_idle_browse_note`
-- `tool_suggestion`
-- `store_daily_note`
-- `retrieve_daily_notes`
-- `store_monthly_note`
-- `retrieve_monthly_notes`
-- `store_lessons_learned`
-- `retrieve_lessons_learned`
-- `mila_note`
-- `retrieve_mila_notes`
-- `store_character_info`
 
 ---
 
@@ -254,3 +237,57 @@ Use JSON output field for:
 - App-level rendering/navigation hints
 
 If you are unsure, default to function call.
+
+---
+
+## Completed Conversions
+
+### `submit_clarification` (completed 2026-03-07)
+
+**What was done:**
+- All steps already wired (`SubmitClarificationSchema`, `GeminiMemoryToolDeclarations`, `MemoryToolArgs`, `MemoryToolName`, `ToolCallArgs`, clean case block with `{ }` braces).
+- Replaced 1 `console.log` with `memoryToolLog.info` (logs `ticket_id` only, not the full args which may contain user response text).
+
+---
+
+### `tool_suggestion` (completed 2026-03-07)
+
+**What was done:**
+- All steps already wired (`ToolSuggestionSchema`, `GeminiMemoryToolDeclarations`, `MemoryToolArgs`, `MemoryToolName`, `ToolCallArgs`, clean `executeMemoryTool` case with `{ }` braces).
+- Replaced 5 `console.*` calls with `memoryToolLog.*` (`info` for entry log, `warning` for validation failures).
+
+---
+
+### Storage/Retrieval batch (completed 2026-03-07)
+
+**Tools:** `store_user_info`, `store_daily_note`, `retrieve_daily_notes`, `store_monthly_note`, `retrieve_monthly_notes`, `store_lessons_learned`, `retrieve_lessons_learned`, `mila_note`, `retrieve_mila_notes`, `store_character_info`, `resolve_idle_question`, `resolve_idle_browse_note`
+
+**What was done:**
+- All 12 tools: already fully wired (Zod schemas, `GeminiMemoryToolDeclarations`, `MemoryToolArgs`, `MemoryToolName`, `ToolCallArgs`, `executeMemoryTool` cases with proper `{ }` braces, no `import.meta.env` issues).
+- 4 already clean (`store_lessons_learned`, `retrieve_lessons_learned`, `store_character_info`, `resolve_idle_browse_note`) — no changes.
+- Added `const memoryToolLog = clientLogger.scoped('MemoryTool')` to `memoryService.ts`.
+- Replaced 9 `console.*` calls across 8 tools with `memoryToolLog.*`.
+
+---
+
+### `recall_user_info` (completed 2026-03-07)
+
+**What was done:**
+- All 5 steps already complete: `RecallUserInfoSchema` Zod type, `GeminiMemoryToolDeclarations` entry, `MemoryToolArgs`/`MemoryToolName`/`ToolCallArgs` unions, clean `executeMemoryTool` case (proper braces, no `console.*`, no Vite env vars).
+- Added `recall_user_info` and `recall_memory` to section 16 anti-fake-call example list in `toolsAndCapabilities.ts`.
+
+---
+
+### `web_search` (completed 2026-03-07)
+
+**What was done:**
+- Added `WebSearchSchema` Zod type + `WebSearchArgs` export to `aiSchema.ts`
+- `MemoryToolArgs` union updated to use `WebSearchArgs` instead of inline `{ query: string }`
+- Function declaration already existed in `GeminiMemoryToolDeclarations` (no change needed)
+- `MemoryToolName` and `ToolCallArgs` already correct in `memoryService.ts` (no change needed)
+- Fixed `case "web_search"` block in `executeMemoryTool`:
+  - Added `{ }` braces for proper scoping
+  - Replaced `import.meta.env.VITE_TAVILY_API_KEY` with `process.env.TAVILY_API_KEY`
+  - Replaced `console.log`/`console.error` with `clientLogger.scoped('WebSearch')`
+- Renamed env var `VITE_TAVILY_API_KEY` → `TAVILY_API_KEY` in `.env.local`
+- Added section 13 "WEB SEARCH (FUNCTION TOOL)" to `toolsAndCapabilities.ts`

@@ -387,7 +387,7 @@ export const RecallUserInfoSchema = z.object({
  */
 export const StoreUserInfoSchema = z.object({
   category: z.enum(['identity', 'preference', 'relationship', 'context']).describe(
-    "Category of the fact being stored. Use 'context' for current projects or life events. DO NOT use for tasks/todos - use task_action instead."
+    "Category of the fact being stored. Use 'context' for current projects or life events."
   ),
   key: z.string().describe(
     "The type of fact (e.g., 'name', 'job', 'favorite_food', 'spouse_name')"
@@ -796,10 +796,15 @@ export const GmailSearchSchema = z.object({
 });
 export type GmailSearchArgs = z.infer<typeof GmailSearchSchema>;
 
+export const WebSearchSchema = z.object({
+  query: z.string().describe("The search query"),
+});
+export type WebSearchArgs = z.infer<typeof WebSearchSchema>;
+
 // Union type for all memory tool arguments
 export type MemoryToolArgs =
   | { tool: "recall_memory"; args: RecallMemoryArgs }
-  | { tool: "web_search"; args: { query: string } }
+  | { tool: "web_search"; args: WebSearchArgs }
   | { tool: "workspace_action"; args: WorkspaceActionArgs }
   | { tool: "cron_job_action"; args: CronJobActionArgs }
   | { tool: "delegate_to_engineering"; args: DelegateToEngineeringArgs }
@@ -892,6 +897,17 @@ export type MemoryToolArgs =
         reason?: string;
       };
     }
+  | {
+      tool: "google_task_action";
+      args: {
+        action: "create" | "complete" | "delete" | "list" | "reopen";
+        title?: string;
+        taskId?: string;
+        tasklistId?: string;
+        includeCompleted?: boolean;
+        max?: number;
+      };
+    }
   | { tool: "google_cli"; args: { command: string } };
 
 // ============================================
@@ -956,7 +972,7 @@ export const GeminiMemoryToolDeclarations = [
     description:
       "Save PERSONAL FACTS about the user (name, job, preferences, family, current life projects). " +
       "Use 'context' for things like 'working on a startup' or 'training for a marathon'. " +
-      "NEVER use for tasks, to-dos, or checklist items - use task_action instead. " +
+      "NEVER use for one-off tasks, to-dos, or checklist items. " +
       "Never store transient current_* keys (e.g., current_feeling).",
     parameters: {
       type: "object",
@@ -1283,35 +1299,6 @@ export const GeminiMemoryToolDeclarations = [
         },
       },
       required: ["year", "month"],
-    },
-  },
-  {
-    name: "task_action",
-    description:
-      "Manage the user's daily checklist/tasks. " +
-      "Use 'create' to add a new task, 'complete' to mark a task done, " +
-      "'delete' to remove a task, 'list' to show all tasks. " +
-      "Examples: 'Add buy milk to my list', 'Mark groceries as done', 'What's on my checklist?'",
-    parameters: {
-      type: "object",
-      properties: {
-        action: {
-          type: "string",
-          enum: ["create", "complete", "delete", "list"],
-          description: "The task action to perform",
-        },
-        task_text: {
-          type: "string",
-          description:
-            "For create: the task description. For complete/delete: partial text to match the task.",
-        },
-        priority: {
-          type: "string",
-          enum: ["low", "medium", "high"],
-          description: "Priority level for new tasks (default: low)",
-        },
-      },
-      required: ["action"],
     },
   },
   {
@@ -2055,16 +2042,56 @@ export const GeminiMemoryToolDeclarations = [
     },
   },
   {
+    name: "google_task_action",
+    description:
+      "Structured Google Tasks actions (preferred for normal task requests). " +
+      "Use this for create/complete/delete/list/reopen so the server can resolve IDs safely. " +
+      "Use title when Steven speaks naturally (e.g., 'complete hello world task'). " +
+      "Use taskId + tasklistId if you already have exact IDs.",
+    parameters: {
+      type: "object",
+      properties: {
+        action: {
+          type: "string",
+          enum: ["create", "complete", "delete", "list", "reopen"],
+          description: "Task action to perform.",
+        },
+        title: {
+          type: "string",
+          description: "Task title for create, complete, reopen, or delete when IDs are unknown.",
+        },
+        taskId: {
+          type: "string",
+          description: "Exact Google Task ID (optional if title is provided for complete/reopen/delete).",
+        },
+        tasklistId: {
+          type: "string",
+          description: "Google Task list ID (optional for create/list; defaults to primary list for create).",
+        },
+        includeCompleted: {
+          type: "boolean",
+          description: "For list: include completed tasks (default false).",
+        },
+        max: {
+          type: "number",
+          description: "For list: max tasks to return (1-100, default 25).",
+        },
+      },
+      required: ["action"],
+    },
+  },
+  {
     name: "google_cli",
     description:
       "Run a Google Workspace CLI command. Supports read AND write operations across services. " +
       "Services: gmail, calendar, contacts, drive, tasks, time. " +
       "Write permissions per service: " +
       "gmail (send, archive), calendar (create/update/delete), tasks (full CRUD), " +
+      "For routine task operations, prefer google_task_action over raw CLI. " +
       "contacts (create/update, no delete), drive (create/upload, no delete). " +
       "This must be executed as a function call, not returned as a JSON output field. " +
       "Pass just the subcommand — 'gog' prefix and --json are added automatically. " +
-      "Examples: 'contacts search cindy', 'tasks add MyList \"Buy groceries\"', " +
+      "Examples: 'contacts search cindy', 'tasks lists list', 'tasks add <tasklistId> --title \"Buy groceries\"', 'tasks done \"Buy groceries\"', " +
       "'drive search invoice', 'gmail send --to user@example.com --subject Hi --body Hello'.",
     parameters: {
       type: "object",
@@ -2073,7 +2100,7 @@ export const GeminiMemoryToolDeclarations = [
           type: "string",
           description:
             "The gog subcommand to run. Examples: 'contacts search cindy', " +
-            "'tasks list', 'tasks add <listId> \"Task title\"', 'tasks done <listId> <taskId>', " +
+            "'tasks lists list', 'tasks list <tasklistId>', 'tasks add <tasklistId> --title \"Task title\"', 'tasks done \"Task title\"', 'tasks done <tasklistId> <taskId>', " +
             "'drive search budget', 'drive upload ./file.txt', " +
             "'calendar events primary --today', 'gmail thread get <threadId>', " +
             "'contacts create --name \"Jane Doe\" --email jane@example.com'. " +
@@ -2123,8 +2150,8 @@ export const GeminiMemoryToolDeclarations = [
       "Results are limited to 50 rows. " +
       "Limit: 1-2 queries per conversation turn, not on every turn. " +
       "Available tables: character_facts, context_synthesis, conversation_anchor, " +
-      "conversation_history, daily_tasks, kayley_daily_notes, kayley_lessons_learned, " +
-      "kayley_monthly_notes, life_storylines, promises, user_facts, user_patterns",
+      "conversation_history, kayley_daily_notes, kayley_lessons_learned, " +
+      "kayley_monthly_notes, life_storylines, promises, user_facts, user_patterns, google_tasks_index",
     parameters: {
       type: "object",
       properties: {
@@ -2179,7 +2206,6 @@ export interface PendingToolCall {
     | "recall_memory"
     | "recall_user_info"
     | "store_user_info"
-    | "task_action"
     | "calendar_action"
     | "store_character_info"
     | "resolve_open_loop"
@@ -2208,6 +2234,7 @@ export interface PendingToolCall {
     | "resolve_x_tweet"
     | "post_x_tweet"
     | "resolve_x_mention"
+    | "google_task_action"
     | "google_cli"
     | "read_agent_file"
     | "write_agent_file"

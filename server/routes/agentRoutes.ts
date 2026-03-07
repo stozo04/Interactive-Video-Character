@@ -13,7 +13,7 @@ import { log } from "../runtimeLogger";
 import { serverGeminiService } from "../services/ai/serverGeminiService";
 import { processUserMessage } from "../../src/services/messageOrchestrator";
 import type { UserContent } from "../../src/services/aiService";
-import type { ChatMessage, Task, NewEmailPayload } from "../../src/types";
+import type { ChatMessage, NewEmailPayload } from "../../src/types";
 
 const runtimeLog = log.fromContext({ source: "agentRoutes" });
 
@@ -34,7 +34,6 @@ interface AgentMessageRequest {
   userContent?: UserContent;
   sessionId: string;
   chatHistory?: ChatMessage[];
-  tasks?: Task[];
   isMuted?: boolean;
   pendingEmail?: NewEmailPayload | null;
 }
@@ -148,7 +147,6 @@ async function handleAgentMessage(req: IncomingMessage, res: ServerResponse): Pr
       aiService: serverGeminiService,
       session,
       chatHistory: body.chatHistory || [],
-      tasks: body.tasks || [],
       isMuted: body.isMuted ?? false,
       pendingEmail: body.pendingEmail,
     });

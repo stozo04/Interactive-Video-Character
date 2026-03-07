@@ -153,10 +153,11 @@ Step 1: TELL HER IT EXISTS
 
 Step 2: GIVE HER A BUTTON TO PRESS
   Tool declarations in aiSchema.ts define "buttons" Kayley can press.
-  She has two main tools for Google:
-    - gmail_search  → dedicated typed tool for email search (high-frequency)
-    - calendar_action → dedicated typed tool for calendar CRUD (high-frequency)
-    - google_cli    → general-purpose tool for EVERYTHING else
+  She has main Google tools:
+    - gmail_search  -> dedicated typed tool for email search (high-frequency)
+    - calendar_action -> dedicated typed tool for calendar CRUD (high-frequency)
+    - google_task_action -> dedicated typed tool for task CRUD (high-frequency)
+    - google_cli    -> general-purpose tool for EVERYTHING else
 
   When Kayley wants to do something Google-related, she calls one of these
   tools with parameters (e.g., { command: "tasks add MyList 'Buy groceries'" }).
@@ -168,11 +169,11 @@ Step 3: WIRE THE BUTTON TO GOGCLI
 
   Example flow:
     User: "What's on my Google Tasks?"
-    Kayley calls: google_cli({ command: "tasks list" })
-    memoryService.ts → gogService.execGeneralCommand("tasks list")
-    gogService.ts → execFile('gog', ['--json', '--account', 'user@gmail.com', 'tasks', 'list'])
-    gog binary → Google Tasks API → JSON response
-    Response flows back up → Kayley reads it → responds naturally
+    Kayley calls: google_task_action({ action: "list" })
+    memoryService.ts -> gogService.runGoogleTaskAction({ action: "list" })
+    gogService.ts -> gogCore.execGogRaw(['tasks', ...])
+    gog binary -> Google Tasks API -> JSON response
+    Response flows back up -> Kayley reads it -> responds naturally
 ```
 
 **To add a new Google capability** (e.g., Google Sheets):
@@ -185,9 +186,12 @@ Step 3: WIRE THE BUTTON TO GOGCLI
 
 | File | What It Does |
 |------|--------------|
-| `server/services/gogService.ts` | Core wrapper. Spawns `gog` CLI via `child_process.execFile`. Contains the **permission allowlist**, typed wrappers for hot-path operations, and the general `execGeneralCommand` function. |
-| `src/services/aiSchema.ts` | Tool declarations (the "buttons" Kayley can press). Contains `google_cli` tool definition. |
-| `src/services/memoryService.ts` | Tool handler. Catches `google_cli` calls from Kayley and routes to `gogService.execGeneralCommand()`. |
+| `server/services/gogCore.ts` | Shared gog execution core (`execGogRaw`, `execGogJson`, `GogError`) with logger source `gogCliCore`. |
+| `server/services/gogGmailService.ts` | Gmail-only wrappers with logger source `gogGmailService`. |
+| `server/services/gogCalendarService.ts` | Calendar-only wrappers with logger source `gogCalendarService`. |
+| `server/services/gogService.ts` | Facade for compatibility; owns task-specific logic (`runGoogleTaskAction`) and `google_cli` permission allowlist + `execGeneralCommand` with logger source `gogService`. |
+| `src/services/aiSchema.ts` | Tool declarations (the "buttons" Kayley can press). Contains `google_cli`, `google_task_action`, `calendar_action`, `gmail_search`, and `email_action` definitions. |
+| `src/services/memoryService.ts` | Tool handler. Routes `google_task_action` to `runGoogleTaskAction()` and `google_cli` to `execGeneralCommand()`. |
 | `src/services/system_prompts/tools/toolsAndCapabilities.ts` | The cheat sheet. Rule 14 contains every Google command Kayley knows about. |
 | `server/services/gmailPoller.ts` | Background poller. Uses `searchEmails()` from gogService every 10s to find new emails. |
 | `server/services/calendarHeartbeat.ts` | Background service. Uses `fetchCalendarWindow()` from gogService every 15min for event reminders. |
@@ -217,7 +221,7 @@ If a command fails the allowlist check, Kayley gets an error message explaining 
 
 ### Typed Wrappers (Hot Path)
 
-For operations Kayley does constantly, there are dedicated typed wrapper functions in `gogService.ts` that bypass the general allowlist and provide better error handling:
+For operations Kayley does constantly, there are dedicated typed wrapper functions in service-specific modules (`gogGmailService.ts`, `gogCalendarService.ts`, and task wrappers in `gogService.ts`) that bypass the general allowlist and provide better error handling:
 
 | Function | Used By | What It Does |
 |----------|---------|--------------|
@@ -225,11 +229,13 @@ For operations Kayley does constantly, there are dedicated typed wrapper functio
 | `fetchEmailBody(messageId)` | `gmailPoller.ts`, `telegramHandler.ts` | Fetch full email body |
 | `archiveEmail(messageId)` | `telegramHandler.ts`, `whatsappHandler.ts` | Archive by removing INBOX label |
 | `sendReply(messageId, to, subject, body)` | `telegramHandler.ts`, `whatsappHandler.ts` | Reply to an email thread |
-| `sendEmail(to, subject, body)` | `memoryService.ts` (email_action) | Send a new email |
+| `sendEmail(to, subject, body)` | `memoryService.ts` (`email_action`) | Send a new email |
 | `listCalendarEvents(options)` | `calendar_action` tool | List events with date/range filters |
 | `createCalendarEvent(options)` | `calendar_action` tool | Create a calendar event |
+| `updateCalendarEvent(options)` | `calendar_action` tool | Update a calendar event |
 | `deleteCalendarEvent(eventId)` | `calendar_action` tool | Delete a calendar event |
 | `fetchCalendarWindow(min, max)` | `calendarHeartbeat.ts` | Fetch events in a time window |
+| `runGoogleTaskAction(input)` | `memoryService.ts` (`google_task_action`) | Create/complete/reopen/delete/list Google Tasks with local ID resolution |
 
 ### Initial Setup (One-Time)
 

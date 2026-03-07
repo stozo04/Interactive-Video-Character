@@ -12,7 +12,7 @@
  */
 
 import type { CalendarEvent } from '../../../types';
-import type { ChatMessage, Task } from '../../../types';
+import type { ChatMessage } from '../../../types';
 
 export interface OpenLoopContext {
   topic: string;
@@ -27,7 +27,6 @@ export interface ImportantDateFacts {
 export interface DailyLogisticsContext {
   chatHistory: ChatMessage[],
   upcomingEvents: CalendarEvent[];
-  tasks: Task[];
   importantDateFacts: ImportantDateFacts[];
   lastInteractionDateUtc: Date;
   pastCalendarEvents: CalendarEvent[]; // TODO
@@ -97,24 +96,6 @@ function buildEventSummary(events: CalendarEvent[]): string {
 }
 
 /**
- * Build task summary for the catch-up prompt
- */
-function buildTaskSummary(tasks: Task[]): string {
-  const incompleteTasks = tasks.filter((t) => !t.completed);
-
-  if (incompleteTasks.length === 0) {
-    return "User's checklist is clear.";
-  }
-
-  const taskPreview = incompleteTasks
-    .slice(0, 3)
-    .map((t) => t.text)
-    .join(", ");
-
-  return `User has ${incompleteTasks.length} task(s) pending: ${taskPreview}`;
-}
-
-/**
  * Build open loop context section
  */
 function buildOpenLoopSection(openLoop: OpenLoopContext | null): string {
@@ -141,40 +122,10 @@ function buildOpenLoopSection(openLoop: OpenLoopContext | null): string {
 export function buildDailyLogisticsSection(
   context: DailyLogisticsContext,
 ): string {
-  const incompleteTasks = context.tasks.filter((t) => !t.completed);
-  const hasTasks = incompleteTasks.length > 0;
-
-  // // If nothing to report, return empty
-  // if (!hasCalendar && !hasEmail && !hasTasks) {
-  //   return '';
-  // }
-
   const parts: string[] = [];
 
-  // Calendar summary
-
-  // const firstEvent = context.upcomingEvents[0];
-  // const startTime = firstEvent.start.dateTime || firstEvent.start.date;
-  // const timeStr = startTime
-  //   ? new Date(startTime).toLocaleTimeString('en-US', {
-  //       hour: 'numeric',
-  //       minute: '2-digit',
-  //       hour12: true,
-  //     })
-  //   : 'today';
-  // parts.push(
-  //   `📅 ${context.upcomingEvents.length} event(s) today. First: "${firstEvent.summary}" at ${timeStr}.`
-  // );
-
-  // Tasks summary
-  if (hasTasks) {
-    const taskPreview = incompleteTasks
-      .slice(0, 2)
-      .map((t) => t.text)
-      .join(", ");
-    parts.push(
-      `✅ ${incompleteTasks.length} pending task(s): ${taskPreview}${incompleteTasks.length > 2 ? "..." : ""}`,
-    );
+  if (parts.length === 0) {
+    return '';
   }
 
   return `
@@ -198,7 +149,6 @@ INSTRUCTIONS:
 export function buildDailyCatchupPrompt(context: DailyCatchupContext): string {
   const { timeOfDay, timeString } = getTimeContext();
   const eventSummary = buildEventSummary(context.upcomingEvents);
-  const taskSummary = buildTaskSummary(context.tasks);
   const openLoopContext = buildOpenLoopSection(context.openLoop);
 
   const hasOpenLoop = !!openLoopContext;
@@ -210,15 +160,14 @@ Context: It is the first time the user has logged in today. Current time: ${time
 ${hasOpenLoop ? `PAST CONTINUITY (Top Priority):\n${openLoopContext}\n` : ""}
 DAILY LOGISTICS (Secondary Priority):
 - ${eventSummary}
-- ${taskSummary}
 
 TASK:
 1. Greet them warmly for the ${timeOfDay}. Use time-appropriate language (NOT "Good morning" if it's ${timeOfDay}!).
 ${
   hasOpenLoop
     ? `2. Lead with the personal follow-up - it shows you were thinking of them.
-3. Naturally bridge to their schedule/tasks if relevant.`
-    : `2. Briefly mention their schedule/tasks if any exist.`
+3. Naturally bridge to their schedule if relevant.`
+    : `2. Briefly mention their schedule if any exists.`
 }
 
 Keep it short (2-3 sentences). Be natural, not robotic.

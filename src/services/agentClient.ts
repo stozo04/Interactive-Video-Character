@@ -8,7 +8,7 @@
 //   const greeting = await agentClient.getGreeting({ sessionId, ... });
 
 import type { OrchestratorResult } from '../handlers/messageActions/types';
-import type { ChatMessage, Task, NewEmailPayload } from '../types';
+import type { ChatMessage, NewEmailPayload } from '../types';
 import type { UserContent } from './aiService';
 
 const AGENT_BASE_URL = '/agent';
@@ -24,7 +24,6 @@ export interface AgentMessageRequest {
   userContent?: UserContent;
   sessionId: string;
   chatHistory?: ChatMessage[];
-  tasks?: Task[];
   isMuted?: boolean;
   pendingEmail?: NewEmailPayload | null;
 }

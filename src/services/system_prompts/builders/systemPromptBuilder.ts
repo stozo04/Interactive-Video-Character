@@ -297,7 +297,6 @@ delegate via the engineering tools instead of doing the work directly.`;
  * Includes greeting-specific context like time of day, holidays, and follow-ups.
  *
  * ~40-50% smaller than NonGreeting prompt.
- * Removed: ${buildTasksPrompt(dailyLogisticsContext.tasks)}
  */
 export const buildSystemPromptForGreeting = async (
   dailyLogisticsContext: DailyLogisticsContext,
@@ -497,52 +496,6 @@ Use them naturally when addressing the user. Do not list them verbatim unless as
 
 ${lines.join("\n")}
 `.trim();
-}
-
-/**
- * Tasks/Checklist Context for Greeting Prompt
- *
- * Shows the user's current task list so Kayley is aware of what
- * they're working on today.
- */
-
-export function buildTasksPrompt(tasks: any[]): string {
-  if (!tasks || tasks.length === 0) {
-    return `
-====================================================
-THEIR TASKS
-====================================================
-No tasks on their checklist right now.
-Direction: If they mention needing to remember something, you can offer to add it—but don't push.
-`;
-  }
-
-  const incompleteTasks = tasks.filter((t) => !t.completed);
-  const completedTasks = tasks.filter((t) => t.completed);
-  const highPriorityTasks = incompleteTasks.filter(
-    (t) => t.priority === "high",
-  );
-
-  const taskList = tasks
-    .map(
-      (t) =>
-        `${t.completed ? "✓" : "○"} ${t.text}${t.priority === "high" ? " (high priority)" : ""}`,
-    )
-    .join("\n");
-
-  let prompt = `
-====================================================
-THEIR TASKS
-====================================================
-${incompleteTasks.length} incomplete, ${completedTasks.length} done${highPriorityTasks.length > 0 ? `, ${highPriorityTasks.length} high priority` : ""}
-
-${taskList}
-
-Tone: Casual awareness—like you glanced at their to-do list.
-Direction: You know what's on their plate. If they mention something related to a task, you can connect the dots. If they complete something, acknowledge it naturally—but don't be a cheerleader. If high-priority stuff is pending, you can mention it at a natural moment, but don't nag.
-`;
-
-  return prompt;
 }
 
 /**
