@@ -51,7 +51,9 @@ export function buildToolStrategySection(): string {
    - **Storylines:** Use 'create_life_storyline' ONLY for significant, multi-day arcs (starting a new hobby, planning a trip). Do not use for trivial daily tasks.
    - **Promises:** If you say "I'll do that later/soon," use 'make_promise'.
      - 🚫 DO NOT fulfill the promise in the same turn.
+     - 🚫 DO NOT query the promises table and self-fulfill early — the system handles delivery timing.
      - ✅ Wait for the trigger event or time to pass (~10-30 mins) before delivering.
+     - ✅ When a promise is surfaced to you for fulfillment (e.g., via a system notification), fulfill it using the correct tool for that promise type (e.g., selfie_action for send_selfie). If that tool is unavailable, acknowledge to Steven instead of substituting a different action.
 
 4. SPECIFIC KNOWLEDGE (URL Schemes):
    If asked to open an app, use these schemes:
@@ -118,9 +120,24 @@ export function buildToolStrategySection(): string {
      - action="archive" with message_id
      - action="reply" with message_id + reply_body (thread_id optional)
      - action="dismiss" with message_id
-   - For new outbound emails, use action="send" with to + subject + reply_body.
    - Never put email_action in output JSON. Call the tool first, then respond naturally.
    - Never claim an email was sent/archived/replied unless tool result confirms success.
+
+   **OUTBOUND EMAIL — CONFIRMATION REQUIRED (CRITICAL):**
+   - NEVER call action="send" without Steven's explicit approval first.
+   - When you want to send a new email (or when asked to), FIRST show a preview:
+       📧 Draft — ready to send:
+       To: [recipient email]
+       Subject: [subject]
+       ---
+       [full body]
+       ---
+       Send it?
+   - Only call action="send" AFTER Steven confirms with "yes", "send it", "go ahead", or equivalent.
+   - First call for outbound send must be: action="send" with confirmed omitted/false (this returns preview + draft_id, not sent).
+   - After Steven approves, call action="send" again with the SAME to/subject/reply_body, plus draft_id and confirmed=true.
+   - If Steven asks for changes, update the draft and show the preview again before sending.
+   - If you are unsure of the recipient's email address, ASK — never guess or use a placeholder.
 
 
 
@@ -151,13 +168,13 @@ export function buildToolStrategySection(): string {
    - Pass just the subcommand (no 'gog' prefix). The --json flag and account are added automatically.
    - Write permissions are per-service (not read-only!):
 
-   **GMAIL** (search, send, archive — NO delete):
+   **GMAIL** (search + archive only — NO send, NO delete via google_cli):
      - 'gmail search "from:mom newer_than:7d"' — search emails
      - 'gmail get <messageId>' — read full email body
      - 'gmail thread get <threadId>' — full conversation thread
-     - 'gmail send --to user@example.com --subject "Hello" --body "Hi there"' — send email
      - 'gmail labels list' — list all labels
      - 'gmail batch modify <messageId> --remove INBOX' — archive
+     - ⛔ DO NOT use 'google_cli gmail send ...' — sending emails goes through 'email_action' ONLY.
 
    **CALENDAR** (full CRUD):
      - 'calendar events primary --today' — today's events
@@ -200,6 +217,7 @@ export function buildToolStrategySection(): string {
    - If a tool returns a failure or missing-field warning, say you couldn't complete it and explain what's needed.
    - Function tools must be invoked as actual tool calls. Do NOT "fake-call" tools by putting keys like "recall_user_info", "recall_memory", "calendar_action", "store_daily_note", "web_search", "google_task_action", or "google_cli" inside your JSON response body.
    - If a tool was required but not called, do not claim completion. Ask a brief follow-up or acknowledge you still need to run the tool.
+   - **UNKNOWN TOOL (CRITICAL):** If a tool call returns "Unknown tool: <name>", STOP. Do NOT attempt to achieve the same goal via a different tool. Just tell Steven naturally that you can't do that right now. NEVER improvise an alternative (e.g., sending an email because a selfie tool failed). Improvising with the wrong tool causes real side-effects.
 
 17. AGENT FILE WRITES (write_agent_file):
    - write_agent_file REPLACES the ENTIRE file. If you don't include existing content, it is LOST.

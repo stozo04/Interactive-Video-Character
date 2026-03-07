@@ -16,6 +16,7 @@ import {
   appendConversationHistory,
   getTodaysInteractionId,
 } from '../../src/services/conversationHistoryService';
+import { supabaseAdmin as supabase } from './supabaseAdmin';
 import { log } from '../runtimeLogger';
 
 const LOG_PREFIX = '[CalendarHeartbeat]';
@@ -25,10 +26,9 @@ const TICK_MS = 15 * 60 * 1000;       // 15 minutes
 const WINDOW_MS = 20 * 60 * 1000;     // 20-minute window (covers drift)
 const TIMEZONE = 'America/Chicago';
 
-// Dedup: track alerted events so we don't re-alert on the next tick.
-// Key: "eventId:upcoming" or "eventId:followup"
-const alertedEvents = new Set<string>();
-let lastDedupeReset = '';
+// Dedup is persisted in calendar_heartbeat_alerts (Supabase).
+// One row per event_id + alert_type + alerted_date.
+// Server restarts do not reset the dedup — old rows from today still block re-alerts.
 
 // ============================================================================
 // Helpers
@@ -47,16 +47,24 @@ function isWithinActiveHours(): boolean {
   return hour >= 8 && hour < 19;
 }
 
-function resetDedupeIfNewDay(): void {
+async function hasAlerted(eventId: string, type: 'upcoming' | 'followup'): Promise<boolean> {
   const today = new Date().toISOString().slice(0, 10);
-  if (today !== lastDedupeReset) {
-    alertedEvents.clear();
-    lastDedupeReset = today;
-  }
+  const { data } = await supabase
+    .from('calendar_heartbeat_alerts')
+    .select('event_id')
+    .eq('event_id', eventId)
+    .eq('alert_type', type)
+    .eq('alerted_date', today)
+    .maybeSingle();
+  return data !== null;
 }
 
-function dedupeKey(eventId: string, type: 'upcoming' | 'followup'): string {
-  return `${eventId}:${type}`;
+async function markAlerted(eventId: string, type: 'upcoming' | 'followup'): Promise<void> {
+  const today = new Date().toISOString().slice(0, 10);
+  await supabase
+    .from('calendar_heartbeat_alerts')
+    .insert({ event_id: eventId, alert_type: type, alerted_date: today })
+    .throwOnError();
 }
 
 // ============================================================================
@@ -188,8 +196,6 @@ async function tick(): Promise<void> {
     return; // Silent skip outside 8am-7pm CST
   }
 
-  resetDedupeIfNewDay();
-
   const now = new Date();
 
   try {
@@ -201,8 +207,7 @@ async function tick(): Promise<void> {
 
     for (const event of upcomingEvents) {
       if (!event.start.dateTime) continue; // Skip all-day events
-      const key = dedupeKey(event.id, 'upcoming');
-      if (alertedEvents.has(key)) continue;
+      if (await hasAlerted(event.id, 'upcoming')) continue;
 
       runtimeLog.info('Upcoming event detected', {
         source: 'calendarHeartbeat',
@@ -216,7 +221,7 @@ async function tick(): Promise<void> {
         await deliverMessage(message);
         await persistMessage(message);
       }
-      alertedEvents.add(key);
+      await markAlerted(event.id, 'upcoming');
     }
 
     // --- Recently ended events (ended in the last ~20 min) ---
@@ -229,9 +234,7 @@ async function tick(): Promise<void> {
       if (!event.end.dateTime) continue; // Skip all-day events
       const endTime = new Date(event.end.dateTime);
       if (endTime > now) continue; // Event hasn't ended yet
-
-      const key = dedupeKey(event.id, 'followup');
-      if (alertedEvents.has(key)) continue;
+      if (await hasAlerted(event.id, 'followup')) continue;
 
       runtimeLog.info('Recently ended event detected', {
         source: 'calendarHeartbeat',
@@ -246,7 +249,7 @@ async function tick(): Promise<void> {
         await persistMessage(message);
       }
       // Mark as alerted even if SKIP (so we don't re-evaluate)
-      alertedEvents.add(key);
+      await markAlerted(event.id, 'followup');
     }
   } catch (err) {
     runtimeLog.error('Calendar heartbeat tick failed', {

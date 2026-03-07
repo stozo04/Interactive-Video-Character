@@ -89,7 +89,8 @@
       "Read(//usr/lib/go/lib/time/**)",
       "Bash(ZONEINFO=\"$HOME/.local/share/zoneinfo.zip\" gog calendar:*)",
       "Bash(ZONEINFO=\"C:/Users/gates/.local/share/zoneinfo.zip\" gog calendar:*)",
-      "Bash(source:*)"
+      "Bash(source:*)",
+      "WebFetch(domain:raw.githubusercontent.com)"
     ]
   },
   "enabledPlugins": {

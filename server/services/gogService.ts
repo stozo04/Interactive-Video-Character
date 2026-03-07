@@ -39,7 +39,7 @@ const ALLOWED_COMMANDS = new Set([
 // Per-service write permissions. Services not listed here are read-only.
 // Maps service -> set of allowed write subcommands.
 const ALLOWED_WRITE_SUBCOMMANDS: Record<string, Set<string>> = {
-  gmail: new Set(['send', 'modify', 'batch']),               // send + archive (modify/batch for label changes). No delete.
+  gmail: new Set(['modify', 'batch']),                        // archive only (modify/batch for label changes). No send, no delete. Sending goes through email_action only.
   calendar: new Set(['create', 'update', 'delete']),         // full CRUD
   tasks: new Set(['create', 'add', 'update', 'done', 'undo', 'delete', 'clear']), // full CRUD
   contacts: new Set(['create', 'update']),                   // CRU - no delete

@@ -193,7 +193,7 @@ Step 3: WIRE THE BUTTON TO GOGCLI
 | `src/services/aiSchema.ts` | Tool declarations (the "buttons" Kayley can press). Contains `google_cli`, `google_task_action`, `calendar_action`, `gmail_search`, and `email_action` definitions. |
 | `src/services/memoryService.ts` | Tool handler. Routes `google_task_action` to `runGoogleTaskAction()` and `google_cli` to `execGeneralCommand()`. |
 | `src/services/system_prompts/tools/toolsAndCapabilities.ts` | The cheat sheet. Rule 14 contains every Google command Kayley knows about. |
-| `server/services/gmailPoller.ts` | Background poller. Uses `searchEmails()` from gogService every 10s to find new emails. |
+| `server/services/gmailPoller.ts` | Background poller. Uses `searchEmails()` from gogService every 60s to find new emails. Query uses `newer_than:1d` — Gmail search only supports `d`/`m`/`y` time units (no hours or minutes). Dedup via `kayley_email_actions.gmail_message_id` prevents re-announcing. |
 | `server/services/calendarHeartbeat.ts` | Background service. Uses `fetchCalendarWindow()` from gogService every 15min for event reminders. |
 
 ### Permission Allowlist (gogService.ts)

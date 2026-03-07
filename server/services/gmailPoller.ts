@@ -4,7 +4,7 @@
 // No browser, no OAuth token management, no history API.
 //
 // Flow:
-//   1. Every 60s: run `gog gmail search 'newer_than:2m in:inbox' --json`
+//   1. Every 60s: run `gog gmail search 'newer_than:1d in:inbox' --json`
 //   2. For each new message: dedup check (kayley_email_actions) → category filter
 //      → auto-archive check → fetch full body → generate announcement
 //      → write to kayley_email_actions → send to Steven's Telegram
@@ -315,10 +315,11 @@ async function pollGmail(): Promise<number> {
   runtimeLog.info('Checking for new mail via gogcli', { source: 'gmailPoller' });
 
   try {
-    // Search for recent inbox emails (last 2 minutes to cover polling gaps)
-    // Exclude Promotions, Social, and Updates categories to reduce notification spam
+    // Search for recent inbox emails (last 1 day — Gmail only supports d/m/y, no hours/minutes).
+    // The dedup check on kayley_email_actions.gmail_message_id handles re-announcement.
+    // Exclude Promotions, Social, and Updates categories to reduce notification spam.
     const results = await searchEmails(
-      'newer_than:2m in:inbox -category:promotions -category:social -category:updates',
+      'newer_than:1d in:inbox -category:promotions -category:social -category:updates',
       10,
     );
 

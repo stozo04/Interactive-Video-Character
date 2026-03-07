@@ -766,6 +766,14 @@ export const EmailActionToolSchema = z.object({
   reply_body: z.string().optional().describe(
     "Body content to send. Required for reply and send."
   ),
+  draft_id: z.string().optional().describe(
+    "For action='send' confirmation: draft id returned from preview response. Required when confirmed=true."
+  ),
+  confirmed: z.boolean().optional().describe(
+    "Required for action='send'. Must be true to actually dispatch the email. " +
+    "Omit or set false on the first call — the server will return a preview. " +
+    "Only set true after Steven has explicitly approved the draft."
+  ),
 });
 
 // Export types for tool arguments
@@ -1641,6 +1649,16 @@ export const GeminiMemoryToolDeclarations = [
           type: "string",
           description: "Body content to send. Required for reply and send.",
         },
+        draft_id: {
+          type: "string",
+          description:
+            "For action='send' confirmation: draft id returned from the preview call. Required when confirmed=true.",
+        },
+        confirmed: {
+          type: "boolean",
+          description:
+            "For action='send': set true only after Steven explicitly approves the preview draft.",
+        },
       },
       required: ["action"],
     },
@@ -2086,13 +2104,13 @@ export const GeminiMemoryToolDeclarations = [
       "Run a Google Workspace CLI command. Supports read AND write operations across services. " +
       "Services: gmail, calendar, contacts, drive, tasks, time. " +
       "Write permissions per service: " +
-      "gmail (send, archive), calendar (create/update/delete), tasks (full CRUD), " +
+      "gmail (archive only — NO send; use email_action to send), calendar (create/update/delete), tasks (full CRUD), " +
       "For routine task operations, prefer google_task_action over raw CLI. " +
       "contacts (create/update, no delete), drive (create/upload, no delete). " +
       "This must be executed as a function call, not returned as a JSON output field. " +
       "Pass just the subcommand — 'gog' prefix and --json are added automatically. " +
       "Examples: 'contacts search cindy', 'tasks lists list', 'tasks add <tasklistId> --title \"Buy groceries\"', 'tasks done \"Buy groceries\"', " +
-      "'drive search invoice', 'gmail send --to user@example.com --subject Hi --body Hello'.",
+      "'drive search invoice', 'gmail search \"from:boss newer_than:3d\"', 'gmail batch modify <msgId> --remove INBOX'.",
     parameters: {
       type: "object",
       properties: {

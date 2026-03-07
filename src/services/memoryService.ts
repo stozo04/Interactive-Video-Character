@@ -9,6 +9,10 @@
 
 import { supabase } from './supabaseClient';
 import { clientLogger } from './clientLogger';
+import {
+  createEmailSendDraftPreview,
+  validateConfirmedEmailSend,
+} from './emailSendConfirmation';
 
 // ============================================
 // Types
@@ -1426,6 +1430,8 @@ export interface ToolCallArgs {
     to?: string;
     subject?: string;
     reply_body?: string;
+    confirmed?: boolean;
+    draft_id?: string;
   };
   recall_memory: {
     query: string;
@@ -2032,6 +2038,8 @@ export const executeMemoryTool = async (
           to,
           subject,
           reply_body,
+          confirmed,
+          draft_id,
         } = args as ToolCallArgs['email_action'];
 
         const {
@@ -2045,9 +2053,38 @@ export const executeMemoryTool = async (
             return formatToolFailure("email_action send requires to, subject, and reply_body.");
           }
 
-          const success = await gogSendEmail(to.trim(), subject.trim(), reply_body.trim());
+          const normalizedTo = to.trim();
+          const normalizedSubject = subject.trim();
+          const normalizedBody = reply_body.trim();
+
+          // Confirmation gate — always preview first.
+          if (!confirmed) {
+            const { previewText } = createEmailSendDraftPreview(
+              normalizedTo,
+              normalizedSubject,
+              normalizedBody,
+            );
+            return previewText;
+          }
+
+          const validation = validateConfirmedEmailSend({
+            draftId: draft_id,
+            to: normalizedTo,
+            subject: normalizedSubject,
+            body: normalizedBody,
+            userMessage: context?.userMessage,
+          });
+          if (!validation.ok) {
+            const reason =
+              "reason" in validation
+                ? validation.reason
+                : "Missing email send confirmation.";
+            return formatToolFailure(reason);
+          }
+
+          const success = await gogSendEmail(normalizedTo, normalizedSubject, normalizedBody);
           return success
-            ? sanitizeForGemini(`✓ Sent email to ${to.trim()} with subject "${subject.trim()}"`)
+            ? sanitizeForGemini(`✓ Sent email to ${normalizedTo} with subject "${normalizedSubject}"`)
             : formatToolFailure('Email send failed. No email was sent.');
         }
 
@@ -3104,7 +3141,7 @@ export const executeMemoryTool = async (
         }
       }
       default:
-        return `Unknown tool: ${toolName}`;
+        return `Unknown tool: ${toolName}. Do NOT attempt to achieve the same goal via a different tool. Tell Steven you cannot do this right now.`;
     }
   } catch (error) {
     console.error(`Error executing ${toolName}:`, error);

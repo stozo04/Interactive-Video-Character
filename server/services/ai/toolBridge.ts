@@ -18,6 +18,25 @@ import {
 import { log } from "../../runtimeLogger";
 
 const runtimeLog = log.fromContext({ source: "toolBridge" });
+const DECLARED_TOOL_NAMES = new Set(
+  GeminiMemoryToolDeclarations.map((decl) => decl.name)
+);
+
+function buildUndeclaredToolResult(toolName: string): string {
+  if (toolName === "selfie_action" || toolName === "video_action" || toolName === "gif_action") {
+    return [
+      `Unknown tool: ${toolName}.`,
+      "This is an output JSON field, not a callable function tool.",
+      "Do not substitute another tool. Tell Steven you cannot run that tool right now.",
+    ].join(" ");
+  }
+
+  return [
+    `Unknown tool: ${toolName}.`,
+    "Do not substitute another tool.",
+    "Tell Steven you cannot run that tool right now.",
+  ].join(" ");
+}
 
 /**
  * Creates a CallableTool that wraps ALL existing Gemini memory/action tools.
@@ -44,9 +63,24 @@ export function createCallableTools(context?: ToolExecutionContext): CallableToo
     async callTool(functionCalls: FunctionCall[]): Promise<Part[]> {
       const results = await Promise.all(
         functionCalls.map(async (fc) => {
-          const toolName = fc.name as MemoryToolName;
-          const toolArgs = fc.args || {};
+          const rawToolName = String(fc.name || "").trim();
+          const toolArgs = (fc.args || {}) as Record<string, unknown>;
           const startedAt = Date.now();
+
+          if (!DECLARED_TOOL_NAMES.has(rawToolName)) {
+            runtimeLog.warning("Model attempted undeclared tool", {
+              tool: rawToolName || "(empty)",
+              argsKeys: Object.keys(toolArgs),
+            });
+            return {
+              functionResponse: {
+                name: fc.name || rawToolName || "unknown_tool",
+                response: { result: buildUndeclaredToolResult(rawToolName || "(empty)") },
+              },
+            } as Part;
+          }
+
+          const toolName = rawToolName as MemoryToolName;
 
           runtimeLog.info("Executing tool via bridge", {
             tool: toolName,
