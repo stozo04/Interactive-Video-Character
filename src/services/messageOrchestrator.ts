@@ -33,6 +33,7 @@ import { extractAndRecordTopics } from './topicExhaustionService';
 import { refreshConversationAnchor } from './conversationAnchorService';
 import { consumeCalendarMutationSignal } from './memoryService';
 import { clientLogger } from './clientLogger';
+import { detectSelfieIntent } from './selfieIntentService';
 
 const log = clientLogger.scoped('MessageOrchestrator');
 
@@ -89,9 +90,15 @@ export async function processUserMessage(input: OrchestratorInput): Promise<Orch
     console.log(`⚡ [Orchestrator] Calling AI service...`);
 
     let textToSend = userMessageForAI ?? userMessage;
+    const selfieIntent = await detectSelfieIntent({
+      userMessage,
+      chatHistory,
+    });
+    const forceImmediateSelfie =
+      selfieIntent.intent === 'immediate_selfie' && selfieIntent.confidence >= 0.6;
 
     // Append pending email context if Kayley is waiting on a decision
-    if (pendingEmail) {
+    if (pendingEmail && !forceImmediateSelfie) {
       const emailContext = [
         `[PENDING EMAIL ACTION — Steven is responding to an email you announced:]`,
         `  Message ID : ${pendingEmail.id}`,
@@ -110,6 +117,36 @@ export async function processUserMessage(input: OrchestratorInput): Promise<Orch
 
       textToSend = `${textToSend}\n\n${emailContext}`;
       log.info(`Injected pending email context`, { emailId: pendingEmail.id });
+    }
+
+    if (pendingEmail && forceImmediateSelfie) {
+      log.info(`Skipped pending email context due to immediate selfie intent`, {
+        emailId: pendingEmail.id,
+        confidence: selfieIntent.confidence,
+      });
+    }
+
+    if (forceImmediateSelfie) {
+      const selfieOverride = [
+        `[SELFIE INTENT OVERRIDE]`,
+        `Steven is asking for a selfie right now. Fulfill this request in this turn.`,
+        `Return output JSON with selfie_action populated now.`,
+        `Do NOT call make_promise for this request.`,
+        `Keep text_response selfie-focused and brief (one sentence max).`,
+        `Do NOT ask unrelated follow-up questions in this turn.`,
+        selfieIntent.sceneHint
+          ? `Scene hint: ${selfieIntent.sceneHint}`
+          : `Scene hint: casual present-moment selfie`,
+        selfieIntent.moodHint
+          ? `Mood hint: ${selfieIntent.moodHint}`
+          : `Mood hint: playful and warm`,
+      ].join('\n');
+      textToSend = `${textToSend}\n\n${selfieOverride}`;
+      log.info(`Applied immediate selfie override`, {
+        confidence: selfieIntent.confidence,
+        sceneHint: selfieIntent.sceneHint || null,
+        moodHint: selfieIntent.moodHint || null,
+      });
     }
 
     // Build input and options for AI service
@@ -139,7 +176,7 @@ export async function processUserMessage(input: OrchestratorInput): Promise<Orch
 
     result.stage = ProcessingStage.ACTION_ROUTING;
     const response = aiResult.response;
-    const actionType = determineActionType(response);
+    let actionType = determineActionType(response);
 
     console.log(`🎯 [Orchestrator] Action type: ${actionType}`);
     result.actionType = actionType;
@@ -195,6 +232,48 @@ export async function processUserMessage(input: OrchestratorInput): Promise<Orch
               `📸 [Orchestrator] Selfie failed: ${result.selfieError}`
             );
           }
+        }
+      }
+    }
+
+    // Fallback guard: if intent was immediate selfie but model did not emit selfie_action,
+    // synthesize a safe selfie action so the user still gets the image this turn.
+    if (
+      forceImmediateSelfie &&
+      actionType !== ActionType.SELFIE &&
+      !result.selfieImage &&
+      !result.selfieError
+    ) {
+      const fallbackSelfieAction: SelfieAction = {
+        scene: selfieIntent.sceneHint || 'casual at-home selfie, present moment',
+        mood: selfieIntent.moodHint || 'playful smile',
+      };
+      log.info(`Running immediate selfie fallback`, {
+        fallbackScene: fallbackSelfieAction.scene,
+        fallbackMood: fallbackSelfieAction.mood,
+        previousActionType: actionType,
+      });
+      const selfieResult = await processSelfieAction(fallbackSelfieAction, {
+        userMessage,
+        chatHistory,
+      });
+      if (selfieResult.handled) {
+        actionType = ActionType.SELFIE;
+        result.actionType = actionType;
+        if (selfieResult.success && selfieResult.imageBase64) {
+          result.selfieImage = {
+            base64: selfieResult.imageBase64,
+            mimeType: selfieResult.mimeType || 'image/png',
+          };
+          result.selfieMessageText = 'Here you go!';
+          log.info(`Immediate selfie fallback succeeded`);
+        } else {
+          result.selfieError =
+            selfieResult.error || "I couldn't take that pic right now, sorry!";
+          result.selfieMessageText = result.selfieError;
+          log.info(`Immediate selfie fallback failed`, {
+            error: result.selfieError,
+          });
         }
       }
     }
@@ -305,12 +384,16 @@ export async function processUserMessage(input: OrchestratorInput): Promise<Orch
     result.tokenUsage = aiResult.tokenUsage;
 
     // Chat message
-    result.chatMessages = [
-      {
-        role: "model",
-        text: response.text_response,
-      },
-    ];
+    const suppressAssistantTextForImmediateSelfie =
+      forceImmediateSelfie && (Boolean(result.selfieImage) || Boolean(result.selfieError));
+    result.chatMessages = suppressAssistantTextForImmediateSelfie
+      ? []
+      : [
+          {
+            role: 'model',
+            text: response.text_response,
+          },
+        ];
 
     // Audio (only if not muted)
     if (!isMuted && aiResult.audioData) {

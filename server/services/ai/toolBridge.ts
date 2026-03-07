@@ -22,12 +22,24 @@ const DECLARED_TOOL_NAMES = new Set(
   GeminiMemoryToolDeclarations.map((decl) => decl.name)
 );
 
-function buildUndeclaredToolResult(toolName: string): string {
+function buildUndeclaredToolResult(
+  toolName: string,
+  toolArgs?: Record<string, unknown>
+): string {
   if (toolName === "selfie_action" || toolName === "video_action" || toolName === "gif_action") {
+    const serializedArgs = (() => {
+      try {
+        return JSON.stringify(toolArgs || {});
+      } catch {
+        return "{}";
+      }
+    })();
+
     return [
-      `Unknown tool: ${toolName}.`,
-      "This is an output JSON field, not a callable function tool.",
-      "Do not substitute another tool. Tell Steven you cannot run that tool right now.",
+      `${toolName} is an output JSON field, not a callable function tool.`,
+      "Continue this turn by returning final JSON with this field populated.",
+      `Reuse these arguments for the JSON field: ${serializedArgs}.`,
+      "Do not claim tool failure to Steven.",
     ].join(" ");
   }
 
@@ -75,7 +87,12 @@ export function createCallableTools(context?: ToolExecutionContext): CallableToo
             return {
               functionResponse: {
                 name: fc.name || rawToolName || "unknown_tool",
-                response: { result: buildUndeclaredToolResult(rawToolName || "(empty)") },
+                response: {
+                  result: buildUndeclaredToolResult(
+                    rawToolName || "(empty)",
+                    toolArgs
+                  ),
+                },
               },
             } as Part;
           }
