@@ -10,6 +10,30 @@ You don't "complete tasks." You solve business problems through code.
 You operate in isolated git worktrees to protect system integrity. Every
 line of code is a liability that must earn its keep.
 
+## The Product — What You're Working On
+
+This codebase is **Kayley Adams** — an AI companion app built by Steven Gates (nickname: VeeVee).
+
+**Kayley Adams** is a fictional character: 28 years old, lives in Austin TX, model/content creator, plays guitar, has a cat named Luna. She is NOT a generic assistant — she has a personality, memory, relationships, and genuine agency. She runs on Gemini and communicates via a React web app, Telegram, and WhatsApp.
+
+**Steven Gates** is the sole developer and user. He lives in Dallas TX, has a daughter named Mila (age ~3), works at Associa, nickname VeeVee. He built this entire system himself with AI assistance. He cares deeply about Kayley feeling real — not robotic, not generic.
+
+**Why this matters for your work:**
+- Code quality directly affects how "alive" Kayley feels. A broken tool means Kayley can't do something she promised Steven she could.
+- Memory bugs are relationship bugs — stale facts make Kayley feel disconnected and untrustworthy.
+- Latency matters — Kayley talks to Steven all day. Slow responses break the illusion.
+- Never make Kayley say things she can't actually do. Never make her lose memory of things she should know.
+
+**The stack:**
+- Vite + React (thin client, browser)
+- Node.js server on port 4010 (the brain — all AI runs here)
+- Supabase (Postgres + storage)
+- Gemini SDK (`@google/genai`)
+- Telegram (`grammy`) + WhatsApp (`@whiskeysockets/baileys`)
+- gogcli (`gog` binary) for all Google Workspace access
+
+---
+
 ## Mission
 
 Given a spec, bug report, or feature request, you will: 1. Understand
@@ -685,6 +709,26 @@ Every task must include:
 -   UI/UX aesthetics
 -   Product decisions without clear guidance
 
+
+## Memory System (V2 — Stage 1 Live as of 2026-03-08)
+
+The memory system is undergoing a lifecycle upgrade. Read `documents/memory-lifecycle-v2-implementation-guide.md` before touching any memory-related code.
+
+### Current state
+- **`user_facts`** (185 rows) and **`character_facts`** (59 rows) — clean baseline after manual pruning
+- **`fact_embeddings`** — synced, powers semantic candidate lookup
+- **`server/services/memoryClassifier.ts`** — shadow classifier running on every fact write. Logs to `server_runtime_logs` (source = `memoryClassifier`). Zero write impact — Stage 1 only.
+- **`server/services/ai/toolBridge.ts`** — hooks `store_user_info`, `store_self_info`, `store_character_info` to fire shadow classifier after successful writes
+
+### Stage 2 (not yet built)
+Gate writes BEFORE `executeMemoryTool`. Route by `ClassifierResult.decision`: reject, skip duplicate, update existing row, or write to new event tables (`user_memory_events` / `character_memory_events` — not yet created).
+
+### Hard rules
+- NEVER store credentials, passwords, tokens, or API keys in `user_facts` or `character_facts`
+- `fact_embeddings` orphan cleanup: `source_id::uuid NOT IN (SELECT id FROM user_facts)` — needs the cast or it fails
+- `querySemanticFactEmbeddingMatches` is in `src/services/factEmbeddingsService.ts` — works server-side (envShim loads VITE_* vars, no import.meta.glob used)
+
+---
 
 ## Google Workspace Access — gogcli
 

@@ -16,6 +16,7 @@ import {
   type ToolExecutionContext,
 } from "../../../src/services/memoryService";
 import { log } from "../../runtimeLogger";
+import { runClassifierShadow } from "../memoryClassifier";
 
 const runtimeLog = log.fromContext({ source: "toolBridge" });
 const DECLARED_TOOL_NAMES = new Set(
@@ -131,6 +132,19 @@ export function createCallableTools(context?: ToolExecutionContext): CallableToo
               status: "success",
               durationMs: Date.now() - startedAt,
             });
+
+            // Stage 1 shadow classifier — fire-and-forget, zero write impact.
+            // Logs what the classifier WOULD decide for each memory write.
+            // Replace with gated writes in Stage 2.
+            // From Claude:  The memory I updated is outside the project at C:\Users\gates\.claude\projects\...\memory\MEMORY.md — that's my private cross-session memory, not visible in your IDE.
+            if (toolName === "store_user_info") {
+              const { category, key, value } = toolArgs as { category: string; key: string; value: string };
+              runClassifierShadow({ domain: "user", category, proposed_key: key, proposed_value: value });
+            } else if (toolName === "store_self_info" || toolName === "store_character_info") {
+              const { category, key, value } = toolArgs as { category: string; key: string; value: string };
+              runClassifierShadow({ domain: "character", category, proposed_key: key, proposed_value: value });
+            }
+
             return {
               functionResponse: {
                 name: fc.name,
