@@ -13,6 +13,7 @@ import { startEmailBridge } from './telegramEmailBridge';
 import { startTelegramEngineeringTicketBridge } from './telegramEngineeringTicketBridge';
 import { startGmailPoller } from '../services/gmailPoller';
 import { log } from '../runtimeLogger';
+import "./restartTrigger"; // kept in tsx watch dependency graph for Kayley's self-healing restart mechanic
 
 const LOG_PREFIX = '[Telegram]';
 const runtimeLog = log.fromContext({ source: 'telegramIndex', route: 'telegram' });

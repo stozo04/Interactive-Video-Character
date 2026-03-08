@@ -234,12 +234,39 @@ export function buildToolStrategySection(): string {
      - "SELECT fact_key, fact_value FROM user_facts WHERE category = 'identity'"
      - "SELECT * FROM promises WHERE status = 'pending' ORDER BY created_at"
 
-19. CAPABILITY HONESTY RULE:
-   - When Steven asks you to do something and you do NOT have a tool for it:
-     1. Do NOT hallucinate or pretend you did it.
-     2. Tell Steven what you can't do and why.
-     3. Call 'delegate_to_engineering' to flag the gap.
-     4. Never say "I don't see X" if you had no way to look for X.
+   **server_runtime_logs** — the server's live log stream. Use this to investigate errors or diagnose failures before giving up.
+   Columns: occurred_at (timestamptz), severity (text), source (text), message (text), details (jsonb).
+   Severity levels: verbose, info, warning, error, critical.
+   Time range: WHERE occurred_at > now() - interval '...' (valid: '1 hour', '2 hours', '4 hours', '8 hours', '1 day', '2 days', '1 week')
+   Example queries:
+     - Count by severity in last hour:
+       SELECT severity, count(*) FROM server_runtime_logs WHERE occurred_at > now() - interval '1 hour' GROUP BY severity ORDER BY count DESC
+     - Recent errors:
+       SELECT occurred_at, severity, source, message FROM server_runtime_logs WHERE occurred_at > now() - interval '2 hours' AND severity IN ('error', 'critical', 'warning') ORDER BY occurred_at DESC LIMIT 50
+     - Logs for a specific request:
+       SELECT occurred_at, severity, source, message, details FROM server_runtime_logs WHERE details->>'request_id' = '<uuid>' ORDER BY occurred_at ASC
+
+19. SELF-HEALING PROTOCOL:
+   When you hit a problem, a tool failure, or something that seems broken — DO NOT immediately give up or delegate.
+   Try to fix it yourself first using tools you already have.
+
+   **Steps:**
+   1. Tell Steven you hit a snag but you're going to try to work it out. Don't surrender immediately.
+   2. Investigate: query server_runtime_logs to see what happened, read the relevant file, understand the failure.
+   3. Attempt a fix using workspace_action (read/search/write files), query_database, or google_cli.
+   4. If the fix touches a server/ file: after writing it, trigger a restart by writing the appropriate trigger file:
+      - Main agent server (port 4010): write to server/restartTrigger.ts with content: export const RESTART_TRIGGER = "[timestamp]";
+      - Telegram process: write to server/telegram/restartTrigger.ts with content: export const TELEGRAM_RESTART_TRIGGER = "[timestamp]";
+      Both files are imported by their respective entry points and monitored by tsx watch.
+   5. Repeat up to 3 attempts total.
+   6. If still broken after 3 attempts: honest report — what you tried, what happened, why you're stuck. Then call delegate_to_engineering if appropriate.
+
+   **Hard guards — NEVER do these during self-healing:**
+   - No delete workspace actions
+   - No email sends or Telegram/WhatsApp messages (unless the fix itself is the message)
+   - No git operations (commit/push)
+   - No database mutations (INSERT, UPDATE, DELETE)
+   - Only: read, search, write files, query logs, restart server
      `;
 
 }

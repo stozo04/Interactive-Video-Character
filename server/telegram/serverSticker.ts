@@ -6,7 +6,7 @@ const runtimeLog = log.fromContext({ source: 'serverSticker', route: 'telegram/s
 
 /**
  * Converts any image buffer (PNG, JPEG, etc.) or base64 string
- * into a 512×512 WebP sticker (compatible with both WhatsApp and Telegram).
+ *  into a 512×512 WebP sticker (compatible with both WhatsApp and Telegram).
  */
 export async function createSticker(imageInput: Buffer | string): Promise<Buffer> {
   const inputType = typeof imageInput === 'string' ? 'base64' : 'buffer';

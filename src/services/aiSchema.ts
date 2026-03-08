@@ -2169,7 +2169,7 @@ export const GeminiMemoryToolDeclarations = [
       "Limit: 1-2 queries per conversation turn, not on every turn. " +
       "Available tables: character_facts, conversation_anchor, " +
       "conversation_history, kayley_daily_notes, kayley_lessons_learned, " +
-      "kayley_monthly_notes, life_storylines, promises, user_facts, user_patterns, google_tasks_index",
+      "kayley_monthly_notes, life_storylines, promises, user_facts, user_patterns, google_tasks_index, server_runtime_logs",
     parameters: {
       type: "object",
       properties: {

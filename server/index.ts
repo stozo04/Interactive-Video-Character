@@ -9,6 +9,7 @@ import { startOpeyDev } from "./agent/opey-dev/main";
 import { startCronScheduler } from "./scheduler/cronScheduler";
 import { startCalendarHeartbeat } from "./services/calendarHeartbeat";
 import { log } from "./runtimeLogger";
+import "./restartTrigger"; // kept in tsx watch dependency graph for Kayley's self-healing restart mechanic
 
 const LOG_PREFIX = "[WorkspaceAgent]";
 const DEFAULT_PORT = 4010;

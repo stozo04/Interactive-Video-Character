@@ -14,7 +14,7 @@
     "test:ui": "vitest --ui",
     "test:coverage": "vitest --coverage",
     "whatsapp:dev": "npx tsx --import ./server/envShim.ts server/whatsapp/index.ts",
-    "telegram:dev": "npx tsx --import ./server/envShim.ts server/telegram/index.ts"
+    "telegram:dev": "npx tsx watch --ignore '.worktrees/**' --ignore 'node_modules/**' --ignore 'src/**' --import ./server/envShim.ts server/telegram/index.ts"
   },
   "dependencies": {
     "@ai-sdk/xai": "^2.0.55",

@@ -22,12 +22,39 @@ const DECLARED_TOOL_NAMES = new Set(
   GeminiMemoryToolDeclarations.map((decl) => decl.name)
 );
 
-function buildUndeclaredToolResult(toolName: string): string {
+/**
+ * Handles tool calls Gemini makes for names that aren't declared as callable function tools.
+ *
+ * Two cases:
+ *
+ * 1. selfie_action / video_action / gif_action — Gemini sometimes tries to *call* these as
+ *    function tools even though they're output JSON fields, not declared tools. We intercept
+ *    the failed call and redirect Gemini: "this is a JSON field, not a function — put the
+ *    args there instead." This recovers the turn without claiming failure to Steven.
+ *
+ * 2. Everything else — genuine unknown tool. Tell Gemini to stop and report it.
+ */
+function buildUndeclaredToolResult(
+  toolName: string,
+  toolArgs?: Record<string, unknown>
+): string {
   if (toolName === "selfie_action" || toolName === "video_action" || toolName === "gif_action") {
+    // JSON.stringify throws on circular references. toolArgs comes from Gemini's structured
+    // output so this should never happen in practice, but we guard defensively so the
+    // function always returns a usable string rather than crashing.
+    const serializedArgs = (() => {
+      try {
+        return JSON.stringify(toolArgs || {});
+      } catch {
+        return "{}";
+      }
+    })();
+
     return [
-      `Unknown tool: ${toolName}.`,
-      "This is an output JSON field, not a callable function tool.",
-      "Do not substitute another tool. Tell Steven you cannot run that tool right now.",
+      `${toolName} is an output JSON field, not a callable function tool.`,
+      "Continue this turn by returning final JSON with this field populated.",
+      `Reuse these arguments for the JSON field: ${serializedArgs}.`,
+      "Do not claim tool failure to Steven.",
     ].join(" ");
   }
 
@@ -75,7 +102,12 @@ export function createCallableTools(context?: ToolExecutionContext): CallableToo
             return {
               functionResponse: {
                 name: fc.name || rawToolName || "unknown_tool",
-                response: { result: buildUndeclaredToolResult(rawToolName || "(empty)") },
+                response: {
+                  result: buildUndeclaredToolResult(
+                    rawToolName || "(empty)",
+                    toolArgs
+                  ),
+                },
               },
             } as Part;
           }
