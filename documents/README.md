@@ -30,27 +30,27 @@ Use this as the single entry point for core project documentation.
 
 ## Start Here
 - App architecture and message flow: `src/App.README.md`
-- System prompt rules: `docs/AI_Notes_System_Prompt_Guidelines.md`
-- Tool integration checklist (required): `docs/AI_Notes_Tool_Integration_Checklist.md`
-- Tool recipe template: `docs/Tool_Recipe_Template.md`
-- Supabase gotchas: `docs/Supabase_Gotchas.md`
+- System prompt rules: `documents/AI_Notes_System_Prompt_Guidelines.md`
+- Tool integration checklist (required): `documents/AI_Notes_Tool_Integration_Checklist.md`
+- Tool recipe template: `documents/Tool_Recipe_Template.md`
+- Supabase gotchas: `documents/Supabase_Gotchas.md`
 
 ## New Tool Flow (Quick Path)
-1. Read `docs/AI_Notes_Tool_Integration_Checklist.md`
-2. Fill out `docs/Tool_Recipe_Template.md`
-3. Check prompt rules in `docs/AI_Notes_System_Prompt_Guidelines.md`
-4. If data is needed, review `docs/Supabase_Gotchas.md`
+1. Read `documents/AI_Notes_Tool_Integration_Checklist.md`
+2. Fill out `documents/Tool_Recipe_Template.md`
+3. Check prompt rules in `documents/AI_Notes_System_Prompt_Guidelines.md`
+4. If data is needed, review `documents/Supabase_Gotchas.md`
 
 ## Features
-- Feature index: `docs/features/README.md`
-- Daily Notes: `docs/features/Daily_Notes.md`
-- Lessons Learned: `docs/features/Lessons_Learned.md`
-- Mila Milestones: `docs/features/Mila_Milestones.md`
+- Feature index: `documents/features/README.md`
+- Daily Notes: `documents/features/Daily_Notes.md`
+- Lessons Learned: `documents/features/Lessons_Learned.md`
+- Mila Milestones: `documents/features/Mila_Milestones.md`
 
 ## Service Documentation
-- Service docs hub: `src/services/docs/README.md`
+- Service documents hub: `src/services/documents/README.md`
 
 ## Plans, Bugs, Archive
-- Plans: `docs/plans/`
-- Bugs: `docs/bugs/`
-- Archive: `docs/archive/`
+- Plans: `documents/plans/`
+- Bugs: `documents/bugs/`
+- Archive: `documents/archive/`

@@ -91,14 +91,16 @@ export function buildToolStrategySection(): string {
    - Use 'submit_clarification' ONLY after you have relayed Opey's questions to Steven AND received his answer. Pass the ticket_id from the [SYSTEM] notification and Steven's response.
 
 8. X (TWITTER) POSTING:
-   - **Approving/rejecting existing drafts:** Use 'resolve_x_tweet' with the draft id and status.
    - **Posting a new tweet composed in conversation:** Use 'post_x_tweet' with the exact text.
-     - Use this when you and the user collaboratively write a tweet and they approve it ("Love it!", "Post it!").
-     - Do NOT just say you're posting — actually call 'post_x_tweet' with the text.
+     - Use this when you and the user collaboratively write a tweet and they approve the wording.
+     - This tool ONLY creates a pending draft — it does NOT post immediately.
+     - Tell Steven the draft is waiting for approval.
+     - Web: mention the Tweet Approval Card.
+     - Telegram/WhatsApp: tell Steven to reply "POST TWEET" or "REJECT TWEET".
    - **Posting a tweet WITH a selfie:** Use 'post_x_tweet' with include_selfie=true and selfie_scene.
      - Do NOT use 'selfie_action' for X posts — selfie_action only shows a selfie in the chat UI.
      - When the user asks to "post a selfie on X" or "tweet a pic", call 'post_x_tweet' with include_selfie and selfie_scene.
-   - **Never fabricate a post.** Only call 'post_x_tweet' when the user has explicitly approved the text.
+   - **Never fabricate a post.** Do NOT claim a tweet is live until approval actually happens.
 
 9. SENDING GIFS (WhatsApp inline playback):
    - Use "gif_action" in your JSON response when you want to send a reaction GIF.

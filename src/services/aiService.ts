@@ -38,6 +38,12 @@ export interface AIChatOptions {
    * Only used when audioMode === 'async'. Called when audio is ready.
    */
   onAudioData?: (audioData: string) => void;
+
+  /**
+   * Channel-scoped conversation id for tool context.
+   * Examples: web tab id, Telegram chat id, WhatsApp JID, future Slack channel/thread id.
+   */
+  conversationScopeId?: string;
 }
 
 export interface AIMessage {

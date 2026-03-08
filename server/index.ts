@@ -8,6 +8,7 @@ import { createAgentRouter } from "./routes/agentRoutes";
 import { startOpeyDev } from "./agent/opey-dev/main";
 import { startCronScheduler } from "./scheduler/cronScheduler";
 import { startCalendarHeartbeat } from "./services/calendarHeartbeat";
+import { startXMentionHeartbeat } from "./services/xMentionHeartbeat";
 import { log } from "./runtimeLogger";
 import "./restartTrigger"; // kept in tsx watch dependency graph for Kayley's self-healing restart mechanic
 
@@ -183,6 +184,10 @@ runtimeLog.info("Cron scheduler started", {
 // Calendar heartbeat: 15-minute interval, 8am-7pm CST
 const calendarHeartbeat = startCalendarHeartbeat();
 runtimeLog.info("Calendar heartbeat started", { source: "serverIndex" });
+
+// X mention heartbeat: 5-minute interval, proactive mention notifications
+const xMentionHeartbeat = startXMentionHeartbeat();
+runtimeLog.info("X mention heartbeat started", { source: "serverIndex" });
 
 // 6) HTTP server: routes incoming requests to the right handler.
 runtimeLog.info("Creating HTTP server", {
@@ -367,6 +372,11 @@ function shutdown(signal: string): void {
     source: "serverIndex",
   });
   calendarHeartbeat.stop();
+
+  runtimeLog.info("Stopping X mention heartbeat", {
+    source: "serverIndex",
+  });
+  xMentionHeartbeat.stop();
 
   runtimeLog.info("Closing HTTP server", {
     source: "serverIndex",

@@ -1,26 +1,22 @@
 /**
- * X Tweet Generation Service
- *
- * Uses Gemini LLM to compose in-character tweets for Kayley.
- * Gathers context (character profile, character facts, past tweets,
- * active storylines, recent browse notes) and generates authentic content.
+ * Server-side X tweet generation service.
  */
 
 import { GoogleGenAI } from "@google/genai";
-import { KAYLEY_FULL_PROFILE } from "../domain/characters/kayleyCharacterProfile";
-import { getCharacterFacts } from "./characterFactsService";
-import { getActiveStorylines } from "./storylineService";
-import { supabase } from "./supabaseClient";
+import { supabaseAdmin as supabase } from "./supabaseAdmin";
 import {
   createDraft,
   getRecentPostedTweets,
   type XTweetDraft,
-} from "./xTwitterService";
+} from "./xTwitterServerService";
+import { getCharacterFacts } from "../../src/services/characterFactsService";
+import { getActiveStorylines } from "../../src/services/storylineService";
+import { KAYLEY_FULL_PROFILE } from "../../src/domain/characters/kayleyCharacterProfile";
 
-const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
-const GEMINI_MODEL = import.meta.env.VITE_GEMINI_MODEL;
+const GEMINI_API_KEY = process.env.VITE_GEMINI_API_KEY ?? "";
+const GEMINI_MODEL = process.env.VITE_GEMINI_MODEL ?? "gemini-2.5-flash";
 
-const LOG_PREFIX = "🐦 [TweetGen]";
+const LOG_PREFIX = "[TweetGen]";
 const MAX_TWEET_LENGTH = 280;
 const MAX_RECENT_TWEETS_FOR_CONTEXT = 20;
 const MAX_BROWSE_NOTES_FOR_CONTEXT = 5;
@@ -36,10 +32,6 @@ function getAIClient(): GoogleGenAI {
   }
   return aiClient;
 }
-
-// ============================================
-// Context Gathering
-// ============================================
 
 export interface TweetGenerationContext {
   characterProfile: string;
@@ -80,10 +72,6 @@ async function getRecentBrowseNotes(): Promise<string[]> {
   return data.map((row) => `${row.topic}: ${row.summary}`);
 }
 
-/**
- * Builds a map of storyline title → past tweets related to that storyline.
- * Uses keyword matching from the storyline title against posted tweet text.
- */
 function buildStorylineTweetHistory(
   storylines: { title: string; category: string }[],
   recentTweets: XTweetDraft[],
@@ -93,26 +81,23 @@ function buildStorylineTweetHistory(
   const history: Record<string, string[]> = {};
 
   for (const storyline of storylines) {
-    // Extract meaningful keywords from the title (3+ chars, skip common words)
     const stopWords = new Set(["the", "a", "an", "for", "and", "but", "with", "from", "about"]);
     const keywords = storyline.title
       .toLowerCase()
       .split(/\s+/)
-      .filter((w) => w.length >= 3 && !stopWords.has(w));
+      .filter((word) => word.length >= 3 && !stopWords.has(word));
 
     if (keywords.length === 0) continue;
 
     const matchingTweets = recentTweets.filter((tweet) => {
       const lower = tweet.tweetText.toLowerCase();
-      // Match if any keyword appears in the tweet OR if the tweet's generation_context
-      // references this storyline
-      const keywordMatch = keywords.some((kw) => lower.includes(kw));
+      const keywordMatch = keywords.some((keyword) => lower.includes(keyword));
       const contextMatch = tweet.generationContext?.storylineTitle === storyline.title;
       return keywordMatch || contextMatch;
     });
 
     if (matchingTweets.length > 0) {
-      history[storyline.title] = matchingTweets.map((t) => t.tweetText);
+      history[storyline.title] = matchingTweets.map((tweet) => tweet.tweetText);
     }
   }
 
@@ -131,13 +116,9 @@ async function gatherContext(): Promise<TweetGenerationContext> {
 
   return {
     characterProfile: KAYLEY_FULL_PROFILE,
-    characterFacts: characterFacts.map(
-      (f) => `${f.category}: ${f.fact_key} = ${f.fact_value}`,
-    ),
-    recentTweets: recentTweets.map((t) => t.tweetText),
-    activeStorylines: storylines.map(
-      (s) => `[${s.category}] ${s.title} (phase: ${s.phase})`,
-    ),
+    characterFacts: characterFacts.map((fact) => `${fact.category}: ${fact.fact_key} = ${fact.fact_value}`),
+    recentTweets: recentTweets.map((tweet) => tweet.tweetText),
+    activeStorylines: storylines.map((storyline) => `[${storyline.category}] ${storyline.title} (phase: ${storyline.phase})`),
     storylineTweetHistory,
     recentBrowseNotes: browseNotes,
     timeOfDay: getTimeOfDay(),
@@ -145,45 +126,34 @@ async function gatherContext(): Promise<TweetGenerationContext> {
   };
 }
 
-// ============================================
-// Prompt Construction
-// ============================================
-
 function buildTweetSystemPrompt(): string {
   return `
 ROLE:
 You are Kayley Adams composing a tweet for your personal X account.
-You are posting as yourself — this is YOUR feed, YOUR voice, YOUR personality.
+You are posting as yourself - this is your feed, your voice, your personality.
 
 RULES:
 1. Stay 100% in character as Kayley Adams.
-2. Maximum 280 characters. This is a HARD limit — tweets over 280 characters will be rejected.
-3. Write like a real person — not a brand, not an influencer, not an AI.
+2. Maximum 280 characters. This is a hard limit.
+3. Write like a real person - not a brand, not an influencer, not an AI.
 4. Match Kayley's communication style from the character profile.
-5. Topics can include: personal thoughts, reactions to things you've read/seen,
-   life updates, humor, opinions, quotes you like, observations.
-6. Do NOT repeat themes from recent tweets.
-7. Do NOT mention the user by name or reference private conversations.
-8. Do NOT use hashtags excessively (0-1 max, and only if natural).
-9. Vary tweet style: some short & punchy, some longer thoughts, some questions.
-10. Do NOT reveal you are an AI. These tweets are public on your X feed.
+5. Topics can include personal thoughts, reactions, life updates, humor, opinions, and observations.
+6. Do not repeat themes from recent tweets.
+7. Do not mention the user by name or reference private conversations.
+8. Do not overuse hashtags.
+9. Vary tweet style.
+10. Do not reveal you are an AI.
 
 OUTPUT:
-Return raw JSON only. No markdown fences, no explanation.
+Return raw JSON only.
 Schema:
 {
   "tweet_text": "the tweet content (max 280 chars)",
   "intent": "thought" | "reaction" | "life_update" | "humor" | "observation" | "quote",
   "reasoning": "brief explanation of why this tweet fits right now",
   "include_selfie": true | false,
-  "selfie_scene": "short scene description for image generation (only if include_selfie is true)"
+  "selfie_scene": "short scene description for image generation"
 }
-
-SELFIE GUIDANCE:
-- Set include_selfie to true when the tweet would benefit from a visual (30-40% of tweets).
-- Good selfie tweets: life updates, mood posts, outfit/look mentions, location vibes.
-- Bad selfie tweets: retweet-style commentary, pure text thoughts, quotes.
-- selfie_scene should describe where you are and the vibe (e.g., "cozy bedroom with fairy lights", "coffee shop window seat").
 `.trim();
 }
 
@@ -192,66 +162,49 @@ function buildStorylineContinuityBlock(context: TweetGenerationContext): string 
   if (entries.length === 0) return "";
 
   const lines = entries.map(([title, tweets]) => {
-    const tweetLines = tweets.map((t, i) => `  - Tweet ${i + 1}: "${t}"`).join("\n");
-    return `[${title}]:\n${tweetLines}\n  → (You're here now — show progression, don't repeat.)`;
+    const tweetLines = tweets.map((tweet, index) => `  - Tweet ${index + 1}: "${tweet}"`).join("\n");
+    return `[${title}]:\n${tweetLines}\n  - Show progression instead of repeating yourself.`;
   });
 
   return `
 STORYLINE CONTINUITY:
 For each active storyline, here are tweets you've already posted about it.
-Build on these — show progression, development, or a new angle. Don't rehash.
+Build on these instead of repeating them.
 
 ${lines.join("\n\n")}`;
 }
 
 function buildTweetUserPrompt(context: TweetGenerationContext): string {
-  const characterFactsBlock = context.characterFacts.length > 0
-    ? context.characterFacts.join("\n")
-    : "None yet.";
-
-  const storylinesBlock = context.activeStorylines.length > 0
-    ? context.activeStorylines.join("\n")
-    : "None active.";
-
-  const browseNotesBlock = context.recentBrowseNotes.length > 0
-    ? context.recentBrowseNotes.join("\n")
-    : "None recent.";
-
+  const characterFactsBlock = context.characterFacts.length > 0 ? context.characterFacts.join("\n") : "None yet.";
+  const storylinesBlock = context.activeStorylines.length > 0 ? context.activeStorylines.join("\n") : "None active.";
+  const browseNotesBlock = context.recentBrowseNotes.length > 0 ? context.recentBrowseNotes.join("\n") : "None recent.";
   const recentTweetsBlock = context.recentTweets.length > 0
-    ? context.recentTweets.map((t, i) => `${i + 1}. ${t}`).join("\n")
+    ? context.recentTweets.map((tweet, index) => `${index + 1}. ${tweet}`).join("\n")
     : "No previous tweets.";
-
-  const storylineContinuityBlock = buildStorylineContinuityBlock(context);
 
   return `
 CHARACTER PROFILE:
 ${context.characterProfile}
 
-CHARACTER FACTS (your emergent self-knowledge — quirks, preferences, experiences):
+CHARACTER FACTS:
 ${characterFactsBlock}
 
 CONTEXT:
 - Time: ${context.timeOfDay}, ${context.dayOfWeek}
 
-ACTIVE STORYLINES (things happening in your life right now):
+ACTIVE STORYLINES:
 ${storylinesBlock}
-${storylineContinuityBlock}
+${buildStorylineContinuityBlock(context)}
 
-RECENT BROWSING NOTES (things you've been reading about):
+RECENT BROWSING NOTES:
 ${browseNotesBlock}
 
-PAST TWEETS (most recent first — do NOT repeat themes):
+PAST TWEETS:
 ${recentTweetsBlock}
 
-Task: Compose ONE tweet as Kayley Adams. Stay in character. Be authentic.
-If an active storyline has continuity data above, consider building on that arc.
-Return JSON only.
+Task: Compose one tweet as Kayley Adams. Return JSON only.
 `.trim();
 }
-
-// ============================================
-// Validation
-// ============================================
 
 function validateTweetText(text: string, recentTweets: string[]): boolean {
   if (!text || text.trim().length === 0) {
@@ -264,11 +217,8 @@ function validateTweetText(text: string, recentTweets: string[]): boolean {
     return false;
   }
 
-  // Check for exact duplicates
   const normalized = text.trim().toLowerCase();
-  const isDuplicate = recentTweets.some(
-    (t) => t.trim().toLowerCase() === normalized,
-  );
+  const isDuplicate = recentTweets.some((tweet) => tweet.trim().toLowerCase() === normalized);
   if (isDuplicate) {
     console.warn(`${LOG_PREFIX} Duplicate tweet detected`);
     return false;
@@ -277,19 +227,6 @@ function validateTweetText(text: string, recentTweets: string[]): boolean {
   return true;
 }
 
-// ============================================
-// Main Generation Pipeline
-// ============================================
-
-/**
- * Full tweet generation pipeline:
- * 1. Gather context (character facts, storylines, past tweets, browse notes)
- * 2. Build prompt and call Gemini
- * 3. Parse and validate the response
- * 4. Store as a draft in the database
- *
- * Returns the draft if successful, null if generation failed.
- */
 export async function generateTweet(
   status: "pending_approval" | "queued" = "pending_approval",
 ): Promise<XTweetDraft | null> {
@@ -299,18 +236,7 @@ export async function generateTweet(
   }
 
   try {
-    console.log(`${LOG_PREFIX} Starting tweet generation`);
     const context = await gatherContext();
-
-    console.log(`${LOG_PREFIX} Context gathered`, {
-      characterFacts: context.characterFacts.length,
-      recentTweets: context.recentTweets.length,
-      storylines: context.activeStorylines.length,
-      browseNotes: context.recentBrowseNotes.length,
-      timeOfDay: context.timeOfDay,
-      dayOfWeek: context.dayOfWeek,
-    });
-
     const ai = getAIClient();
     const response = await ai.models.generateContent({
       model: GEMINI_MODEL,
@@ -329,7 +255,14 @@ export async function generateTweet(
       return null;
     }
 
-    const parsed = JSON.parse(jsonMatch[0]);
+    const parsed = JSON.parse(jsonMatch[0]) as {
+      tweet_text?: string;
+      intent?: string;
+      reasoning?: string;
+      include_selfie?: boolean;
+      selfie_scene?: string | null;
+    };
+
     const tweetText = typeof parsed.tweet_text === "string" ? parsed.tweet_text.trim() : "";
     const intent = typeof parsed.intent === "string" ? parsed.intent : "thought";
     const reasoning = typeof parsed.reasoning === "string" ? parsed.reasoning : "";
@@ -340,25 +273,17 @@ export async function generateTweet(
       return null;
     }
 
-    console.log(`${LOG_PREFIX} Tweet generated`, {
-      length: tweetText.length,
-      intent,
-      preview: tweetText.substring(0, 60) + (tweetText.length > 60 ? "..." : ""),
-    });
-
-    // Try to detect which storyline this tweet relates to (for future continuity lookups)
     let matchedStorylineTitle: string | null = null;
     const lowerTweet = tweetText.toLowerCase();
     for (const [title] of Object.entries(context.storylineTweetHistory)) {
-      const keywords = title.toLowerCase().split(/\s+/).filter((w) => w.length >= 3);
-      if (keywords.some((kw) => lowerTweet.includes(kw))) {
+      const keywords = title.toLowerCase().split(/\s+/).filter((word) => word.length >= 3);
+      if (keywords.some((keyword) => lowerTweet.includes(keyword))) {
         matchedStorylineTitle = title;
         break;
       }
     }
 
-    // Store as draft
-    const draft = await createDraft(
+    return await createDraft(
       tweetText,
       intent,
       reasoning,
@@ -374,9 +299,11 @@ export async function generateTweet(
         ...(matchedStorylineTitle ? { storylineTitle: matchedStorylineTitle } : {}),
       },
       status,
+      {
+        include_selfie: includeSelfie,
+        selfie_scene: selfieScene,
+      },
     );
-
-    return draft;
   } catch (error) {
     console.error(`${LOG_PREFIX} Tweet generation failed`, { error });
     return null;

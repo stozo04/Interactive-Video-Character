@@ -32,6 +32,10 @@ import { appendConversationHistory } from './conversationHistoryService';
 import { extractAndRecordTopics } from './topicExhaustionService';
 import { refreshConversationAnchor } from './conversationAnchorService';
 import { consumeCalendarMutationSignal } from './memoryService';
+import {
+  getOldestPendingDraft,
+  getPendingDraftForConversationScope,
+} from '../../server/services/xTwitterServerService';
 import { clientLogger } from './clientLogger';
 
 const log = clientLogger.scoped('MessageOrchestrator');
@@ -64,6 +68,7 @@ export async function processUserMessage(input: OrchestratorInput): Promise<Orch
     chatHistory,
     isMuted,
     pendingEmail,
+    conversationScopeId,
   } = input;
 
   // console.log(`🎯 [Orchestrator] Processing message: "${userMessage.substring(0, 50)}..."`);
@@ -125,6 +130,7 @@ export async function processUserMessage(input: OrchestratorInput): Promise<Orch
       originalMessageForIntent: undefined,
       chatHistory,
       audioMode: isMuted ? "none" : "sync",
+      conversationScopeId,
     };
 
     const aiResult = await aiService.generateResponse(
@@ -327,6 +333,28 @@ export async function processUserMessage(input: OrchestratorInput): Promise<Orch
 
     // Raw response for action routing in App.tsx
     result.rawResponse = response;
+
+    if (conversationScopeId) {
+      try {
+        let pendingDraft = await getPendingDraftForConversationScope(conversationScopeId);
+        if (!pendingDraft && conversationScopeId.startsWith('web-')) {
+          pendingDraft = await getOldestPendingDraft();
+        }
+        if (pendingDraft) {
+          result.pendingTweetDraft = {
+            id: pendingDraft.id,
+            tweetText: pendingDraft.tweetText,
+            includeSelfie: pendingDraft.includeSelfie,
+            selfieScene: pendingDraft.selfieScene ?? null,
+          };
+        }
+      } catch (err) {
+        log.warning('Failed to load pending tweet draft', {
+          conversationScopeId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
 
     console.log(
       `✅ [Orchestrator] Complete: actionType=${actionType}, success=true`

@@ -26,6 +26,7 @@ import CharacterManagementView from './components/CharacterManagementView';
 import { SettingsPanel } from './components/SettingsPanel';
 import AdminDashboardView from './components/AdminDashboardView';
 import { processSelfieAction } from './handlers/messageActions';
+import type { PendingTweetDraft } from './handlers/messageActions/types';
 import { agentClient } from './services/agentClient';
 import { useDebounce } from './hooks/useDebounce';
 import { useMediaQueues } from './hooks/useMediaQueues';
@@ -40,10 +41,8 @@ import { startStorylineIdleService, stopStorylineIdleService } from './services/
 import { isQuestionMessage } from './utils/textUtils';
 import { shuffleArray } from './utils/arrayUtils';
 import { StorageKey } from './utils/enums';
-import { registerXAuthTestHelper } from './services/xAuthTestHelper';
-import { handleXAuthCallback, refreshRecentTweetMetrics } from './services/xTwitterService';
+import { handleXAuthCallback, refreshRecentTweetMetrics } from './services/xClient';
 import { handleOAuthCallback as handleAnthropicOAuthCallback } from './services/anthropicService';
-import { pollAndProcessMentions } from './services/xMentionService';
 import {
   ackPendingMessageDelivered,
   fetchNextPendingMessage,
@@ -55,11 +54,6 @@ import {
 } from './services/projectAgentService';
 import { buildActionKeyMap } from './utils/actionKeyMapper';
 import { subscribeToTicketUpdates, type TerminatedTicket } from './services/engineeringTicketWatcher';
-
-// Register X auth test helper on window (dev only)
-if (import.meta.env.DEV) {
-  registerXAuthTestHelper();
-}
 
 // ============================================================================
 // CONSTANTS & TYPES
@@ -172,11 +166,18 @@ const App: React.FC = () => {
   // --------------------------------------------------------------------------
   const [xAuthStatus, setXAuthStatus] = useState<'idle' | 'processing' | 'success' | 'error'>('idle');
   const [anthropicAuthStatus, setAnthropicAuthStatus] = useState<'idle' | 'processing' | 'success' | 'error'>('idle');
+  const anthropicCallbackHandledRef = useRef(false);
+  const xCallbackHandledRef = useRef(false);
 
   // Anthropic OAuth callback handler
   useEffect(() => {
     const url = new URL(window.location.href);
     if (url.pathname === '/auth/anthropic/callback') {
+      if (anthropicCallbackHandledRef.current) {
+        return;
+      }
+      anthropicCallbackHandledRef.current = true;
+
       const code = url.searchParams.get('code');
       const state = url.searchParams.get('state');
       if (code && state) {
@@ -201,6 +202,11 @@ const App: React.FC = () => {
   useEffect(() => {
     const url = new URL(window.location.href);
     if (url.pathname === '/auth/x/callback') {
+      if (xCallbackHandledRef.current) {
+        return;
+      }
+      xCallbackHandledRef.current = true;
+
       const code = url.searchParams.get('code');
       const state = url.searchParams.get('state');
       if (code && state) {
@@ -248,6 +254,7 @@ const App: React.FC = () => {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isProcessingAction, setIsProcessingAction] = useState(false);
   const [aiSession, setAiSession] = useState<AIChatSession | null>(null);
+  const [pendingTweetDraft, setPendingTweetDraft] = useState<PendingTweetDraft | null>(null);
   /** Stable session ID for the server agent — persists for this browser tab's lifetime */
   const webSessionIdRef = useRef<string>(`web-${crypto.randomUUID()}`);
   const [lastSavedMessageIndex, setLastSavedMessageIndex] = useState<number>(-1);
@@ -414,29 +421,6 @@ const App: React.FC = () => {
         clientLogger.warning(`${LOG_PREFIX} [X Metrics] Periodic refresh failed`, { source: 'App.tsx', error: e instanceof Error ? e.message : String(e) })
       );
     }, METRICS_INTERVAL);
-
-    return () => {
-      clearTimeout(initialTimeout);
-      clearInterval(interval);
-    };
-  }, []);
-
-  // X Mentions: Poll for @mentions every 5 minutes
-  useEffect(() => {
-    const MENTION_INTERVAL = 5 * 60 * 1000; // 5 minutes
-
-    // Initial poll after 15s delay
-    const initialTimeout = setTimeout(() => {
-      pollAndProcessMentions().catch(e =>
-        clientLogger.warning(`${LOG_PREFIX} [X Mentions] Initial poll failed`, { source: 'App.tsx', error: e instanceof Error ? e.message : String(e) })
-      );
-    }, 15000);
-
-    const interval = setInterval(() => {
-      pollAndProcessMentions().catch(e =>
-        clientLogger.warning(`${LOG_PREFIX} [X Mentions] Periodic poll failed`, { source: 'App.tsx', error: e instanceof Error ? e.message : String(e) })
-      );
-    }, MENTION_INTERVAL);
 
     return () => {
       clearTimeout(initialTimeout);
@@ -1046,6 +1030,52 @@ const App: React.FC = () => {
     handleUserInterrupt();
   };
 
+  const handleResolveTweetDraft = useCallback(async (action: 'post' | 'reject') => {
+    if (!pendingTweetDraft) {
+      return { success: false, error: 'No pending tweet draft.' };
+    }
+
+    const draftId = pendingTweetDraft.id;
+    const result = await agentClient.resolveTweetDraft(draftId, action);
+    if (!result.success) {
+      return { success: false, error: result.error };
+    }
+
+    setPendingTweetDraft(null);
+
+    const systemMessage =
+      action === 'post'
+        ? `[System] Tweet draft posted: ${draftId}`
+        : `[System] Tweet draft rejected: ${draftId}`;
+
+    try {
+      const followUp = await agentClient.sendMessage({
+        message: systemMessage,
+        sessionId: webSessionIdRef.current,
+        chatHistory: chatHistoryRef.current,
+        isMuted: isMutedRef.current,
+      });
+
+      if (followUp.updatedSession) setAiSession(followUp.updatedSession);
+      if (followUp.chatMessages?.length > 0) {
+        setChatHistory(prev => [...prev, ...followUp.chatMessages]);
+      }
+      if (followUp.audioToPlay && !isMutedRef.current) {
+        media.enqueueAudio(followUp.audioToPlay);
+      }
+      if (followUp.pendingTweetDraft) {
+        setPendingTweetDraft(followUp.pendingTweetDraft);
+      }
+    } catch (error) {
+      clientLogger.error(`${LOG_PREFIX} Tweet draft follow-up failed`, {
+        source: 'App.tsx',
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+
+    return { success: true };
+  }, [pendingTweetDraft, media]);
+
   // ==========================================================================
   // MAIN MESSAGE HANDLER (Refactored to use messageOrchestrator)
   // ==========================================================================
@@ -1084,6 +1114,7 @@ const App: React.FC = () => {
         });
 
         if (result.updatedSession) setAiSession(result.updatedSession);
+        setPendingTweetDraft(result.pendingTweetDraft ?? null);
         if (result.chatMessages?.length > 0) {
           setChatHistory(prev => [...prev, ...result.chatMessages]);
         }
@@ -1117,6 +1148,7 @@ const App: React.FC = () => {
           isMuted,
         });
         if (result.updatedSession) setAiSession(result.updatedSession);
+        setPendingTweetDraft(result.pendingTweetDraft ?? null);
         if (result.error) setErrorMessage(result.error);
         const maybePlayResponseAction = (actionId?: string | null) => { if (actionId) playAction(actionId, true); };
         if (result.chatMessages.length > 0) setChatHistory(prev => [...prev, ...result.chatMessages]);
@@ -1158,6 +1190,7 @@ const App: React.FC = () => {
         });
 
         if (result.updatedSession) setAiSession(result.updatedSession);
+        setPendingTweetDraft(result.pendingTweetDraft ?? null);
         if (result.error) setErrorMessage(result.error);
 
         const maybePlayResponseAction = (actionId?: string | null) => {
@@ -1206,6 +1239,7 @@ const App: React.FC = () => {
       });
 
       if (result.updatedSession) setAiSession(result.updatedSession);
+      setPendingTweetDraft(result.pendingTweetDraft ?? null);
       if (result.error) setErrorMessage(result.error);
 
       const maybePlayResponseAction = (actionId?: string | null) => {
@@ -1438,6 +1472,8 @@ const App: React.FC = () => {
                     onSendMessage={handleSendMessage}
                     isSending={isProcessingAction}
                     onUserActivity={markInteraction}
+                    pendingTweetDraft={pendingTweetDraft}
+                    onResolveTweetDraft={handleResolveTweetDraft}
                   />
                 </div>
              </div>

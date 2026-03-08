@@ -23,8 +23,15 @@ import {
   extractEmailAddress,
   extractDisplayName,
 } from "../services/autoArchiveService";
+import {
+  formatTweetApprovalPrompt,
+  getPendingDraftForConversationScope,
+  parseTweetApprovalAction,
+  resolveTweetDraft,
+} from "../services/xTwitterServerService";
 import fs from "fs";
 import path from "path";
+import { NewEmailPayload } from "../../src/types";
 const LOG_PREFIX = "[WhatsApp]";
 const INBOUND_DEDUPE_TTL_MS = 10 * 60 * 1000;
 
@@ -876,6 +883,21 @@ export async function handleWhatsAppMessage(
       textLength: text.length,
       isMuted: true,
     });
+    const conversationScopeId = `whatsapp-${jid}`;
+    const mechanicalTweetAction = parseTweetApprovalAction(text);
+
+    if (mechanicalTweetAction) {
+      await handleTweetApprovalCommand(
+        sock,
+        replyJid,
+        mechanicalTweetAction,
+        conversationScopeId,
+        session,
+        chatHistory,
+        pendingEmailData?.email ?? null,
+      );
+      return;
+    }
 
     const result = await processUserMessage({
       userMessage: text,
@@ -885,6 +907,7 @@ export async function handleWhatsAppMessage(
       chatHistory,
       isMuted: true,
       pendingEmail: pendingEmailData?.email ?? null,
+      conversationScopeId,
     });
 
     runtimeLog.info("Message processing completed", {
@@ -1148,6 +1171,12 @@ async function sendOrchestratorResult(
     });
   }
 
+  if (result.pendingTweetDraft) {
+    await sendAndTrack(sock, jid, {
+      text: formatTweetApprovalPrompt(result.pendingTweetDraft),
+    });
+  }
+
   if (result.selfieImage?.base64) {
     try {
       runtimeLog.info("Processing selfie image", {
@@ -1334,4 +1363,54 @@ async function sendOrchestratorResult(
       console.error(`${LOG_PREFIX} Failed to send voice note:`, err);
     }
   }
+}
+
+async function handleTweetApprovalCommand(
+  sock: WASocket,
+  replyJid: string,
+  action: "post" | "reject",
+  conversationScopeId: string,
+  session: { model: string; interactionId: string } | null,
+  chatHistory: any[],
+  pendingEmail: NewEmailPayload | null,
+): Promise<boolean> {
+  const draft = await getPendingDraftForConversationScope(conversationScopeId);
+  if (!draft) {
+    await sendAndTrack(sock, replyJid, {
+      text: "There is no pending tweet draft in this conversation right now.",
+    });
+    return true;
+  }
+
+  const resolution = await resolveTweetDraft(draft.id, action);
+  if (!resolution.success) {
+    await sendAndTrack(sock, replyJid, {
+      text: resolution.error || "I could not resolve that tweet draft.",
+    });
+    return true;
+  }
+
+  await sendAndTrack(sock, replyJid, {
+    text: action === "post"
+      ? (resolution.tweetUrl ? `Posted it: ${resolution.tweetUrl}` : "Posted it.")
+      : "Rejected that tweet draft.",
+  });
+
+  const systemMessage =
+    action === "post"
+      ? `[System] Tweet draft posted: ${draft.id}`
+      : `[System] Tweet draft rejected: ${draft.id}`;
+
+  const followUp = await processUserMessage({
+    userMessage: systemMessage,
+    aiService: serverGeminiService,
+    session,
+    chatHistory,
+    isMuted: true,
+    pendingEmail,
+    conversationScopeId,
+  });
+
+  await sendOrchestratorResult(sock, replyJid, followUp);
+  return true;
 }

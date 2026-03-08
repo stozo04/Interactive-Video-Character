@@ -32,6 +32,12 @@ import {
   extractEmailAddress,
   extractDisplayName,
 } from '../services/autoArchiveService';
+import {
+  formatTweetApprovalPrompt,
+  getPendingDraftForConversationScope,
+  parseTweetApprovalAction,
+  resolveTweetDraft,
+} from '../services/xTwitterServerService';
 import sharp from 'sharp';
 import { spawnSync } from 'node:child_process';
 import fs from 'fs';
@@ -512,6 +518,55 @@ async function sendOrchestratorResult(chatId: number, result: OrchestratorResult
       await bot.api.sendMessage(chatId, [appText, url].filter(Boolean).join('\n'));
     }
   }
+
+  if (result.pendingTweetDraft) {
+    await bot.api.sendMessage(chatId, formatTweetApprovalPrompt(result.pendingTweetDraft));
+  }
+}
+
+async function handleTweetApprovalCommand(
+  chatId: number,
+  action: 'post' | 'reject',
+  conversationScopeId: string,
+  session: { model: string; interactionId: string } | null,
+  chatHistory: any[],
+  pendingEmail: NewEmailPayload | null,
+): Promise<boolean> {
+  const draft = await getPendingDraftForConversationScope(conversationScopeId);
+  if (!draft) {
+    await bot.api.sendMessage(chatId, 'There is no pending tweet draft in this conversation right now.');
+    return true;
+  }
+
+  const resolution = await resolveTweetDraft(draft.id, action);
+  if (!resolution.success) {
+    await bot.api.sendMessage(chatId, resolution.error || 'I could not resolve that tweet draft.');
+    return true;
+  }
+
+  if (action === 'post') {
+    await bot.api.sendMessage(chatId, resolution.tweetUrl ? `Posted it: ${resolution.tweetUrl}` : 'Posted it.');
+  } else {
+    await bot.api.sendMessage(chatId, 'Rejected that tweet draft.');
+  }
+
+  const systemMessage =
+    action === 'post'
+      ? `[System] Tweet draft posted: ${draft.id}`
+      : `[System] Tweet draft rejected: ${draft.id}`;
+
+  const followUp = await processUserMessage({
+    userMessage: systemMessage,
+    aiService: serverGeminiService,
+    session,
+    chatHistory,
+    isMuted: true,
+    pendingEmail,
+    conversationScopeId,
+  });
+
+  await sendOrchestratorResult(chatId, followUp);
+  return true;
 }
 
 // ============================================================================
@@ -759,6 +814,20 @@ export async function handleTelegramMessage(ctx: Context): Promise<void> {
       loadTodaysConversationHistory(),
       loadPendingEmailFromDB(),
     ]);
+    const conversationScopeId = `telegram-${chatId}`;
+    const mechanicalTweetAction = parseTweetApprovalAction(text);
+
+    if (mechanicalTweetAction) {
+      await handleTweetApprovalCommand(
+        chatId,
+        mechanicalTweetAction,
+        conversationScopeId,
+        session,
+        chatHistory,
+        pendingEmailData?.email ?? null,
+      );
+      return;
+    }
 
     // -----------------------------------------------------------------------
     // Process through orchestrator
@@ -771,6 +840,7 @@ export async function handleTelegramMessage(ctx: Context): Promise<void> {
       chatHistory,
       isMuted: true,
       pendingEmail: pendingEmailData?.email ?? null,
+      conversationScopeId,
     });
 
     runtimeLog.info('Message processing completed', {

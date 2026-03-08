@@ -14,6 +14,15 @@ import { serverGeminiService } from "../services/ai/serverGeminiService";
 import { processUserMessage } from "../../src/services/messageOrchestrator";
 import type { UserContent } from "../../src/services/aiService";
 import type { ChatMessage, NewEmailPayload } from "../../src/types";
+import {
+  getXAuthStatus,
+  handleXAuthCallback as completeXAuthCallback,
+  initXAuth as startXAuth,
+  refreshRecentTweetMetrics,
+  resolveTweetDraft as resolveXTweetDraft,
+  revokeXAuth as disconnectXAuth,
+} from "../services/xTwitterServerService";
+import { pollAndProcessMentions } from "../services/xMentionService";
 
 const runtimeLog = log.fromContext({ source: "agentRoutes" });
 
@@ -40,6 +49,15 @@ interface AgentMessageRequest {
 
 interface AgentGreetingRequest {
   sessionId: string;
+}
+
+interface TweetDraftResolveRequest {
+  action: "post" | "reject";
+}
+
+interface XAuthCallbackRequest {
+  code: string;
+  state: string;
 }
 
 // ============================================================================
@@ -101,6 +119,42 @@ export function createAgentRouter(): (
       return true;
     }
 
+    if (req.method === "POST" && url.pathname === "/agent/x/auth/start") {
+      await handleXAuthStart(res);
+      return true;
+    }
+
+    if (req.method === "POST" && url.pathname === "/agent/x/auth/callback") {
+      await handleXAuthCallback(req, res);
+      return true;
+    }
+
+    if (req.method === "GET" && url.pathname === "/agent/x/status") {
+      await handleXStatus(res);
+      return true;
+    }
+
+    if (req.method === "POST" && url.pathname === "/agent/x/auth/revoke") {
+      await handleXAuthRevoke(res);
+      return true;
+    }
+
+    if (req.method === "POST" && url.pathname === "/agent/x/metrics/refresh") {
+      await handleXMetricsRefresh(res);
+      return true;
+    }
+
+    if (req.method === "POST" && url.pathname === "/agent/x/mentions/poll") {
+      await handleXMentionsPoll(res);
+      return true;
+    }
+
+    const tweetResolveMatch = url.pathname.match(/^\/agent\/tweet-drafts\/([^/]+)\/resolve$/);
+    if (req.method === "POST" && tweetResolveMatch) {
+      await handleTweetDraftResolve(req, res, tweetResolveMatch[1]);
+      return true;
+    }
+
     if (req.method === "GET" && url.pathname === "/agent/health") {
       res.writeHead(200, JSON_HEADERS);
       res.end(JSON.stringify({ status: "ok", sessions: sessions.size }));
@@ -149,6 +203,7 @@ async function handleAgentMessage(req: IncomingMessage, res: ServerResponse): Pr
       chatHistory: body.chatHistory || [],
       isMuted: body.isMuted ?? false,
       pendingEmail: body.pendingEmail,
+      conversationScopeId: body.sessionId,
     });
 
     // Persist updated session
@@ -222,6 +277,131 @@ async function handleAgentGreeting(req: IncomingMessage, res: ServerResponse): P
   } catch (err) {
     const errorMsg = err instanceof Error ? err.message : String(err);
     runtimeLog.error("Agent greeting failed", { error: errorMsg });
+    sendJson(res, 500, { success: false, error: errorMsg });
+  }
+}
+
+// ============================================================================
+// /agent/x/* - Server-owned X integration endpoints
+// ============================================================================
+
+async function handleXAuthStart(res: ServerResponse): Promise<void> {
+  try {
+    const authUrl = await startXAuth();
+    sendJson(res, 200, { success: true, authUrl });
+  } catch (err) {
+    const errorMsg = err instanceof Error ? err.message : String(err);
+    runtimeLog.error("X auth start failed", { error: errorMsg });
+    sendJson(res, 500, { success: false, error: errorMsg });
+  }
+}
+
+async function handleXAuthCallback(req: IncomingMessage, res: ServerResponse): Promise<void> {
+  try {
+    const body = await parseJsonBody<XAuthCallbackRequest>(req);
+    if (!body.code || !body.state) {
+      sendJson(res, 400, { success: false, error: "Missing 'code' or 'state'." });
+      return;
+    }
+
+    await completeXAuthCallback(body.code, body.state);
+    sendJson(res, 200, { success: true });
+  } catch (err) {
+    const errorMsg = err instanceof Error ? err.message : String(err);
+    runtimeLog.error("X auth callback failed", { error: errorMsg });
+    sendJson(res, 500, { success: false, error: errorMsg });
+  }
+}
+
+async function handleXStatus(res: ServerResponse): Promise<void> {
+  try {
+    const status = await getXAuthStatus();
+    sendJson(res, 200, { success: true, ...status });
+  } catch (err) {
+    const errorMsg = err instanceof Error ? err.message : String(err);
+    runtimeLog.error("X status failed", { error: errorMsg });
+    sendJson(res, 500, { success: false, error: errorMsg, connected: false, scopes: [], hasMediaWrite: false });
+  }
+}
+
+async function handleXAuthRevoke(res: ServerResponse): Promise<void> {
+  try {
+    await disconnectXAuth();
+    sendJson(res, 200, { success: true });
+  } catch (err) {
+    const errorMsg = err instanceof Error ? err.message : String(err);
+    runtimeLog.error("X auth revoke failed", { error: errorMsg });
+    sendJson(res, 500, { success: false, error: errorMsg });
+  }
+}
+
+async function handleXMetricsRefresh(res: ServerResponse): Promise<void> {
+  try {
+    const updatedCount = await refreshRecentTweetMetrics();
+    sendJson(res, 200, { success: true, updatedCount });
+  } catch (err) {
+    const errorMsg = err instanceof Error ? err.message : String(err);
+    runtimeLog.error("X metrics refresh failed", { error: errorMsg });
+    sendJson(res, 500, { success: false, error: errorMsg });
+  }
+}
+
+async function handleXMentionsPoll(res: ServerResponse): Promise<void> {
+  try {
+    const mentionCount = await pollAndProcessMentions();
+    sendJson(res, 200, { success: true, mentionCount });
+  } catch (err) {
+    const errorMsg = err instanceof Error ? err.message : String(err);
+    runtimeLog.error("X mentions poll failed", { error: errorMsg });
+    sendJson(res, 500, { success: false, error: errorMsg });
+  }
+}
+
+// ============================================================================
+// /agent/tweet-drafts/:id/resolve — UI approval gate
+// ============================================================================
+
+async function handleTweetDraftResolve(
+  req: IncomingMessage,
+  res: ServerResponse,
+  draftId: string,
+): Promise<void> {
+  const startMs = Date.now();
+
+  try {
+    const body = await parseJsonBody<TweetDraftResolveRequest>(req);
+    if (!body?.action || (body.action !== "post" && body.action !== "reject")) {
+      sendJson(res, 400, { success: false, error: "Invalid action." });
+      return;
+    }
+
+    runtimeLog.info("Resolving tweet draft", {
+      draftId,
+      action: body.action,
+    });
+
+    const result = await resolveXTweetDraft(draftId, body.action);
+    if (!result.success) {
+      const statusCode =
+        result.error === "Draft not found."
+          ? 404
+          : result.error === "Draft is not pending approval."
+            ? 409
+            : 500;
+      sendJson(res, statusCode, { success: false, error: result.error || "Failed to resolve draft." });
+      return;
+    }
+
+    runtimeLog.info("Tweet draft resolved", {
+      draftId,
+      action: body.action,
+      tweetId: result.tweetId ?? null,
+      elapsedMs: Date.now() - startMs,
+    });
+    sendJson(res, 200, { success: true, tweetUrl: result.tweetUrl });
+  } catch (err) {
+    const errorMsg = err instanceof Error ? err.message : String(err);
+    runtimeLog.error("Tweet draft resolve failed", { draftId, error: errorMsg });
     sendJson(res, 500, { success: false, error: errorMsg });
   }
 }

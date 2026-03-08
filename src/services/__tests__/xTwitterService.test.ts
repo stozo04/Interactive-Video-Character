@@ -1,18 +1,31 @@
 import { describe, it, expect, vi } from "vitest";
 
-// Mock supabaseClient before any imports that trigger its initialization
-vi.mock("../supabaseClient", () => ({
-  supabase: { from: vi.fn() },
+// Mock server-only deps before importing the X service module.
+vi.mock("../../../server/services/supabaseAdmin", () => ({
+  supabaseAdmin: { from: vi.fn() },
 }));
 
-// Stub import.meta.env vars that xTwitterService reads at module load
+vi.mock("../../../server/runtimeLogger", () => ({
+  log: {
+    fromContext: () => ({
+      info: vi.fn(),
+      warning: vi.fn(),
+      error: vi.fn(),
+    }),
+  },
+}));
+
+vi.mock("../imageGenerationService", () => ({
+  generateCompanionSelfie: vi.fn(),
+}));
+
 vi.stubEnv("VITE_X_CLIENT_ID", "test");
 vi.stubEnv("VITE_X_CLIENT_SECRET", "test");
 vi.stubEnv("VITE_X_CALLBACK_URL", "http://localhost");
 
-import { parseMediaUploadResponse } from "../xTwitterService";
+import { parseMediaUploadResponse } from "../../../server/services/xTwitterServerService";
 
-describe("xTwitterService.parseMediaUploadResponse", () => {
+describe("xTwitterServerService.parseMediaUploadResponse", () => {
   it("throws when the v2 response is missing data.id", () => {
     expect(() => parseMediaUploadResponse({})).toThrow(
       "Media upload failed: missing media id in response"

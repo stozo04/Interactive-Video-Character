@@ -1,6 +1,6 @@
 // src/components/SettingsPanel.tsx
 import React, { useState, useEffect, useCallback } from 'react';
-import { hasXScope, isXConnected, initXAuth, revokeXAuth } from '../services/xTwitterService';
+import { hasXScope, isXConnected, initXAuth, revokeXAuth } from '../services/xClient';
 import { supabase } from '../services/supabaseClient';
 import { getMultiAgentHealth, getWhatsAppHealth, getTelegramHealth, getOpeyHealth } from '../services/multiAgentService';
 import type { ProactiveSettings } from '../types';

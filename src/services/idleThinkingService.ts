@@ -556,8 +556,8 @@ function getTimeAgo(dateStr: string): string {
 
 async function runXPostAction(): Promise<boolean> {
   try {
-    const { isXConnected, postTweet, postTweetWithMedia, uploadMedia, updateDraftStatus } = await import("./xTwitterService");
-    const { generateTweet } = await import("./xTweetGenerationService");
+    const { isXConnected, postTweet, postTweetWithMedia, uploadMedia, updateDraftStatus } = await import("../../server/services/xTwitterServerService");
+    const { generateTweet } = await import("../../server/services/xTweetGenerationService");
 
     const connected = await isXConnected();
     if (!connected) {
@@ -641,7 +641,7 @@ async function runXPostAction(): Promise<boolean> {
 
 async function runXMentionPollAction(): Promise<boolean> {
   try {
-    const { pollAndProcessMentions } = await import("./xMentionService");
+    const { pollAndProcessMentions } = await import("../../server/services/xMentionService");
     const count = await pollAndProcessMentions();
     console.log(`${LOG_PREFIX} Mention poll completed`, { newMentions: count });
     return true;
@@ -652,7 +652,7 @@ async function runXMentionPollAction(): Promise<boolean> {
 }
 
 export async function buildXTweetPromptSection(): Promise<string> {
-  const { getDrafts, getRecentPostedTweets } = await import("./xTwitterService");
+  const { getDrafts, getRecentPostedTweets } = await import("../../server/services/xTwitterServerService");
 
   const [pendingDrafts, recentPosted] = await Promise.all([
     getDrafts("pending_approval"),
@@ -682,9 +682,9 @@ export async function buildXTweetPromptSection(): Promise<string> {
 PENDING TWEET (waiting for approval):
 { id: "${draft.id}", text: "${draft.tweetText}", intent: "${draft.intent || "thought"}" }
 
-→ If the user says something like "yes", "post it", "go ahead", call resolve_x_tweet with status "approved" and the id.
-→ If the user says "no", "change it", or critiques it, call resolve_x_tweet with status "rejected" and the id.
-→ You can mention you drafted a tweet, but don't force it. Bring it up naturally.`;
+→ Web: Steven can approve it with the Tweet Approval Card.
+→ Telegram/WhatsApp: Steven can reply "POST TWEET" or "REJECT TWEET".
+→ Do NOT claim the tweet is posted until approval happens.`;
   }
 
   let recentSection = "";

@@ -3,6 +3,8 @@ import { ChatMessage, PendingChatAttachment, PendingGifAttachment } from '../typ
 import LoadingSpinner from './LoadingSpinner';
 import TypingIndicator from './TypingIndicator';
 import TweetCard, { extractTweetUrls } from './TweetCard';
+import TweetApprovalCard from './TweetApprovalCard';
+import type { PendingTweetDraft } from '../handlers/messageActions/types';
 import {
   DEFAULT_MAX_FILE_BYTES,
   DEFAULT_MAX_FILE_CHARS,
@@ -19,6 +21,8 @@ interface ChatPanelProps {
   onOpenWhiteboard?: () => void;
   onUserActivity?: () => void;
   isSending: boolean;
+  pendingTweetDraft?: PendingTweetDraft | null;
+  onResolveTweetDraft?: (action: 'post' | 'reject') => Promise<{ success: boolean; error?: string }>;
 }
 
 const formatBytes = (bytes: number): string => {
@@ -35,7 +39,9 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
   onSendMessage, 
   onOpenWhiteboard,
   onUserActivity,
-  isSending 
+  isSending,
+  pendingTweetDraft,
+  onResolveTweetDraft,
 }) => {
   const [input, setInput] = useState('');
   const [isListening, setIsListening] = useState(false);
@@ -50,6 +56,10 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const lastModelIndex = history.reduce((acc, msg, idx) => (
+    msg.role === 'model' ? idx : acc
+  ), -1);
+  const showTweetApprovalCard = !!pendingTweetDraft && typeof onResolveTweetDraft === 'function';
   
   // STT (Browser Speech Recognition)
   const recognitionRef = useRef<SpeechRecognition | null>(null);
@@ -259,8 +269,9 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
     <div className="bg-gray-800/70 h-full flex flex-col rounded-lg p-4 border border-gray-700 shadow-lg">
       <div className="flex-1 min-h-0 overflow-y-auto pr-2 space-y-4 mb-4" style={{ scrollbarWidth: 'thin', scrollbarColor: '#4B5563 #1F2937' }}>
       {history.map((msg, index) => (
-        <div key={index} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-          <div className={`max-w-xs md:max-w-md lg:max-w-sm xl:max-w-md px-4 py-2 rounded-2xl ${msg.role === 'user' ? 'bg-indigo-600 text-white rounded-br-none' : 'bg-gray-700 text-gray-200 rounded-bl-none'}`}>
+        <React.Fragment key={index}>
+          <div className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+            <div className={`max-w-xs md:max-w-md lg:max-w-sm xl:max-w-md px-4 py-2 rounded-2xl ${msg.role === 'user' ? 'bg-indigo-600 text-white rounded-br-none' : 'bg-gray-700 text-gray-200 rounded-bl-none'}`}>
             {/* User-sent images */}
             {msg.image && (
                  <img
@@ -338,7 +349,14 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
               ))}
             </div>
           </div>
-        ))}
+          {showTweetApprovalCard && index === lastModelIndex && (
+            <TweetApprovalCard draft={pendingTweetDraft!} onResolve={onResolveTweetDraft!} />
+          )}
+        </React.Fragment>
+      ))}
+      {showTweetApprovalCard && lastModelIndex === -1 && (
+        <TweetApprovalCard draft={pendingTweetDraft!} onResolve={onResolveTweetDraft!} />
+      )}
         {isSending && <TypingIndicator />}
         <div ref={messagesEndRef} />
       </div>
