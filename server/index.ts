@@ -127,6 +127,10 @@ runtimeLog.info("Creating multi-agent router", {
 const routeMultiAgentRequest = createMultiAgentRouter({
   supabaseUrl,
   supabaseServiceRoleKey,
+  opey: {
+    getStatus: () => opeyDevHandle.getStatus(),
+    restart: () => opeyDevHandle.restart(),
+  },
 });
 
 runtimeLog.info("Multi-agent router created", {

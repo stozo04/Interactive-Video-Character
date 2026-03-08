@@ -224,6 +224,7 @@ async function attemptSelfHeal(
 }
 
 let isProcessing = false;
+let activeTicketId: string | undefined;
 
 async function processNextTicket(
   store: SupabaseTicketStore,
@@ -238,6 +239,7 @@ async function processNextTicket(
     const ticket = await store.getNextTicket();
     if (!ticket) return;
     ticketId = ticket.id;
+    activeTicketId = ticketId;
 
     log.info(`${LOG_PREFIX} Picked up ticket`, { source: "main.ts", ticketId, title: ticket.title });
 
@@ -329,11 +331,20 @@ async function processNextTicket(
     }
   } finally {
     isProcessing = false;
+    activeTicketId = undefined;
   }
+}
+
+export interface OpeyStatus {
+  alive: boolean;
+  currentTicketId: string | undefined;
+  lastPollAt: number;
 }
 
 export interface OpeyDevHandle {
   stop: () => void;
+  getStatus: () => OpeyStatus;
+  restart: () => void;
 }
 
 export function startOpeyDev(opts: {
@@ -341,7 +352,8 @@ export function startOpeyDev(opts: {
 }): OpeyDevHandle {
   if (!opts.workspaceRoot) {
     console.error(`${LOG_PREFIX} DISABLED — missing workspaceRoot`);
-    return { stop: () => {} };
+    const deadStatus: OpeyStatus = { alive: false, currentTicketId: undefined, lastPollAt: 0 };
+    return { stop: () => {}, getStatus: () => deadStatus, restart: () => {} };
   }
 
   console.log(`${LOG_PREFIX} Starting`, {
@@ -353,21 +365,46 @@ export function startOpeyDev(opts: {
   const store = new SupabaseTicketStore();
   const manager = new BranchManager(opts.workspaceRoot);
 
+  let lastPollAt = Date.now();
+  let interval: ReturnType<typeof setInterval>;
+
+  // On startup, remove any worktrees left behind by a previous server crash.
+  // This covers ALL stale worktrees, not just same-ticket reruns.
+  manager.pruneAllStaleWorktrees();
+
   // On startup, any ticket still in "implementing" was orphaned by a previous
   // server crash mid-run. The Codex process is gone — mark them failed now.
   void store.failOrphanedTickets();
 
-  // Run immediately, then poll
-  void processNextTicket(store, manager);
-
-  const interval = setInterval(() => {
+  function startPollLoop() {
+    lastPollAt = Date.now();
     void processNextTicket(store, manager);
-  }, POLL_INTERVAL_MS);
 
-  return {
+    interval = setInterval(() => {
+      lastPollAt = Date.now();
+      void processNextTicket(store, manager);
+    }, POLL_INTERVAL_MS);
+  }
+
+  startPollLoop();
+
+  const handle: OpeyDevHandle = {
     stop: () => {
       console.log(`${LOG_PREFIX} Stopping poll loop`);
       clearInterval(interval);
     },
+    getStatus: () => ({
+      alive: true,
+      currentTicketId: activeTicketId,
+      lastPollAt,
+    }),
+    restart: () => {
+      log.info(`${LOG_PREFIX} Restarting poll loop`, { source: "main.ts" });
+      clearInterval(interval);
+      isProcessing = false;
+      startPollLoop();
+    },
   };
+
+  return handle;
 }

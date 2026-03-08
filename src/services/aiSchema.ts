@@ -798,6 +798,23 @@ export type EngineeringTicketStatusArgs = z.infer<typeof EngineeringTicketStatus
 export type SubmitClarificationArgs = z.infer<typeof SubmitClarificationSchema>;
 export type EmailActionToolArgs = z.infer<typeof EmailActionToolSchema>;
 
+/**
+ * Schema for the email_action_manage tool.
+ * Allows Kayley to bulk-dismiss pending email action rows she no longer needs to act on.
+ */
+export const EmailActionManageSchema = z.object({
+  action: z.enum(["dismiss_pending"]).describe(
+    "The management action to perform. 'dismiss_pending' marks pending email action rows as dismissed."
+  ),
+  action_ids: z.array(z.string()).optional().describe(
+    "Optional list of kayley_email_actions row UUIDs to dismiss. If omitted, dismisses ALL pending rows (capped at 50)."
+  ),
+  message_ids: z.array(z.string()).optional().describe(
+    "Optional list of Gmail message IDs to dismiss. Alternative to action_ids."
+  ),
+});
+export type EmailActionManageArgs = z.infer<typeof EmailActionManageSchema>;
+
 export const GmailSearchSchema = z.object({
   query: z.string().describe("Gmail search query"),
   max_results: z.number().optional().describe("Max results, default 5"),
@@ -819,6 +836,7 @@ export type MemoryToolArgs =
   | { tool: "get_engineering_ticket_status"; args: EngineeringTicketStatusArgs }
   | { tool: "submit_clarification"; args: SubmitClarificationArgs }
   | { tool: "email_action"; args: EmailActionToolArgs }
+  | { tool: "email_action_manage"; args: EmailActionManageArgs }
   | { tool: "recall_user_info"; args: RecallUserInfoArgs }
   | { tool: "store_user_info"; args: StoreUserInfoArgs }
   | { tool: "resolve_idle_question"; args: ResolveIdleQuestionArgs }
@@ -2207,6 +2225,36 @@ export const GeminiMemoryToolDeclarations = [
         },
       },
       required: ["filename", "content"],
+    },
+  },
+  {
+    name: "email_action_manage",
+    description:
+      "Bulk-dismiss pending email action rows in kayley_email_actions. " +
+      "Use when Steven asks you to clear/dismiss pending emails, or when a batch of pending rows are stale and no longer actionable. " +
+      "Specify action_ids (row UUIDs) or message_ids (Gmail message IDs) to target specific rows, " +
+      "or omit both to dismiss ALL pending rows (capped at 50). " +
+      "Only use action='dismiss_pending'. Returns the count of rows updated.",
+    parameters: {
+      type: "object",
+      properties: {
+        action: {
+          type: "string",
+          enum: ["dismiss_pending"],
+          description: "Must be 'dismiss_pending'",
+        },
+        action_ids: {
+          type: "array",
+          items: { type: "string" },
+          description: "Optional list of kayley_email_actions row UUIDs to dismiss",
+        },
+        message_ids: {
+          type: "array",
+          items: { type: "string" },
+          description: "Optional list of Gmail message IDs to dismiss",
+        },
+      },
+      required: ["action"],
     },
   },
 ];

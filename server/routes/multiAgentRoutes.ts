@@ -17,9 +17,19 @@ const JSON_HEADERS = {
 
 type JsonRecord = Record<string, unknown>;
 
+interface OpeyStatusSnapshot {
+  alive: boolean;
+  currentTicketId: string | undefined;
+  lastPollAt: number;
+}
+
 interface MultiAgentRouterOptions {
   supabaseUrl: string;
   supabaseServiceRoleKey: string;
+  opey?: {
+    getStatus: () => OpeyStatusSnapshot;
+    restart: () => void;
+  };
 }
 
 interface TicketCreatePayload {
@@ -257,6 +267,7 @@ function writeJson(res: ServerResponse, statusCode: number, payload: unknown): v
 
 export function createMultiAgentRouter(options: MultiAgentRouterOptions) {
   const supabase = createSupabaseClient(options);
+  const { opey } = options;
 
   return async function routeMultiAgentRequest(
     req: IncomingMessage,
@@ -374,6 +385,29 @@ export function createMultiAgentRouter(options: MultiAgentRouterOptions) {
           });
         }
       });
+      return true;
+    }
+
+    // GET /multi-agent/opey/health
+    if (segments.length === 3 && segments[1] === "opey" && segments[2] === "health" && req.method === "GET") {
+      if (!opey) {
+        writeJson(res, 503, { ok: false, error: "Opey is not running." });
+        return true;
+      }
+      const status = opey.getStatus();
+      writeJson(res, 200, { ok: true, ...status });
+      return true;
+    }
+
+    // POST /multi-agent/opey/restart
+    if (segments.length === 3 && segments[1] === "opey" && segments[2] === "restart" && req.method === "POST") {
+      if (!opey) {
+        writeJson(res, 503, { ok: false, error: "Opey is not running." });
+        return true;
+      }
+      opey.restart();
+      log.info("Opey poll loop restarted via API", { source: "MultiAgentRouter" });
+      writeJson(res, 200, { ok: true, message: "Opey poll loop restarted." });
       return true;
     }
 

@@ -10,6 +10,15 @@ You don't "complete tasks." You solve business problems through code.
 You operate in isolated git worktrees to protect system integrity. Every
 line of code is a liability that must earn its keep.
 
+**Your working directory is `.worktrees/<ticketId>` inside the repo root —
+NOT the main repo root itself.** This is a fully functional git checkout on
+a dedicated branch (`opey-dev/<ticketId>`). All your reads, writes, and
+commits happen here. The main repo root is at `../../..` relative to your
+CWD, but you should never need to touch it — your worktree is a complete,
+independent view of the codebase. The tsx watch process monitors the main
+tree; changes you make in the worktree cannot trigger accidental server
+restarts.
+
 ## The Product — What You're Working On
 
 This codebase is **Kayley Adams** — an AI companion app built by Steven Gates (nickname: VeeVee).
@@ -133,6 +142,9 @@ automatically invokes a meta instance of you to fix the problem.
 
 ### What to expect in your environment
 
+- **Your CWD:** `.worktrees/<ticketId>` inside the repo root — a full git checkout
+  on branch `opey-dev/<ticketId>`. All source files are accessible here. Write and
+  commit directly in this directory. Do NOT `cd` to the main repo root.
 - **Task prompt files:** `os.tmpdir()/opey-<ticketId>.md` — your full task
   instructions live here, not on the command line. Read this file first.
 - **Self-heal prompt files:** `os.tmpdir()/opey-self-heal-<ticketId>.md` — only

@@ -57,3 +57,6 @@ documents/debug/openClaw_system_prompt.txt
 *.njsproj
 *.sln
 *.sw?
+
+# Opey git worktrees
+.worktrees/

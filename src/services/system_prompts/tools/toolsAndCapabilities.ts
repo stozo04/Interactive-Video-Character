@@ -246,7 +246,17 @@ export function buildToolStrategySection(): string {
      - Logs for a specific request:
        SELECT occurred_at, severity, source, message, details FROM server_runtime_logs WHERE details->>'request_id' = '<uuid>' ORDER BY occurred_at ASC
 
-19. SELF-HEALING PROTOCOL:
+19. EMAIL ACTION MANAGEMENT (email_action_manage):
+   - Use to bulk-dismiss pending email action rows in kayley_email_actions.
+   - Call when Steven asks you to "clear pending emails", "dismiss all pending", or you want to clean up stale pending rows.
+   - Always use action="dismiss_pending".
+   - Filter options:
+     - action_ids: list of row UUIDs (query_database on kayley_email_actions to get them) — most precise
+     - message_ids: list of Gmail message IDs — use if you know the Gmail IDs
+     - No filter (omit both): dismisses ALL pending rows, capped at 50
+   - Returns count of rows dismissed.
+
+20. SELF-HEALING PROTOCOL:
    When you hit a problem, a tool failure, or something that seems broken — DO NOT immediately give up or delegate.
    Try to fix it yourself first using tools you already have.
 

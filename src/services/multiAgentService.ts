@@ -198,6 +198,7 @@ export interface MultiAgentCreateTicketResult {
 const LOG_PREFIX = "[MultiAgentService]";
 const DEFAULT_AGENT_BASE_URL = "http://localhost:4010";
 const DEFAULT_WHATSAPP_BRIDGE_URL = "http://localhost:4011";
+const DEFAULT_TELEGRAM_HEALTH_URL = "http://localhost:4011";
 
 function getWhatsAppBaseUrl(): string {
   const configuredUrl = import.meta.env.VITE_WHATSAPP_BRIDGE_URL as string | undefined;
@@ -208,6 +209,17 @@ function getWhatsAppBaseUrl(): string {
     return "/whatsapp-bridge"; // goes through Vite proxy → 127.0.0.1:4011
   }
   return DEFAULT_WHATSAPP_BRIDGE_URL;
+}
+
+function getTelegramBaseUrl(): string {
+  const configuredUrl = import.meta.env.VITE_TELEGRAM_HEALTH_URL as string | undefined;
+  if (configuredUrl && configuredUrl.trim()) {
+    return configuredUrl.trim().replace(/\/+$/, "");
+  }
+  if (import.meta.env.DEV) {
+    return "/telegram-bridge"; // goes through Vite proxy → 127.0.0.1:4011
+  }
+  return DEFAULT_TELEGRAM_HEALTH_URL;
 }
 
 function getBaseUrl(): string {
@@ -753,6 +765,92 @@ export async function listChatMessages(
       messages: [],
       error: "Multi-agent service is unreachable.",
     };
+  }
+}
+
+export interface TelegramHealthResult {
+  ok: boolean;
+  running: boolean;
+  latencyMs?: number;
+  error?: string;
+}
+
+export async function getTelegramHealth(): Promise<TelegramHealthResult> {
+  const endpoint = `${getTelegramBaseUrl()}/health`;
+  const t0 = Date.now();
+
+  try {
+    const response = await fetch(endpoint, {
+      method: "GET",
+      headers: { Accept: "application/json" },
+    });
+    const latencyMs = Date.now() - t0;
+    const body = await parseResponse<{ ok?: boolean; transport?: string }>(response);
+
+    if (!response.ok) {
+      return { ok: false, running: false, error: `Telegram bridge returned ${response.status}.` };
+    }
+
+    return { ok: true, running: body.ok === true, latencyMs };
+  } catch {
+    return { ok: false, running: false, error: "Telegram bridge is unreachable." };
+  }
+}
+
+export interface OpeyHealthResult {
+  ok: boolean;
+  alive: boolean;
+  currentTicketId?: string;
+  lastPollAt?: number;
+  error?: string;
+}
+
+export interface OpeyRestartResult {
+  ok: boolean;
+  message?: string;
+  error?: string;
+}
+
+export async function getOpeyHealth(): Promise<OpeyHealthResult> {
+  const endpoint = `${getBaseUrl()}/multi-agent/opey/health`;
+  try {
+    const response = await fetch(endpoint, {
+      method: "GET",
+      headers: { Accept: "application/json" },
+    });
+    const body = await parseResponse<{ ok?: boolean; alive?: boolean; currentTicketId?: string; lastPollAt?: number; error?: string }>(response);
+
+    if (!response.ok) {
+      return { ok: false, alive: false, error: body.error || `Opey health failed with status ${response.status}.` };
+    }
+
+    return {
+      ok: true,
+      alive: body.alive === true,
+      currentTicketId: body.currentTicketId,
+      lastPollAt: body.lastPollAt,
+    };
+  } catch {
+    return { ok: false, alive: false, error: "Multi-agent service is unreachable." };
+  }
+}
+
+export async function restartOpey(): Promise<OpeyRestartResult> {
+  const endpoint = `${getBaseUrl()}/multi-agent/opey/restart`;
+  try {
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+    });
+    const body = await parseResponse<{ ok?: boolean; message?: string; error?: string }>(response);
+
+    if (!response.ok) {
+      return { ok: false, error: body.error || `Opey restart failed with status ${response.status}.` };
+    }
+
+    return { ok: true, message: body.message };
+  } catch {
+    return { ok: false, error: "Multi-agent service is unreachable." };
   }
 }
 

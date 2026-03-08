@@ -41,8 +41,11 @@ import {
   transitionEngineeringTicket,
   getMultiAgentHealth,
   getWhatsAppHealth,
+  getTelegramHealth,
+  getOpeyHealth,
   restartServer,
   restartWhatsApp,
+  restartOpey,
   type EngineeringTicket,
   type EngineeringTicketEvent,
   type EngineeringTicketStatus,
@@ -158,9 +161,13 @@ export default function AdminDashboardView({ onBack }: AdminDashboardViewProps) 
   const [multiAgentHealthLatencyMs, setMultiAgentHealthLatencyMs] = useState<number | null>(null);
   const [waHealthStatus, setWaHealthStatus] = useState<'ok' | 'unreachable' | null>(null);
   const [waHealthLatencyMs, setWaHealthLatencyMs] = useState<number | null>(null);
+  const [telegramHealthStatus, setTelegramHealthStatus] = useState<'ok' | 'unreachable' | null>(null);
+  const [opeyHealthStatus, setOpeyHealthStatus] = useState<'ok' | 'busy' | 'unreachable' | null>(null);
+  const [opeyCurrentTicketId, setOpeyCurrentTicketId] = useState<string | undefined>(undefined);
   const [isMultiAgentHealthLoading, setIsMultiAgentHealthLoading] = useState(false);
   const [isServerRestarting, setIsServerRestarting] = useState(false);
   const [isWhatsAppRestarting, setIsWhatsAppRestarting] = useState(false);
+  const [isOpeyRestarting, setIsOpeyRestarting] = useState(false);
 
   // Runtime logs mode state
   const [runtimeLogs, setRuntimeLogs] = useState<ServerRuntimeLogRow[]>([]);
@@ -261,7 +268,9 @@ export default function AdminDashboardView({ onBack }: AdminDashboardViewProps) 
     setIsMultiAgentHealthLoading(true);
     setMultiAgentError(null);
     try {
-      const [multiAgent, whatsapp] = await Promise.all([getMultiAgentHealth(), getWhatsAppHealth()]);
+      const [multiAgent, whatsapp, telegram, opey] = await Promise.all([
+        getMultiAgentHealth(), getWhatsAppHealth(), getTelegramHealth(), getOpeyHealth(),
+      ]);
 
       if (!multiAgent.ok) {
         setMultiAgentHealthStatus('unreachable');
@@ -274,6 +283,9 @@ export default function AdminDashboardView({ onBack }: AdminDashboardViewProps) 
 
       setWaHealthStatus(whatsapp.ok && whatsapp.connected ? 'ok' : 'unreachable');
       setWaHealthLatencyMs(typeof whatsapp.latencyMs === 'number' ? whatsapp.latencyMs : null);
+      setTelegramHealthStatus(telegram.ok && telegram.running ? 'ok' : 'unreachable');
+      setOpeyHealthStatus(!opey.ok ? 'unreachable' : opey.currentTicketId ? 'busy' : 'ok');
+      setOpeyCurrentTicketId(opey.currentTicketId);
     } catch (err) {
       console.error('[AdminDashboard] Health check failed', err);
       setMultiAgentHealthStatus('unreachable');
@@ -298,11 +310,32 @@ export default function AdminDashboardView({ onBack }: AdminDashboardViewProps) 
       setMultiAgentHealthLatencyMs(null);
       setWaHealthStatus(null);
       setWaHealthLatencyMs(null);
+      setOpeyHealthStatus(null);
+      setOpeyCurrentTicketId(undefined);
     } catch (err) {
       console.error('[AdminDashboard] Server restart failed', err);
       setMultiAgentError('Server restart request failed.');
     } finally {
       setIsServerRestarting(false);
+    }
+  };
+
+  const handleRestartOpey = async () => {
+    setIsOpeyRestarting(true);
+    setMultiAgentError(null);
+    try {
+      const result = await restartOpey();
+      if (!result.ok) {
+        setMultiAgentError(result.error || 'Opey restart failed.');
+      } else {
+        setOpeyHealthStatus(null);
+        setOpeyCurrentTicketId(undefined);
+      }
+    } catch (err) {
+      console.error('[AdminDashboard] Opey restart failed', err);
+      setMultiAgentError('Opey restart request failed.');
+    } finally {
+      setIsOpeyRestarting(false);
     }
   };
 
@@ -387,16 +420,23 @@ export default function AdminDashboardView({ onBack }: AdminDashboardViewProps) 
 
     const pollHealth = async () => {
       try {
-        const [multiAgent, whatsapp] = await Promise.all([getMultiAgentHealth(), getWhatsAppHealth()]);
+        const [multiAgent, whatsapp, telegram, opey] = await Promise.all([
+          getMultiAgentHealth(), getWhatsAppHealth(), getTelegramHealth(), getOpeyHealth(),
+        ]);
         setMultiAgentHealthStatus(multiAgent.ok ? 'ok' : 'unreachable');
         setMultiAgentHealthLatencyMs(typeof multiAgent.latencyMs === 'number' ? multiAgent.latencyMs : null);
         setWaHealthStatus(whatsapp.ok && whatsapp.connected ? 'ok' : 'unreachable');
         setWaHealthLatencyMs(typeof whatsapp.latencyMs === 'number' ? whatsapp.latencyMs : null);
+        setTelegramHealthStatus(telegram.ok && telegram.running ? 'ok' : 'unreachable');
+        setOpeyHealthStatus(!opey.ok ? 'unreachable' : opey.currentTicketId ? 'busy' : 'ok');
+        setOpeyCurrentTicketId(opey.currentTicketId);
       } catch {
         setMultiAgentHealthStatus('unreachable');
         setMultiAgentHealthLatencyMs(null);
         setWaHealthStatus('unreachable');
         setWaHealthLatencyMs(null);
+        setTelegramHealthStatus('unreachable');
+        setOpeyHealthStatus('unreachable');
       }
     };
 
@@ -1821,6 +1861,13 @@ export default function AdminDashboardView({ onBack }: AdminDashboardViewProps) 
               >
                 {isWhatsAppRestarting ? 'Restarting...' : 'Restart WhatsApp'}
               </button>
+              <button
+                onClick={handleRestartOpey}
+                className="px-3 py-1.5 rounded bg-orange-700/80 hover:bg-orange-700 text-xs text-white"
+                disabled={isOpeyRestarting}
+              >
+                {isOpeyRestarting ? 'Restarting...' : 'Restart Opey'}
+              </button>
               <span className="inline-flex items-center gap-2 rounded-full bg-purple-600/80 px-3 py-1 text-xs font-semibold text-white">
                 <span
                   className={`h-3 w-3 rounded-full ring-2 ring-white/70 ${
@@ -1852,6 +1899,36 @@ export default function AdminDashboardView({ onBack }: AdminDashboardViewProps) 
                 {waHealthStatus
                   ? `WhatsApp: ${waHealthStatus}${waHealthLatencyMs !== null ? ` (${waHealthLatencyMs}ms)` : ''}`
                   : 'WhatsApp: unknown'}
+              </span>
+              <span className="inline-flex items-center gap-2 rounded-full bg-purple-600/80 px-3 py-1 text-xs font-semibold text-white">
+                <span
+                  className={`h-3 w-3 rounded-full ring-2 ring-white/70 ${
+                    telegramHealthStatus === 'ok'
+                      ? 'bg-emerald-300'
+                      : telegramHealthStatus === 'unreachable'
+                        ? 'bg-red-300'
+                        : 'bg-amber-300'
+                  }`}
+                />
+                {telegramHealthStatus ? `Telegram: ${telegramHealthStatus}` : 'Telegram: unknown'}
+              </span>
+              <span className="inline-flex items-center gap-2 rounded-full bg-purple-600/80 px-3 py-1 text-xs font-semibold text-white">
+                <span
+                  className={`h-3 w-3 rounded-full ring-2 ring-white/70 ${
+                    opeyHealthStatus === 'ok'
+                      ? 'bg-emerald-300'
+                      : opeyHealthStatus === 'busy'
+                        ? 'bg-blue-300'
+                        : opeyHealthStatus === 'unreachable'
+                          ? 'bg-red-300'
+                          : 'bg-amber-300'
+                  }`}
+                />
+                {opeyHealthStatus
+                  ? opeyHealthStatus === 'busy' && opeyCurrentTicketId
+                    ? `Opey: implementing ${opeyCurrentTicketId.slice(0, 8)}…`
+                    : `Opey: ${opeyHealthStatus === 'busy' ? 'implementing' : opeyHealthStatus}`
+                  : 'Opey: unknown'}
               </span>
               <span className="rounded-full bg-purple-600/80 px-3 py-1 text-xs font-semibold text-white">
                 {multiAgentTickets.length} tickets

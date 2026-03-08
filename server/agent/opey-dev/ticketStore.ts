@@ -148,11 +148,18 @@ export class SupabaseTicketStore {
    * crashed mid-run and the Codex process is gone. They'll never self-resolve.
    */
   async failOrphanedTickets(): Promise<void> {
+    // Grace period: only kill tickets that have been stuck in "implementing" for
+    // more than 5 minutes. This prevents a server restart from killing a ticket
+    // that was picked up just seconds before the restart happened.
+    const GRACE_PERIOD_MS = 5 * 60 * 1000;
+    const cutoff = new Date(Date.now() - GRACE_PERIOD_MS).toISOString();
+
     try {
       const { data, error } = await this.supabase
         .from('engineering_tickets')
         .select('id')
-        .eq('status', 'implementing');
+        .eq('status', 'implementing')
+        .lt('updated_at', cutoff);
 
       if (error) {
         log.error('Failed to query orphaned tickets', { source: 'ticketStore.ts', error: error.message });

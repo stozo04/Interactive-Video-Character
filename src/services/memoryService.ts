@@ -1318,6 +1318,7 @@ export type MemoryToolName =
   | 'get_engineering_ticket_status'
   | 'submit_clarification'
   | 'email_action'
+  | 'email_action_manage'
   | 'recall_memory'
   | 'recall_user_info'
   | 'store_user_info'
@@ -1432,6 +1433,11 @@ export interface ToolCallArgs {
     reply_body?: string;
     confirmed?: boolean;
     draft_id?: string;
+  };
+  email_action_manage: {
+    action: 'dismiss_pending';
+    action_ids?: string[];
+    message_ids?: string[];
   };
   recall_memory: {
     query: string;
@@ -2162,6 +2168,48 @@ export const executeMemoryTool = async (
         }
 
         return sanitizeForGemini(`✓ Email action '${action}' completed.`);
+      }
+      case 'email_action_manage': {
+        const { action_ids, message_ids } = args as ToolCallArgs['email_action_manage'];
+
+        const MAX_DISMISS = 50;
+
+        // SELECT ids first (limit applies cleanly on reads), then UPDATE by those ids.
+        let selectQuery = supabase
+          .from(KAYLEY_EMAIL_ACTIONS_TABLE)
+          .select('id')
+          .eq('action_taken', 'pending')
+          .limit(MAX_DISMISS);
+
+        if (action_ids && action_ids.length > 0) {
+          selectQuery = selectQuery.in('id', action_ids);
+        } else if (message_ids && message_ids.length > 0) {
+          selectQuery = selectQuery.in('gmail_message_id', message_ids);
+        }
+
+        const { data: rows, error: selectError } = await selectQuery;
+        if (selectError) {
+          console.warn('[Memory Tool] email_action_manage select failed', selectError);
+          return formatToolFailure(`email_action_manage failed: ${selectError.message}`);
+        }
+
+        if (!rows || rows.length === 0) {
+          return sanitizeForGemini('No pending email actions found to dismiss.');
+        }
+
+        const ids = rows.map((r: { id: string }) => r.id);
+        const { error: updateError } = await supabase
+          .from(KAYLEY_EMAIL_ACTIONS_TABLE)
+          .update({ action_taken: 'dismissed', actioned_at: new Date().toISOString() })
+          .in('id', ids);
+
+        if (updateError) {
+          console.warn('[Memory Tool] email_action_manage update failed', updateError);
+          return formatToolFailure(`email_action_manage update failed: ${updateError.message}`);
+        }
+
+        const count = ids.length;
+        return sanitizeForGemini(`✓ Dismissed ${count} pending email action${count === 1 ? '' : 's'}.`);
       }
       case 'recall_memory': {
         const { query, timeframe } = args as ToolCallArgs['recall_memory'];

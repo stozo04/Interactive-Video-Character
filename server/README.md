@@ -442,6 +442,49 @@ Run both migrations once in the Supabase SQL editor. Tidy fires tonight at midni
 
 ---
 
+## Opey Reliability — Known Issues & Fixes (2026-03-08)
+
+### Root Cause: Codex Runs in the Main Repo Root
+
+**Bug found:** `BranchManager.create()` returns `{ workPath: this.root }` — the main project directory. Despite the README saying "isolated git worktrees," Opey only creates a git branch (`git checkout -b`), not an actual worktree. Codex's cwd is `C:\Users\gates\Personal\Interactive-Video-Character`.
+
+**Consequence:** Any file Codex writes to inside `server/` that is part of the tsx watch dependency graph immediately restarts the main server process — killing the Codex subprocess mid-execution. On restart, `failOrphanedTickets()` marks the in-flight ticket as `failed` with no grace period. This is how Opey gets orphaned.
+
+**tsx watch ignore patterns in `package.json`:**
+```
+--ignore '.worktrees/**'   ← exists, but no worktrees are actually created
+--ignore 'node_modules/**'
+--ignore 'src/**'
+```
+`server/**` is NOT ignored. Anything Codex touches in `server/` triggers a restart.
+
+**The orphan detection has zero grace period.** Any ticket in `implementing` status — even one that started 5 seconds ago — gets killed on the next server startup. So even completely unrelated tsx watch triggers (Kayley's self-healing restart, a file save in the IDE) kill in-flight Opey jobs.
+
+### The Three Fixes
+
+**Fix A — Real git worktrees** (root cause fix):
+Change `BranchManager.create()` to use `git worktree add .worktrees/<ticketId> -b <branch>` and return that path as `workPath`. Codex writes go into `.worktrees/<ticketId>/` which is already in the tsx watch ignore list. Codex can never trigger a server restart.
+
+**Fix B — Grace period in `failOrphanedTickets()`** (safety net):
+Only orphan tickets that have been in `implementing` status for more than 5 minutes. Fresh tickets survive accidental restarts. The field `updated_at` on the ticket row (set when status transitions to `implementing`) is the gate.
+
+**Fix C — Opey as a supervised, restartable child process** (decoupling):
+Run Opey in a detached child process so main server restarts (tsx watch, Kayley's self-heal) don't kill the Codex subprocess. The main server spawns and monitors Opey, and exposes a `POST /multi-agent/opey/restart` endpoint. This lets Kayley restart Opey programmatically without restarting the whole server. See "Opey Process Management" below.
+
+### Opey Process Management (post-Fix-C)
+
+| Scenario | Before Fix C | After Fix C |
+|----------|-------------|-------------|
+| tsx watch restarts server | Codex killed, ticket orphaned | Codex continues — detached from server |
+| Kayley self-heal restart | Same as above | Same — Codex not affected |
+| Opey poll loop crashes | Ticket never gets picked up | Server supervisor detects + restarts Opey |
+| Steven restarts server manually | Codex killed | Codex continues |
+| Kayley wants to restart Opey | Must restart whole server | POST /multi-agent/opey/restart (targeted) |
+
+**How Kayley restarts Opey:** She uses `workspace_action` to POST to `/multi-agent/opey/restart`. The endpoint signals the supervisor to stop and respawn the Opey process. In-flight Codex jobs are NOT interrupted (they're detached). The new Opey process picks up polling.
+
+---
+
 ## Lessons Learned
 
 - A Vite proxy avoids CORS in development, but it does not create backend routes. The server still must implement `/multi-agent/*`.

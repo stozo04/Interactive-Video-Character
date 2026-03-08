@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { hasXScope, isXConnected, initXAuth, revokeXAuth } from '../services/xTwitterService';
 import { supabase } from '../services/supabaseClient';
-import { getMultiAgentHealth, getWhatsAppHealth } from '../services/multiAgentService';
+import { getMultiAgentHealth, getWhatsAppHealth, getTelegramHealth, getOpeyHealth } from '../services/multiAgentService';
 import type { ProactiveSettings } from '../types';
 
 interface SettingsPanelProps {
@@ -46,6 +46,16 @@ export function SettingsPanel({
   const [waStatus, setWaStatus] = useState<'ok' | 'unreachable' | null>(null);
   const [waLatencyMs, setWaLatencyMs] = useState<number | null>(null);
 
+  // --------------------------------------------------------------------------
+  // Telegram Bridge Health
+  // --------------------------------------------------------------------------
+  const [telegramStatus, setTelegramStatus] = useState<'ok' | 'unreachable' | null>(null);
+
+  // --------------------------------------------------------------------------
+  // Opey Health
+  // --------------------------------------------------------------------------
+  const [opeyStatus, setOpeyStatus] = useState<'ok' | 'busy' | 'unreachable' | null>(null);
+
   const checkXConnection = useCallback(async () => {
     try {
       const connected = await isXConnected();
@@ -83,7 +93,12 @@ export function SettingsPanel({
     setIsServerHealthLoading(true);
     setServerHealthError(null);
     try {
-      const [multiAgent, whatsapp] = await Promise.all([getMultiAgentHealth(), getWhatsAppHealth()]);
+      const [multiAgent, whatsapp, telegram, opey] = await Promise.all([
+        getMultiAgentHealth(),
+        getWhatsAppHealth(),
+        getTelegramHealth(),
+        getOpeyHealth(),
+      ]);
 
       if (!multiAgent.ok) {
         setServerHealthStatus('unreachable');
@@ -96,13 +111,16 @@ export function SettingsPanel({
 
       setWaStatus(whatsapp.ok && whatsapp.connected ? 'ok' : 'unreachable');
       setWaLatencyMs(typeof whatsapp.latencyMs === 'number' ? whatsapp.latencyMs : null);
+      setTelegramStatus(telegram.ok && telegram.running ? 'ok' : 'unreachable');
+      setOpeyStatus(!opey.ok ? 'unreachable' : opey.currentTicketId ? 'busy' : 'ok');
     } catch (error) {
       console.error('Server health check failed:', error);
       setServerHealthStatus('unreachable');
       setServerHealthLatencyMs(null);
       setServerHealthError('Server health check failed.');
       setWaStatus('unreachable');
-      setWaLatencyMs(null);
+      setTelegramStatus('unreachable');
+      setOpeyStatus('unreachable');
     } finally {
       setIsServerHealthLoading(false);
     }
@@ -367,6 +385,32 @@ export function SettingsPanel({
                       ? `WhatsApp: ${waStatus}${waLatencyMs !== null ? ` (${waLatencyMs}ms)` : ''}`
                       : 'WhatsApp: unknown'}
                   </span>
+                </div>
+                <div className="flex items-center gap-2 text-xs text-gray-400 mt-1">
+                  <span
+                    className={`h-2.5 w-2.5 rounded-full ${
+                      telegramStatus === 'ok'
+                        ? 'bg-green-400'
+                        : telegramStatus === 'unreachable'
+                          ? 'bg-red-400'
+                          : 'bg-amber-400'
+                    }`}
+                  />
+                  <span>{telegramStatus ? `Telegram: ${telegramStatus}` : 'Telegram: unknown'}</span>
+                </div>
+                <div className="flex items-center gap-2 text-xs text-gray-400 mt-1">
+                  <span
+                    className={`h-2.5 w-2.5 rounded-full ${
+                      opeyStatus === 'ok'
+                        ? 'bg-green-400'
+                        : opeyStatus === 'busy'
+                          ? 'bg-blue-400'
+                          : opeyStatus === 'unreachable'
+                            ? 'bg-red-400'
+                            : 'bg-amber-400'
+                    }`}
+                  />
+                  <span>{opeyStatus ? `Opey: ${opeyStatus === 'busy' ? 'implementing' : opeyStatus}` : 'Opey: unknown'}</span>
                 </div>
                 {serverHealthError && (
                   <p className="text-xs text-red-400 mt-2">{serverHealthError}</p>
