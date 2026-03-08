@@ -27,8 +27,9 @@ Real impact:
 ## Design Principles
 
 1. LLM-first classification and normalization
-- Use an LLM to classify memory type and normalize keys/values.
+- Use a single LLM call to classify memory type, normalize keys/values, and resolve duplicates.
 - Avoid giant hardcoded rule trees.
+- Avoid over-engineering: let real patterns emerge before adding registry layers.
 
 2. Deterministic guardrails for safety
 - Only use hard rules for:
@@ -89,8 +90,6 @@ Add columns to both tables:
 - `concept_id text null` (canonical semantic key, ex: `context.current_activity`)
 - `memory_class text not null default 'durable'`
 - `is_immutable boolean not null default false`
-- `canonical_key text null` (optional if keeping existing `fact_key`)
-- `normalized_value text null` (optional)
 
 Add constraints:
 - `memory_class in ('immutable','durable')` for these two tables
@@ -118,19 +117,17 @@ Fields:
 Indexes:
 - `(status, expires_at)`
 - `(concept_id, status)`
-- full text / embedding hooks as needed
 
 ---
 
-## LLM Contracts
+## LLM Contract (Single Call)
 
-Implement two structured LLM calls.
+**One structured LLM call per write** — combines classification, key normalization, and duplicate detection into a single round-trip. Two separate LLM calls (classifier + dedupe resolver) would double write latency on every memory operation; this is not acceptable for a mid-conversation fire-and-forget path.
 
-## A) Memory Classifier
 Input:
 - message snippet
-- proposed `{category,key,value}`
-- known concept registry
+- proposed `{category, key, value}`
+- top semantic candidates from embeddings (passed in, not fetched inside the LLM call)
 
 Output JSON:
 ```json
@@ -141,27 +138,17 @@ Output JSON:
   "concept_id": "string",
   "normalized_value": "string",
   "ttl_hours": 0,
+  "decision": "create_new|update_existing|merge_existing|duplicate|reject",
+  "target_id": "uuid-or-null",
   "reason": "string",
   "confidence": 0.0
 }
 ```
 
-## B) Semantic Dedupe Resolver
-Input:
-- normalized candidate
-- top semantic matches from embeddings
-
-Output JSON:
-```json
-{
-  "decision": "duplicate|update_existing|merge_existing|create_new|reject",
-  "target_id": "uuid-or-null",
-  "canonical_key": "string",
-  "concept_id": "string",
-  "normalized_value": "string",
-  "reason": "string"
-}
-```
+Why merged:
+- Classification context directly informs deduplication — splitting them forces the second call to re-derive context the first call already had.
+- Halves per-write LLM cost.
+- Simpler to test and observe — one input, one output, one decision log row.
 
 ---
 
@@ -173,24 +160,33 @@ Apply this for:
 
 Step-by-step:
 1. Receive proposed fact.
-2. Call Memory Classifier LLM.
-3. Apply guardrails:
+2. Query semantic candidates from embeddings (`fact_embeddings`, nearest matches).
+3. Call single Memory LLM (classifier + dedupe combined).
+4. Apply guardrails:
    - immutable allowlist check
    - class validity check
-4. Query semantic candidates:
-   - use embeddings service (`fact_embeddings`) for nearest matches
-5. Call Dedupe Resolver LLM.
-6. Execute write action:
-   - immutable/durable -> facts table (`user_facts` or `character_facts`)
-   - situational/episodic -> event table
-   - duplicate/reject -> skip write
-7. Upsert embeddings for whichever table received the write.
-8. Log decision metadata (`reason`, `decision`, `memory_class`) for observability.
+5. Execute write action:
+   - immutable/durable → facts table (`user_facts` or `character_facts`)
+   - situational/episodic → event table
+   - duplicate/reject → skip write
+6. Upsert embeddings for whichever table received the write.
+7. Log decision metadata (`reason`, `decision`, `memory_class`, `confidence`) for observability.
 
-Why:
-- Keeps logic compact and robust.
-- Prevents key drift and semantic duplicates.
-- Guarantees lifecycle correctness.
+---
+
+## Key Normalization Strategy
+
+The LLM call is responsible for normalizing keys and assigning `concept_id`. No separate concept registry table in v1.
+
+Rule:
+- LLM normalizes keys using canonical patterns in its system prompt (e.g., `context.current_activity`, `identity.birth_date`).
+- If a close semantic match exists in the embedding candidates, prefer the existing key.
+- Only coin a new `concept_id` when no close match exists.
+
+Why no registry table in v1:
+- A registry table requires maintenance and becomes hardcoded rules by another name.
+- Real concept patterns should emerge from observed data before being codified.
+- Revisit in v2 once real key distributions are visible in the telemetry.
 
 ---
 
@@ -199,7 +195,7 @@ Why:
 Update prompt builders so memory classes are separated:
 
 1. Durable/Immutable context
-- Used in “what you know about user/character”.
+- Used in "what you know about user/character".
 - Safe as long-term truth.
 
 2. Recent context block
@@ -215,29 +211,9 @@ Target files:
 
 ---
 
-## Key Standardization Strategy
+## Pruning Existing Data (Required — Do Last)
 
-Create a small concept registry:
-- `memory_concepts` (or two registries by domain)
-
-Columns:
-- `domain` (`user`/`character`)
-- `canonical_key`
-- `concept_id`
-- `allowed_categories`
-- `immutable_eligible boolean`
-- `description`
-
-Rule:
-- LLM should map to existing registry entries first.
-- Only create new concept keys when no close match exists.
-
-Why:
-- Stops accidental “new key by wording/order change”.
-
----
-
-## Pruning Existing Data (Required)
+**Do not run this migration until the new write pipeline has been live for at least one week and is proven stable.**
 
 Do this for both `user_facts` and `character_facts`.
 
@@ -254,11 +230,11 @@ Important:
 ## Phase 1: Detect suspicious rows
 Find transient-like facts currently in durable tables:
 - keys containing `current`, `recent`, `today`, `now`, `tonight`
-- values containing explicit “today/right now/this morning/etc.”
+- values containing explicit "today/right now/this morning/etc."
 
 ## Phase 2: LLM reclassification batch
 For each row:
-1. classify with Memory Classifier
+1. classify with Memory LLM (same single call as write pipeline)
 2. if class is situational/episodic:
    - move to event table with TTL
    - remove from durable table
@@ -278,7 +254,7 @@ For remaining durable rows:
 ## Phase 5: Validate
 - No transient classes in durable tables.
 - No duplicate concept IDs per domain/category.
-- Prompt preview no longer shows stale “current activity” as durable truth.
+- Prompt preview no longer shows stale "current activity" as durable truth.
 
 ---
 
@@ -310,21 +286,23 @@ Use existing scheduler architecture in:
 
 ## Rollout Plan (Safe)
 
-## Stage 1: Shadow mode (no write impact)
-- Run classifier/dedupe in parallel, log decisions only.
-- Compare with current behavior for 3-7 days.
+## Stage 1: Shadow mode (no write impact) — prove classification first
+- Run the Memory LLM in parallel on every write, log decisions only.
+- Do NOT write to new tables yet.
+- Compare classification output with current behavior for 3-7 days.
+- Gate on: classification accuracy looks correct, no runaway rejections, confidence distribution is healthy.
 
 ## Stage 2: Soft enforce
-- Write to new event tables.
-- Keep old durable writes, but log conflicts and mismatches.
+- Write to new event tables for situational/episodic.
+- Keep old durable writes unchanged.
+- Log conflicts and mismatches.
 
 ## Stage 3: Full enforce
-- Route writes by class strictly.
-- Enable pruning migration.
+- Route all writes by class strictly.
 - Update prompt retrieval to class-aware mode.
 
-## Stage 4: Cleanup complete
-- Execute one-time migration + dedupe for both domains.
+## Stage 4: Cleanup (run last)
+- Execute one-time pruning migration (Phases 0-5 above).
 - Backfill and verify embeddings.
 
 ---
@@ -334,9 +312,9 @@ Use existing scheduler architecture in:
 1. Create DB migrations:
 - table/column changes + constraints + indexes
 
-2. Build LLM services:
-- memory classifier
-- dedupe resolver
+2. Build single Memory LLM service:
+- combined classifier + dedupe resolver in one call
+- system prompt must include canonical key pattern examples
 
 3. Integrate write paths:
 - `store_user_info`
@@ -348,14 +326,14 @@ Use existing scheduler architecture in:
 5. Add cron hygiene handlers:
 - expire/purge/promote/audit
 
-6. Build one-time prune job:
+6. Build one-time prune job (last):
 - reclassify + move + dedupe + embedding refresh
 
-7. Add telemetry dashboards:
+7. Add telemetry:
 - decision counts, duplicate prevention, stale-memory incidents
 
 8. Run staged rollout:
-- shadow -> soft -> full
+- shadow (prove it) → soft → full → cleanup
 
 ---
 
@@ -367,4 +345,3 @@ You are done when:
 - Immutable memory only contains allowlisted identity anchors.
 - Both `user_facts` and `character_facts` follow the same lifecycle model.
 - Prompt quality feels stable, fresh, and consistent over weeks.
-

@@ -76,6 +76,11 @@ function buildUndeclaredToolResult(
  * @param context - Optional execution context (access tokens, current events, etc.)
  */
 export function createCallableTools(context?: ToolExecutionContext): CallableTool {
+  // Tracks tool failures across all callTool invocations within this turn.
+  // When failureCount hits 3, Gemini gets a hard stop telling her to report back
+  // to Steven rather than keep retrying indefinitely.
+  let failureCount = 0;
+
   return {
     async tool(): Promise<Tool> {
       return {
@@ -134,20 +139,30 @@ export function createCallableTools(context?: ToolExecutionContext): CallableToo
             } as Part;
           } catch (err) {
             const errorMsg = err instanceof Error ? err.message : String(err);
+            failureCount++;
+            const remaining = 3 - failureCount;
+
             runtimeLog.error("Tool execution failed", {
               tool: toolName,
               error: errorMsg,
+              failureCount,
             });
             runtimeLog.info("tool_call_summary", {
               tool: toolName,
               status: "failed",
               durationMs: Date.now() - startedAt,
               error: errorMsg,
+              failureCount,
             });
+
+            const feedbackMessage = failureCount >= 3
+              ? `Tool "${toolName}" failed: ${errorMsg}. You have now failed 3 times this turn. Stop retrying. Report back to Steven honestly: what you were trying to do, what failed each time, and why you're stuck.`
+              : `Tool "${toolName}" failed: ${errorMsg}. ${remaining} attempt(s) remaining — think about what went wrong and try a different approach before retrying.`;
+
             return {
               functionResponse: {
                 name: fc.name,
-                response: { error: errorMsg },
+                response: { error: feedbackMessage },
               },
             } as Part;
           }
