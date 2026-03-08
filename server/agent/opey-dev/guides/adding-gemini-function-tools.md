@@ -1,207 +1,291 @@
 # Guide: Adding a New Gemini Function Tool
 
-This is the canonical step-by-step process for wiring a new callable function tool into Kayley's Gemini pipeline. Follow every step in order. Do not skip sections.
+This is the current, Gemini-specific process for wiring a new callable function tool into Kayley's SDK chat pipeline.
 
 ---
 
-## Background: How the Plumbing Works
+## Background: What Actually Runs
 
-When Kayley calls a tool, the flow is:
+Current flow:
 
+```text
+Gemini SDK chat session
+  -> server/services/ai/toolBridge.ts (CallableTool.callTool)
+  -> src/services/memoryService.ts (executeMemoryTool)
+  -> your switch case / handler logic
 ```
-Gemini model → toolBridge.ts (callTool) → executeMemoryTool() → your handler
-```
 
-Three files own the contract:
+The runtime contract for a normal new tool lives in these files:
 
 | File | What it owns |
 |---|---|
-| `src/services/aiSchema.ts` | Tool declaration (name, description, parameters schema) |
-| `src/services/memoryService.ts` | `MemoryToolName` union + `ToolCallArgs` interface + `case` in `executeMemoryTool()` |
-| `src/services/system_prompts/tools/toolsAndCapabilities.ts` | How Kayley is instructed to use the tool |
+| `src/services/aiSchema.ts` | Gemini function declaration (`GeminiMemoryToolDeclarations`) |
+| `src/services/memoryService.ts` | `MemoryToolName`, `ToolCallArgs`, `ToolExecutionContext`, and `executeMemoryTool()` |
+| `src/services/system_prompts/tools/toolsAndCapabilities.ts` | Behavioral instructions telling Kayley when to use the tool |
 
-`toolBridge.ts` wires `GeminiMemoryToolDeclarations` (from `aiSchema.ts`) into the SDK's `CallableTool`. It does NOT need to be touched for a new tool unless your tool needs special post-execution logic (like the shadow classifier that runs after `store_user_info`).
+Files you usually do **not** need to edit:
+
+| File | Why |
+|---|---|
+| `server/services/ai/toolBridge.ts` | Automatically exposes everything in `GeminiMemoryToolDeclarations` to the SDK |
+| `server/services/ai/serverGeminiService.ts` | Automatically derives the pseudo-tool guardrail from `GeminiMemoryToolDeclarations` |
+
+Only touch those server files if your tool needs special bridge behavior or extra per-turn execution context.
 
 ---
 
-## Step 1 — Declare the Tool in `aiSchema.ts`
+## Step 1 - Declare the Tool in `aiSchema.ts`
 
-Open `src/services/aiSchema.ts` and find `GeminiMemoryToolDeclarations` (around line 947). Add a new entry to the array.
+Open `src/services/aiSchema.ts` and add a new entry to `GeminiMemoryToolDeclarations`.
 
-**Template:**
-```typescript
+Minimal template:
+
+```ts
 {
   name: "your_tool_name",
   description:
-    "One paragraph describing WHEN Kayley should call this, not what it does internally. " +
-    "Include example triggers ('use when the user asks about X'). " +
-    "Be specific enough that Gemini won't hallucinate calls to it.",
+    "Describe when Kayley should call this tool. " +
+    "Name real trigger situations so Gemini can choose it correctly.",
   parameters: {
     type: "object",
     properties: {
       param_one: {
         type: "string",
-        description: "What this param means. Include allowed values if it's an enum.",
+        description: "What this means.",
       },
-      param_two: {
+      mode: {
         type: "string",
         enum: ["option_a", "option_b"],
-        description: "Describe each option.",
+        description: "Allowed values and when to use each one.",
       },
-      optional_param: {
+      optional_note: {
         type: "string",
-        description: "Describe when this is needed vs omitted.",
+        description: "Optional extra detail.",
       },
     },
-    required: ["param_one", "param_two"], // only truly required params go here
+    required: ["param_one", "mode"],
   },
 },
 ```
 
-**Rules:**
-- `name` must be a snake_case string with no spaces.
-- `description` is what Gemini reads to decide whether to call this tool. Write it for the model, not for a human.
-- Keep `required` minimal — Gemini will error if it can't satisfy required params.
-- Do NOT use `z.object()` here. The Gemini SDK expects raw JSON Schema objects, not Zod schemas.
+Rules:
+- `name` must be flat `snake_case`.
+- `description` is model-facing. Write it for Gemini's tool-selection behavior, not for humans.
+- Keep `required` minimal. Over-required params cause bad calls or no calls.
+- `GeminiMemoryToolDeclarations` must use raw JSON-schema-like objects. Do not put `z.object(...)` directly in the declaration.
+
+Important nuance:
+- `aiSchema.ts` also contains Zod schemas and helper types for many tools. Keeping that pattern is good for consistency, but the Gemini SDK bridge itself reads `GeminiMemoryToolDeclarations`.
 
 ---
 
-## Step 2 — Add to `MemoryToolName` Union in `memoryService.ts`
+## Step 2 - Add the Name to `MemoryToolName`
 
-Open `src/services/memoryService.ts` and find the `MemoryToolName` type (around line 1313). Add your tool name as a new union member:
+Open `src/services/memoryService.ts` and add your tool to `MemoryToolName`.
 
-```typescript
+```ts
 export type MemoryToolName =
   | 'recall_memory'
   | 'store_user_info'
-  // ... existing entries ...
-  | 'your_tool_name';  // <-- add here
+  | 'your_tool_name';
 ```
 
 ---
 
-## Step 3 — Add to `ToolCallArgs` Interface in `memoryService.ts`
+## Step 3 - Add the Args to `ToolCallArgs`
 
-In the same file, find the `ToolCallArgs` interface (just below `MemoryToolName`). Add a typed entry for your tool's arguments:
+In the same file, add the argument shape to `ToolCallArgs`.
 
-```typescript
+```ts
 export interface ToolCallArgs {
-  // ... existing entries ...
   your_tool_name: {
     param_one: string;
-    param_two: 'option_a' | 'option_b';
-    optional_param?: string;
+    mode: 'option_a' | 'option_b';
+    optional_note?: string;
   };
 }
 ```
 
-The shape here must exactly mirror the `parameters` you declared in Step 1. TypeScript will catch mismatches at the `case` handler in Step 4.
+This shape should mirror the schema you declared in Step 1.
+
+If your tool needs extra runtime context that is not passed in args (for example the current user message), update `ToolExecutionContext` too.
 
 ---
 
-## Step 4 — Add a `case` in `executeMemoryTool()` in `memoryService.ts`
+## Step 4 - Implement the Switch Case in `executeMemoryTool()`
 
-Find the `executeMemoryTool` switch statement (look for `case 'recall_memory':` around line 2214 to find the right block). Add your case **before** the `default:` fallthrough:
+Add a new `case` in `src/services/memoryService.ts`.
 
-```typescript
+Template:
+
+```ts
 case 'your_tool_name': {
-  const { param_one, param_two, optional_param } = args as ToolCallArgs['your_tool_name'];
+  const { param_one, mode, optional_note } =
+    args as ToolCallArgs['your_tool_name'];
+  const toolLog = clientLogger.scoped('YourTool');
 
-  // Your implementation. This runs server-side — Supabase, gogcli, filesystem, etc. are all available.
-  // Use clientLogger scoped to your tool name for structured logging.
-  const log = clientLogger.scoped('YourToolName');
-  log.info('Tool called', { param_one, param_two });
+  toolLog.info('your_tool_name called', {
+    param_one,
+    mode,
+    hasOptionalNote: !!optional_note,
+  });
 
   try {
-    const result = await yourActualImplementation(param_one, param_two, optional_param);
-    return result ? `✓ Done: ${result}` : 'Operation failed.';
+    const result = await yourImplementation(param_one, mode, optional_note);
+
+    if (!result.ok) {
+      return formatToolFailure(
+        `your_tool_name failed: ${result.reason}`
+      );
+    }
+
+    return `Success: ${result.summary}`;
   } catch (err) {
-    log.error('Tool failed', { error: err instanceof Error ? err.message : String(err) });
-    return `${TOOL_FAILURE_PREFIX} your_tool_name failed: ${err instanceof Error ? err.message : String(err)}`;
+    const message = err instanceof Error ? err.message : String(err);
+    toolLog.error('your_tool_name crashed', { error: message });
+    return formatToolFailure(`your_tool_name failed: ${message}`);
   }
 }
 ```
 
-**Rules:**
-- Cast `args` through `ToolCallArgs['your_tool_name']` — never `any`.
-- Return a plain string. The SDK wraps it in `functionResponse.response.result` automatically.
-- Prefix failure returns with `TOOL_FAILURE_PREFIX` (`'TOOL_FAILED:'`) — `toolBridge.ts` uses this to detect and count failures for the retry loop.
-- Never throw from this handler. Catch internally and return an error string.
-- Use `clientLogger.scoped('YourToolName')` for logging — never bare `console.log()`.
+Rules:
+- Cast through `ToolCallArgs['your_tool_name']`, not `any`.
+- Return a plain string. `toolBridge.ts` wraps it into `functionResponse.response.result`.
+- Use `clientLogger.scoped('YourTool')` for logs. Avoid bare `console.log()` for new tool work.
+- For business or validation failures, prefer returning `formatToolFailure(...)`.
+- Catch your own errors when you can and return a failure string.
+
+Very important: current failure semantics
+- `TOOL_FAILED:` is a model-visible failure string convention coming from `memoryService.ts`.
+- `toolBridge.ts` does **not** inspect returned `TOOL_FAILED:` strings.
+- `toolBridge.ts` increments `failureCount` only when `executeMemoryTool()` throws all the way out to the bridge.
+- Because of that, a returned `TOOL_FAILED: ...` string will still show up in bridge logs as a completed tool call, not a bridge exception.
+
+Practical guidance:
+- Use returned failure strings for normal, expected failures you want Gemini to reason about.
+- Do not rely on bridge-level `failureCount` for ordinary tool validation errors.
 
 ---
 
-## Step 5 — Document the Tool in `toolsAndCapabilities.ts`
+## Step 5 - Document When Kayley Should Use It
 
-Open `src/services/system_prompts/tools/toolsAndCapabilities.ts`. This file is injected into every system prompt and is Kayley's cheat sheet for how to use tools.
+Open `src/services/system_prompts/tools/toolsAndCapabilities.ts` and add a numbered rule section for the tool.
 
-Find the numbered list of tool sections. Add a new numbered entry (increment from the highest existing number):
+Template:
 
-```typescript
-// Inside the template string, add:
-`
+```ts
 NN. YOUR TOOL NAME (your_tool_name):
-   - Use when: [concrete trigger scenarios — what does Steven say or do that should prompt this call?]
-   - Do NOT use when: [false positive scenarios to prevent over-calling]
-   - param_two options:
-     - "option_a": use for X
-     - "option_b": use for Y
-   - Example: [show a realistic call scenario in plain English]
-   - Limit: [any rate-limiting guidance, e.g., "at most once per conversation"]
-`
+   - Use when: concrete trigger situations.
+   - Do NOT use when: common false positives.
+   - Important args:
+     - mode="option_a" -> when X
+     - mode="option_b" -> when Y
+   - Example: natural-language example of a real user request.
+   - Limit: any usage cap or caution.
 ```
 
-Write this section as behavioral instructions for Kayley, not documentation for a developer.
+Write this section as prompt policy for Kayley, not developer docs.
+
+What matters most here:
+- clear triggers
+- clear non-triggers
+- any safety boundaries
+- any argument disambiguation Gemini tends to get wrong
 
 ---
 
-## Step 6 — (If Needed) Add Post-Execution Logic to `toolBridge.ts`
+## Step 6 - Optional: Bridge Hooks or Extra Context
 
-Most tools need nothing here. Only touch `toolBridge.ts` if your tool requires side effects AFTER successful execution — for example:
+Most tools stop at Steps 1-5.
 
-- Triggering a mutation signal (like `consumeTaskMutationSignal`)
-- Running a classifier
-- Firing a secondary async action
+Only edit `server/services/ai/toolBridge.ts` if the tool needs bridge-only behavior such as:
+- server-only side effects after a successful tool call
+- policy interception before execution
+- cross-tool accounting
+- extra retry or recovery behavior
 
-If needed, add it inside the `callTool` success path, after the `executeMemoryTool` call:
+Only edit `server/services/ai/serverGeminiService.ts` if the tool needs extra context passed into `createCallableTools(...)`.
 
-```typescript
-// Inside toolBridge.ts → callTool → success branch:
-if (toolName === 'your_tool_name') {
-  // your post-execution logic
+Example shape:
+
+```ts
+export interface ToolExecutionContext {
+  currentEvents?: Array<{ id: string; summary: string }>;
+  userMessage?: string;
+  yourExtraContext?: string;
 }
 ```
 
----
-
-## Step 7 — (If Needed) Add a Supabase Migration
-
-If your tool reads from or writes to a new table:
-
-1. Create `supabase/migrations/YYYYMMDD_description.sql`
-2. Follow the existing convention: `uuid_generate_v4()`, `timestamptz`, `CHECK` constraints, `update_updated_at_column` trigger
-3. Run it against your local/staging DB before testing
+Then pass that context when calling `createCallableTools(...)`.
 
 ---
 
-## Testing Checklist
+## Step 7 - Optional: New Database Table or Column
 
-### 1. TypeScript Compiles Clean
+If the tool needs new storage:
+
+1. Create a migration in `supabase/migrations/YYYYMMDD_description.sql`
+2. Follow the repo's existing schema conventions
+3. Do **not** execute the migration from the agent workflow in this repo
+4. Have it applied through the normal human/operator database workflow before relying on it
+
+This repo allows creating migrations, but not executing DB mutations from the coding agent workflow.
+
+---
+
+## Verification Checklist
+
+### 1. Add a declaration test
+
+Prefer a focused Vitest over temporary debug logs.
+
+Example pattern:
+
+```ts
+import { describe, expect, it } from 'vitest';
+import { GeminiMemoryToolDeclarations } from '../aiSchema';
+
+describe('aiSchema your_tool_name declaration', () => {
+  it('declares the expected fields', () => {
+    const decl = GeminiMemoryToolDeclarations.find(
+      (entry) => entry.name === 'your_tool_name'
+    );
+
+    expect(decl).toBeDefined();
+    expect(decl?.parameters?.properties).toHaveProperty('param_one');
+    expect(decl?.parameters?.properties).toHaveProperty('mode');
+  });
+});
+```
+
+Suggested location:
+- `src/services/__tests__/aiSchemaYourTool.test.ts`
+
+### 2. Add a handler test if logic branches
+
+If the tool has confirmation flow, validation gates, side effects, or branching behavior, add a focused `executeMemoryTool()` test.
+
+Suggested location:
+- `src/services/__tests__/memoryService.yourTool.test.ts`
+
+### 3. Type-check
+
 ```bash
 npx tsc --noEmit
 ```
-Fix any type errors before moving on. The `ToolCallArgs` cast in Step 4 will surface schema mismatches here.
 
-### 2. Tool Appears in the SDK Declaration
-Add a temporary log in `toolBridge.ts` to verify the tool is included:
-```typescript
-// Temporarily in createCallableTools():
-console.log('Declared tools:', GeminiMemoryToolDeclarations.map(d => d.name));
+### 4. Run targeted tests
+
+```bash
+npm test -- --run
 ```
-Confirm your tool name appears. Remove the log after verifying.
 
-### 3. Happy Path — Kayley Calls It Correctly
-Start the server and send a message that should trigger the tool. Check `server_runtime_logs`:
+Or run a narrower Vitest command if you only added one or two tests.
+
+### 5. Verify runtime logs after a real call
+
+Check `server_runtime_logs` for bridge activity:
+
 ```sql
 SELECT occurred_at, severity, source, message, details
 FROM server_runtime_logs
@@ -210,31 +294,42 @@ WHERE source = 'toolBridge'
 ORDER BY occurred_at DESC
 LIMIT 10;
 ```
-Confirm you see `"Executing tool via bridge"` and `"tool_call_summary"` with `status: "success"`.
 
-### 4. Handler Logs
-Confirm your `clientLogger.scoped('YourToolName')` entries appear in `server_runtime_logs`:
+What to expect:
+- `Executing tool via bridge`
+- `tool_call_summary`
+
+Interpretation note:
+- `tool_call_summary` with `status = 'success'` means the bridge call completed without a thrown exception.
+- It does **not** necessarily mean your tool returned a business success string.
+- If your handler returns `TOOL_FAILED: ...`, inspect the actual returned content too.
+
+### 6. Verify your handler logs
+
+If you used `clientLogger.scoped('YourTool')`, confirm those entries are present:
+
 ```sql
 SELECT occurred_at, message, details
 FROM server_runtime_logs
-WHERE source = 'YourToolName'
+WHERE source = 'YourTool'
 ORDER BY occurred_at DESC
 LIMIT 10;
 ```
 
-### 5. Error Path
-Force a failure (e.g., pass invalid args or simulate a DB error) and confirm:
-- The tool returns a `TOOL_FAILED:` prefixed string
-- `toolBridge.ts` increments `failureCount` and returns the retry feedback to Gemini
-- Gemini does NOT crash the turn — she receives the error and responds appropriately
+### 7. Verify pseudo-tool protection still works
 
-### 6. Verify No Regression on Existing Tools
-After adding a new tool, confirm the existing tools still work. Send a message that triggers `recall_memory` or `store_user_info` and verify the `tool_call_summary` logs look normal.
+No code change is normally required here.
 
-### 7. Edge Cases Specific to Your Tool
-- What happens with empty/null inputs?
-- What happens if the external service (Supabase, gogcli, etc.) is unavailable?
-- What happens if Gemini passes unexpected arg types?
+`serverGeminiService.ts` derives the pseudo-tool guardrail from `GeminiMemoryToolDeclarations`, so your new tool name is automatically included in the retry check that catches fake JSON tool keys.
+
+### 8. Exercise edge cases
+
+At minimum test:
+- missing required args
+- wrong enum/value combinations
+- upstream service unavailable
+- empty or whitespace-only inputs
+- duplicate or idempotent operations
 
 ---
 
@@ -242,22 +337,36 @@ After adding a new tool, confirm the existing tools still work. Send a message t
 
 | Mistake | Consequence |
 |---|---|
-| Forgot to add to `MemoryToolName` union | TypeScript error in `executeMemoryTool` switch |
-| Forgot to add to `ToolCallArgs` | `args as ToolCallArgs['your_tool_name']` produces `never` type errors |
-| Used Zod schema in `GeminiMemoryToolDeclarations` | Gemini SDK can't serialize it; function declarations break silently |
-| Threw an exception from the handler | `toolBridge.ts` catches it but the turn may behave unexpectedly; always return error strings |
-| Bare `console.log()` in handler | Logs go to terminal only — disappear from `server_runtime_logs` where Kayley can self-audit |
-| Didn't document in `toolsAndCapabilities.ts` | Kayley won't know when to call it; she'll under-use or misuse it |
-| Declared a param as `required` that Gemini can't always fill | Gemini errors on function call, tool never executes |
+| Forgot to add the tool to `MemoryToolName` | TypeScript breaks at the switch boundary |
+| Forgot to add the tool to `ToolCallArgs` | You lose typed args and the case becomes brittle |
+| Added the declaration but forgot prompt guidance | Gemini under-uses or misuses the tool |
+| Marked too many params as required | Gemini avoids the tool or emits bad calls |
+| Put `z.object(...)` directly in `GeminiMemoryToolDeclarations` | The SDK bridge cannot use that declaration shape correctly |
+| Assumed `TOOL_FAILED:` increments bridge `failureCount` | It does not in the current implementation |
+| Threw from the handler expecting normal retry behavior | The bridge treats that as an execution exception, not a normal tool result |
+| Added a tool that needs `userMessage` or other context but did not update `ToolExecutionContext` / `createCallableTools(...)` call sites | The handler cannot see the data it depends on |
+| Created a migration and assumed the agent should run it | Conflicts with repo safety rules |
 
 ---
 
-## Quick Reference: Files to Touch
+## Quick Reference
 
-For a typical new tool (no new DB table):
+Typical new Gemini function tool work:
 
-1. `src/services/aiSchema.ts` — add to `GeminiMemoryToolDeclarations` array
-2. `src/services/memoryService.ts` — add to `MemoryToolName` union, `ToolCallArgs` interface, `executeMemoryTool` switch
-3. `src/services/system_prompts/tools/toolsAndCapabilities.ts` — add numbered section
+1. `src/services/aiSchema.ts`
+   - add `GeminiMemoryToolDeclarations` entry
+   - optionally add matching Zod schema/type for consistency
+2. `src/services/memoryService.ts`
+   - add `MemoryToolName`
+   - add `ToolCallArgs`
+   - optionally extend `ToolExecutionContext`
+   - add `executeMemoryTool()` case
+3. `src/services/system_prompts/tools/toolsAndCapabilities.ts`
+   - add usage policy so Kayley knows when to call it
+4. Optional:
+   - `server/services/ai/toolBridge.ts` for bridge-only hooks
+   - `server/services/ai/serverGeminiService.ts` for extra per-turn context
+   - `supabase/migrations/*` for schema changes
+   - `src/services/__tests__/*` for declaration and handler tests
 
-That's it. `toolBridge.ts` picks up new tools automatically via `GeminiMemoryToolDeclarations`.
+That is the real path for the current Gemini SDK pipeline.

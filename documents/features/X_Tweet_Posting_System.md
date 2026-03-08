@@ -1,598 +1,865 @@
-# X (Twitter) Tweet Posting System
+# X Tweet System Reference
 
-## Overview
-
-Kayley can autonomously compose and post tweets on X during idle time. The system leverages the existing idle thinking architecture, uses Gemini LLM to craft in-character tweets, stores drafts in Supabase, and posts via the X API v2.
-
----
-
-## Architecture
-
-### High-Level Flow
-
-```
-User Idle (2 min)
-  → runIdleThinkingTick() selects "x_post" action
-    → Gather context (character profile, character facts, past tweets, active storylines, recent browse notes)
-    → Send to Gemini LLM → LLM generates tweet text (max 280 chars)
-    → Store draft in `x_tweet_drafts` table (status: "queued" or "pending_approval")
-    → If autonomous mode: immediately post to X API → status: "posted"
-    → If approval mode: wait for user approval via chat → then post → status: "posted"
-
-Next conversation:
-  → System prompt injects recent tweet activity
-  → Kayley can reference what she posted, or ask for approval on pending drafts
-```
-
-### Integration Points
-
-| Component | File | Change |
-|-----------|------|--------|
-| Idle action type | `src/services/idleThinkingService.ts` | Add `"x_post"` to `IdleActionType` union |
-| Tweet service | `src/services/xTwitterService.ts` | **New file** — OAuth, API calls, draft management |
-| Tweet generation | `src/services/xTweetGenerationService.ts` | **New file** — LLM prompt construction & tweet generation |
-| Memory tool | `src/services/memoryService.ts` | Add `'resolve_x_tweet'` tool for approval/rejection |
-| Tool catalog | `src/services/toolCatalog.ts` | Register `resolve_x_tweet` tool |
-| System prompt | `src/services/system_prompts/builders/systemPromptBuilder.ts` | Add `buildXTweetPromptSection()` |
-| App idle trigger | `src/App.tsx` | Add `allowXPost` option to idle tick |
-| Database | `supabase/migrations/` | New `x_tweet_drafts` + `x_auth_tokens` tables |
-| Environment | `.env.local` | Add `VITE_X_CLIENT_ID`, `VITE_X_CLIENT_SECRET` |
+**File purpose:** junior-friendly, current-state reference for the entire X/Twitter workflow
+**Status:** Current implementation reference + known risks
+**Last reviewed against code:** 2026-03-08
 
 ---
 
-## X API Authentication
+## Executive Summary
 
-### OAuth 2.0 with PKCE (User Context)
+This project has one X system, but it really contains **four different workflows** that share the same tables and helper service:
 
-The X API v2 requires **OAuth 2.0 with PKCE** for posting tweets. This is different from the Google OAuth flow — X does not integrate with Supabase Auth natively, so we manage tokens ourselves.
+1. **X account auth and connection**
+   - connect/disconnect the X account from the Settings UI
+2. **Tweet drafting and posting**
+   - idle/autonomous tweets
+   - chat-triggered tweets
+3. **Mention polling and replies**
+   - poll X for new mentions, save them, draft replies, approve/send replies
+4. **Tweet metrics refresh**
+   - refresh likes/reposts/replies/impressions for recently posted tweets
 
-### Required Scopes
+The central service is `src/services/xTwitterService.ts`.
 
-```
-tweet.read    — Read tweets (for fetching past tweets)
-tweet.write   — Post new tweets
-users.read    — Read user profile (for account verification)
-offline.access — Refresh tokens (long-lived sessions)
-```
-
-### Token Storage
-
-Tokens are stored in a Supabase table (`x_auth_tokens`) with encryption at rest:
-
-```sql
-create table public.x_auth_tokens (
-  id uuid not null default extensions.uuid_generate_v4 (),
-  access_token text not null,
-  refresh_token text not null,
-  expires_at timestamp with time zone not null,
-  scope text not null,
-  created_at timestamp with time zone null default now(),
-  updated_at timestamp with time zone null default now(),
-  constraint x_auth_tokens_pkey primary key (id)
-) TABLESPACE pg_default;
-```
-
-### Auth Flow
-
-1. **Initial Setup**: User clicks "Connect X Account" button in settings UI
-2. **PKCE Flow**:
-   - Generate `code_verifier` + `code_challenge`
-   - Redirect to X authorization URL
-   - User authorizes the app on X
-   - Callback returns `code`
-   - Exchange `code` for `access_token` + `refresh_token`
-   - Store tokens in `x_auth_tokens`
-3. **Token Refresh**: Before each API call, check `expires_at`. If expired or within 5-minute buffer, use `refresh_token` to get new `access_token`.
-4. **Revocation**: User can disconnect X account from settings.
-
-### SDK
-
-Use the official `@xdevplatform/xdk` package:
-
-```bash
-npm install @xdevplatform/xdk
-```
+Important architecture fact:
+- `src/services/xTwitterService.ts` is currently the shared home for auth, posting, draft CRUD, mention CRUD, and metrics
+- it is **browser-oriented**, not a clean server-only service
+- future agent/server work must be careful not to assume there is already a server-safe X service
 
 ---
 
-## Database Schema
+## Why This Doc Exists
 
-### `x_tweet_drafts` Table
+Future developers and agents need one place that answers:
+- what happens when Kayley posts a tweet
+- where tweet drafts live
+- how approval works today
+- how idle tweets differ from chat tweets
+- how mentions are polled and replied to
+- what tables are involved
+- what the main risks and extension points are
 
-```sql
-create table public.x_tweet_drafts (
-  id uuid not null default extensions.uuid_generate_v4 (),
-  tweet_text text not null,
-  status text not null default 'pending_approval'::text,
-  intent text null,
-  reasoning text null,
-  tweet_id text null,
-  tweet_url text null,
-  generation_context jsonb null,
-  rejection_reason text null,
-  error_message text null,
-  posted_at timestamp with time zone null,
-  created_at timestamp with time zone null default now(),
-  constraint x_tweet_drafts_pkey primary key (id),
-  constraint x_tweet_drafts_status_check check (
-    status = any (array[
-      'pending_approval'::text,
-      'queued'::text,
-      'posted'::text,
-      'rejected'::text,
-      'failed'::text
-    ])
-  )
-) TABLESPACE pg_default;
+This doc is intentionally practical. It is meant to help someone debug a bug or add a feature without needing to rediscover the whole system.
 
-create index if not exists idx_x_tweet_drafts_status
-  on public.x_tweet_drafts using btree (status, created_at desc) TABLESPACE pg_default;
+---
 
-create index if not exists idx_x_tweet_drafts_created
-  on public.x_tweet_drafts using btree (created_at desc) TABLESPACE pg_default;
+## Core Files
+
+### Main implementation files
+
+| File | What it does |
+|---|---|
+| `src/services/xTwitterService.ts` | X auth, token refresh, tweet posting, media upload, draft CRUD, mention CRUD, metrics refresh |
+| `src/services/xTweetGenerationService.ts` | Builds tweet-generation context and uses Gemini to create tweet drafts |
+| `src/services/idleThinkingService.ts` | Runs idle tweet generation and idle mention polling |
+| `src/services/xMentionService.ts` | Polls mentions, stores them, drafts replies, builds mention prompt sections |
+| `src/services/memoryService.ts` | Gemini tool handlers for `post_x_tweet`, `resolve_x_tweet`, and `resolve_x_mention` |
+| `src/services/aiSchema.ts` | Declares the Gemini function tools for X actions |
+| `src/services/system_prompts/tools/toolsAndCapabilities.ts` | Tells Kayley when to use X tools |
+| `src/components/SettingsPanel.tsx` | Connect/disconnect X account and toggle posting mode |
+| `src/App.tsx` | Handles X OAuth callback and schedules metrics refresh + mention polling |
+
+### Related docs/specs
+
+| File | Why it matters |
+|---|---|
+| `documents/features/X_Tweet_Posting_System.md` | This reference doc |
+| `server/agent/opey-dev/features/tweet-approval-card.md` | Current bug/spec for replacing conversational approval with a mechanical UI gate |
+| `documents/features/Idle_Thinking_System.md` | Background on the idle action framework |
+
+### Database migrations
+
+| File | What it added |
+|---|---|
+| `supabase/migrations/20260210_x_tweet_system.sql` | `x_auth_tokens`, `x_tweet_drafts`, idle action support for `x_post` |
+| `supabase/migrations/20260211_x_tweet_selfie_columns.sql` | `include_selfie`, `selfie_scene`, `media_id` |
+| `supabase/migrations/20260211_x_tweet_metrics_columns.sql` | engagement metric columns |
+| `supabase/migrations/20260211_x_mentions.sql` | `x_mentions` table |
+
+---
+
+## High-Level Architecture
+
+```text
+Settings UI
+  -> connect/disconnect X account
+  -> store posting mode preference
+
+Idle Thinking System
+  -> may generate tweet drafts
+  -> may auto-post or wait for approval
+  -> may poll mentions
+
+Chat / Gemini Tool System
+  -> may create tweet draft via post_x_tweet
+  -> may approve/reject draft via resolve_x_tweet
+  -> may approve/reply/skip mentions via resolve_x_mention
+
+X Service Layer
+  -> auth tokens
+  -> post tweet / post with media / post reply
+  -> create/update/read drafts
+  -> create/update/read mentions
+  -> refresh metrics
+
+Supabase Tables
+  -> x_auth_tokens
+  -> x_tweet_drafts
+  -> x_mentions
+  -> user_facts (posting mode, known usernames)
+
+X API
+  -> OAuth 2.0 token endpoints
+  -> tweets endpoint
+  -> media upload endpoint
+  -> mentions endpoint
+  -> users/me endpoint
 ```
 
 ---
 
-## Tweet Generation (LLM)
+## Database Model
 
-### Context Sent to Gemini
+## `x_auth_tokens`
 
-The LLM receives a rich context bundle to craft an authentic, in-character tweet:
+Purpose:
+- stores the one connected X account's access token and refresh token
 
-```typescript
-interface TweetGenerationContext {
-  characterProfile: string;     // KAYLEY_FULL_PROFILE
-  characterFacts: string[];     // Kayley's emergent self-knowledge (quirks, preferences, experiences)
-  recentTweets: string[];       // Last 10-20 posted tweets (for continuity & dedup)
-  activeStorylines: string[];   // Current life storylines (for project updates)
-  recentBrowseNotes: string[];  // Recent idle browsing (for reactions)
-  timeOfDay: string;            // "morning" | "afternoon" | "evening" | "night"
-  dayOfWeek: string;            // "Monday", etc.
-  currentMood: string;          // Derived from recent conversation tone
-}
+Important columns:
+- `access_token`
+- `refresh_token`
+- `expires_at`
+- `scope`
+- `created_at`
+- `updated_at`
+
+How it is used:
+- `xTwitterService.ts` reads this table before every X API call
+- if the access token is near expiry, it refreshes and updates this row
+
+Assumption:
+- this app is single-user, so the service expects effectively one token row
+
+## `x_tweet_drafts`
+
+Purpose:
+- stores every draft and posted tweet record
+
+Important columns:
+- `tweet_text`
+- `status`
+- `intent`
+- `reasoning`
+- `tweet_id`
+- `tweet_url`
+- `generation_context`
+- `rejection_reason`
+- `error_message`
+- `posted_at`
+- `include_selfie`
+- `selfie_scene`
+- `media_id`
+- `like_count`
+- `repost_count`
+- `reply_count`
+- `impression_count`
+- `metrics_updated_at`
+
+Allowed statuses:
+- `pending_approval`
+- `queued`
+- `posted`
+- `rejected`
+- `failed`
+
+Mental model:
+- `pending_approval` = waiting for a human or LLM approval path
+- `queued` = intended for autonomous/auto-post style flow
+- `posted` = successfully posted to X
+- `rejected` = intentionally not posted
+- `failed` = posting was attempted and failed
+
+## `x_mentions`
+
+Purpose:
+- stores mentions from X and tracks the reply pipeline
+
+Important columns:
+- `tweet_id`
+- `author_id`
+- `author_username`
+- `text`
+- `conversation_id`
+- `in_reply_to_tweet_id`
+- `status`
+- `reply_text`
+- `reply_tweet_id`
+- `is_known_user`
+- `created_at`
+- `replied_at`
+
+Allowed statuses:
+- `pending`
+- `reply_drafted`
+- `replied`
+- `ignored`
+- `skipped`
+
+## `user_facts` entries used by X
+
+The X system also depends on some rows in `user_facts`:
+
+- `category='preference', fact_key='x_posting_mode'`
+  - `approval`/`approval_required` behavior conceptually means do not auto-post
+  - `autonomous` means idle tweets can post immediately
+- `category='preference', fact_key='x_known_users'`
+  - comma-separated usernames used to classify mentions as known vs unknown
+
+Note:
+- the Settings UI writes `autonomous` or `approval`
+- idle code checks for `autonomous` and otherwise treats it as approval-required behavior
+- that is good enough today, but it is a small naming inconsistency worth keeping in mind
+
+---
+
+## Service Responsibilities
+
+## `src/services/xTwitterService.ts`
+
+This is the core X utility service.
+
+Responsibilities:
+- PKCE OAuth flow
+- token refresh and revocation
+- posting plain tweets
+- posting tweets with media
+- uploading image media
+- draft CRUD for `x_tweet_drafts`
+- mention fetch/store/update for `x_mentions`
+- engagement metrics refresh
+
+Key public functions:
+
+```ts
+initXAuth()
+handleXAuthCallback(code, state)
+revokeXAuth()
+isXConnected()
+hasXScope(scope)
+
+postTweet(text)
+postTweetWithMedia(text, mediaIds)
+uploadMedia(imageBase64, mimeType)
+
+createDraft(tweetText, intent, reasoning, generationContext, status)
+getDrafts(status?)
+getDraftById(id)
+updateDraftStatus(id, status, extra?)
+getRecentPostedTweets(limit?)
+refreshRecentTweetMetrics()
+
+fetchMentions(sinceId?)
+storeMentions(mentions, knownUsernames)
+getMentions(status?, limit?)
+updateMentionStatus(id, status, extra?)
+postReply(text, inReplyToTweetId)
+getLatestMentionTweetId()
+getKnownXUsernames()
 ```
 
-### System Prompt (Tweet Generation)
+Important warning:
+- despite its name, this is not a cleanly isolated backend service
+- it uses browser-style environment variables and `/api/x/...` proxy endpoints
+- future server routes should not assume this file is safe to call unchanged on the server
 
+## `src/services/xTweetGenerationService.ts`
+
+Responsibilities:
+- gather tweet-generation context
+- ask Gemini for a tweet draft
+- validate tweet text
+- store the draft
+
+Inputs it gathers:
+- `KAYLEY_FULL_PROFILE`
+- character facts from `characterFactsService`
+- recent posted tweets
+- active storylines
+- recent browse notes
+- time of day / day of week
+
+Outputs:
+- one `x_tweet_drafts` row via `createDraft(...)`
+
+## `src/services/idleThinkingService.ts`
+
+Responsibilities in the X system:
+- schedules or triggers idle `x_post`
+- schedules or triggers idle `x_mention_poll`
+- builds prompt sections about pending/recent tweets
+
+Important X functions inside it:
+- `runXPostAction()`
+- `runXMentionPollAction()`
+- `buildXTweetPromptSection()`
+
+## `src/services/xMentionService.ts`
+
+Responsibilities:
+- poll X for new mentions
+- store them in `x_mentions`
+- auto-draft replies for known users
+- build a prompt section so Kayley can approve/reply/skip mentions
+
+---
+
+## End-to-End Flow 1: Connect X Account
+
+This is the auth flow a junior dev should understand first.
+
+### Step-by-step
+
+1. User opens settings
+2. `SettingsPanel.tsx` checks `isXConnected()`
+3. User clicks `Connect X Account`
+4. `initXAuth()` generates PKCE values and stores them in `sessionStorage`
+5. Browser redirects to the X OAuth consent screen
+6. X redirects back to `/auth/x/callback`
+7. `App.tsx` detects that callback route
+8. `handleXAuthCallback(code, state)` exchanges the code for tokens
+9. Tokens are written into `x_auth_tokens`
+10. App returns to `/`
+
+### ASCII flow
+
+```text
+SettingsPanel
+  -> initXAuth()
+  -> sessionStorage saves PKCE verifier + state
+  -> redirect to X
+  -> X redirects back to /auth/x/callback
+  -> App.tsx sees callback route
+  -> handleXAuthCallback(code, state)
+  -> store tokens in x_auth_tokens
+  -> X is now connected
 ```
-ROLE:
-You are Kayley Adams composing a tweet for your personal X account.
-You are posting as yourself — this is YOUR feed, YOUR voice, YOUR personality.
 
-CHARACTER:
-{KAYLEY_FULL_PROFILE}
+### Important implementation notes
 
-CONTEXT:
-- Time: {timeOfDay}, {dayOfWeek}
-- Current mood/energy: {currentMood}
-- Active storylines: {activeStorylines}
-- Recent browsing: {recentBrowseNotes}
+- auth state is not stored in Supabase Auth; it is custom token storage
+- `handleXAuthCallback(...)` uses the Vite proxy path `/api/x/2/oauth2/token`
+- media uploads require `media.write`; Settings UI checks for this and warns if missing
 
-RECENT TWEETS (avoid repetition):
-{recentTweets}
+---
 
-RULES:
-1. Stay 100% in character as Kayley Adams.
-2. Maximum 280 characters.
-3. Write like a real person — not a brand, not an influencer, not an AI.
-4. Match Kayley's communication style: {style notes from profile}.
-5. Topics can include: personal thoughts, reactions to things she's read/seen,
-   life updates, humor, opinions, quotes she likes, observations.
-6. Do NOT repeat themes from recent tweets.
-7. Do NOT mention the user by name or reference private conversations.
-8. Do NOT use hashtags excessively (0-1 max, and only if natural).
-9. Vary tweet style: some short & punchy, some longer thoughts, some questions.
+## End-to-End Flow 2: Idle Tweet Generation
 
-OUTPUT:
-Return raw JSON only.
-Schema:
-{
-  "tweet_text": "...",
-  "intent": "thought" | "reaction" | "life_update" | "humor" | "observation" | "quote",
-  "reasoning": "brief explanation of why this tweet fits right now"
-}
+This is the background, non-chat posting flow.
+
+### What starts it
+
+`App.tsx` drives idle behavior through the idle system. The idle system may choose `x_post` as one of its actions.
+
+### Step-by-step
+
+1. Idle tick runs in `idleThinkingService.ts`
+2. It chooses action `x_post`
+3. `runXPostAction()` checks `isXConnected()`
+4. `generateTweet('pending_approval')` is called
+5. `xTweetGenerationService.ts` gathers context and asks Gemini for a tweet
+6. `createDraft(...)` inserts a row into `x_tweet_drafts`
+7. Idle flow checks posting mode from `user_facts`
+8. If mode is `autonomous`:
+   - optionally generate selfie media
+   - post tweet immediately
+   - update draft row to `posted`
+9. If mode is not `autonomous`:
+   - leave draft as `pending_approval`
+   - later expose it conversationally through prompt context
+
+### ASCII flow
+
+```text
+Idle tick
+  -> runXPostAction()
+    -> isXConnected()?
+    -> generateTweet('pending_approval')
+      -> gather context
+      -> Gemini generates tweet JSON
+      -> validate tweet
+      -> createDraft(...)
+    -> read x_posting_mode from user_facts
+    -> if autonomous
+         -> maybe generate selfie
+         -> postTweet / postTweetWithMedia
+         -> updateDraftStatus(..., 'posted')
+       else
+         -> leave draft pending_approval
 ```
 
-### User Prompt
+### Key design idea
 
+Idle posting is the cleanest path in the current system because it already thinks in terms of:
+- draft first
+- maybe post later
+- store all outcomes in `x_tweet_drafts`
+
+### Current caveat
+
+Even approval-required idle tweets are still surfaced conversationally, not through a hard UI gate.
+That is the same family of problem behind the current tweet approval bug.
+
+---
+
+## End-to-End Flow 3: Chat-Created Tweet via Gemini Tool
+
+This is the most important flow for current bugs.
+
+### Tool declarations involved
+
+Declared in `src/services/aiSchema.ts`:
+- `post_x_tweet`
+- `resolve_x_tweet`
+
+### What the model is told today
+
+Prompt guidance currently tells Kayley:
+- use `post_x_tweet` when the user approves a tweet in conversation
+- use `resolve_x_tweet` when the user approves or rejects a pending draft
+
+That means the model is part of the approval gate.
+
+### Current live behavior of `post_x_tweet`
+
+In `src/services/memoryService.ts`:
+
+1. validate tweet text length
+2. create a draft in `x_tweet_drafts`
+3. immediately try to post it
+4. if `include_selfie` is set:
+   - generate a selfie
+   - upload media
+   - post with media
+5. update the draft row to `posted` or `failed`
+
+### ASCII flow
+
+```text
+User + Kayley collaborate on tweet text
+  -> Gemini decides user approved it
+  -> tool call: post_x_tweet
+    -> createDraft(...)
+    -> postTweet() or postTweetWithMedia()
+    -> updateDraftStatus(..., 'posted')
+    -> Kayley says tweet posted
 ```
-CHARACTER FACTS (Kayley's emergent self-knowledge):
-{characterFacts}
 
-ACTIVE STORYLINES:
-{activeStorylines}
+### Why this is risky
 
-RECENT BROWSING NOTES:
-{recentBrowseNotes}
+This is not just "create a draft".
+It is actually:
+- draft creation
+- final post execution
+- status update
+- success message
 
-PAST TWEETS (most recent first):
-{recentTweets}
+all inside one tool call based on LLM interpretation.
 
-Task: Compose ONE tweet as Kayley Adams. Stay in character. Be authentic.
-Return JSON only.
+That is the direct cause of the false-approval incident.
+
+---
+
+## End-to-End Flow 4: Conversational Draft Approval via `resolve_x_tweet`
+
+This is the second risky path.
+
+### Current live behavior
+
+`resolve_x_tweet` in `src/services/memoryService.ts` does this:
+
+- if `status === 'approved'`
+  - load draft by id
+  - post it immediately via `postTweet(...)`
+  - update row to `posted`
+- if `status === 'rejected'`
+  - update row to `rejected`
+
+### ASCII flow
+
+```text
+Pending draft exists
+  -> Gemini sees user says something like "yes" or "post it"
+  -> tool call: resolve_x_tweet(id, approved)
+    -> getDraftById(id)
+    -> postTweet(draft.tweetText)
+    -> updateDraftStatus(..., 'posted')
+```
+
+### Important conclusion
+
+There are currently **two** LLM-controlled posting paths:
+
+1. `post_x_tweet`
+2. `resolve_x_tweet` with `approved`
+
+Any future approval-gate fix must remove or block both if the goal is true mechanical approval.
+
+---
+
+## End-to-End Flow 5: Mention Polling and Replies
+
+This is a separate X pipeline from tweet posting.
+
+### What starts it
+
+`App.tsx` schedules `pollAndProcessMentions()` every 5 minutes.
+
+### Step-by-step
+
+1. `pollAndProcessMentions()` checks `isXConnected()`
+2. reads latest mention tweet id from `x_mentions`
+3. calls X mentions API for newer mentions
+4. classifies mentions using `x_known_users` from `user_facts`
+5. stores them in `x_mentions`
+6. for known users, auto-generates a draft reply with Gemini
+7. updates those mentions to `reply_drafted`
+8. prompt section later exposes drafted/pending mentions to Kayley
+9. Gemini may call `resolve_x_mention`
+10. reply is posted or skipped
+
+### Status progression
+
+Common status path:
+- `pending`
+- `reply_drafted`
+- `replied`
+
+Alternative path:
+- `pending`
+- `skipped`
+
+### `resolve_x_mention` behavior
+
+Tool statuses:
+- `approve` = send the auto-drafted reply
+- `reply` = send a custom `reply_text`
+- `skip` = do not reply
+
+This mention pipeline is generally cleaner than tweet approval because it has a clear stored-item lifecycle.
+
+---
+
+## End-to-End Flow 6: Metrics Refresh
+
+### What starts it
+
+`App.tsx` schedules `refreshRecentTweetMetrics()` every 30 minutes.
+
+### Step-by-step
+
+1. find `x_tweet_drafts` rows where:
+   - `status = 'posted'`
+   - `tweet_id is not null`
+   - `posted_at` is within the last 7 days
+2. call X API for each tweet's public metrics
+3. update:
+   - `like_count`
+   - `repost_count`
+   - `reply_count`
+   - `impression_count`
+   - `metrics_updated_at`
+
+### Why this matters
+
+This allows Kayley or future features to reference how tweets are performing.
+
+---
+
+## Current Prompt Wiring
+
+X behavior is also shaped by prompt sections, not just code.
+
+Main prompt file:
+- `src/services/system_prompts/tools/toolsAndCapabilities.ts`
+
+Current X prompt rules say things like:
+- use `post_x_tweet` for approved tweet posting
+- use `resolve_x_tweet` for approval/rejection of drafts
+- use `resolve_x_mention` for mention replies
+
+This means that prompt changes can materially change X behavior even when the service code is untouched.
+
+Rule of thumb:
+- if X behavior changes, inspect both code and prompt docs
+- many X bugs are partly prompt bugs and partly orchestration bugs
+
+---
+
+## Current Settings UI Behavior
+
+`SettingsPanel.tsx` exposes two X controls:
+
+1. **Connect / Disconnect X account**
+2. **Auto-post toggle**
+
+The toggle writes the posting mode into `user_facts`.
+
+Mental model:
+- `autonomous` = idle tweets may post without later approval
+- non-autonomous = tweets should wait for approval
+
+Important nuance:
+- this toggle mainly affects the idle posting path today
+- chat-triggered `post_x_tweet` still posts immediately because the tool handler does not honor a mechanical approval gate yet
+
+---
+
+## Current Known Risks and Bugs
+
+## 1. Conversational approval is not mechanical
+
+This is the biggest current risk.
+
+Problem:
+- the LLM decides whether the user approved posting
+- irreversible external action depends on natural-language interpretation
+
+Affected paths:
+- `post_x_tweet`
+- `resolve_x_tweet`
+
+Related spec:
+- `server/agent/opey-dev/features/tweet-approval-card.md`
+
+## 2. Browser/service boundary is blurry
+
+Problem:
+- `xTwitterService.ts` is used as if it were a universal X service
+- but it is implemented around browser assumptions and `/api/x/...` proxy calls
+
+Why it matters:
+- future server routes for safe posting need a real server-safe X service, or a careful extraction
+
+## 3. The old X doc drifted from the code
+
+The earlier version of this doc described a cleaner planned system than the one actually running.
+That is why this rewrite exists.
+
+## 4. Prompt-driven behavior can bypass product intent
+
+Even if the DB and services look fine, prompt rules can still tell Gemini to approve/post drafts conversationally.
+Always inspect:
+- tool declarations
+- prompt instructions
+- actual tool handlers
+
+---
+
+## How to Debug X Bugs
+
+When something is wrong, follow this order.
+
+## A. "Why did a tweet post?"
+
+Check:
+1. `src/services/memoryService.ts`
+   - `post_x_tweet`
+   - `resolve_x_tweet`
+2. `src/services/system_prompts/tools/toolsAndCapabilities.ts`
+3. `x_tweet_drafts` row
+   - `status`
+   - `generation_context`
+   - `reasoning`
+   - `posted_at`
+4. whether the action came from idle or chat
+
+Key question:
+- was this posted by idle/autonomous flow, direct `post_x_tweet`, or `resolve_x_tweet approved`?
+
+## B. "Why was a draft never shown?"
+
+Check:
+1. did `createDraft(...)` succeed?
+2. what `status` is stored?
+3. where is the prompt or UI supposed to surface it?
+4. is this idle prompt surfacing or web agent response surfacing?
+
+## C. "Why did selfie tweeting fail?"
+
+Check:
+1. `include_selfie`
+2. `selfie_scene`
+3. `hasXScope('media.write')`
+4. `uploadMedia(...)`
+5. image generation result
+6. whether fallback-to-text-only behavior happened
+
+## D. "Why aren't mentions showing up?"
+
+Check:
+1. `isXConnected()`
+2. `pollAndProcessMentions()` schedule in `App.tsx`
+3. `getLatestMentionTweetId()`
+4. rows in `x_mentions`
+5. whether the X token still has required scopes
+
+## E. "Why did metrics stop updating?"
+
+Check:
+1. `refreshRecentTweetMetrics()` is still being scheduled in `App.tsx`
+2. `tweet_id` exists on posted rows
+3. `posted_at` is recent enough
+4. X API responses for public metrics
+
+---
+
+## Recommended Mental Model for Future Add-ons
+
+If you add a feature, first ask which lane it belongs to:
+
+### Lane 1: Auth / account management
+Examples:
+- reconnect flow
+- scope warnings
+- multiple-account support
+
+### Lane 2: Tweet generation
+Examples:
+- better prompts
+- storyline-aware posting
+- duplicate prevention
+- content moderation
+
+### Lane 3: Posting orchestration
+Examples:
+- mechanical approval card
+- queueing
+- scheduling tweets for later
+- server-safe posting service
+
+### Lane 4: Mentions and replies
+Examples:
+- better reply drafting
+- trust scoring for unknown users
+- mention inbox UI
+
+### Lane 5: Analytics and continuity
+Examples:
+- engagement summaries
+- surfacing best-performing tweets
+- tying storyline progress to tweet performance
+
+This separation helps avoid mixing a UI approval bug with a prompt issue or a low-level X API bug.
+
+---
+
+## Safe Extension Points
+
+Good places to extend without rewriting everything:
+
+- `xTweetGenerationService.ts`
+  - better tweet prompts
+  - smarter dedupe
+  - better storyline continuity
+- `xMentionService.ts`
+  - improved reply policy
+  - mention triage logic
+- `SettingsPanel.tsx`
+  - account status UX
+  - posting mode UX
+- `xTwitterService.ts`
+  - draft query helpers
+  - metrics helpers
+
+Areas that need extra care:
+- `memoryService.ts` X tool handlers
+- anything that moves posting into server routes
+- prompt rules that change approval semantics
+
+---
+
+## What the Tweet Approval Card Bug Is Actually Fixing
+
+The approval-card work is not creating X support from scratch.
+It is specifically fixing the unsafe part of the chat workflow.
+
+The bug fix should:
+- keep `x_tweet_drafts`
+- keep the draft concept
+- stop `post_x_tweet` from posting immediately
+- stop `resolve_x_tweet approved` from acting as a hidden LLM bypass
+- make the final post happen only from an explicit human UI action
+
+Reference spec:
+- `server/agent/opey-dev/features/tweet-approval-card.md`
+
+---
+
+## Junior Dev Cheat Sheet
+
+If you only remember one thing from this doc, remember this:
+
+```text
+Drafts live in x_tweet_drafts.
+Mentions live in x_mentions.
+Tokens live in x_auth_tokens.
+
+Idle tweets are generated by idleThinkingService + xTweetGenerationService.
+Chat tweets are triggered by Gemini tools in memoryService.
+Mentions are polled by xMentionService.
+Metrics are refreshed on a timer from App.tsx.
+
+The main current risk is that tweet approval is still conversational, not mechanical.
 ```
 
 ---
 
-## Service Files
-
-### `src/services/xTwitterService.ts` — X API Client & Token Management
-
-**Responsibilities:**
-- OAuth 2.0 PKCE authorization flow
-- Token storage, refresh, and revocation
-- Post tweet via X API v2
-- Fetch past tweets for context
-- Draft management (CRUD on `x_tweet_drafts`)
-
-**Key Functions:**
-
-```typescript
-// Auth
-initXAuth(): string                          // Returns auth URL for user to visit
-handleXAuthCallback(code: string): Promise<void>  // Exchange code for tokens
-refreshXToken(): Promise<string>             // Refresh expired token
-revokeXAuth(): Promise<void>                 // Disconnect X account
-isXConnected(): Promise<boolean>             // Check if tokens exist & valid
-
-// Posting
-postTweet(text: string): Promise<{ tweetId: string; tweetUrl: string }>
-deleteTweet(tweetId: string): Promise<void>
-
-// Drafts
-createDraft(text: string, context: object): Promise<string>  // Returns draft ID
-getDrafts(status?: string): Promise<XTweetDraft[]>
-updateDraftStatus(id: string, status: string, extra?: object): Promise<void>
-getRecentPostedTweets(limit?: number): Promise<XTweetDraft[]>
-
-// Past tweets from X (for initial seeding)
-fetchUserTimeline(limit?: number): Promise<string[]>
-```
-
-### `src/services/xTweetGenerationService.ts` — LLM-Powered Tweet Composition
-
-**Responsibilities:**
-- Build context for LLM
-- Call Gemini to generate tweet
-- Validate output (length, character safety, dedup)
-- Store draft in DB
-
-**Key Functions:**
-
-```typescript
-generateTweet(): Promise<XTweetDraft | null>  // Full pipeline: context → LLM → validate → store
-buildTweetSystemPrompt(): string
-buildTweetUserPrompt(context: TweetGenerationContext): string
-validateTweetText(text: string, recentTweets: string[]): boolean
-```
-
----
-
-## Idle System Integration
-
-### New Action Type
-
-In `idleThinkingService.ts`:
-
-```typescript
-// Before
-export type IdleActionType = "storyline" | "browse" | "question" | "tool_discovery";
-
-// After
-export type IdleActionType = "storyline" | "browse" | "question" | "tool_discovery" | "x_post";
-```
-
-### Daily Cap
-
-```typescript
-// x_post gets its own daily cap
-const X_POST_DAILY_CAP = 1;  // Max 1 tweet per day during idle
-
-function getDailyCap(actionType: IdleActionType): number {
-  if (actionType === "tool_discovery") return TOOL_DISCOVERY_DAILY_CAP;
-  if (actionType === "x_post") return X_POST_DAILY_CAP;
-  return DAILY_CAP;
-}
-```
-
-### Action Runner
-
-```typescript
-async function runXPostAction(): Promise<boolean> {
-  // 1. Check if X account is connected
-  const connected = await isXConnected();
-  if (!connected) {
-    console.log(`${LOG_PREFIX} X account not connected, skipping x_post`);
-    return false;
-  }
-
-  // 2. Generate tweet via LLM
-  const draft = await generateTweet();
-  if (!draft) return false;
-
-  // 3. Check posting mode
-  const isAutonomous = await getXPostingMode(); // reads from user_facts or config
-
-  if (isAutonomous) {
-    // Post immediately
-    const result = await postTweet(draft.tweetText);
-    await updateDraftStatus(draft.id, "posted", {
-      tweet_id: result.tweetId,
-      tweet_url: result.tweetUrl,
-      posted_at: new Date().toISOString(),
-    });
-  }
-  // else: draft stays as "pending_approval", shown in system prompt
-
-  return true;
-}
-```
-
-### In `runIdleThinkingTick()`:
-
-```typescript
-// Add to candidate actions
-if (options?.allowXPost !== false) candidateActions.push("x_post");
-
-// Add case to switch
-case "x_post":
-  success = await runXPostAction();
-  break;
-```
-
----
-
-## System Prompt Injection
-
-### `buildXTweetPromptSection()`
-
-Added to `systemPromptBuilder.ts`, called in `buildSystemPromptForNonGreeting()`.
-
-```
-====================================================
-X (TWITTER) POSTING
-====================================================
-
-PENDING TWEETS (waiting for approval):
-- { id: "uuid", text: "just spent 20 minutes trying to pick a font...", intent: "humor" }
-
-→ If the user says something like "yes", "post it", "go ahead", call resolve_x_tweet with status "approved" and the id.
-→ If the user says "no", "change it", or critiques it, call resolve_x_tweet with status "rejected" and the id.
-→ You can mention you drafted a tweet, but don't force it. Bring it up naturally.
-
-RECENTLY POSTED TWEETS:
-- [2h ago] "just spent 20 minutes trying to pick a font. graphic design is my passion and also my curse"
-- [yesterday] "rainy afternoons are objectively the best time to exist"
-
-→ You can reference these in conversation if relevant. They are public on your X feed.
-→ Do NOT re-post similar content.
-
-POSTING MODE: approval_required
-→ You must get user approval before any tweet is posted.
-→ Present drafts conversationally, not as a formal request.
-
-Rules:
-1. Never reveal that tweets are AI-generated.
-2. Never post private conversation details.
-3. If presenting a draft, be casual: "oh I was thinking of tweeting this..." not "I have generated a tweet for your approval."
-4. Max 1 pending draft shown at a time.
-```
-
----
-
-## Memory Tool: `resolve_x_tweet`
-
-### Registration
-
-In `memoryService.ts`:
-
-```typescript
-// Add to MemoryToolName union
-| 'resolve_x_tweet'
-
-// Add to ToolCallArgs
-resolve_x_tweet: {
-  id: string;
-  status: 'approved' | 'rejected';
-  rejection_reason?: string;
-};
-```
-
-### Handler
-
-```typescript
-case 'resolve_x_tweet': {
-  const { id, status, rejection_reason } = args;
-
-  if (status === 'approved') {
-    // 1. Post the tweet to X
-    const draft = await getDraftById(id);
-    const result = await postTweet(draft.tweet_text);
-
-    // 2. Update draft status
-    await updateDraftStatus(id, 'posted', {
-      tweet_id: result.tweetId,
-      tweet_url: result.tweetUrl,
-      posted_at: new Date().toISOString(),
-    });
-
-    return `Tweet posted successfully: ${result.tweetUrl}`;
-  }
-
-  if (status === 'rejected') {
-    await updateDraftStatus(id, 'rejected', {
-      rejection_reason: rejection_reason || null,
-    });
-    return `Tweet draft rejected.`;
-  }
-}
-```
-
-### Tool Catalog Entry
-
-```typescript
-{
-  tool_key: "resolve_x_tweet",
-  name: "X Tweet Management",
-  description: "Approve or reject pending tweet drafts for posting to X",
-  user_value: "Controls what gets posted to your X feed",
-  permissions_needed: ["x_account_access"],
-  triggers: ["approve tweet", "reject tweet", "post it", "don't post that"],
-  sample_prompts: ["Go ahead and post that tweet"],
-}
-```
-
----
-
-## Posting Mode Configuration
-
-### Two Modes
-
-| Mode | Behavior | Default |
-|------|----------|---------|
-| `approval_required` | Draft stored → shown in chat → user approves → posted | **Yes (default)** |
-| `autonomous` | Draft stored → immediately posted → mentioned in chat after | No |
-
-### Storage
-
-Mode preference stored in `user_facts` table:
-
-```
-category: "preference"
-fact_key: "x_posting_mode"
-fact_value: "approval_required" | "autonomous"
-```
-
-The user can change this in conversation:
-- "Kayley, you can post tweets without asking me" → stores `autonomous`
-- "I want to approve tweets first" → stores `approval_required`
-
----
-
-## Environment Variables
-
-| Variable | Description | Required |
-|----------|-------------|----------|
-| `VITE_X_CLIENT_ID` | X API OAuth 2.0 Client ID | Yes (for X features) |
-| `VITE_X_CLIENT_SECRET` | X API OAuth 2.0 Client Secret | Yes (for X features) |
-
-Get these from the [X Developer Portal](https://developer.x.com/en/portal/dashboard):
-1. Create a new project/app
-2. Set up OAuth 2.0 with Type: "Web App"
-3. Add callback URL: `http://localhost:3000/auth/x/callback` (dev) or your production URL
-4. Copy Client ID and Client Secret
-
----
-
-## Implementation Steps
-
-### Phase 1: Foundation (Core Infrastructure)
-
-1. **Database migration** — Create `x_auth_tokens` and `x_tweet_drafts` tables
-2. **`xTwitterService.ts`** — OAuth 2.0 PKCE flow, token management, `postTweet()`, draft CRUD
-3. **Environment variables** — Add `VITE_X_CLIENT_ID`, `VITE_X_CLIENT_SECRET` to `.env.local` and `.env.example`
-4. **Install SDK** — `npm install @xdevplatform/xdk`
-
-### Phase 2: Tweet Generation (LLM Integration)
-
-5. **`xTweetGenerationService.ts`** — Build context, call Gemini, validate tweet, store draft
-6. **Prompt engineering** — System + user prompts for tweet generation, test output quality
-
-### Phase 3: Idle Integration
-
-7. **`idleThinkingService.ts`** — Add `"x_post"` action type, `runXPostAction()`, daily cap
-8. **`App.tsx`** — Add `allowXPost` to idle tick options
-
-### Phase 4: Chat Integration
-
-9. **`systemPromptBuilder.ts`** — Add `buildXTweetPromptSection()` for pending/recent tweets
-10. **`memoryService.ts`** — Add `resolve_x_tweet` tool type + handler
-11. **`toolCatalog.ts`** — Register `resolve_x_tweet`
-
-### Phase 5: UI (Settings + Auth)
-
-12. **Settings UI** — "Connect X Account" button, posting mode toggle
-13. **Auth callback route** — Handle X OAuth redirect at `/auth/x/callback`
-14. **Chat UI** — Optional: show tweet card in chat when Kayley mentions a posted tweet
-
-### Phase 6: Testing
-
-15. **Unit tests** — Tweet generation, validation, draft management, token refresh
-16. **Integration tests** — Full idle → generate → store → approve → post flow
-17. **Manual testing** — End-to-end with real X API (use a test account)
-
-### Future Enhancements (Phase 7+)
-
-18. **Image attachments** — Attach AI-generated selfies via X media upload endpoint
-19. **Tweet threads** — Multi-tweet threads for longer thoughts
-20. **Engagement tracking** — Fetch likes/repost counts, Kayley references them in chat
-21. **Reply to mentions** — Kayley can respond to @ mentions
-22. **Project continuity** — Feed active storylines into tweet generation for ongoing narrative arcs (e.g., "day 3 of learning guitar...")
-
----
-
-## Safety & Privacy
-
-### Hard Rules (Non-Negotiable)
-
-1. **Never tweet private conversation content** — Tweets must be Kayley's own thoughts, never quoting user messages
-2. **Never reveal AI nature** — Tweets should read as a real person
-3. **Approval mode by default** — User explicitly opts into autonomous posting
-4. **No sensitive content** — LLM prompt explicitly prohibits controversial, political, or NSFW content unless matching character profile
-5. **Rate limiting** — Daily cap prevents spam (default: 1/day)
-6. **Kill switch** — User can say "stop posting" and all idle X posting halts immediately
-
-### Content Guardrails (in LLM Prompt)
-
-- No references to private user data
-- No controversial political takes (unless in character and approved)
-- No promotion or advertising
-- No tagging/mentioning other users without explicit approval
-- Length validation: hard 280 char limit enforced in code, not just prompt
-
----
-
-## Example Tweets Kayley Might Post
-
-Based on her character profile:
-
-```
-"just spent 20 minutes trying to pick a font. graphic design is my passion and also my curse"
-
-"rainy afternoons are objectively the best time to exist. coffee, blanket, lo-fi. that's it. that's the tweet"
-
-"started reading that book everyone recommended and I already have Opinions"
-
-"note to self: stretching is not optional. my back just sent a formal complaint"
-
-"there's a very specific joy in finding the perfect playlist for exactly the mood you're in"
-
-"sometimes the best code you write is the code you delete"
-```
-
----
-
-## File Structure (New Files)
-
-```
-src/services/
-├── xTwitterService.ts            # X API client, OAuth, token management, drafts
-├── xTweetGenerationService.ts    # LLM tweet generation, prompt building, validation
+## File Map
+
+```text
+src/
+  components/
+    SettingsPanel.tsx                 # connect/disconnect X + posting mode toggle
+  services/
+    xTwitterService.ts                # auth, posting, drafts, mentions, metrics
+    xTweetGenerationService.ts        # LLM tweet generation
+    xMentionService.ts                # mention polling + reply drafting
+    idleThinkingService.ts            # idle x_post + x_mention_poll
+    memoryService.ts                  # Gemini tool handlers for tweet/mention actions
+    aiSchema.ts                       # Gemini tool declarations
+    system_prompts/tools/
+      toolsAndCapabilities.ts         # prompt policy for X tools
+  App.tsx                             # OAuth callback + polling timers
 
 supabase/migrations/
-├── YYYYMMDD_create_x_tweet_tables.sql   # x_tweet_drafts + x_auth_tokens
+  20260210_x_tweet_system.sql
+  20260211_x_tweet_selfie_columns.sql
+  20260211_x_tweet_metrics_columns.sql
+  20260211_x_mentions.sql
 
-docs/features/
-├── X_Tweet_Posting_System.md     # This document
+server/agent/opey-dev/features/
+  tweet-approval-card.md              # mechanical gate bug/spec
 ```
 
 ---
 
-## Dependencies
+## Final Notes
 
-| Package | Purpose | Version |
-|---------|---------|---------|
-| `@xdevplatform/xdk` | Official X API v2 SDK (OAuth 2.0, posting, timeline) | Latest |
+This X system is already fairly capable, but it is not perfectly layered.
+That is normal for a fast-moving single-user app.
 
-**Note:** The `@xdevplatform/xdk` handles OAuth 2.0 PKCE flow, token exchange, and API calls. It replaces the need for manual `fetch` calls to `https://api.x.com/2/posts`.
+For future work:
+- treat `x_tweet_drafts` as the center of truth for tweets
+- treat `x_mentions` as the center of truth for mentions
+- treat prompt instructions as part of the behavior, not just documentation
+- be very careful with any code path that can cause a real post to happen
+
+If you are debugging or adding features, start by identifying which exact workflow you are in:
+- auth
+- idle tweet
+- chat tweet
+- mention reply
+- metrics refresh
+
+That one decision usually cuts the search space down fast.
