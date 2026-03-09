@@ -96,6 +96,16 @@ export interface OrchestratorInput {
    * so the AI can call the email_action FUNCTION TOOL when needed.
    */
   pendingEmail?: NewEmailPayload | null;
+
+  /** Channel-scoped conversation id for payloads and deferred UI state. */
+  conversationScopeId?: string;
+}
+
+export interface PendingTweetDraft {
+  id: string;
+  tweetText: string;
+  includeSelfie: boolean;
+  selfieScene?: string | null;
 }
 
 /**
@@ -184,6 +194,9 @@ export interface OrchestratorResult {
     thread_id?: string;
     reply_body?: string;
   };
+
+  /** Pending tweet draft for UI approval card */
+  pendingTweetDraft?: PendingTweetDraft;
 
   // --- ADD THESE NEW PROPERTIES ---
   /** GIF search query or tag for GIPHY (server selects MP4 rendition) */

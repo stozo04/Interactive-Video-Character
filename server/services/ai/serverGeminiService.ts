@@ -410,6 +410,8 @@ export class ServerGeminiService implements IAIChatService {
       // Create callable tools with context
       const tools = createCallableTools({
         userMessage: currentUserMessage,
+        conversationScopeId: options.conversationScopeId,
+        conversationLogId,
       });
 
       // Get or create SDK Chat session

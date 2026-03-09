@@ -58,7 +58,7 @@ import {
   buildIdleQuestionPromptSection,
   buildXTweetPromptSection,
 } from "../../idleThinkingService";
-import { buildMentionsPromptSection } from "../../xMentionService";
+import { buildMentionsPromptSection } from "../../../../server/services/xMentionService";
 import { buildTopicSuppressionPromptSection } from "../../topicExhaustionService";
 import { buildConversationAnchorPromptSection } from "../../conversationAnchorService";
 import { buildActiveRecallPromptSection } from "../../activeRecallService";

@@ -1,8 +1,8 @@
 # Feature: Tweet Approval Card (Mechanical X Post Gate)
 
-**Status:** Ready for implementation
+**Status:** Implemented on branch; current-state reference
 **Priority:** High
-**Estimated scope:** Medium (7 discrete parts across server + UI)
+**Estimated scope:** Medium (implemented across server + UI + channel handlers)
 
 ---
 
@@ -23,7 +23,12 @@ Real incident:
 
 ## Goal
 
-Replace conversational inference with a **mechanical UI gate**. A tweet may only be posted after a human clicks a button in the UI. No LLM approval path may bypass that gate.
+Replace conversational inference with a **mechanical human approval gate**. A tweet may only be posted after an explicit human approval action. No LLM approval path may bypass that gate.
+
+Current approval surfaces:
+- Web: Tweet Approval Card
+- Telegram: approval command / phrase
+- WhatsApp: approval command / phrase
 
 ---
 
@@ -93,6 +98,8 @@ create index IF not exists idx_x_tweet_drafts_created on public.x_tweet_drafts u
 - [ ] Kayley is never told "tweet posted" until the human actually clicks `Post it`
 - [ ] No LLM tool path can directly post a pending-approval draft from the web agent conversation flow
 - [ ] Only one pending draft is surfaced at a time for the current conversation (oldest first within that conversation)
+- [ ] Telegram and WhatsApp can approve or reject the same pending draft without requiring the Web UI
+- [ ] If a draft was created in Telegram/WhatsApp and the user later opens Web, Web can still surface one pending draft card
 
 ---
 
@@ -100,16 +107,21 @@ create index IF not exists idx_x_tweet_drafts_created on public.x_tweet_drafts u
 
 This bug is very close to the current implementation, not a greenfield feature.
 
-Today:
+Before this fix:
 - `post_x_tweet` in `src/services/memoryService.ts` already creates a draft in `x_tweet_drafts`
 - but then it immediately posts the tweet in the same tool handler
 - `resolve_x_tweet` in `src/services/memoryService.ts` can also post a pending draft when Gemini decides the user approved it conversationally
 
-That means there are currently **two LLM-controlled posting paths**:
+That meant there were **two LLM-controlled posting paths**:
 1. direct post inside `post_x_tweet`
 2. approval post inside `resolve_x_tweet`
 
-This ticket must remove both bypasses from the web agent flow.
+This ticket removed both bypasses from the agent flow.
+
+Current reality:
+- `post_x_tweet` now creates a pending draft only
+- `resolve_x_tweet` is blocked from direct posting and returns a human-approval-only message
+- final posting happens through the server draft resolver, not the LLM tool
 
 ---
 
@@ -145,32 +157,32 @@ If new metadata is needed for conversation-aware surfacing, store it inside `gen
 
 Current behavior:
 - creates a draft
-- posts immediately
+- leaves it pending approval
 
-New behavior:
+Implemented behavior:
 - creates a row in `x_tweet_drafts`
 - leaves it in `status = 'pending_approval'`
 - returns a message like: `Draft created - waiting for Steven's approval.`
 
 Required code changes:
 - `src/services/memoryService.ts` -> `case 'post_x_tweet'`
-- supporting helpers in `src/services/xTwitterService.ts` or a replacement server-safe module
+- `server/services/xTwitterServerService.ts`
 
 Draft creation requirements:
 - continue storing `include_selfie` and `selfie_scene`
 - write `generation_context` with enough data to reconnect the draft to the current conversation
 - recommended fields in `generation_context`:
   - `source: 'agent_message'`
-  - `clientSessionId`
+  - `conversationScopeId`
   - `conversationLogId` if available
   - `createdFrom: 'post_x_tweet'`
 
-Hard rule:
-- `post_x_tweet` must never call the final X posting function directly after this change
+Implemented rule:
+- `post_x_tweet` does not call the final X posting function
 
 ---
 
-### Part 3: Remove the LLM approval bypass for web chat
+### Part 3: Remove the LLM approval bypass for agent chat
 
 This is required for a true mechanical gate.
 
@@ -178,25 +190,22 @@ Problem:
 - `resolve_x_tweet` currently lets Gemini post a pending draft after interpreting conversational approval
 - that still bypasses the UI card, even if `post_x_tweet` becomes draft-only
 
-Required behavior for the web agent path:
-- human approval must happen only through `POST /agent/tweet-drafts/:id/resolve`
-- Gemini must not be able to post a pending draft by calling `resolve_x_tweet`
+Implemented behavior:
+- human approval happens through the server draft resolver
+- Web uses `POST /agent/tweet-drafts/:id/resolve`
+- Telegram/WhatsApp use mechanical approval phrases that resolve through the same server-side draft resolver
+- Gemini cannot post a pending draft by calling `resolve_x_tweet`
 
-Acceptable implementation options:
-1. remove `resolve_x_tweet` from the web agent's callable Gemini tool declarations
-2. keep the tool declared globally, but block/ignore approval posting in the `/agent/message` web flow
-3. repurpose `resolve_x_tweet` so it can only reject in this flow, not approve-post
-
-Recommended option:
-- remove or disable `resolve_x_tweet` for the web agent conversation path entirely
+Implemented option:
+- keep the tool declared, but block direct approval posting in the tool handler and force human approval
 
 Prompt updates required:
 - `src/services/system_prompts/tools/toolsAndCapabilities.ts`
 - any prompt/doc text telling Kayley to approve a tweet conversationally
 
-New rule:
+Current rule:
 - Kayley may say the draft is waiting for approval
-- Kayley may not claim it is posted until the human clicks the UI button
+- Kayley may not claim it is posted until the human actually approves it
 
 ---
 
@@ -227,21 +236,20 @@ pendingTweetDraft?: {
 4. Add it to the browser response type in `src/services/agentClient.ts`
 
 Conversation-aware surfacing:
-- store the browser/web session id with the draft when it is created
+- store a channel-scoped `conversationScopeId` with the draft when it is created
 - query only drafts where:
   - `status = 'pending_approval'`
-  - `generation_context->>'clientSessionId'` matches the current `/agent/message` session
+  - `generation_context->>'conversationScopeId'` matches the current channel conversation scope
 - order by `created_at asc`
 - return the oldest pending draft for that session only
 
-Fallback:
-- do **not** automatically show a random global pending draft from another session/tab
-- if no session-linked pending draft exists, return no card
-
-This is the cleanest interpretation of "preferably context aware of the conversation."
+Current implemented fallback:
+- Web first tries the exact `conversationScopeId`
+- if there is no Web-scoped pending draft, Web falls back to the oldest pending draft globally
+- this is intentionally pragmatic so a Telegram/WhatsApp-created draft can still appear when the user switches to the App view
 
 Implementation implication:
-- `ToolExecutionContext` likely needs a `clientSessionId`
+- `ToolExecutionContext` needs a `conversationScopeId`
 - the server agent path must pass that through to the tool execution layer
 
 ---
@@ -278,14 +286,17 @@ Important schema alignment:
 - use `posted_at`, not `resolved_at`
 - use `status = 'rejected'`, not `discarded`
 
+Current implementation note:
+- Telegram/WhatsApp approvals ultimately resolve through the same draft resolution backend, even though the transport is different from the Web button click
+
 ---
 
 ### Part 6: Make the posting logic server-safe
 
-Important implementation risk:
-- the current posting helpers live in `src/services/xTwitterService.ts`
-- that module is browser-oriented and uses client-side assumptions (`import.meta.env`, `/api/x/...` proxy usage, browser storage patterns elsewhere in the file)
-- do not assume it can be dropped into a new server route unchanged
+Original implementation risk:
+- the old posting helpers lived in `src/services/xTwitterService.ts`
+- that module was browser-oriented and used client-side assumptions (`import.meta.env`, `/api/x/...` proxy usage, browser storage patterns elsewhere in the file)
+- it could not be dropped into a server route unchanged
 
 Observed concrete failure:
 - a failed draft already recorded this server-incompatible path with:
@@ -293,16 +304,12 @@ Observed concrete failure:
 - this matches the current implementation in `src/services/xTwitterService.ts`, where posting uses `fetch("/api/x/2/tweets", ...)`
 - if the new resolve endpoint naively reuses that browser helper on the server, it will reproduce the same class of failure
 
-Required outcome:
-- the resolve endpoint must call a server-safe X posting path
+Implemented outcome:
+- the resolve endpoint calls a server-safe X posting path in `server/services/xTwitterServerService.ts`
 
-Implementation options:
-1. extract shared draft CRUD helpers from `src/services/xTwitterService.ts` and create a real server-side X posting service
-2. create a dedicated `server/services/x/...` module for posting/uploading/auth and keep browser auth UI separate
-
-Hard rule:
-- do not fake a server dependency that does not exist yet
-- the spec should be implemented against a real server-safe posting module
+Implemented result:
+- server-owned X functionality now lives under `server/services/*`
+- browser X calls go through `src/services/xClient.ts`
 
 ---
 
@@ -340,13 +347,17 @@ Client helper to add:
 resolveTweetDraft(id: string, action: 'post' | 'reject'): Promise<{ success: boolean; tweetUrl?: string }>
 ```
 
+Cross-channel note:
+- the Tweet Approval Card is the Web approval surface
+- Telegram/WhatsApp use mechanical reply phrases instead of a visual card
+
 ---
 
 ## Notify Kayley of Outcome
 
 After the human resolves the draft, Kayley should be informed.
 
-Recommended approach:
+Current approach:
 - after the resolve endpoint succeeds, the client sends a follow-up `/agent/message` using the same session id
 - message text example:
   - `[System] Tweet draft posted: <id>`
@@ -363,14 +374,14 @@ Hard rule:
 
 ---
 
-## Key Files to Read Before Implementation
+## Key Files to Read Before Implementation / Debugging
 
 In priority order:
 
 1. `src/services/memoryService.ts`
    - current `post_x_tweet` and `resolve_x_tweet` behavior
-2. `src/services/xTwitterService.ts`
-   - current draft CRUD and browser-side posting helpers
+2. `server/services/xTwitterServerService.ts`
+   - current draft CRUD, posting helpers, and approval phrase parsing
 3. `src/handlers/messageActions/types.ts`
    - `OrchestratorResult`
 4. `src/services/messageOrchestrator.ts`
@@ -384,19 +395,23 @@ In priority order:
 8. `src/services/aiSchema.ts`
    - `post_x_tweet` / `resolve_x_tweet` declarations
 9. `src/services/system_prompts/tools/toolsAndCapabilities.ts`
-   - remove conversational approval guidance
+   - cross-channel approval guidance
+10. `server/telegram/telegramHandler.ts`
+    - Telegram approval handling
+11. `server/whatsapp/whatsappHandler.ts`
+    - WhatsApp approval handling
 
 ---
 
 ## Constraints
 
 - Do not rename `x_tweet_drafts`
-- Do not delete the underlying X posting logic; move or wrap it behind a server-safe path
-- Do not allow any bypass path; every tweet in the web agent flow must go through the card
+- Do not reintroduce client-side direct posting logic
+- Do not allow any bypass path; every approval-required tweet must go through explicit human approval
 - Do not use `console.log()` in new code; use `log` on server and `clientLogger` on client
-- Surface only one pending draft at a time for the current conversation/session
+- Surface only one pending draft at a time
 - The card must disappear after resolve
-- Kayley must never say a tweet is live before the human actually posts it
+- Kayley must never say a tweet is live before the human actually approves it
 
 ---
 
@@ -406,9 +421,14 @@ In priority order:
 - Scheduling tweets for later
 - Multi-draft queue UI
 - Undo after posting
+- Always-on server-side mention polling
 
 ---
 
 ## Notes
 
-This feature exists because irreversible posting to X cannot depend on vague conversational approval. The LLM may still draft and explain. The human must be the only entity that can send the final post.
+This feature exists because irreversible posting to X cannot depend on vague conversational approval. The LLM may still draft and explain. The human must be the only entity that can authorize the final post.
+
+Current tradeoff worth remembering:
+- Web falls back to the oldest pending draft so a Telegram/WhatsApp-created draft can still appear in the App
+- that is useful, but it is not a full multi-draft approval inbox

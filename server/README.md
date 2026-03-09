@@ -13,6 +13,8 @@ This folder hosts the Workspace Agent server that powers multi-agent workflows a
 - Starts background services:
   - Opey dev ticket polling loop (reads `engineering_tickets`).
   - Cron scheduler for scheduled digests and reminders.
+  - Calendar heartbeat for proactive calendar nudges.
+  - X mention heartbeat for always-on X polling and proactive mention delivery.
 - Serves `/agent/*` routes — the **central AI intelligence gateway** for all clients (Web, Telegram, WhatsApp).
 - Serves `/multi-agent/*` API routes for tickets, events, turns, and chats (Supabase-backed).
 - Provides liveness endpoints at `/agent/health` and `/multi-agent/health`.
@@ -41,6 +43,12 @@ npm run agent:dev
 
 The `/agent` routes are the **single entry point** for all AI interactions. Every client (Web, Telegram, WhatsApp) routes through here. The server holds all intelligence — clients are thin.
 
+Important X architecture note:
+- Web is no longer responsible for X mention polling.
+- The main server is the only X mention poller.
+- Telegram mention notifications are sent directly from the main server.
+- WhatsApp mention notifications are delivered through a Supabase-backed bridge queue because the WhatsApp socket lives in a separate process.
+
 Base path: `/agent`
 
 | Endpoint | Method | Description |
@@ -48,6 +56,35 @@ Base path: `/agent`
 | `/agent/health` | `GET` | `{ status: "ok", sessions: <n> }` — active SDK Chat sessions |
 | `/agent/message` | `POST` | Process a user message. Returns `OrchestratorResult`. |
 | `/agent/greeting` | `POST` | Generate a first-login daily greeting. |
+
+### X Mention Architecture
+
+The X mention pipeline is now **server-owned**.
+
+Ownership split:
+- `server/services/xMentionHeartbeat.ts` is the only live X mention scheduler.
+- The Web app does **not** poll X mentions on a timer anymore.
+- `/agent/x/mentions/poll` still exists for manual/debug use, but it is not the production scheduler path.
+- Telegram proactive mention delivery is sent directly from the main server.
+- WhatsApp proactive mention delivery is queued in Supabase and delivered by `server/whatsapp/xMentionBridge.ts` because the main server does not own the live WhatsApp socket.
+
+Runtime flow:
+1. The main server heartbeat polls X every 5 minutes after a short startup delay.
+2. New mentions are stored in `x_mentions`.
+3. Known-user mentions can be auto-drafted into `reply_drafted`.
+4. The main server writes proactive announcement fields onto the `x_mentions` row.
+5. Telegram is sent directly by the main server.
+6. WhatsApp reads queued rows from Supabase and sends them from the separate WhatsApp process.
+
+Queue fields added to `x_mentions`:
+- `announcement_text`
+- `announcement_created_at`
+- `telegram_sent_at`
+- `whatsapp_sent_at`
+- `history_logged_at`
+
+Schema reference:
+- `supabase/migrations/20260308_x_mention_delivery_queue.sql`
 
 ### POST /agent/message — Request Body
 
@@ -195,6 +232,8 @@ Step 3: WIRE THE BUTTON TO GOGCLI
 | `src/services/system_prompts/tools/toolsAndCapabilities.ts` | The cheat sheet. Rule 14 contains every Google command Kayley knows about. |
 | `server/services/gmailPoller.ts` | Background poller. Uses `searchEmails()` from gogService every 60s to find new emails. Query uses `newer_than:1d` — Gmail search only supports `d`/`m`/`y` time units (no hours or minutes). Dedup via `kayley_email_actions.gmail_message_id` prevents re-announcing. |
 | `server/services/calendarHeartbeat.ts` | Background service. Uses `fetchCalendarWindow()` from gogService every 15min for event reminders. |
+| `server/services/xMentionHeartbeat.ts` | Background service. Polls X every 5 minutes, stores mentions, drafts replies for known users, and queues proactive mention announcements. |
+| `server/whatsapp/xMentionBridge.ts` | WhatsApp bridge consumer. Polls queued X mention announcements from Supabase and sends them through the separate WhatsApp process. |
 
 ### Permission Allowlist (gogService.ts)
 

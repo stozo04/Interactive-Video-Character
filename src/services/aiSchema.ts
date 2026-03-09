@@ -1995,38 +1995,13 @@ export const GeminiMemoryToolDeclarations = [
     },
   },
   {
-    name: "resolve_x_tweet",
-    description:
-      "Approve or reject a pending tweet draft. " +
-      "Use status='approved' when the user says 'yes', 'post it', 'go ahead'. " +
-      "Use status='rejected' when the user says 'no', 'don't post that', or critiques it.",
-    parameters: {
-      type: "object",
-      properties: {
-        id: {
-          type: "string",
-          description: "The pending draft ID to resolve",
-        },
-        status: {
-          type: "string",
-          enum: ["approved", "rejected"],
-          description: "Whether to approve (post) or reject the draft",
-        },
-        rejection_reason: {
-          type: "string",
-          description: "Why the draft was rejected (optional, for rejected only)",
-        },
-      },
-      required: ["id", "status"],
-    },
-  },
-  {
     name: "post_x_tweet",
     description:
       "Post a tweet to X with specific text. " +
       "Use this when you and the user have collaborated on tweet text in conversation " +
-      "and the user approves it. This creates a draft and posts it immediately. " +
-      "Do NOT use for auto-generated tweets (those go through the idle pipeline).",
+      "and the user approves it. This creates a pending draft that must be approved by the human. " +
+      "Web uses the Tweet Approval Card. Telegram/WhatsApp use POST TWEET or REJECT TWEET. " +
+      "Do NOT claim the tweet is posted until approval happens.",
     parameters: {
       type: "object",
       properties: {
@@ -2297,7 +2272,6 @@ export interface PendingToolCall {
     | "get_engineering_ticket_status"
     | "submit_clarification"
     | "email_action"
-    | "resolve_x_tweet"
     | "post_x_tweet"
     | "resolve_x_mention"
     | "google_task_action"

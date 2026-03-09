@@ -52,6 +52,12 @@ interface AgentGreetingResponse {
   error?: string;
 }
 
+interface ResolveTweetDraftResponse {
+  success: boolean;
+  tweetUrl?: string;
+  error?: string;
+}
+
 // ============================================================================
 // Client
 // ============================================================================
@@ -105,8 +111,34 @@ async function healthCheck(): Promise<boolean> {
   }
 }
 
+async function resolveTweetDraft(
+  id: string,
+  action: "post" | "reject",
+): Promise<ResolveTweetDraftResponse> {
+  const response = await fetch(`${AGENT_BASE_URL}/tweet-drafts/${id}/resolve`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action }),
+  });
+
+  const data: ResolveTweetDraftResponse = await response.json().catch(() => ({
+    success: false,
+    error: 'Invalid server response.',
+  }));
+
+  if (!response.ok || !data.success) {
+    return {
+      success: false,
+      error: data.error || `Failed to resolve tweet draft (${response.status}).`,
+    };
+  }
+
+  return data;
+}
+
 export const agentClient = {
   sendMessage,
   getGreeting,
   healthCheck,
+  resolveTweetDraft,
 };

@@ -1356,6 +1356,8 @@ export type MemoryToolName =
 export interface ToolExecutionContext {
   currentEvents?: Array<{ id: string; summary: string }>;
   userMessage?: string;
+  conversationScopeId?: string;
+  conversationLogId?: string;
 }
 
 export interface ToolCallArgs {
@@ -2937,45 +2939,25 @@ export const executeMemoryTool = async (
         }
       }
       case 'resolve_x_tweet': {
-        const { getDraftById, postTweet, updateDraftStatus } = await import('./xTwitterService');
         const { id, status, rejection_reason } = args as ToolCallArgs['resolve_x_tweet'];
-        console.log(`🐦 [Memory Tool] resolve_x_tweet called:`, { id, status });
-
-        if (status === 'approved') {
-          const draft = await getDraftById(id);
-          if (!draft) {
-            return `Could not find tweet draft with id ${id}.`;
-          }
-
-          try {
-            const result = await postTweet(draft.tweetText);
-            await updateDraftStatus(id, 'posted', {
-              tweet_id: result.tweetId,
-              tweet_url: result.tweetUrl,
-              posted_at: new Date().toISOString(),
-            });
-            return `✓ Tweet posted: ${result.tweetUrl}`;
-          } catch (postError) {
-            await updateDraftStatus(id, 'failed', {
-              error_message: postError instanceof Error ? postError.message : 'Unknown error',
-            });
-            return `Failed to post tweet: ${postError instanceof Error ? postError.message : 'Unknown error'}`;
-          }
-        }
-
-        if (status === 'rejected') {
-          await updateDraftStatus(id, 'rejected', {
-            rejection_reason: rejection_reason || null,
-          });
-          return `OK: tweet draft rejected (${id})`;
-        }
-
-        return `Unknown resolve_x_tweet status: ${status}`;
+        memoryToolLog.warning('resolve_x_tweet blocked - human approval required', {
+          id,
+          status,
+          rejection_reason: rejection_reason || null,
+          conversationScopeId: context?.conversationScopeId ?? null,
+        });
+        return 'Tweet drafts can only be resolved through the human approval flow: Web uses the Tweet Approval Card, and Telegram/WhatsApp use POST TWEET or REJECT TWEET.';
       }
       case 'post_x_tweet': {
-        const { createDraft, postTweet, postTweetWithMedia, uploadMedia, updateDraftStatus } = await import('./xTwitterService');
+        const { createDraft } = await import('../../server/services/xTwitterServerService');
         const { text, intent, include_selfie, selfie_scene } = args as ToolCallArgs['post_x_tweet'];
-        console.log(`🐦 [Memory Tool] post_x_tweet called:`, { textLength: text.length, intent, include_selfie });
+        memoryToolLog.info('post_x_tweet called', {
+          textLength: text.length,
+          intent,
+          include_selfie,
+          conversationScopeId: context?.conversationScopeId ?? null,
+          conversationLogId: context?.conversationLogId ?? null,
+        });
 
         if (!text || text.length === 0) {
           return 'Error: tweet text is required';
@@ -2983,66 +2965,39 @@ export const executeMemoryTool = async (
         if (text.length > 280) {
           return `Error: tweet text is ${text.length} characters (max 280)`;
         }
+        if (include_selfie && !selfie_scene) {
+          return 'Error: selfie_scene is required when include_selfie is true';
+        }
 
         // Create draft
-        const draft = await createDraft(text, intent || 'user_collaborated', 'User approved in conversation', {
+        const generationContext = {
+          source: 'agent_message',
+          conversationScopeId: context?.conversationScopeId ?? null,
+          conversationLogId: context?.conversationLogId ?? null,
+          createdFrom: 'post_x_tweet',
           include_selfie: !!include_selfie,
           selfie_scene: selfie_scene || null,
-        });
+        };
+
+        const draft = await createDraft(
+          text,
+          intent || 'user_collaborated',
+          'Draft created from post_x_tweet tool',
+          generationContext,
+          'pending_approval',
+          {
+            include_selfie: !!include_selfie,
+            selfie_scene: selfie_scene || null,
+          },
+        );
         if (!draft) {
           return 'Error: failed to create tweet draft';
         }
 
-        try {
-          let result: { tweetId: string; tweetUrl: string };
-
-          // Generate and attach selfie if requested
-          if (include_selfie && selfie_scene) {
-            try {
-              const { generateCompanionSelfie } = await import('./imageGenerationService');
-              console.log(`🐦 [Memory Tool] Generating selfie for tweet:`, { selfie_scene });
-              const selfie = await generateCompanionSelfie({
-                scene: selfie_scene,
-                mood: intent === 'humor' ? 'playful' : 'casual',
-                userMessage: selfie_scene,
-                conversationHistory: [],
-              });
-
-              if (selfie.success && selfie.imageBase64) {
-                const mediaId = await uploadMedia(selfie.imageBase64, selfie.mimeType || 'image/jpeg');
-                result = await postTweetWithMedia(text, [mediaId]);
-                await updateDraftStatus(draft.id, 'posted', {
-                  tweet_id: result.tweetId,
-                  tweet_url: result.tweetUrl,
-                  posted_at: new Date().toISOString(),
-                  media_id: mediaId,
-                });
-                return `Tweet posted with selfie! ${result.tweetUrl}`;
-              } else {
-                console.warn(`🐦 [Memory Tool] Selfie generation failed, posting without image`);
-              }
-            } catch (selfieError) {
-              console.warn(`🐦 [Memory Tool] Selfie error, posting without image:`, selfieError);
-            }
-          }
-
-          // Post without media (or selfie failed)
-          result = await postTweet(text);
-          await updateDraftStatus(draft.id, 'posted', {
-            tweet_id: result.tweetId,
-            tweet_url: result.tweetUrl,
-            posted_at: new Date().toISOString(),
-          });
-          return `Tweet posted! ${result.tweetUrl}`;
-        } catch (postError) {
-          await updateDraftStatus(draft.id, 'failed', {
-            error_message: postError instanceof Error ? postError.message : 'Unknown error',
-          });
-          return `Failed to post tweet: ${postError instanceof Error ? postError.message : 'Unknown error'}`;
-        }
+        return `Draft created - waiting for Steven's approval.`;
       }
       case 'resolve_x_mention': {
-        const { getMentions, updateMentionStatus, postReply } = await import('./xTwitterService');
+        const { getMentions, updateMentionStatus, postReply } = await import('../../server/services/xTwitterServerService');
         const { id, status, reply_text } = args as ToolCallArgs['resolve_x_mention'];
         console.log(`🐦 [Memory Tool] resolve_x_mention called:`, { id, status });
 

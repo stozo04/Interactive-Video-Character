@@ -1079,6 +1079,8 @@ class CronScheduler {
       actionType: claimAttempt.action_type,
     });
 
+    let runId: string;
+
     const runInsert = await this.client
       .from(CRON_JOB_RUNS_TABLE)
       .insert({
@@ -1093,7 +1095,62 @@ class CronScheduler {
       .select("id")
       .single();
 
-    if (runInsert.error || !runInsert.data?.id) {
+    if (runInsert.error?.code === "23505") {
+      // Duplicate key — a previous run exists for this (job, scheduled_for).
+      // If the old run is 'failed', reclaim it for retry.
+      log.warning("Duplicate run detected, attempting to reclaim previous failed run", {
+        source: "CronScheduler",
+        schedulerId: this.schedulerId,
+        jobId: claimAttempt.id,
+        jobTitle: claimAttempt.title,
+        scheduledFor,
+      });
+
+      const reclaim = await this.client
+        .from(CRON_JOB_RUNS_TABLE)
+        .update({
+          status: "running" as CronRunStatus,
+          started_at: new Date().toISOString(),
+          finished_at: null,
+          error: null,
+          summary: null,
+          search_query: claimAttempt.search_query || claimAttempt.payload?.query || "",
+          search_results: [],
+          execution_metadata: {},
+          delivered: false,
+          delivered_at: null,
+        })
+        .eq("cron_job_id", claimAttempt.id)
+        .eq("scheduled_for", scheduledFor)
+        .eq("status", "failed")
+        .select("id")
+        .maybeSingle();
+
+      if (reclaim.error || !reclaim.data?.id) {
+        const msg = reclaim.error?.message || "existing run is not in failed state";
+        log.error("Failed to reclaim previous run", {
+          source: "CronScheduler",
+          schedulerId: this.schedulerId,
+          jobId: claimAttempt.id,
+          jobTitle: claimAttempt.title,
+          error: msg,
+        });
+        await this.logCronEvent({ cronJobId: claimAttempt.id, eventType: "run_failed", actor: this.schedulerId, message: `Run failed for "${claimAttempt.title}": Could not reclaim existing run (${msg})`, metadata: { reason: "run_reclaim_failed" } });
+        await this.failJob(claimAttempt, `Could not reclaim existing run: ${msg}`);
+        await this.queueCronTextMessage({ messageText: `Scheduled update failed: "${claimAttempt.title}"\nError: Could not reclaim existing run (${msg})`, triggerEventTitle: claimAttempt.title, metadata: { cronJobId: claimAttempt.id, kind: "cron_failure" } });
+        return;
+      }
+
+      runId = String(reclaim.data.id);
+      log.info("Reclaimed previous failed run for retry", {
+        source: "CronScheduler",
+        schedulerId: this.schedulerId,
+        jobId: claimAttempt.id,
+        jobTitle: claimAttempt.title,
+        runId,
+        scheduledFor,
+      });
+    } else if (runInsert.error || !runInsert.data?.id) {
       const runLogErrorMessage = `Failed to create run log: ${runInsert.error?.message || "unknown error"}`;
       log.error("Failed to create cron job run record", {
         source: "CronScheduler",
@@ -1107,9 +1164,9 @@ class CronScheduler {
       await this.failJob(claimAttempt, runLogErrorMessage);
       await this.queueCronTextMessage({ messageText: `Scheduled update failed: "${claimAttempt.title}"\nError: ${runLogErrorMessage}`, triggerEventTitle: claimAttempt.title, metadata: { cronJobId: claimAttempt.id, kind: "cron_failure" } });
       return;
+    } else {
+      runId = String(runInsert.data.id);
     }
-
-    const runId = String(runInsert.data.id);
     log.info("Cron job run record created", {
       source: "CronScheduler",
       schedulerId: this.schedulerId,

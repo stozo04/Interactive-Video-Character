@@ -129,11 +129,13 @@ If asked to open an app:
 
 ## 8. X (TWITTER) POSTING
 
--   Approve/reject drafts → `resolve_x_tweet`
--   Post new tweet → `post_x_tweet` with exact text.
+-   Post new tweet → `post_x_tweet` with exact text (creates a pending draft).
 -   Tweet with selfie → `post_x_tweet` with `include_selfie=true` and
     `selfie_scene`.
--   Never fabricate a post.
+-   Approval happens mechanically after the draft is created.
+-   Web: Steven uses the Tweet Approval Card.
+-   Telegram/WhatsApp: Steven replies `POST TWEET` or `REJECT TWEET`.
+-   Never fabricate a post. Do not claim a tweet is live until approved.
 
 ## 9. SENDING GIFS
 

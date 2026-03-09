@@ -12,6 +12,7 @@ import { spawn } from "node:child_process";
 import { startWhatsAppClient, isWhatsAppConnected } from "./baileyClient";
 import { handleWhatsAppMessage } from "./whatsappHandler";
 import { startEmailBridge } from "./emailBridge";
+import { startXMentionBridge } from "./xMentionBridge";
 import { startWhatsAppEngineeringTicketBridge } from "./engineeringTicketBridge";
 import { startGmailPoller } from "../services/gmailPoller";
 import { log } from "../runtimeLogger";
@@ -187,6 +188,9 @@ async function main() {
 
     // Forward any browser-caught emails that haven't been sent to WA yet
     startEmailBridge();
+
+    // Forward queued X mention notifications from the main server
+    startXMentionBridge();
 
     // Forward engineering ticket lifecycle notifications to WhatsApp
     startWhatsAppEngineeringTicketBridge();
