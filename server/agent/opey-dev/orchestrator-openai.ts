@@ -18,6 +18,8 @@ const LOG_PREFIX = "[Orchestrator-Codex]";
 
 // Which Codex model to use when spawning the CLI.
 const CODEX_MODEL = "gpt-5.2-codex";
+const CODEX_STEP_BATCH_MAX_LINES = 20;
+const CODEX_STEP_BATCH_FLUSH_MS = 1000;
 
 // __dirname doesn't exist in ES modules, so we reconstruct it from the
 // current file's URL. This lets us resolve sibling files like SOUL.md.
@@ -279,13 +281,52 @@ export async function runOpeyLoop(
     // once we have a full newline-terminated line.
     let lineBuffer = "";
 
-    // Emit one "codex_step" event per complete output line. Fire-and-forget
-    // (no await) so event inserts never slow down the stream.
-    const emitLine = (line: string) => {
-      const trimmed = line.trim();
-      if (trimmed) {
-        void onEvent?.("codex_step", trimmed.slice(0, 300), { text: trimmed });
+    // Batch Codex output lines into fewer "codex_step" events so a noisy run
+    // does not hammer Supabase with one insert per line.
+    let pendingStepLines: string[] = [];
+    let stepFlushTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const flushStepBatch = () => {
+      if (stepFlushTimer) {
+        clearTimeout(stepFlushTimer);
+        stepFlushTimer = null;
       }
+
+      if (pendingStepLines.length === 0) return;
+
+      const lines = pendingStepLines;
+      pendingStepLines = [];
+
+      void onEvent?.("codex_step", lines[0].slice(0, 300), {
+        text: lines.join("\n").slice(0, 4000),
+        lines,
+        lineCount: lines.length,
+      });
+    };
+
+    const scheduleStepFlush = () => {
+      if (stepFlushTimer) return;
+      stepFlushTimer = setTimeout(() => {
+        flushStepBatch();
+      }, CODEX_STEP_BATCH_FLUSH_MS);
+
+      if (typeof stepFlushTimer.unref === "function") {
+        stepFlushTimer.unref();
+      }
+    };
+
+    const queueLine = (line: string) => {
+      const trimmed = line.trim();
+      if (!trimmed) return;
+
+      pendingStepLines.push(trimmed);
+
+      if (pendingStepLines.length >= CODEX_STEP_BATCH_MAX_LINES) {
+        flushStepBatch();
+        return;
+      }
+
+      scheduleStepFlush();
     };
 
     // Split incoming text on newlines, flush complete lines as events,
@@ -294,7 +335,7 @@ export async function runOpeyLoop(
       lineBuffer += text;
       const lines = lineBuffer.split("\n");
       lineBuffer = lines.pop() ?? ""; // last element may be an incomplete line
-      lines.forEach(emitLine);
+      lines.forEach(queueLine);
     };
 
     child.stdout!.on("data", (chunk: Buffer) => {
@@ -329,7 +370,8 @@ export async function runOpeyLoop(
     });
 
     // Flush any remaining text that didn't end with a newline.
-    if (lineBuffer.trim()) emitLine(lineBuffer);
+    if (lineBuffer.trim()) queueLine(lineBuffer);
+    flushStepBatch();
 
     if (exitCode === 0) {
       log.info(`${LOG_PREFIX} Codex CLI completed successfully`, {

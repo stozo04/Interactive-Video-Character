@@ -16,6 +16,77 @@ import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { EngineeringTicket, EngineeringTicketStatus } from './types';
 import { log } from '../../runtimeLogger';
 
+const EVENT_INSERT_NETWORK_LOG_WINDOW_MS = 30_000;
+const EVENT_INSERT_RECOVERY_EVENT_TYPE = 'ticket_event_delivery_recovered';
+let lastTicketEventNetworkLogAt = 0;
+let suppressedTicketEventNetworkLogs = 0;
+
+interface TicketEventRecoveryState {
+  failedInsertCount: number;
+  firstFailureAt: string;
+  lastFailureAt: string;
+  lastError: string;
+}
+
+const ticketEventRecoveryState = new Map<string, TicketEventRecoveryState>();
+
+function isLikelyNetworkFailure(message: string): boolean {
+  const normalized = message.toLowerCase();
+  return (
+    normalized.includes('fetch failed') ||
+    normalized.includes('econnrefused') ||
+    normalized.includes('econnreset') ||
+    normalized.includes('enotfound') ||
+    normalized.includes('eai_again') ||
+    normalized.includes('ssl handshake failed') ||
+    normalized.includes('cloudflare')
+  );
+}
+
+function logTicketEventInsertFailure(
+  ticketId: string,
+  eventType: string,
+  error: string,
+): void {
+  if (!isLikelyNetworkFailure(error)) {
+    log.error('Failed to insert ticket event', {
+      source: 'ticketStore.ts',
+      ticketId,
+      eventType,
+      error,
+    });
+    return;
+  }
+
+  const now = Date.now();
+  const occurredAt = new Date(now).toISOString();
+  const state = ticketEventRecoveryState.get(ticketId);
+  ticketEventRecoveryState.set(ticketId, {
+    failedInsertCount: (state?.failedInsertCount ?? 0) + 1,
+    firstFailureAt: state?.firstFailureAt ?? occurredAt,
+    lastFailureAt: occurredAt,
+    lastError: error,
+  });
+
+  if (now - lastTicketEventNetworkLogAt < EVENT_INSERT_NETWORK_LOG_WINDOW_MS) {
+    suppressedTicketEventNetworkLogs += 1;
+    return;
+  }
+
+  const suppressedCount = suppressedTicketEventNetworkLogs;
+  suppressedTicketEventNetworkLogs = 0;
+  lastTicketEventNetworkLogAt = now;
+
+  log.warning('Ticket event insert failed due to network issue; suppressing repeated logs', {
+    source: 'ticketStore.ts',
+    ticketId,
+    eventType,
+    error,
+    suppressedRepeatedLogs: suppressedCount,
+    suppressionWindowMs: EVENT_INSERT_NETWORK_LOG_WINDOW_MS,
+  });
+}
+
 export class SupabaseTicketStore {
   private supabase: SupabaseClient;
 
@@ -30,6 +101,67 @@ export class SupabaseTicketStore {
     }
 
     this.supabase = createClient(url, anonKey);
+  }
+
+  private async insertEventRow(input: {
+    ticketId: string;
+    eventType: string;
+    summary: string;
+    payload?: Record<string, unknown>;
+  }): Promise<string | null> {
+    const { error } = await this.supabase
+      .from('engineering_ticket_events')
+      .insert({
+        id: crypto.randomUUID(),
+        ticket_id: input.ticketId,
+        event_type: input.eventType,
+        actor_type: 'opey',
+        actor_name: 'Opey',
+        summary: input.summary,
+        payload: input.payload ?? {},
+      });
+
+    return error?.message ?? null;
+  }
+
+  private async emitRecoverySummaryIfNeeded(ticketId: string, triggeringEventType: string): Promise<void> {
+    if (triggeringEventType === EVENT_INSERT_RECOVERY_EVENT_TYPE) return;
+
+    const recoveryState = ticketEventRecoveryState.get(ticketId);
+    if (!recoveryState || recoveryState.failedInsertCount === 0) return;
+
+    const recoveredAt = new Date().toISOString();
+    const recoverySummary =
+      `Recovered ticket event delivery after ${recoveryState.failedInsertCount} failed insert(s).`;
+
+    const recoveryError = await this.insertEventRow({
+      ticketId,
+      eventType: EVENT_INSERT_RECOVERY_EVENT_TYPE,
+      summary: recoverySummary,
+      payload: {
+        failedInsertCount: recoveryState.failedInsertCount,
+        firstFailureAt: recoveryState.firstFailureAt,
+        lastFailureAt: recoveryState.lastFailureAt,
+        recoveredAt,
+        lastError: recoveryState.lastError,
+        suppressionWindowMs: EVENT_INSERT_NETWORK_LOG_WINDOW_MS,
+      },
+    });
+
+    if (recoveryError) {
+      logTicketEventInsertFailure(ticketId, EVENT_INSERT_RECOVERY_EVENT_TYPE, recoveryError);
+      return;
+    }
+
+    ticketEventRecoveryState.delete(ticketId);
+    log.info('Inserted ticket event delivery recovery summary', {
+      source: 'ticketStore.ts',
+      ticketId,
+      failedInsertCount: recoveryState.failedInsertCount,
+      firstFailureAt: recoveryState.firstFailureAt,
+      lastFailureAt: recoveryState.lastFailureAt,
+      recoveredAt,
+    });
   }
 
   /**
@@ -112,33 +244,21 @@ export class SupabaseTicketStore {
     payload: Record<string, unknown> = {}
   ): Promise<void> {
     try {
-      const { error } = await this.supabase
-        .from('engineering_ticket_events')
-        .insert({
-          id: crypto.randomUUID(),
-          ticket_id: ticketId,
-          event_type: eventType,
-          actor_type: 'opey',
-          actor_name: 'Opey',
-          summary,
-          payload,
-        });
-
-      if (error) {
-        log.error('Failed to insert ticket event', {
-          source: 'ticketStore.ts',
-          ticketId,
-          eventType,
-          error: error.message,
-        });
-      }
-    } catch (err) {
-      log.error('Failed to insert ticket event', {
-        source: 'ticketStore.ts',
+      const error = await this.insertEventRow({
         ticketId,
         eventType,
-        error: String(err),
+        summary,
+        payload,
       });
+
+      if (error) {
+        logTicketEventInsertFailure(ticketId, eventType, error);
+        return;
+      }
+
+      await this.emitRecoverySummaryIfNeeded(ticketId, eventType);
+    } catch (err) {
+      logTicketEventInsertFailure(ticketId, eventType, String(err));
     }
   }
 
