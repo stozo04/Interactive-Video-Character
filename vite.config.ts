@@ -33,7 +33,7 @@ export default defineConfig(({ mode }) => {
             changeOrigin: true,
             rewrite: (path) => path.replace(/^\/api\/x/, ''),
           },
-          '/agent': {
+          '^/agent(?:/|$)': {
             target: 'http://127.0.0.1:4010',
             changeOrigin: true,
           },
@@ -55,6 +55,38 @@ export default defineConfig(({ mode }) => {
       },
       plugins: [
         react(),
+        {
+          name: 'agents-md-raw-loader',
+          enforce: 'pre',
+          load(id) {
+            if (!id.includes('/agents/') || !id.includes('.md') || !id.includes('?raw')) {
+              return null;
+            }
+
+            const [fileId] = id.split('?', 1);
+            const normalizedId = fileId.replace(/\\/g, '/');
+            const agentsSegment = '/agents/';
+            const agentsIndex = normalizedId.indexOf(agentsSegment);
+
+            if (agentsIndex === -1) {
+              return null;
+            }
+
+            const relativeAgentsPath = normalizedId.slice(agentsIndex + 1);
+            const absolutePath = path.resolve(process.cwd(), relativeAgentsPath);
+
+            if (!absolutePath.startsWith(path.resolve(process.cwd(), 'agents'))) {
+              return null;
+            }
+
+            const content = fs.readFileSync(absolutePath, 'utf-8');
+
+            return {
+              code: `export default ${JSON.stringify(content)};`,
+              map: null,
+            };
+          },
+        },
         {
           name: 'base64-loader',
           transform(code, id) {
