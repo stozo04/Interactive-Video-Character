@@ -23,6 +23,7 @@ export interface FactFilter {
 }
 
 export type RuntimeLogSeverity = 'info' | 'warning' | 'error' | 'critical';
+export type RuntimeLogCategory = 'all' | 'server' | 'web' | 'telegram' | 'opey' | 'tidy';
 
 export interface ServerRuntimeLogRow {
   id: string;
@@ -84,12 +85,12 @@ export const fetchTableDataAdmin = async (
 export const listServerRuntimeLogsAdmin = async (options?: {
   severity?: RuntimeLogSeverity | 'all';
   limit?: number;
-  source?: 'server' | 'client' | 'all';
+  category?: RuntimeLogCategory;
 }): Promise<ServerRuntimeLogRow[]> => {
   try {
     const severity = options?.severity ?? 'all';
     const limit = options?.limit ?? 200;
-    const source = options?.source ?? 'all';
+    const category = options?.category ?? 'all';
 
     let query = supabase
       .from('server_runtime_logs')
@@ -101,9 +102,9 @@ export const listServerRuntimeLogsAdmin = async (options?: {
       query = query.eq('severity', severity);
     }
 
-    if (source === 'client') {
+    if (category === 'web') {
       query = query.eq('source', 'client');
-    } else if (source === 'server') {
+    } else if (category !== 'all') {
       // Server logs don't write source='server' — they use service names or null.
       // Exclude client logs to get everything server-originated.
       query = query.neq('source', 'client');
@@ -112,12 +113,69 @@ export const listServerRuntimeLogsAdmin = async (options?: {
     const { data, error } = await query;
     if (error) throw error;
 
-    return (data ?? []) as ServerRuntimeLogRow[];
+    return filterRuntimeLogsByCategory((data ?? []) as ServerRuntimeLogRow[], category);
   } catch (error) {
     console.error('Error fetching server_runtime_logs for admin:', error);
     return [];
   }
 };
+
+function filterRuntimeLogsByCategory(
+  rows: ServerRuntimeLogRow[],
+  category: RuntimeLogCategory,
+): ServerRuntimeLogRow[] {
+  if (category === 'all' || category === 'web') {
+    return rows;
+  }
+
+  return rows.filter((row) => matchesRuntimeLogCategory(row, category));
+}
+
+function matchesRuntimeLogCategory(
+  row: ServerRuntimeLogRow,
+  category: Exclude<RuntimeLogCategory, 'all' | 'web'>,
+): boolean {
+  const source = (row.source ?? '').toLowerCase();
+  const route = (row.route ?? '').toLowerCase();
+  const message = row.message.toLowerCase();
+
+  const isTelegram =
+    source.startsWith('telegram') ||
+    route.startsWith('telegram/');
+
+  const isTidy =
+    source.startsWith('tidy') ||
+    route.startsWith('tidy/');
+
+  const isOpey =
+    route.startsWith('opey-dev/') ||
+    [
+      'opey-dev/index',
+      'main.ts',
+      'executor.ts',
+      'processmanager.ts',
+      'branchmanager.ts',
+      'githubops.ts',
+      'orchestrator.ts',
+      'orchestrator-openai.ts',
+      'ticketstore.ts',
+    ].includes(source) ||
+    message.includes('opey');
+
+  if (category === 'telegram') {
+    return isTelegram;
+  }
+
+  if (category === 'tidy') {
+    return isTidy;
+  }
+
+  if (category === 'opey') {
+    return isOpey;
+  }
+
+  return !isTelegram && !isTidy && !isOpey && source !== 'client';
+}
 
 /**
  * Update a fact in a specific table.

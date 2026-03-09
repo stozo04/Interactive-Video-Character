@@ -8,6 +8,7 @@ import {
   TablePagination,
   FactFilter,
   TableType,
+  type RuntimeLogCategory,
   type RuntimeLogSeverity,
   type ServerRuntimeLogRow,
 } from '../services/adminService';
@@ -43,9 +44,11 @@ import {
   getWhatsAppHealth,
   getTelegramHealth,
   getOpeyHealth,
+  getTidyHealth,
   restartServer,
   restartWhatsApp,
   restartOpey,
+  restartTidy,
   type EngineeringTicket,
   type EngineeringTicketEvent,
   type EngineeringTicketStatus,
@@ -53,6 +56,8 @@ import {
 import DataTable from './DataTable';
 import FactEditModal from './FactEditModal';
 import AnthropicTab from './AnthropicTab';
+import OpenAITab from './OpenAITab';
+import { getXAuthStatus, initXAuth, revokeXAuth } from '../services/xClient';
 
 interface AdminDashboardViewProps {
   onBack: () => void;
@@ -63,7 +68,14 @@ const CHARACTER_CATEGORIES = ['all', 'quirk', 'relationship', 'experience', 'pre
 const AGENT_RUN_LIMIT = 50;
 const SERVER_RUNTIME_LOG_LIMIT_OPTIONS = [50, 100, 200, 500] as const;
 const SERVER_RUNTIME_LOG_SEVERITIES = ['all', 'info', 'warning', 'error', 'critical'] as const;
-type AdminDashboardMode = 'facts' | 'agent' | 'cron' | 'multi_agent' | 'runtime_logs';
+const RUNTIME_LOG_CATEGORIES: RuntimeLogCategory[] = ['server', 'web', 'telegram', 'opey', 'tidy', 'all'];
+type AdminDashboardMode =
+  | 'dashboard'
+  | 'facts'
+  | 'agent'
+  | 'cron'
+  | 'multi_agent'
+  | 'runtime_logs';
 type AgentTab = 'anthropic' | 'openai' | 'google';
 type RuntimeLogSeverityFilter = (typeof SERVER_RUNTIME_LOG_SEVERITIES)[number];
 
@@ -108,7 +120,7 @@ const MULTI_AGENT_STATUSES: EngineeringTicketStatus[] = [
 type MultiAgentTab = 'tickets' | 'chats';
 
 export default function AdminDashboardView({ onBack }: AdminDashboardViewProps) {
-  const [mode, setMode] = useState<AdminDashboardMode>('facts');
+  const [mode, setMode] = useState<AdminDashboardMode>('dashboard');
 
   // Facts mode state
   const [activeTable, setActiveTable] = useState<TableType>('user_facts');
@@ -162,19 +174,27 @@ export default function AdminDashboardView({ onBack }: AdminDashboardViewProps) 
   const [waHealthStatus, setWaHealthStatus] = useState<'ok' | 'unreachable' | null>(null);
   const [waHealthLatencyMs, setWaHealthLatencyMs] = useState<number | null>(null);
   const [telegramHealthStatus, setTelegramHealthStatus] = useState<'ok' | 'unreachable' | null>(null);
+  const [telegramHealthLatencyMs, setTelegramHealthLatencyMs] = useState<number | null>(null);
   const [opeyHealthStatus, setOpeyHealthStatus] = useState<'ok' | 'busy' | 'unreachable' | null>(null);
   const [opeyCurrentTicketId, setOpeyCurrentTicketId] = useState<string | undefined>(undefined);
+  const [opeyHealthLatencyMs, setOpeyHealthLatencyMs] = useState<number | null>(null);
+  const [tidyHealthStatus, setTidyHealthStatus] = useState<'ok' | 'busy' | 'unreachable' | null>(null);
+  const [tidyHealthLatencyMs, setTidyHealthLatencyMs] = useState<number | null>(null);
   const [isMultiAgentHealthLoading, setIsMultiAgentHealthLoading] = useState(false);
   const [isServerRestarting, setIsServerRestarting] = useState(false);
   const [isWhatsAppRestarting, setIsWhatsAppRestarting] = useState(false);
   const [isOpeyRestarting, setIsOpeyRestarting] = useState(false);
+  const [isTidyRestarting, setIsTidyRestarting] = useState(false);
+  const [xConnected, setXConnected] = useState<boolean | null>(null);
+  const [xHealthLatencyMs, setXHealthLatencyMs] = useState<number | null>(null);
+  const [isXLoading, setIsXLoading] = useState(false);
 
   // Runtime logs mode state
   const [runtimeLogs, setRuntimeLogs] = useState<ServerRuntimeLogRow[]>([]);
   const [runtimeLogSeverityFilter, setRuntimeLogSeverityFilter] =
     useState<RuntimeLogSeverityFilter>('all');
   const [runtimeLogLimit, setRuntimeLogLimit] = useState<number>(200);
-  const [runtimeLogSource, setRuntimeLogSource] = useState<'server' | 'client'>('server');
+  const [runtimeLogCategory, setRuntimeLogCategory] = useState<RuntimeLogCategory>('server');
   const [isRuntimeLogsLoading, setIsRuntimeLogsLoading] = useState(false);
   const [runtimeLogsError, setRuntimeLogsError] = useState<string | null>(null);
 
@@ -268,8 +288,8 @@ export default function AdminDashboardView({ onBack }: AdminDashboardViewProps) 
     setIsMultiAgentHealthLoading(true);
     setMultiAgentError(null);
     try {
-      const [multiAgent, whatsapp, telegram, opey] = await Promise.all([
-        getMultiAgentHealth(), getWhatsAppHealth(), getTelegramHealth(), getOpeyHealth(),
+      const [multiAgent, whatsapp, telegram, opey, tidy] = await Promise.all([
+        getMultiAgentHealth(), getWhatsAppHealth(), getTelegramHealth(), getOpeyHealth(), getTidyHealth(),
       ]);
 
       if (!multiAgent.ok) {
@@ -284,13 +304,22 @@ export default function AdminDashboardView({ onBack }: AdminDashboardViewProps) 
       setWaHealthStatus(whatsapp.ok && whatsapp.connected ? 'ok' : 'unreachable');
       setWaHealthLatencyMs(typeof whatsapp.latencyMs === 'number' ? whatsapp.latencyMs : null);
       setTelegramHealthStatus(telegram.ok && telegram.running ? 'ok' : 'unreachable');
+      setTelegramHealthLatencyMs(typeof telegram.latencyMs === 'number' ? telegram.latencyMs : null);
       setOpeyHealthStatus(!opey.ok ? 'unreachable' : opey.currentTicketId ? 'busy' : 'ok');
       setOpeyCurrentTicketId(opey.currentTicketId);
+      setOpeyHealthLatencyMs(typeof opey.latencyMs === 'number' ? opey.latencyMs : null);
+      setTidyHealthStatus(!tidy.ok ? 'unreachable' : tidy.isProcessing ? 'busy' : 'ok');
+      setTidyHealthLatencyMs(typeof tidy.latencyMs === 'number' ? tidy.latencyMs : null);
+      await loadXStatus();
     } catch (err) {
       console.error('[AdminDashboard] Health check failed', err);
       setMultiAgentHealthStatus('unreachable');
       setMultiAgentHealthLatencyMs(null);
       setMultiAgentError('Health check failed.');
+      setTelegramHealthLatencyMs(null);
+      setOpeyHealthLatencyMs(null);
+      setTidyHealthStatus('unreachable');
+      setTidyHealthLatencyMs(null);
     } finally {
       setIsMultiAgentHealthLoading(false);
     }
@@ -339,6 +368,50 @@ export default function AdminDashboardView({ onBack }: AdminDashboardViewProps) 
     }
   };
 
+  const handleRestartTidy = async () => {
+    setIsTidyRestarting(true);
+    setMultiAgentError(null);
+    try {
+      const result = await restartTidy();
+      if (!result.ok) {
+        setMultiAgentError(result.error || 'Tidy restart failed.');
+      } else {
+        setTidyHealthStatus(null);
+      }
+    } catch (err) {
+      console.error('[AdminDashboard] Tidy restart failed', err);
+      setMultiAgentError('Tidy restart request failed.');
+    } finally {
+      setIsTidyRestarting(false);
+    }
+  };
+
+  const handleConnectX = async () => {
+    setIsXLoading(true);
+    try {
+      const authUrl = await initXAuth();
+      window.location.href = authUrl;
+    } catch (err) {
+      console.error('[AdminDashboard] X connect failed', err);
+      setMultiAgentError('Failed to start X OAuth.');
+      setIsXLoading(false);
+    }
+  };
+
+  const handleDisconnectX = async () => {
+    setIsXLoading(true);
+    try {
+      await revokeXAuth();
+      setXConnected(false);
+      setXHealthLatencyMs(null);
+    } catch (err) {
+      console.error('[AdminDashboard] X disconnect failed', err);
+      setMultiAgentError('Failed to disconnect X.');
+    } finally {
+      setIsXLoading(false);
+    }
+  };
+
   const handleRestartWhatsApp = async () => {
     setIsWhatsAppRestarting(true);
     setMultiAgentError(null);
@@ -362,7 +435,7 @@ export default function AdminDashboardView({ onBack }: AdminDashboardViewProps) 
       const rows = await listServerRuntimeLogsAdmin({
         severity: runtimeLogSeverityFilter,
         limit: runtimeLogLimit,
-        source: runtimeLogSource,
+        category: runtimeLogCategory,
       });
       setRuntimeLogs(rows);
     } catch (err) {
@@ -372,7 +445,20 @@ export default function AdminDashboardView({ onBack }: AdminDashboardViewProps) 
     } finally {
       setIsRuntimeLogsLoading(false);
     }
-  }, [runtimeLogSeverityFilter, runtimeLogLimit, runtimeLogSource]);
+  }, [runtimeLogSeverityFilter, runtimeLogLimit, runtimeLogCategory]);
+
+  const loadXStatus = useCallback(async () => {
+    const startedAt = Date.now();
+    try {
+      const status = await getXAuthStatus();
+      setXConnected(status.connected);
+      setXHealthLatencyMs(Date.now() - startedAt);
+    } catch (err) {
+      console.error('[AdminDashboard] X status load failed', err);
+      setXConnected(false);
+      setXHealthLatencyMs(null);
+    }
+  }, []);
 
   useEffect(() => {
     if (mode !== 'facts') {
@@ -391,6 +477,14 @@ export default function AdminDashboardView({ onBack }: AdminDashboardViewProps) 
   }, [mode, agentTab, loadWorkspaceAgentData]);
 
   useEffect(() => {
+    if (mode !== 'dashboard') {
+      return;
+    }
+
+    void loadXStatus();
+  }, [mode, loadXStatus]);
+
+  useEffect(() => {
     if (mode !== 'cron') {
       return;
     }
@@ -407,7 +501,7 @@ export default function AdminDashboardView({ onBack }: AdminDashboardViewProps) 
   }, [mode, loadRuntimeLogs]);
 
   useEffect(() => {
-    if (mode !== 'multi_agent') {
+    if (mode !== 'multi_agent' && mode !== 'dashboard') {
       return;
     }
 
@@ -416,34 +510,43 @@ export default function AdminDashboardView({ onBack }: AdminDashboardViewProps) 
 
   // Auto-poll health every 15s while on the Server tab
   useEffect(() => {
-    if (mode !== 'multi_agent') return;
+    if (mode !== 'multi_agent' && mode !== 'dashboard') return;
 
     const pollHealth = async () => {
       try {
-        const [multiAgent, whatsapp, telegram, opey] = await Promise.all([
-          getMultiAgentHealth(), getWhatsAppHealth(), getTelegramHealth(), getOpeyHealth(),
+        const [multiAgent, whatsapp, telegram, opey, tidy] = await Promise.all([
+          getMultiAgentHealth(), getWhatsAppHealth(), getTelegramHealth(), getOpeyHealth(), getTidyHealth(),
         ]);
         setMultiAgentHealthStatus(multiAgent.ok ? 'ok' : 'unreachable');
         setMultiAgentHealthLatencyMs(typeof multiAgent.latencyMs === 'number' ? multiAgent.latencyMs : null);
         setWaHealthStatus(whatsapp.ok && whatsapp.connected ? 'ok' : 'unreachable');
         setWaHealthLatencyMs(typeof whatsapp.latencyMs === 'number' ? whatsapp.latencyMs : null);
         setTelegramHealthStatus(telegram.ok && telegram.running ? 'ok' : 'unreachable');
+        setTelegramHealthLatencyMs(typeof telegram.latencyMs === 'number' ? telegram.latencyMs : null);
         setOpeyHealthStatus(!opey.ok ? 'unreachable' : opey.currentTicketId ? 'busy' : 'ok');
         setOpeyCurrentTicketId(opey.currentTicketId);
+        setOpeyHealthLatencyMs(typeof opey.latencyMs === 'number' ? opey.latencyMs : null);
+        setTidyHealthStatus(!tidy.ok ? 'unreachable' : tidy.isProcessing ? 'busy' : 'ok');
+        setTidyHealthLatencyMs(typeof tidy.latencyMs === 'number' ? tidy.latencyMs : null);
+        void loadXStatus();
       } catch {
         setMultiAgentHealthStatus('unreachable');
         setMultiAgentHealthLatencyMs(null);
         setWaHealthStatus('unreachable');
         setWaHealthLatencyMs(null);
         setTelegramHealthStatus('unreachable');
+        setTelegramHealthLatencyMs(null);
         setOpeyHealthStatus('unreachable');
+        setOpeyHealthLatencyMs(null);
+        setTidyHealthStatus('unreachable');
+        setTidyHealthLatencyMs(null);
       }
     };
 
     void pollHealth();
     const interval = setInterval(pollHealth, 15_000);
     return () => clearInterval(interval);
-  }, [mode]);
+  }, [mode, loadXStatus]);
 
   useEffect(() => {
     if (mode !== 'agent' || agentTab !== 'google') {
@@ -910,202 +1013,317 @@ export default function AdminDashboardView({ onBack }: AdminDashboardViewProps) 
   };
 
   return (
-    <div className="flex flex-col h-full bg-gray-900 text-white overflow-hidden">
-      {/* Header */}
-      <header className="px-8 py-6 border-b border-gray-800 flex items-center justify-between bg-gray-900/50 backdrop-blur-md">
-        <div className="flex items-center gap-4">
-          <button
-            onClick={onBack}
-            className="p-2 hover:bg-gray-800 rounded-full transition-colors text-gray-400 hover:text-white"
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-            </svg>
-          </button>
-          <div className="flex flex-col">
-            <h1 className="text-2xl font-bold tracking-tight">Admin Dashboard</h1>
-            <p className="text-sm text-gray-500">Manage facts and system data</p>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-4">
-          <div className="flex bg-gray-800 p-1 rounded-xl border border-gray-700">
-            <button
-              onClick={() => setMode('facts')}
-              className={`px-4 py-1.5 rounded-lg text-sm font-bold transition-all ${
-                mode === 'facts' ? 'bg-purple-600 text-white shadow-lg' : 'text-gray-400 hover:text-white'
-              }`}
-            >
-              Facts
-            </button>
-            <button
-              onClick={() => setMode('agent')}
-              className={`px-4 py-1.5 rounded-lg text-sm font-bold transition-all ${
-                mode === 'agent' ? 'bg-purple-600 text-white shadow-lg' : 'text-gray-400 hover:text-white'
-              }`}
-            >
-              Agent
-            </button>
-            <button
-              onClick={() => setMode('cron')}
-              className={`px-4 py-1.5 rounded-lg text-sm font-bold transition-all ${
-                mode === 'cron' ? 'bg-purple-600 text-white shadow-lg' : 'text-gray-400 hover:text-white'
-              }`}
-            >
-              Cron Jobs
-            </button>
-            <button
-              onClick={() => setMode('multi_agent')}
-              className={`px-4 py-1.5 rounded-lg text-sm font-bold transition-all ${
-                mode === 'multi_agent' ? 'bg-purple-600 text-white shadow-lg' : 'text-gray-400 hover:text-white'
-              }`}
-            >
-              Server
-            </button>
-            <button
-              onClick={() => setMode('runtime_logs')}
-              className={`px-4 py-1.5 rounded-lg text-sm font-bold transition-all ${
-                mode === 'runtime_logs' ? 'bg-purple-600 text-white shadow-lg' : 'text-gray-400 hover:text-white'
-              }`}
-            >
-              Runtime Logs
-            </button>
-          </div>
-
-          {mode === 'facts' && (
-            <>
-              <div className="flex bg-gray-800 p-1 rounded-xl border border-gray-700">
-                <button
-                  onClick={() => setActiveTable('user_facts')}
-                  className={`px-4 py-1.5 rounded-lg text-sm font-bold transition-all ${
-                    activeTable === 'user_facts' ? 'bg-purple-600 text-white shadow-lg' : 'text-gray-400 hover:text-white'
-                  }`}
-                >
-                  User Facts
-                </button>
-                <button
-                  onClick={() => setActiveTable('character_facts')}
-                  className={`px-4 py-1.5 rounded-lg text-sm font-bold transition-all ${
-                    activeTable === 'character_facts' ? 'bg-purple-600 text-white shadow-lg' : 'text-gray-400 hover:text-white'
-                  }`}
-                >
-                  Character Facts
-                </button>
-              </div>
-
-              <button
-                onClick={handleCreateFact}
-                className="px-6 py-2.5 bg-purple-600 hover:bg-purple-500 text-white rounded-xl font-bold transition-all shadow-lg shadow-purple-900/20 active:scale-95 flex items-center gap-2"
-              >
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                  <path fillRule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clipRule="evenodd" />
-                </svg>
-                Add New Fact
-              </button>
-            </>
-          )}
-
-          {mode === 'agent' && (
+    <div className="h-full overflow-hidden bg-[#06111f] text-white">
+      <div className="flex h-full flex-col bg-[radial-gradient(circle_at_top,_rgba(76,124,255,0.18),_transparent_32%),linear-gradient(180deg,_rgba(9,18,36,0.98),_rgba(4,10,22,1))]">
+        <header className="border-b border-white/10 px-6 py-5 backdrop-blur-xl md:px-8">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
             <div className="flex items-center gap-4">
-              <div className="flex bg-gray-800 p-1 rounded-xl border border-gray-700">
-                {(['anthropic', 'openai', 'google'] as AgentTab[]).map((tab) => (
-                  <button
-                    key={tab}
-                    onClick={() => setAgentTab(tab)}
-                    className={`px-4 py-1.5 rounded-lg text-sm font-bold transition-all ${
-                      agentTab === tab ? 'bg-purple-600 text-white shadow-lg' : 'text-gray-400 hover:text-white'
-                    }`}
-                  >
-                    {tab === 'anthropic' ? 'Anthropic' : tab === 'openai' ? 'OpenAI' : 'Google'}
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {mode === 'cron' && (
-            <div className="flex items-center gap-2">
               <button
-                onClick={() => void loadCronData()}
-                className="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded-lg transition-colors text-sm"
-                disabled={isCronLoading}
-              >
-                {isCronLoading ? 'Refreshing...' : 'Refresh'}
-              </button>
-              <button
-                onClick={resetCronForm}
-                className="px-4 py-2 bg-gray-800 hover:bg-gray-700 text-white rounded-lg transition-colors text-sm border border-gray-700"
-              >
-                New Job
-              </button>
-            </div>
-          )}
-
-          {mode === 'runtime_logs' && (
-            <div className="flex items-center gap-2">
-              <button
-                onClick={() => void loadRuntimeLogs()}
-                className="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded-lg transition-colors text-sm"
-                disabled={isRuntimeLogsLoading}
-              >
-                {isRuntimeLogsLoading ? 'Refreshing...' : 'Refresh'}
-              </button>
-            </div>
-          )}
-        </div>
-      </header>
-
-      {mode === 'facts' && (
-        <div className="px-8 py-5 border-b border-gray-800 flex flex-col sm:flex-row gap-4 items-center justify-between bg-gray-800/20">
-          <div className="flex items-center gap-2 w-full sm:w-auto overflow-x-auto pb-2 sm:pb-0">
-            {categories.map(cat => (
-              <button
-                key={cat}
-                onClick={() => {
-                  setFilter({ ...filter, category: cat });
-                  setPagination({ ...pagination, page: 1 });
-                }}
-                className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-all whitespace-nowrap ${
-                  filter.category === cat
-                    ? 'bg-gray-700 text-white ring-1 ring-gray-600'
-                    : 'text-gray-500 hover:text-gray-300 hover:bg-gray-800'
-                }`}
-              >
-                {cat.charAt(0).toUpperCase() + cat.slice(1)}
-              </button>
-            ))}
-          </div>
-
-          <div className="relative w-full sm:w-80 group">
-            <input
-              type="text"
-              placeholder="Search by key or value..."
-              value={filter.search}
-              onChange={(e) => {
-                setFilter({ ...filter, search: e.target.value });
-                setPagination({ ...pagination, page: 1 });
-              }}
-              className="w-full bg-gray-900 border border-gray-700 rounded-xl px-10 py-2.5 text-sm text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-purple-500/50 transition-all"
-            />
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 absolute left-3 top-2.5 text-gray-600 group-focus-within:text-purple-500 transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-            </svg>
-            {filter.search && (
-              <button
-                onClick={() => setFilter({ ...filter, search: '' })}
-                className="absolute right-3 top-2.5 text-gray-500 hover:text-white"
+                onClick={onBack}
+                className="inline-flex h-11 w-11 items-center justify-center rounded-2xl border border-white/10 bg-white/5 text-slate-300 transition hover:border-white/20 hover:bg-white/10 hover:text-white"
               >
                 <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
                 </svg>
               </button>
-            )}
-          </div>
-        </div>
-      )}
+              <div>
+                <div className="mb-1 inline-flex items-center rounded-full border border-cyan-400/20 bg-cyan-400/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.24em] text-cyan-200">
+                  Control Center
+                </div>
+                <h1 className="text-3xl font-semibold tracking-tight text-white">Admin Dashboard</h1>
+                <p className="mt-1 text-sm text-slate-400">
+                  Monitor services, operate agents, and manage system data from one place.
+                </p>
+              </div>
+            </div>
 
-      {/* Content */}
-      <main className="flex-1 overflow-y-auto p-8">
+            <div className="flex flex-wrap items-center gap-3">
+              {mode === 'facts' && (
+                <>
+                  <div className="flex rounded-2xl border border-white/10 bg-white/5 p-1.5">
+                    <button
+                      onClick={() => setActiveTable('user_facts')}
+                      className={`rounded-xl px-4 py-2 text-sm font-semibold transition ${
+                        activeTable === 'user_facts'
+                          ? 'bg-white text-slate-950 shadow-[0_10px_30px_rgba(255,255,255,0.2)]'
+                          : 'text-slate-400 hover:text-white'
+                      }`}
+                    >
+                      User Facts
+                    </button>
+                    <button
+                      onClick={() => setActiveTable('character_facts')}
+                      className={`rounded-xl px-4 py-2 text-sm font-semibold transition ${
+                        activeTable === 'character_facts'
+                          ? 'bg-white text-slate-950 shadow-[0_10px_30px_rgba(255,255,255,0.2)]'
+                          : 'text-slate-400 hover:text-white'
+                      }`}
+                    >
+                      Character Facts
+                    </button>
+                  </div>
+
+                  <button
+                    onClick={handleCreateFact}
+                    className="inline-flex items-center gap-2 rounded-2xl bg-cyan-400 px-5 py-2.5 text-sm font-semibold text-slate-950 transition hover:bg-cyan-300"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                      <path fillRule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clipRule="evenodd" />
+                    </svg>
+                    Add New Fact
+                  </button>
+                </>
+              )}
+
+              {mode === 'agent' && (
+                <div className="flex rounded-2xl border border-white/10 bg-white/5 p-1.5">
+                  {(['anthropic', 'openai', 'google'] as AgentTab[]).map((tab) => (
+                    <button
+                      key={tab}
+                      onClick={() => setAgentTab(tab)}
+                      className={`rounded-xl px-4 py-2 text-sm font-semibold transition ${
+                        agentTab === tab
+                          ? 'bg-white text-slate-950 shadow-[0_10px_30px_rgba(255,255,255,0.2)]'
+                          : 'text-slate-400 hover:text-white'
+                      }`}
+                    >
+                      {tab === 'anthropic' ? 'Anthropic' : tab === 'openai' ? 'OpenAI' : 'Google'}
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {mode === 'cron' && (
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    onClick={() => void loadCronData()}
+                    className="rounded-2xl border border-white/10 bg-white/5 px-4 py-2 text-sm font-semibold text-white transition hover:bg-white/10"
+                    disabled={isCronLoading}
+                  >
+                    {isCronLoading ? 'Refreshing...' : 'Refresh'}
+                  </button>
+                  <button
+                    onClick={resetCronForm}
+                    className="rounded-2xl border border-white/10 bg-white/5 px-4 py-2 text-sm font-semibold text-white transition hover:bg-white/10"
+                  >
+                    New Job
+                  </button>
+                </div>
+              )}
+
+              {mode === 'runtime_logs' && (
+                <button
+                  onClick={() => void loadRuntimeLogs()}
+                  className="rounded-2xl border border-white/10 bg-white/5 px-4 py-2 text-sm font-semibold text-white transition hover:bg-white/10"
+                  disabled={isRuntimeLogsLoading}
+                >
+                  {isRuntimeLogsLoading ? 'Refreshing...' : 'Refresh'}
+                </button>
+              )}
+            </div>
+          </div>
+        </header>
+
+        <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
+          <aside className="w-full border-b border-white/10 bg-[linear-gradient(180deg,rgba(11,20,38,0.95),rgba(8,15,29,0.95))] p-4 lg:w-[280px] lg:border-b-0 lg:border-r lg:p-6">
+            <div className="rounded-[28px] border border-white/10 bg-white/[0.03] p-3 shadow-[0_24px_80px_rgba(0,0,0,0.35)]">
+              <div className="border-b border-white/10 px-3 pb-4 pt-2">
+                <p className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">Navigation</p>
+                <p className="mt-2 text-sm text-slate-400">
+                  Default view is live status and restart control for your services.
+                </p>
+              </div>
+
+              <nav className="mt-3 space-y-2">
+                {[
+                  { id: 'dashboard', label: 'Admin Dashboard', description: 'Service overview' },
+                  { id: 'runtime_logs', label: 'Logs', description: 'System visibility' },
+                  { id: 'cron', label: 'Cron Jobs', description: 'Scheduled workflows' },
+                  { id: 'agent', label: 'Agents', description: 'Workspace agents' },
+                  { id: 'multi_agent', label: 'Server', description: 'Tickets and operations' },
+                  { id: 'facts', label: 'Supabase', description: 'Facts and records' },
+                ].map((item) => {
+                  const isActive = mode === item.id;
+                  return (
+                    <button
+                      key={item.id}
+                      onClick={() => setMode(item.id as AdminDashboardMode)}
+                      className={`w-full rounded-2xl border px-4 py-3 text-left transition ${
+                        isActive
+                          ? 'border-cyan-300/40 bg-[linear-gradient(135deg,rgba(120,236,255,0.18),rgba(255,255,255,0.08))] text-white shadow-[0_14px_40px_rgba(34,211,238,0.16)]'
+                          : 'border-transparent bg-transparent text-slate-400 hover:border-white/10 hover:bg-white/[0.04] hover:text-white'
+                      }`}
+                    >
+                      <div className="text-sm font-semibold">{item.label}</div>
+                      <div className={`mt-1 text-xs ${isActive ? 'text-cyan-100/80' : 'text-slate-500'}`}>
+                        {item.description}
+                      </div>
+                    </button>
+                  );
+                })}
+              </nav>
+            </div>
+          </aside>
+
+          <section className="min-h-0 flex-1 p-4 md:p-6 lg:p-8">
+            <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-[32px] border border-white/10 bg-[linear-gradient(180deg,rgba(8,18,34,0.88),rgba(5,12,24,0.94))] shadow-[0_32px_120px_rgba(0,0,0,0.45)]">
+              {mode === 'facts' && (
+                <div className="border-b border-white/10 px-6 py-5">
+                  <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+                    <div className="flex items-center gap-2 overflow-x-auto pb-1">
+                      {categories.map(cat => (
+                        <button
+                          key={cat}
+                          onClick={() => {
+                            setFilter({ ...filter, category: cat });
+                            setPagination({ ...pagination, page: 1 });
+                          }}
+                          className={`whitespace-nowrap rounded-xl px-4 py-2 text-sm font-medium transition ${
+                            filter.category === cat
+                              ? 'bg-white text-slate-950'
+                              : 'text-slate-400 hover:bg-white/5 hover:text-white'
+                          }`}
+                        >
+                          {cat.charAt(0).toUpperCase() + cat.slice(1)}
+                        </button>
+                      ))}
+                    </div>
+
+                    <div className="relative w-full max-w-md group">
+                      <input
+                        type="text"
+                        placeholder="Search by key or value..."
+                        value={filter.search}
+                        onChange={(e) => {
+                          setFilter({ ...filter, search: e.target.value });
+                          setPagination({ ...pagination, page: 1 });
+                        }}
+                        className="w-full rounded-2xl border border-white/10 bg-white/[0.04] px-10 py-3 text-sm text-white placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-cyan-400/40"
+                      />
+                      <svg xmlns="http://www.w3.org/2000/svg" className="absolute left-3 top-3.5 h-5 w-5 text-slate-500 group-focus-within:text-cyan-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                      </svg>
+                      {filter.search && (
+                        <button
+                          onClick={() => setFilter({ ...filter, search: '' })}
+                          className="absolute right-3 top-3 text-slate-500 transition hover:text-white"
+                        >
+                          <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                          </svg>
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              <main className="flex-1 overflow-y-auto p-6">
+                {mode === 'dashboard' && (
+                  <div className="space-y-6">
+                    {multiAgentError && (
+                      <div className="rounded-2xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-200">
+                        {multiAgentError}
+                      </div>
+                    )}
+
+                    <section className="overflow-hidden rounded-[28px] border border-cyan-300/15 bg-[linear-gradient(135deg,rgba(16,35,64,0.94),rgba(8,20,38,0.86))] p-6 shadow-[0_22px_80px_rgba(25,145,255,0.16)]">
+                      <div className="flex flex-col gap-6 xl:flex-row xl:items-end xl:justify-between">
+                        <div className="max-w-2xl">
+                          <p className="text-xs font-semibold uppercase tracking-[0.24em] text-cyan-200/80">
+                            Live Overview
+                          </p>
+                          <h2 className="mt-3 text-3xl font-semibold tracking-tight text-white">
+                            All critical services, one clean surface.
+                          </h2>
+                          <p className="mt-3 text-sm leading-6 text-slate-300">
+                            Keep this panel focused on health and control. No tickets, no logs, no noise.
+                          </p>
+                        </div>
+
+                        <div className="flex flex-wrap items-center gap-3">
+                          <button
+                            onClick={handleCheckMultiAgentHealth}
+                            className="rounded-2xl border border-cyan-300/30 bg-cyan-300/12 px-4 py-2.5 text-sm font-semibold text-cyan-100 transition hover:bg-cyan-300/18"
+                            disabled={isMultiAgentHealthLoading}
+                          >
+                            {isMultiAgentHealthLoading ? 'Checking...' : 'Refresh Health'}
+                          </button>
+                          <button
+                            onClick={() => setMode('multi_agent')}
+                            className="rounded-2xl border border-white/10 bg-white/5 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-white/10"
+                          >
+                            Open Server Panel
+                          </button>
+                        </div>
+                      </div>
+                    </section>
+
+                    <section className="grid gap-4 xl:grid-cols-2">
+                      <ServiceStatusCard
+                        title="Server"
+                        description="API, LLM, and Twitter calls."
+                        status={multiAgentHealthStatus}
+                        latencyMs={multiAgentHealthLatencyMs}
+                        actionLabel={isServerRestarting ? 'Restarting...' : 'Restart Server'}
+                        onAction={handleRestartServer}
+                        disabled={isServerRestarting}
+                      />
+                      {/* <ServiceStatusCard
+                        title="WhatsApp"
+                        description="Bridge availability"
+                        status={waHealthStatus}
+                        latencyMs={waHealthLatencyMs}
+                        actionLabel={isWhatsAppRestarting ? 'Restarting...' : 'Restart WhatsApp'}
+                        onAction={handleRestartWhatsApp}
+                        disabled={isWhatsAppRestarting}
+                      /> */}
+                      <ServiceStatusCard
+                        title="Telegram"
+                        description="How we talk."
+                        status={telegramHealthStatus}
+                        latencyMs={telegramHealthLatencyMs}
+                        note="Restart control is not wired yet."
+                      />
+                      <ServiceStatusCard
+                        title="Tidy"
+                        description="Bug cleaner. Keeps things well, tidy."
+                        status={tidyHealthStatus}
+                        latencyMs={tidyHealthLatencyMs}
+                        actionLabel={isTidyRestarting ? 'Restarting...' : 'Restart Tidy'}
+                        onAction={handleRestartTidy}
+                        disabled={isTidyRestarting}
+                      />
+                      <ServiceStatusCard
+                        title="Opey"
+                        description={
+                          opeyHealthStatus === 'busy' && opeyCurrentTicketId
+                            ? `Currently implementing ${opeyCurrentTicketId.slice(0, 8)}...`
+                            : 'The brains. Implements features.'
+                        }
+                        status={opeyHealthStatus === 'busy' ? 'implementing' : opeyHealthStatus}
+                        latencyMs={opeyHealthLatencyMs}
+                        actionLabel={isOpeyRestarting ? 'Restarting...' : 'Restart Opey'}
+                        onAction={handleRestartOpey}
+                        disabled={isOpeyRestarting}
+                      />
+                      <ServiceStatusCard
+                        title="X"
+                        description="X (Twitter) integration."
+                        status={xConnected === null ? 'unknown' : xConnected ? 'connected' : 'disconnected'}
+                        latencyMs={xHealthLatencyMs}
+                        actionLabel={
+                          isXLoading
+                            ? (xConnected ? 'Disconnecting...' : 'Connecting...')
+                            : (xConnected ? 'Disconnect X' : 'Connect X')
+                        }
+                        onAction={xConnected ? handleDisconnectX : handleConnectX}
+                        disabled={isXLoading}
+                      />
+                    </section>
+                  </div>
+                )}
+
         {mode === 'facts' && (
           <>
             {error ? (
@@ -1148,9 +1366,7 @@ export default function AdminDashboardView({ onBack }: AdminDashboardViewProps) 
         )}
 
         {mode === 'agent' && agentTab === 'openai' && (
-          <div className="h-full flex items-center justify-center text-gray-500 text-sm">
-            <span>OpenAI tools - coming soon</span>
-          </div>
+          <OpenAITab />
         )}
 
         {mode === 'agent' && agentTab === 'google' && (
@@ -1642,45 +1858,26 @@ export default function AdminDashboardView({ onBack }: AdminDashboardViewProps) 
               </div>
             )}
 
-            <div className="flex bg-gray-800 p-1 rounded-xl border border-gray-700 self-start">
-              <button
-                onClick={() => setRuntimeLogSource('server')}
-                className={`px-4 py-1.5 rounded-lg text-sm font-bold transition-all ${
-                  runtimeLogSource === 'server' ? 'bg-purple-600 text-white shadow-lg' : 'text-gray-400 hover:text-white'
-                }`}
-              >
-                Server Logs
-              </button>
-              <button
-                onClick={() => setRuntimeLogSource('client')}
-                className={`px-4 py-1.5 rounded-lg text-sm font-bold transition-all ${
-                  runtimeLogSource === 'client' ? 'bg-purple-600 text-white shadow-lg' : 'text-gray-400 hover:text-white'
-                }`}
-              >
-                Web Logs
-              </button>
-            </div>
-
-            <section className="border border-gray-700 rounded-2xl bg-gray-900/60 overflow-hidden">
-              <div className="px-4 py-4 border-b border-gray-700/80 bg-gradient-to-r from-gray-900 via-gray-900 to-gray-800/70">
+            <section className="border border-white/10 rounded-[28px] bg-[linear-gradient(180deg,rgba(255,255,255,0.03),rgba(255,255,255,0.02))] overflow-hidden">
+              <div className="px-5 py-5 border-b border-white/10 bg-[linear-gradient(135deg,rgba(70,115,255,0.12),rgba(255,255,255,0.03))]">
                 <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                   <div>
                     <h3 className="text-sm font-semibold text-gray-100">
-                      {runtimeLogSource === 'server' ? 'Server Runtime Logs' : 'Web Runtime Logs'}
+                      {getRuntimeLogCategoryTitle(runtimeLogCategory)}
                     </h3>
-                    <p className="text-xs text-gray-400 mt-1">
-                      Newest first. Filter by severity to isolate warnings, errors, and critical failures.
+                    <p className="text-xs text-slate-400 mt-1">
+                      Filter by severity and review entries sorted by `created_at` descending.
                     </p>
                   </div>
 
                   <div className="flex flex-wrap items-center gap-2">
-                    <label className="text-xs text-gray-400">Severity</label>
+                    <label className="text-xs text-slate-400">Severity</label>
                     <select
                       value={runtimeLogSeverityFilter}
                       onChange={(event) =>
                         setRuntimeLogSeverityFilter(event.target.value as RuntimeLogSeverityFilter)
                       }
-                      className="bg-gray-950 border border-gray-700 rounded-lg px-3 py-2 text-xs text-white"
+                      className="bg-slate-950/70 border border-white/10 rounded-xl px-3 py-2 text-xs text-white"
                     >
                       {SERVER_RUNTIME_LOG_SEVERITIES.map((severity) => (
                         <option key={severity} value={severity}>
@@ -1689,11 +1886,11 @@ export default function AdminDashboardView({ onBack }: AdminDashboardViewProps) 
                       ))}
                     </select>
 
-                    <label className="text-xs text-gray-400">Rows</label>
+                    <label className="text-xs text-slate-400">Rows</label>
                     <select
                       value={String(runtimeLogLimit)}
                       onChange={(event) => setRuntimeLogLimit(Number(event.target.value))}
-                      className="bg-gray-950 border border-gray-700 rounded-lg px-3 py-2 text-xs text-white"
+                      className="bg-slate-950/70 border border-white/10 rounded-xl px-3 py-2 text-xs text-white"
                     >
                       {SERVER_RUNTIME_LOG_LIMIT_OPTIONS.map((limit) => (
                         <option key={limit} value={limit}>
@@ -1705,26 +1902,45 @@ export default function AdminDashboardView({ onBack }: AdminDashboardViewProps) 
                 </div>
 
                 <div className="mt-3 flex flex-wrap items-center gap-2">
-                  <span className="text-[11px] px-2.5 py-1 rounded-full border border-gray-700 bg-gray-800/70 text-gray-300">
+                  <span className="text-[11px] px-2.5 py-1 rounded-full border border-white/10 bg-white/5 text-slate-300">
                     {isRuntimeLogsLoading ? 'Loading...' : `${runtimeLogs.length} rows`}
                   </span>
-                  <span className="text-[11px] px-2.5 py-1 rounded-full border border-gray-700 bg-gray-800/40 text-gray-400">
+                  <span className="text-[11px] px-2.5 py-1 rounded-full border border-white/10 bg-white/5 text-slate-400">
+                    Tab: {getRuntimeLogCategoryLabel(runtimeLogCategory)}
+                  </span>
+                  <span className="text-[11px] px-2.5 py-1 rounded-full border border-white/10 bg-white/5 text-slate-400">
                     Filter: {runtimeLogSeverityFilter === 'all' ? 'all severities' : runtimeLogSeverityFilter}
                   </span>
-                  <span className="text-[11px] px-2.5 py-1 rounded-full border border-gray-700 bg-gray-800/40 text-gray-400">
+                  <span className="text-[11px] px-2.5 py-1 rounded-full border border-white/10 bg-white/5 text-slate-400">
                     Sort: created_at desc
                   </span>
+                </div>
+
+                <div className="mt-4 flex flex-wrap gap-2">
+                  {RUNTIME_LOG_CATEGORIES.map((category) => (
+                    <button
+                      key={category}
+                      onClick={() => setRuntimeLogCategory(category)}
+                      className={`rounded-2xl px-4 py-2 text-sm font-semibold transition ${
+                        runtimeLogCategory === category
+                          ? 'bg-white text-slate-950 shadow-[0_12px_30px_rgba(255,255,255,0.16)]'
+                          : 'border border-white/10 bg-white/5 text-slate-300 hover:bg-white/10 hover:text-white'
+                      }`}
+                    >
+                      {getRuntimeLogCategoryLabel(category)}
+                    </button>
+                  ))}
                 </div>
               </div>
 
               <div className="max-h-[calc(100vh-270px)] overflow-y-auto">
                 {isRuntimeLogsLoading && runtimeLogs.length === 0 && (
-                  <div className="p-6 text-sm text-gray-400">Loading runtime logs...</div>
+                  <div className="p-6 text-sm text-slate-400">Loading runtime logs...</div>
                 )}
 
                 {!isRuntimeLogsLoading && runtimeLogs.length === 0 && (
-                  <div className="p-6 text-sm text-gray-400">
-                    No runtime logs found for the selected severity.
+                  <div className="p-6 text-sm text-slate-400">
+                    No logs found for the selected tab and severity.
                   </div>
                 )}
 
@@ -2095,19 +2311,91 @@ export default function AdminDashboardView({ onBack }: AdminDashboardViewProps) 
             )}
           </div>
         )}
-      </main>
+              </main>
+            </div>
+          </section>
+        </div>
 
-      {/* Modals */}
-      {mode === 'facts' && isModalOpen && (
-        <FactEditModal
-          tableName={activeTable}
-          fact={editingFact}
-          isSaving={isSaving}
-          onClose={() => setIsModalOpen(false)}
-          onSave={handleSaveFact}
-        />
-      )}
+        {/* Modals */}
+        {mode === 'facts' && isModalOpen && (
+          <FactEditModal
+            tableName={activeTable}
+            fact={editingFact}
+            isSaving={isSaving}
+            onClose={() => setIsModalOpen(false)}
+            onSave={handleSaveFact}
+          />
+        )}
+      </div>
     </div>
+  );
+}
+
+interface ServiceStatusCardProps {
+  title: string;
+  description: string;
+  status: string | null;
+  latencyMs?: number | null;
+  note?: string;
+  actionLabel?: string;
+  onAction?: () => void;
+  disabled?: boolean;
+}
+
+function ServiceStatusCard({
+  title,
+  description,
+  status,
+  latencyMs = null,
+  note,
+  actionLabel,
+  onAction,
+  disabled = false,
+}: ServiceStatusCardProps) {
+  const normalizedStatus = status ?? 'unknown';
+  const isHealthy = normalizedStatus === 'ok' || normalizedStatus === 'connected';
+  const isWarning = normalizedStatus === 'busy' || normalizedStatus === 'implementing' || normalizedStatus === 'unknown';
+  const dotClass = isHealthy
+    ? 'bg-emerald-400 shadow-[0_0_16px_rgba(52,211,153,0.8)]'
+    : isWarning
+      ? 'bg-amber-300 shadow-[0_0_16px_rgba(252,211,77,0.7)]'
+      : 'bg-rose-400 shadow-[0_0_16px_rgba(251,113,133,0.75)]';
+  const statusLabel = formatStatusLabel(normalizedStatus);
+
+  return (
+    <article className="rounded-[28px] border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.05),rgba(255,255,255,0.03))] p-5 shadow-[0_22px_70px_rgba(0,0,0,0.22)]">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">{title}</p>
+          <p className="mt-4 text-sm leading-6 text-slate-300">{description}</p>
+        </div>
+        <span className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-semibold text-slate-200">
+          <span className={`h-2.5 w-2.5 rounded-full ${dotClass}`} />
+          <span>{statusLabel}</span>
+          {latencyMs !== null && (
+            <span className="border-l border-white/10 pl-2 text-slate-400">{latencyMs} ms</span>
+          )}
+        </span>
+      </div>
+
+      <div className="mt-5 flex flex-wrap gap-2 text-xs">
+        {note && (
+          <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-slate-400">
+            {note}
+          </span>
+        )}
+      </div>
+
+      {actionLabel && onAction && (
+        <button
+          onClick={onAction}
+          disabled={disabled}
+          className="mt-6 flex w-full items-center justify-center rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-semibold text-white transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          <span>{actionLabel}</span>
+        </button>
+      )}
+    </article>
   );
 }
 
@@ -2305,6 +2593,46 @@ function formatTimestamp(isoTimestamp: string): string {
   }
 
   return parsed.toLocaleString();
+}
+
+function getRuntimeLogCategoryLabel(category: RuntimeLogCategory): string {
+  switch (category) {
+    case 'server':
+      return 'Server';
+    case 'web':
+      return 'Web';
+    case 'telegram':
+      return 'Telegram';
+    case 'opey':
+      return 'Opey';
+    case 'tidy':
+      return 'Tidy';
+    default:
+      return 'All';
+  }
+}
+
+function getRuntimeLogCategoryTitle(category: RuntimeLogCategory): string {
+  switch (category) {
+    case 'server':
+      return 'Server Logs';
+    case 'web':
+      return 'Web Logs';
+    case 'telegram':
+      return 'Telegram Logs';
+    case 'opey':
+      return 'Opey Logs';
+    case 'tidy':
+      return 'Tidy Logs';
+    default:
+      return 'All Logs';
+  }
+}
+
+function formatStatusLabel(status: string): string {
+  return status
+    .replaceAll('_', ' ')
+    .replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
 

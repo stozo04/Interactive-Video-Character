@@ -51,6 +51,16 @@ export default defineConfig(({ mode }) => {
             changeOrigin: true,
             rewrite: (path) => path.replace(/^\/telegram-bridge/, ''),
           },
+          '/opey-agent': {
+            target: 'http://127.0.0.1:4013',
+            changeOrigin: true,
+            rewrite: (path) => path.replace(/^\/opey-agent/, ''),
+          },
+          '/tidy-agent': {
+            target: 'http://127.0.0.1:4014',
+            changeOrigin: true,
+            rewrite: (path) => path.replace(/^\/tidy-agent/, ''),
+          },
         },
       },
       plugins: [

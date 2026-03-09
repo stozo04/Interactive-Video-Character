@@ -23,6 +23,8 @@ import {
   revokeXAuth as disconnectXAuth,
 } from "../services/xTwitterServerService";
 import { pollAndProcessMentions } from "../services/xMentionService";
+import { getClaudeSessionSummary, lookUpClaudeQuota } from "../services/anthropic/claudeSessionService";
+import { getOpenAICodexSessionSummary } from "../services/openai/codexSessionService";
 
 const runtimeLog = log.fromContext({ source: "agentRoutes" });
 
@@ -131,6 +133,21 @@ export function createAgentRouter(): (
 
     if (req.method === "GET" && url.pathname === "/agent/x/status") {
       await handleXStatus(res);
+      return true;
+    }
+
+    if (req.method === "GET" && url.pathname === "/agent/anthropic/session") {
+      await handleClaudeSessionStatus(res);
+      return true;
+    }
+
+    if (req.method === "POST" && url.pathname === "/agent/anthropic/quota") {
+      await handleClaudeQuotaLookup(res);
+      return true;
+    }
+
+    if (req.method === "GET" && url.pathname === "/agent/openai/session") {
+      await handleOpenAICodexSessionStatus(res);
       return true;
     }
 
@@ -321,6 +338,39 @@ async function handleXStatus(res: ServerResponse): Promise<void> {
     const errorMsg = err instanceof Error ? err.message : String(err);
     runtimeLog.error("X status failed", { error: errorMsg });
     sendJson(res, 500, { success: false, error: errorMsg, connected: false, scopes: [], hasMediaWrite: false });
+  }
+}
+
+async function handleClaudeSessionStatus(res: ServerResponse): Promise<void> {
+  try {
+    const summary = await getClaudeSessionSummary();
+    sendJson(res, 200, { success: true, summary });
+  } catch (err) {
+    const errorMsg = err instanceof Error ? err.message : String(err);
+    runtimeLog.error("Claude session status failed", { error: errorMsg });
+    sendJson(res, 500, { success: false, error: errorMsg });
+  }
+}
+
+async function handleClaudeQuotaLookup(res: ServerResponse): Promise<void> {
+  try {
+    const quota = await lookUpClaudeQuota();
+    sendJson(res, 200, { success: true, quota });
+  } catch (err) {
+    const errorMsg = err instanceof Error ? err.message : String(err);
+    runtimeLog.error("Claude quota lookup failed", { error: errorMsg });
+    sendJson(res, 500, { success: false, error: errorMsg });
+  }
+}
+
+async function handleOpenAICodexSessionStatus(res: ServerResponse): Promise<void> {
+  try {
+    const summary = await getOpenAICodexSessionSummary();
+    sendJson(res, 200, { success: true, summary });
+  } catch (err) {
+    const errorMsg = err instanceof Error ? err.message : String(err);
+    runtimeLog.error("OpenAI Codex session status failed", { error: errorMsg });
+    sendJson(res, 500, { success: false, error: errorMsg });
   }
 }
 

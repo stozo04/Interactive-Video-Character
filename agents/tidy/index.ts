@@ -5,6 +5,7 @@
 // Polls `cron_jobs` table for `code_cleaner` and `tidy_branch_cleanup` jobs
 // on the same interval as the old cronScheduler handler.
 
+import { createServer } from "node:http";
 import { createClient } from "@supabase/supabase-js";
 import { log } from "../../lib/logger";
 import { runCodeCleanerBatch } from "../../server/scheduler/codeCleanerHandler";
@@ -12,6 +13,7 @@ import { runTidyBranchCleanup } from "../../server/scheduler/tidyBranchCleanupHa
 
 const LOG_PREFIX = "[Tidy]";
 const TICK_MS = 60_000;
+const TIDY_HEALTH_PORT = 4014;
 const TIDY_JOB_TYPES = ["code_cleaner", "tidy_branch_cleanup"] as const;
 
 const runtimeLog = log.fromContext({ source: "tidy/index", route: "tidy/startup" });
@@ -46,10 +48,12 @@ const handlers: Record<string, JobHandler> = {
 };
 
 let isProcessing = false;
+let lastTickAt = Date.now();
 
 async function tick(): Promise<void> {
   if (isProcessing) return;
   isProcessing = true;
+  lastTickAt = Date.now();
 
   try {
     const now = new Date().toISOString();
@@ -150,15 +154,67 @@ async function tick(): Promise<void> {
   }
 }
 
+let interval: ReturnType<typeof setInterval>;
+
+function startPollLoop(): void {
+  lastTickAt = Date.now();
+  void tick();
+  interval = setInterval(() => void tick(), TICK_MS);
+}
+
+function restartPollLoop(): void {
+  runtimeLog.warning("Tidy poll loop restart requested", {
+    source: "tidy/index",
+    route: "tidy/restart",
+  });
+  clearInterval(interval);
+  isProcessing = false;
+  startPollLoop();
+}
+
 // Start polling
-const interval = setInterval(() => void tick(), TICK_MS);
-void tick(); // Run immediately on startup
+startPollLoop();
 
 runtimeLog.info("Tidy poll loop started", { tickMs: TICK_MS });
+
+const healthServer = createServer((req, res) => {
+  const method = req.method ?? "GET";
+  const url = new URL(req.url ?? "/", `http://${req.headers.host ?? "127.0.0.1"}`);
+
+  if (method === "GET" && url.pathname === "/health") {
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({
+      ok: true,
+      alive: true,
+      isProcessing,
+      lastTickAt,
+    }));
+    return;
+  }
+
+  if (method === "POST" && url.pathname === "/restart") {
+    restartPollLoop();
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ ok: true, message: "Tidy poll loop restarted." }));
+    return;
+  }
+
+  res.writeHead(404, { "Content-Type": "application/json" });
+  res.end(JSON.stringify({ ok: false, error: "Route not found." }));
+});
+
+healthServer.listen(TIDY_HEALTH_PORT, "127.0.0.1", () => {
+  runtimeLog.info("Tidy health server started", {
+    source: "tidy/index",
+    route: "tidy/health",
+    port: TIDY_HEALTH_PORT,
+  });
+});
 
 function shutdown(signal: string): void {
   console.log(`${LOG_PREFIX} Shutdown requested`, { signal });
   runtimeLog.warning("Tidy shutdown initiated", { signal });
+  healthServer.close();
   clearInterval(interval);
   setTimeout(() => process.exit(0), 500);
 }
