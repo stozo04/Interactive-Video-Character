@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { ChatMessage, PendingChatAttachment, PendingGifAttachment } from '../types';
+import { clientLogger } from '../services/clientLogger';
 import LoadingSpinner from './LoadingSpinner';
 import TypingIndicator from './TypingIndicator';
 import TweetCard, { extractTweetUrls } from './TweetCard';
@@ -14,6 +15,8 @@ import {
   getFirstImageFileFromClipboard,
   type ClipboardItemLike,
 } from '../utils/clipboardImage';
+
+const LOG_PREFIX = '[ChatPanel]';
 
 interface ChatPanelProps {
   history: ChatMessage[];
@@ -246,9 +249,9 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
           textBeforeRef.current = input; // Save existing text
           recognitionRef.current.start();
           setIsListening(true);
-          console.log("🎤 Listening...");
+          clientLogger.info(`${LOG_PREFIX} STT listening started`);
         } catch (e) {
-          console.error("STT Error:", e);
+          clientLogger.error(`${LOG_PREFIX} STT Error`, { error: e instanceof Error ? e.message : String(e) });
         }
       }
     }
