@@ -198,12 +198,11 @@ export interface OrchestratorResult {
   /** Pending tweet draft for UI approval card */
   pendingTweetDraft?: PendingTweetDraft;
 
-  // --- ADD THESE NEW PROPERTIES ---
   /** GIF search query or tag for GIPHY (server selects MP4 rendition) */
   gifQuery?: string;
   gifMessageText?: string;
-  stickerBuffer?: Buffer;
-  rawGeneratedStickerBase64?: string; // Add this if you went with Scenario A from earlier!
+  stickerBuffer?: Uint8Array;
+  rawGeneratedStickerBase64?: string;
 
 }
 
@@ -337,7 +336,7 @@ export function createUnhandledResult(): ActionHandlerResult {
 export function determineActionType(response: AIActionResponse): ActionType {
   if (response.news_action) return ActionType.NEWS;
   if (response.selfie_action) return ActionType.SELFIE;
-  if ((response as any).video_action) return ActionType.VIDEO;
-  if ((response as any).gif_action) return ActionType.GIF;
+  if (response.video_action) return ActionType.VIDEO;
+  if (response.gif_action) return ActionType.GIF;
   return ActionType.NONE;
 }

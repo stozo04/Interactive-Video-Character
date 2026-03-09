@@ -31,8 +31,12 @@ async function fetchJson<T>(input: RequestInfo | URL, init?: RequestInit): Promi
   return data as T;
 }
 
-async function getAuthStatus(): Promise<XAuthStatusResponse> {
+export async function getAuthStatus(): Promise<XAuthStatusResponse> {
   return fetchJson<XAuthStatusResponse>(`${X_BASE_URL}/status`);
+}
+
+export async function getXAuthStatus(): Promise<XAuthStatusResponse> {
+  return getAuthStatus();
 }
 
 export async function initXAuth(): Promise<string> {

@@ -2,10 +2,11 @@
  * Server-side X mention reply service.
  */
 
-import { GoogleGenAI } from "@google/genai";
 import { log } from "../runtimeLogger";
+import { ai, GEMINI_MODEL } from "./ai/geminiClient";
 import {
   fetchMentions,
+  getMentionById,
   getMentionsByTweetIds,
   getKnownXUsernames,
   getLatestMentionTweetId,
@@ -23,25 +24,12 @@ import { KAYLEY_FULL_PROFILE } from "../../src/domain/characters/kayleyCharacter
 
 const runtimeLog = log.fromContext({ source: "xMentionService" });
 
-const GEMINI_API_KEY = process.env.VITE_GEMINI_API_KEY ?? "";
-const GEMINI_MODEL = process.env.VITE_GEMINI_MODEL ?? "gemini-2.5-flash";
-
-let aiClient: GoogleGenAI | null = null;
-
 export interface MentionPollResult {
   mentionCount: number;
   newMentions: StoredMention[];
   reclassifiedMentions: StoredMention[];
   draftedMentionIds: string[];
   draftedReplyCount: number;
-}
-
-function getAIClient(): GoogleGenAI {
-  if (!aiClient) {
-    if (!GEMINI_API_KEY) throw new Error("VITE_GEMINI_API_KEY is not set");
-    aiClient = new GoogleGenAI({ apiKey: GEMINI_API_KEY });
-  }
-  return aiClient;
 }
 
 export async function pollAndProcessMentionsDetailed(): Promise<MentionPollResult> {
@@ -107,7 +95,7 @@ export async function pollAndProcessMentions(): Promise<number> {
 }
 
 async function generateMentionReply(mention: StoredMention): Promise<string | null> {
-  if (!GEMINI_API_KEY) return null;
+  if (!process.env.GEMINI_API_KEY && !process.env.VITE_GEMINI_API_KEY) return null;
 
   const facts = await getUserFacts("all");
   const userFacts = facts
@@ -117,7 +105,6 @@ async function generateMentionReply(mention: StoredMention): Promise<string | nu
   const recentTweets = await getRecentPostedTweets(5);
   const recentTweetLines = recentTweets.map((tweet) => `- "${tweet.tweetText}"`).join("\n");
 
-  const ai = getAIClient();
   const response = await ai.models.generateContent({
     model: GEMINI_MODEL,
     contents: [{ role: "user", parts: [{ text: buildReplyUserPrompt(mention, userFacts, recentTweetLines) }] }],
@@ -137,7 +124,16 @@ async function generateMentionReply(mention: StoredMention): Promise<string | nu
     return null;
   }
 
-  const parsed = JSON.parse(jsonMatch[0]) as { reply?: string };
+  let parsed: { reply?: string };
+  try {
+    parsed = JSON.parse(jsonMatch[0]) as { reply?: string };
+  } catch (error) {
+    runtimeLog.warning("Mention reply generation returned malformed JSON", {
+      mentionId: mention.id,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return null;
+  }
   const replyText = typeof parsed.reply === "string" ? parsed.reply.trim() : "";
   if (!replyText) return null;
   if (replyText.length > 280) {
@@ -255,8 +251,7 @@ export async function buildMentionsPromptSection(): Promise<string> {
 }
 
 export async function approveMentionReply(id: string): Promise<{ success: boolean; error?: string; tweetUrl?: string }> {
-  const mentions = await getMentions(undefined, 50);
-  const mention = mentions.find((item) => item.id === id);
+  const mention = await getMentionById(id);
   if (!mention) {
     return { success: false, error: `Could not find mention with id ${id}.` };
   }

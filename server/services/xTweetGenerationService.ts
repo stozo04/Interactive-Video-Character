@@ -2,7 +2,9 @@
  * Server-side X tweet generation service.
  */
 
-import { GoogleGenAI } from "@google/genai";
+import { toZonedTime } from "date-fns-tz";
+import { log } from "../runtimeLogger";
+import { ai, GEMINI_MODEL } from "./ai/geminiClient";
 import { supabaseAdmin as supabase } from "./supabaseAdmin";
 import {
   createDraft,
@@ -13,25 +15,11 @@ import { getCharacterFacts } from "../../src/services/characterFactsService";
 import { getActiveStorylines } from "../../src/services/storylineService";
 import { KAYLEY_FULL_PROFILE } from "../../src/domain/characters/kayleyCharacterProfile";
 
-const GEMINI_API_KEY = process.env.VITE_GEMINI_API_KEY ?? "";
-const GEMINI_MODEL = process.env.VITE_GEMINI_MODEL ?? "gemini-2.5-flash";
-
-const LOG_PREFIX = "[TweetGen]";
+const runtimeLog = log.fromContext({ source: "xTweetGenerationService" });
+const TIMEZONE = "America/Chicago";
 const MAX_TWEET_LENGTH = 280;
 const MAX_RECENT_TWEETS_FOR_CONTEXT = 20;
 const MAX_BROWSE_NOTES_FOR_CONTEXT = 5;
-
-let aiClient: GoogleGenAI | null = null;
-
-function getAIClient(): GoogleGenAI {
-  if (!aiClient) {
-    if (!GEMINI_API_KEY) {
-      throw new Error("VITE_GEMINI_API_KEY is not set");
-    }
-    aiClient = new GoogleGenAI({ apiKey: GEMINI_API_KEY });
-  }
-  return aiClient;
-}
 
 export interface TweetGenerationContext {
   characterProfile: string;
@@ -45,7 +33,7 @@ export interface TweetGenerationContext {
 }
 
 function getTimeOfDay(): string {
-  const hour = new Date().getHours();
+  const hour = toZonedTime(new Date(), TIMEZONE).getHours();
   if (hour < 6) return "late night";
   if (hour < 12) return "morning";
   if (hour < 17) return "afternoon";
@@ -54,7 +42,10 @@ function getTimeOfDay(): string {
 }
 
 function getDayOfWeek(): string {
-  return new Date().toLocaleDateString("en-US", { weekday: "long" });
+  return toZonedTime(new Date(), TIMEZONE).toLocaleDateString("en-US", {
+    weekday: "long",
+    timeZone: TIMEZONE,
+  });
 }
 
 async function getRecentBrowseNotes(): Promise<string[]> {
@@ -208,19 +199,22 @@ Task: Compose one tweet as Kayley Adams. Return JSON only.
 
 function validateTweetText(text: string, recentTweets: string[]): boolean {
   if (!text || text.trim().length === 0) {
-    console.warn(`${LOG_PREFIX} Empty tweet text`);
+    runtimeLog.warning("Generated tweet text was empty");
     return false;
   }
 
   if (text.length > MAX_TWEET_LENGTH) {
-    console.warn(`${LOG_PREFIX} Tweet exceeds ${MAX_TWEET_LENGTH} chars`, { length: text.length });
+    runtimeLog.warning("Generated tweet exceeded max length", {
+      length: text.length,
+      maxLength: MAX_TWEET_LENGTH,
+    });
     return false;
   }
 
   const normalized = text.trim().toLowerCase();
   const isDuplicate = recentTweets.some((tweet) => tweet.trim().toLowerCase() === normalized);
   if (isDuplicate) {
-    console.warn(`${LOG_PREFIX} Duplicate tweet detected`);
+    runtimeLog.warning("Generated tweet duplicated a recent post");
     return false;
   }
 
@@ -230,14 +224,13 @@ function validateTweetText(text: string, recentTweets: string[]): boolean {
 export async function generateTweet(
   status: "pending_approval" | "queued" = "pending_approval",
 ): Promise<XTweetDraft | null> {
-  if (!GEMINI_API_KEY) {
-    console.warn(`${LOG_PREFIX} No Gemini API key configured. Skipping tweet generation.`);
+  if (!process.env.GEMINI_API_KEY && !process.env.VITE_GEMINI_API_KEY) {
+    runtimeLog.warning("No Gemini API key configured; skipping tweet generation");
     return null;
   }
 
   try {
     const context = await gatherContext();
-    const ai = getAIClient();
     const response = await ai.models.generateContent({
       model: GEMINI_MODEL,
       contents: [{ role: "user", parts: [{ text: buildTweetUserPrompt(context) }] }],
@@ -251,17 +244,31 @@ export async function generateTweet(
     const responseText = response.text?.trim() || "";
     const jsonMatch = responseText.match(/\{[\s\S]*\}/);
     if (!jsonMatch) {
-      console.warn(`${LOG_PREFIX} No JSON returned from LLM`);
+      runtimeLog.warning("Tweet generation returned no JSON payload");
       return null;
     }
 
-    const parsed = JSON.parse(jsonMatch[0]) as {
+    let parsed: {
       tweet_text?: string;
       intent?: string;
       reasoning?: string;
       include_selfie?: boolean;
       selfie_scene?: string | null;
     };
+    try {
+      parsed = JSON.parse(jsonMatch[0]) as {
+        tweet_text?: string;
+        intent?: string;
+        reasoning?: string;
+        include_selfie?: boolean;
+        selfie_scene?: string | null;
+      };
+    } catch (error) {
+      runtimeLog.warning("Tweet generation returned malformed JSON payload", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return null;
+    }
 
     const tweetText = typeof parsed.tweet_text === "string" ? parsed.tweet_text.trim() : "";
     const intent = typeof parsed.intent === "string" ? parsed.intent : "thought";
@@ -305,7 +312,9 @@ export async function generateTweet(
       },
     );
   } catch (error) {
-    console.error(`${LOG_PREFIX} Tweet generation failed`, { error });
+    runtimeLog.error("Tweet generation failed", {
+      error: error instanceof Error ? error.message : String(error),
+    });
     return null;
   }
 }

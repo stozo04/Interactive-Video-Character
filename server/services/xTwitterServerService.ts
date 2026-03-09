@@ -12,13 +12,18 @@ const runtimeLog = log.fromContext({ source: "xTwitterServerService" });
 
 const AUTH_BASE_URL = "https://twitter.com/i/oauth2/authorize";
 const X_API_BASE = "https://api.x.com/2";
+const X_UPLOAD_API_BASE = "https://upload.twitter.com/1.1";
+// X accepts /i/status/<id> as a valid fallback route when username lookup fails.
+const X_TWEET_URL_FALLBACK_USERNAME = "i";
 const TOKEN_REFRESH_BUFFER_MS = 5 * 60 * 1000;
 const OAUTH_STATE_TTL_MS = 10 * 60 * 1000;
 const X_AUTH_SCOPES = "tweet.read tweet.write users.read offline.access media.write";
+const MENTION_FETCH_MAX_RESULTS = "10";
+const MAX_IMAGE_UPLOAD_BYTES = 5 * 1024 * 1024;
 
-const X_CLIENT_ID = process.env.VITE_X_CLIENT_ID ?? "";
-const X_CLIENT_SECRET = process.env.VITE_X_CLIENT_SECRET ?? "";
-const X_CALLBACK_URL = process.env.VITE_X_CALLBACK_URL ?? process.env.X_CALLBACK_URL ?? "";
+const X_CLIENT_ID = process.env.X_CLIENT_ID ?? "";
+const X_CLIENT_SECRET = process.env.X_CLIENT_SECRET ?? "";
+const X_CALLBACK_URL = process.env.X_CALLBACK_URL ?? process.env.VITE_X_CALLBACK_URL ?? "";
 
 const TABLES = {
   AUTH_TOKENS: "x_auth_tokens",
@@ -26,6 +31,8 @@ const TABLES = {
   MENTIONS: "x_mentions",
 } as const;
 
+// OAuth state is intentionally in-memory. Pending auth attempts are lost on
+// server restart, which is acceptable because the user can restart the flow.
 const oauthStateStore = new Map<string, { codeVerifier: string; createdAt: number }>();
 
 export interface XAuthTokens {
@@ -112,6 +119,13 @@ export interface ResolveTweetDraftResult {
   error?: string;
 }
 
+interface XTokenResponse {
+  access_token: string;
+  refresh_token: string;
+  expires_in: number;
+  scope: string;
+}
+
 function requireXCredentials(): void {
   if (!X_CLIENT_ID || !X_CLIENT_SECRET) {
     throw new Error("X client credentials are not configured");
@@ -120,7 +134,7 @@ function requireXCredentials(): void {
 
 function requireXCallbackUrl(): void {
   if (!X_CALLBACK_URL) {
-    throw new Error("VITE_X_CALLBACK_URL is not configured");
+    throw new Error("X_CALLBACK_URL is not configured");
   }
 }
 
@@ -192,12 +206,24 @@ function mapMentionRow(row: Record<string, unknown>): StoredMention {
   };
 }
 
-export function parseMediaUploadResponse(result: unknown): string {
+function parseMediaUploadResponse(result: unknown): string {
   const mediaId = (result as { data?: { id?: string } })?.data?.id;
   if (!mediaId) {
     throw new Error("Media upload failed: missing media id in response");
   }
   return mediaId;
+}
+
+function isValidXTokenResponse(value: unknown): value is XTokenResponse {
+  if (!value || typeof value !== "object") return false;
+  const candidate = value as Record<string, unknown>;
+  return (
+    typeof candidate.access_token === "string" &&
+    typeof candidate.refresh_token === "string" &&
+    typeof candidate.expires_in === "number" &&
+    Number.isFinite(candidate.expires_in) &&
+    typeof candidate.scope === "string"
+  );
 }
 
 async function storeTokens(tokenResponse: {
@@ -216,6 +242,7 @@ async function storeTokens(tokenResponse: {
 
   if (selectError) {
     runtimeLog.error("Failed to read existing X tokens", { error: selectError.message });
+    throw new Error(`Failed to read existing X tokens: ${selectError.message}`);
   }
 
   if (existing?.id) {
@@ -290,8 +317,12 @@ async function refreshXToken(refreshToken: string): Promise<string | null> {
   }
 
   const tokens = await response.json();
+  if (!isValidXTokenResponse(tokens)) {
+    runtimeLog.error("X token refresh returned malformed payload", { payload: tokens });
+    return null;
+  }
   await storeTokens(tokens);
-  return tokens.access_token as string;
+  return tokens.access_token;
 }
 
 export async function getValidAccessToken(): Promise<string | null> {
@@ -311,25 +342,55 @@ export async function getValidAccessToken(): Promise<string | null> {
 
 let cachedUsername: string | null = null;
 let cachedUserId: string | null = null;
+let cachedIdentityPromise: Promise<{ username: string; userId: string } | null> | null = null;
+
+async function loadAuthenticatedIdentity(
+  accessToken: string,
+): Promise<{ username: string; userId: string } | null> {
+  if (cachedUsername && cachedUserId) {
+    return {
+      username: cachedUsername,
+      userId: cachedUserId,
+    };
+  }
+
+  if (!cachedIdentityPromise) {
+    cachedIdentityPromise = (async () => {
+      const response = await fetch(`${X_API_BASE}/users/me`, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+
+      if (!response.ok) {
+        runtimeLog.warning("Failed to fetch authenticated X identity", {
+          status: response.status,
+          fallbackUsername: X_TWEET_URL_FALLBACK_USERNAME,
+        });
+        return null;
+      }
+
+      const data = await response.json();
+      const username = typeof data?.data?.username === "string" ? data.data.username : null;
+      const userId = typeof data?.data?.id === "string" ? data.data.id : null;
+      if (!username || !userId) {
+        runtimeLog.warning("Authenticated X identity payload missing username or user id");
+        return null;
+      }
+
+      cachedUsername = username;
+      cachedUserId = userId;
+      return { username, userId };
+    })().finally(() => {
+      cachedIdentityPromise = null;
+    });
+  }
+
+  return cachedIdentityPromise;
+}
 
 async function getAuthenticatedUsername(accessToken: string): Promise<string> {
   if (cachedUsername) return cachedUsername;
-
-  const response = await fetch(`${X_API_BASE}/users/me`, {
-    headers: { Authorization: `Bearer ${accessToken}` },
-  });
-
-  if (!response.ok) {
-    runtimeLog.warning("Failed to fetch X username, using fallback", {
-      status: response.status,
-    });
-    return "i";
-  }
-
-  const data = await response.json();
-  cachedUsername = data.data.username;
-  cachedUserId = data.data.id;
-  return cachedUsername;
+  const identity = await loadAuthenticatedIdentity(accessToken);
+  return identity?.username ?? X_TWEET_URL_FALLBACK_USERNAME;
 }
 
 export async function getAuthenticatedUserId(): Promise<string | null> {
@@ -337,20 +398,8 @@ export async function getAuthenticatedUserId(): Promise<string | null> {
 
   const accessToken = await getValidAccessToken();
   if (!accessToken) return null;
-
-  const response = await fetch(`${X_API_BASE}/users/me`, {
-    headers: { Authorization: `Bearer ${accessToken}` },
-  });
-
-  if (!response.ok) {
-    runtimeLog.warning("Failed to fetch X user id", { status: response.status });
-    return null;
-  }
-
-  const data = await response.json();
-  cachedUserId = data.data.id;
-  cachedUsername = data.data.username;
-  return cachedUserId;
+  const identity = await loadAuthenticatedIdentity(accessToken);
+  return identity?.userId ?? null;
 }
 
 export async function initXAuth(): Promise<string> {
@@ -417,6 +466,7 @@ export async function handleXAuthCallback(code: string, state: string): Promise<
   await storeTokens(tokens);
   cachedUsername = null;
   cachedUserId = null;
+  cachedIdentityPromise = null;
 }
 
 export async function isXConnected(): Promise<boolean> {
@@ -477,6 +527,7 @@ export async function revokeXAuth(): Promise<void> {
 
   cachedUsername = null;
   cachedUserId = null;
+  cachedIdentityPromise = null;
 }
 
 export async function postTweet(text: string): Promise<{ tweetId: string; tweetUrl: string }> {
@@ -521,9 +572,8 @@ export async function uploadMedia(
 
   const cleanedBase64 = imageBase64.replace(/^data:image\/[a-z]+;base64,/, "");
   const buffer = Buffer.from(cleanedBase64, "base64");
-  const maxBytes = 5 * 1024 * 1024;
-  if (buffer.length > maxBytes) {
-    throw new Error("Media upload failed: image exceeds 5 MB limit");
+  if (buffer.length > MAX_IMAGE_UPLOAD_BYTES) {
+    throw new Error("Media upload failed: image exceeds 5 MB image limit");
   }
 
   const supportedTypes = new Set(["image/jpeg", "image/png", "image/gif", "image/webp"]);
@@ -535,7 +585,7 @@ export async function uploadMedia(
   formData.append("media", new Blob([buffer], { type: mimeType }), "image");
   formData.append("media_category", "tweet_image");
 
-  const response = await fetch(`${X_API_BASE}/media/upload`, {
+  const response = await fetch(`${X_UPLOAD_API_BASE}/media/upload.json`, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${accessToken}`,
@@ -892,6 +942,56 @@ export async function fetchTweetMetrics(tweetId: string): Promise<TweetMetrics |
   }
 }
 
+async function fetchTweetMetricsBatch(
+  tweetIds: string[],
+): Promise<Map<string, TweetMetrics>> {
+  const metricsByTweetId = new Map<string, TweetMetrics>();
+  if (tweetIds.length === 0) return metricsByTweetId;
+
+  const accessToken = await getValidAccessToken();
+  if (!accessToken) return metricsByTweetId;
+
+  try {
+    const url = new URL(`${X_API_BASE}/tweets`);
+    url.searchParams.set("ids", tweetIds.join(","));
+    url.searchParams.set("tweet.fields", "public_metrics");
+
+    const response = await fetch(url.toString(), {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+
+    if (!response.ok) {
+      runtimeLog.warning("Failed to fetch tweet metrics batch", {
+        status: response.status,
+        tweetCount: tweetIds.length,
+      });
+      return metricsByTweetId;
+    }
+
+    const result = await response.json();
+    const tweets = Array.isArray(result?.data) ? result.data : [];
+    for (const tweet of tweets) {
+      const tweetId = typeof tweet?.id === "string" ? tweet.id : null;
+      const publicMetrics = tweet?.public_metrics as Record<string, unknown> | undefined;
+      if (!tweetId || !publicMetrics) continue;
+
+      metricsByTweetId.set(tweetId, {
+        likes: typeof publicMetrics.like_count === "number" ? publicMetrics.like_count : 0,
+        reposts: typeof publicMetrics.retweet_count === "number" ? publicMetrics.retweet_count : 0,
+        replies: typeof publicMetrics.reply_count === "number" ? publicMetrics.reply_count : 0,
+        impressions: typeof publicMetrics.impression_count === "number" ? publicMetrics.impression_count : 0,
+      });
+    }
+  } catch (error) {
+    runtimeLog.error("Failed to fetch tweet metrics batch", {
+      tweetCount: tweetIds.length,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+
+  return metricsByTweetId;
+}
+
 export async function refreshRecentTweetMetrics(): Promise<number> {
   const sevenDaysAgo = new Date();
   sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
@@ -908,9 +1008,18 @@ export async function refreshRecentTweetMetrics(): Promise<number> {
     return 0;
   }
 
+  const metricsByTweetId = await fetchTweetMetricsBatch(
+    recentTweets
+      .map((tweet) => tweet.tweet_id as string | null)
+      .filter((tweetId): tweetId is string => typeof tweetId === "string" && tweetId.length > 0),
+  );
+
   let updated = 0;
   for (const tweet of recentTweets) {
-    const metrics = await fetchTweetMetrics(tweet.tweet_id as string);
+    const tweetId = tweet.tweet_id as string | null;
+    if (!tweetId) continue;
+
+    const metrics = metricsByTweetId.get(tweetId);
     if (!metrics) continue;
 
     const { error: updateError } = await supabase
@@ -940,10 +1049,10 @@ export async function fetchMentions(sinceId?: string): Promise<XMention[]> {
   if (!userId) return [];
 
   const url = new URL(`${X_API_BASE}/users/${userId}/mentions`);
-  url.searchParams.set("tweet.fields", "created_at,conversation_id,author_id");
+  url.searchParams.set("tweet.fields", "created_at,conversation_id,author_id,referenced_tweets");
   url.searchParams.set("expansions", "author_id");
   url.searchParams.set("user.fields", "username");
-  url.searchParams.set("max_results", "10");
+  url.searchParams.set("max_results", MENTION_FETCH_MAX_RESULTS);
   if (sinceId) url.searchParams.set("since_id", sinceId);
 
   try {
@@ -971,7 +1080,10 @@ export async function fetchMentions(sinceId?: string): Promise<XMention[]> {
       authorUsername: userMap.get(tweet.author_id as string) ?? "unknown",
       text: tweet.text as string,
       conversationId: (tweet.conversation_id as string) ?? null,
-      inReplyToTweetId: null,
+      inReplyToTweetId: Array.isArray(tweet.referenced_tweets)
+        ? ((tweet.referenced_tweets as Array<{ type?: string; id?: string }>)
+            .find((reference) => reference.type === "replied_to")?.id ?? null)
+        : null,
       createdAt: (tweet.created_at as string) ?? new Date().toISOString(),
     }));
   } catch (error) {
@@ -1020,6 +1132,26 @@ export async function storeMentions(
 ): Promise<number> {
   if (mentions.length === 0) return 0;
 
+  const tweetIds = mentions.map((mention) => mention.tweetId);
+  const { data: existingMentions, error: existingMentionsError } = await supabase
+    .from(TABLES.MENTIONS)
+    .select("tweet_id")
+    .in("tweet_id", tweetIds);
+
+  if (existingMentionsError) {
+    runtimeLog.error("Failed to read existing X mentions before upsert", {
+      error: existingMentionsError.message,
+      mentionCount: mentions.length,
+    });
+    return 0;
+  }
+
+  const existingTweetIds = new Set(
+    (existingMentions ?? [])
+      .map((row) => row.tweet_id as string | null)
+      .filter((tweetId): tweetId is string => typeof tweetId === "string" && tweetId.length > 0),
+  );
+
   let stored = 0;
   for (const mention of mentions) {
     const normalizedAuthor = normalizeXUsername(mention.authorUsername);
@@ -1041,7 +1173,9 @@ export async function storeMentions(
       );
 
     if (!error) {
-      stored += 1;
+      if (!existingTweetIds.has(mention.tweetId)) {
+        stored += 1;
+      }
     }
   }
 
@@ -1071,6 +1205,26 @@ export async function getMentions(
   }
 
   return data.map(mapMentionRow);
+}
+
+export async function getMentionById(id: string): Promise<StoredMention | null> {
+  const { data, error } = await supabase
+    .from(TABLES.MENTIONS)
+    .select("*")
+    .eq("id", id)
+    .maybeSingle();
+
+  if (error || !data) {
+    if (error) {
+      runtimeLog.error("Failed to fetch X mention by id", {
+        id,
+        error: error.message,
+      });
+    }
+    return null;
+  }
+
+  return mapMentionRow(data);
 }
 
 export async function getMentionsByTweetIds(tweetIds: string[]): Promise<StoredMention[]> {

@@ -214,20 +214,20 @@ export function buildToolStrategySection(): string {
    **TIME:**
      - 'time' — current local/UTC time
 
-16. TOOL FOLLOW-THROUGH (CRITICAL):
+15. TOOL FOLLOW-THROUGH (CRITICAL):
    - Never claim an action is done unless the tool result explicitly confirms success.
    - If a tool returns a failure or missing-field warning, say you couldn't complete it and explain what's needed.
    - Function tools must be invoked as actual tool calls. Do NOT "fake-call" tools by putting keys like "recall_user_info", "recall_memory", "calendar_action", "store_daily_note", "web_search", "google_task_action", or "google_cli" inside your JSON response body.
    - If a tool was required but not called, do not claim completion. Ask a brief follow-up or acknowledge you still need to run the tool.
    - **UNKNOWN TOOL (CRITICAL):** If a tool call returns "Unknown tool: <name>", STOP. Do NOT attempt to achieve the same goal via a different tool. Just tell Steven naturally that you can't do that right now. NEVER improvise an alternative (e.g., sending an email because a selfie tool failed). Improvising with the wrong tool causes real side-effects.
 
-17. AGENT FILE WRITES (write_agent_file):
+16. AGENT FILE WRITES (write_agent_file):
    - write_agent_file REPLACES the ENTIRE file. If you don't include existing content, it is LOST.
    - ALWAYS call read_agent_file first to get the current content.
    - Then write the full file: existing content + your additions/edits.
    - When writing SOUL.md or IDENTITY.md: tell Steven what you changed after saving.
 
-18. DATABASE QUERIES (query_database):
+17. DATABASE QUERIES (query_database):
    - Use for self-audits: checking if you wrote daily notes today, verifying before storing a duplicate, finding stale promises.
    - Do NOT run queries on every turn — limit to 1-2 queries per conversation when genuinely useful.
    - Do NOT query conversation_history for recent messages (you already have those in context).
@@ -248,7 +248,7 @@ export function buildToolStrategySection(): string {
      - Logs for a specific request:
        SELECT occurred_at, severity, source, message, details FROM server_runtime_logs WHERE details->>'request_id' = '<uuid>' ORDER BY occurred_at ASC
 
-19. EMAIL ACTION MANAGEMENT (email_action_manage):
+18. EMAIL ACTION MANAGEMENT (email_action_manage):
    - Use to bulk-dismiss pending email action rows in kayley_email_actions.
    - Call when Steven asks you to "clear pending emails", "dismiss all pending", or you want to clean up stale pending rows.
    - Always use action="dismiss_pending".
@@ -258,7 +258,7 @@ export function buildToolStrategySection(): string {
      - No filter (omit both): dismisses ALL pending rows, capped at 50
    - Returns count of rows dismissed.
 
-20. SELF-HEALING PROTOCOL:
+19. SELF-HEALING PROTOCOL:
    When you hit a problem, a tool failure, or something that seems broken — DO NOT immediately give up or delegate.
    Try to fix it yourself first using tools you already have.
 

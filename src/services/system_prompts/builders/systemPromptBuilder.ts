@@ -56,9 +56,7 @@ import { ensureDailyNotesRowForToday, getAllDailyNotes, getAllLessonsLearned, ge
 import {
   buildAnsweredIdleQuestionsPromptSection,
   buildIdleQuestionPromptSection,
-  buildXTweetPromptSection,
 } from "../../idleThinkingService";
-import { buildMentionsPromptSection } from "../../../../server/services/xMentionService";
 import { buildTopicSuppressionPromptSection } from "../../topicExhaustionService";
 import { buildConversationAnchorPromptSection } from "../../conversationAnchorService";
 import { buildActiveRecallPromptSection } from "../../activeRecallService";
@@ -98,20 +96,24 @@ export interface GreetingContext {
   /** Kayley's recent life updates from storylines */
   kayleyLifeUpdates?: KayleyLifeUpdate[];
 }
+
+export interface NonGreetingPromptSections {
+  xTweetPrompt?: string;
+  xMentionsPrompt?: string;
+}
+
 export const buildSystemPromptForNonGreeting = async (
   relationship?: RelationshipMetrics | null,
-  upcomingEvents: any[] = [],
   interactionId?: string | null,
   currentUserMessage?: string, // NEW: for active recall
   messageCount: number = 0,
+  sections: NonGreetingPromptSections = {},
 ): Promise<string> => {
   console.log("[buildSystemPromptForNonGreeting] fetching now");
 
   // Shared sections fetched in parallel (needed by both paths)
   const [
     idleQuestionPrompt,
-    xTweetPrompt,
-    xMentionsPrompt,
     scheduledDigestsPrompt,
     lessonsLearnedPrompt,
     topicSuppressionPrompt,
@@ -126,8 +128,6 @@ export const buildSystemPromptForNonGreeting = async (
     curiositySection,
   ] = await Promise.all([
     buildIdleQuestionPromptSection(),
-    buildXTweetPromptSection(),
-    buildMentionsPromptSection(),
     buildScheduledDigestsContext(),
     buildLessonsLearnedPromptSection(),
     buildTopicSuppressionPromptSection(),
@@ -147,8 +147,7 @@ export const buildSystemPromptForNonGreeting = async (
     buildCuriositySection(),
   ]);
 
-
-    let prompt = `
+  let prompt = `
 ${injectSOUL()}
 ${injectIDENTITY()}
 ${injectUSER()}
@@ -162,8 +161,8 @@ ${buildAgentFilesSection()}
 ${currentWorldContext}
 ${anchorSection}
 ${activeRecallSection}
-${xTweetPrompt}
-${xMentionsPrompt}
+${sections.xTweetPrompt ?? ""}
+${sections.xMentionsPrompt ?? ""}
 ${idleQuestionPrompt}
 ${buildOpinionsAndPushbackSection()}
 ${lessonsLearnedPrompt}

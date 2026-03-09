@@ -56,7 +56,31 @@ const lessonsLogger = clientLogger.scoped('LessonsLearned');
 const workspaceLogger = clientLogger.scoped('WorkspaceAction');
 const calendarToolLogger = clientLogger.scoped('CalendarTool');
 const memoryToolLog = clientLogger.scoped('MemoryTool');
+const memoryServiceLogger = clientLogger.scoped('MemoryService');
 const TOOL_FAILURE_PREFIX = 'TOOL_FAILED:';
+
+function normalizeLogDetails(details: unknown): Record<string, unknown> | undefined {
+  if (details === undefined) return undefined;
+  if (details instanceof Error) {
+    return { error: details.message };
+  }
+  if (details && typeof details === 'object') {
+    return details as Record<string, unknown>;
+  }
+  return { value: String(details) };
+}
+
+function logInfo(message: string, details?: unknown): void {
+  memoryServiceLogger.info(message, normalizeLogDetails(details));
+}
+
+function logWarn(message: string, details?: unknown): void {
+  memoryServiceLogger.warning(message, normalizeLogDetails(details));
+}
+
+function logError(message: string, details?: unknown): void {
+  memoryServiceLogger.error(message, normalizeLogDetails(details));
+}
 
 // Default limits to prevent context overflow
 const DEFAULT_MEMORY_LIMIT = 5;
@@ -108,7 +132,7 @@ function getTodayCstDateString(): string {
   const day = parts.find((p) => p.type === 'day')?.value;
 
   if (!year || !month || !day) {
-    console.warn('⚠️ [Daily Notes] Failed to parse CST date parts, falling back to UTC date');
+    logWarn('⚠️ [Daily Notes] Failed to parse CST date parts, falling back to UTC date');
     return new Date().toISOString().slice(0, 10);
   }
 
@@ -130,7 +154,7 @@ function getCurrentCstMonthKey(): string {
   const month = parts.find((p) => p.type === 'month')?.value;
 
   if (!year || !month) {
-    console.warn('⚠️ [Monthly Notes] Failed to parse CST month parts, falling back to UTC month');
+    logWarn('⚠️ [Monthly Notes] Failed to parse CST month parts, falling back to UTC month');
     return new Date().toISOString().slice(0, 7);
   }
 
@@ -357,7 +381,7 @@ function shouldPinUserFact(category: FactCategory, key: string): boolean {
 export const ensureDailyNotesRowForToday = async (): Promise<boolean> => {
   try {
     const cstDate = getTodayCstDateString();
-    console.log(`🗓️ [Daily Notes] Ensuring daily notes row exists for CST date: ${cstDate}`);
+    logInfo(`🗓️ [Daily Notes] Ensuring daily notes row exists for CST date: ${cstDate}`);
 
     const { error } = await supabase
       .from(KAYLEY_DAILY_NOTES_TABLE)
@@ -371,14 +395,14 @@ export const ensureDailyNotesRowForToday = async (): Promise<boolean> => {
       );
 
     if (error) {
-      console.error('❌ [Daily Notes] Failed to ensure daily notes row:', error);
+      logError('❌ [Daily Notes] Failed to ensure daily notes row:', error);
       return false;
     }
 
-    console.log('✅ [Daily Notes] Daily notes row is ready');
+    logInfo('✅ [Daily Notes] Daily notes row is ready');
     return true;
   } catch (error) {
-    console.error('❌ [Daily Notes] Error ensuring daily notes row:', error);
+    logError('❌ [Daily Notes] Error ensuring daily notes row:', error);
     return false;
   }
 };
@@ -390,18 +414,18 @@ export const appendDailyNote = async (note: string): Promise<boolean> => {
   const normalizedNote = normalizeDailyNoteInput(note);
 
   if (!normalizedNote) {
-    console.warn('⚠️ [Daily Notes] Skipping empty daily note');
+    logWarn('⚠️ [Daily Notes] Skipping empty daily note');
     return false;
   }
 
   try {
     const cstDate = getTodayCstDateString();
-    console.log(`🗒️ [Daily Notes] Appending note for CST date: ${cstDate}`);
-    console.log(`🗒️ [Daily Notes] Note content: "${normalizedNote}"`);
+    logInfo(`🗒️ [Daily Notes] Appending note for CST date: ${cstDate}`);
+    logInfo(`🗒️ [Daily Notes] Note content: "${normalizedNote}"`);
 
     const ensured = await ensureDailyNotesRowForToday();
     if (!ensured) {
-      console.warn('⚠️ [Daily Notes] Could not ensure daily notes row; aborting append');
+      logWarn('⚠️ [Daily Notes] Could not ensure daily notes row; aborting append');
       return false;
     }
 
@@ -412,7 +436,7 @@ export const appendDailyNote = async (note: string): Promise<boolean> => {
       .single();
 
     if (error) {
-      console.error('❌ [Daily Notes] Failed to fetch existing notes:', error);
+      logError('❌ [Daily Notes] Failed to fetch existing notes:', error);
       return false;
     }
 
@@ -427,14 +451,14 @@ export const appendDailyNote = async (note: string): Promise<boolean> => {
       .eq('note_date_cst', cstDate);
 
     if (updateError) {
-      console.error('❌ [Daily Notes] Failed to append note:', updateError);
+      logError('❌ [Daily Notes] Failed to append note:', updateError);
       return false;
     }
 
-    console.log('✅ [Daily Notes] Note appended successfully');
+    logInfo('✅ [Daily Notes] Note appended successfully');
     return true;
   } catch (error) {
-    console.error('❌ [Daily Notes] Error appending daily note:', error);
+    logError('❌ [Daily Notes] Error appending daily note:', error);
     return false;
   }
 };
@@ -444,7 +468,7 @@ export const appendDailyNote = async (note: string): Promise<boolean> => {
  */
 export const getAllDailyNotes = async (): Promise<string[]> => {
   try {
-    console.log('📚 [Daily Notes] Retrieving all daily notes');
+    logInfo('📚 [Daily Notes] Retrieving all daily notes');
 
     const { data, error } = await supabase
       .from(KAYLEY_DAILY_NOTES_TABLE)
@@ -452,7 +476,7 @@ export const getAllDailyNotes = async (): Promise<string[]> => {
       .order('note_date_cst', { ascending: true });
 
     if (error) {
-      console.error('❌ [Daily Notes] Failed to retrieve notes:', error);
+      logError('❌ [Daily Notes] Failed to retrieve notes:', error);
       return [];
     }
 
@@ -462,10 +486,10 @@ export const getAllDailyNotes = async (): Promise<string[]> => {
       .filter((line) => line.length > 0)
       .map((line) => (line.startsWith('-') ? line : `- ${line}`));
 
-    console.log(`📚 [Daily Notes] Retrieved ${lines.length} note line(s)`);
+    logInfo(`📚 [Daily Notes] Retrieved ${lines.length} note line(s)`);
     return lines;
   } catch (error) {
-    console.error('❌ [Daily Notes] Error retrieving notes:', error);
+    logError('❌ [Daily Notes] Error retrieving notes:', error);
     return [];
   }
 };
@@ -489,7 +513,7 @@ export const ensureMonthlyNotesRowForMonth = async (
   monthKey: string
 ): Promise<boolean> => {
   try {
-    console.log(`🗓️ [Monthly Notes] Ensuring monthly notes row exists for: ${monthKey}`);
+    logInfo(`🗓️ [Monthly Notes] Ensuring monthly notes row exists for: ${monthKey}`);
 
     const { error } = await supabase
       .from(KAYLEY_MONTHLY_NOTES_TABLE)
@@ -503,14 +527,14 @@ export const ensureMonthlyNotesRowForMonth = async (
       );
 
     if (error) {
-      console.error('❌ [Monthly Notes] Failed to ensure monthly notes row:', error);
+      logError('❌ [Monthly Notes] Failed to ensure monthly notes row:', error);
       return false;
     }
 
-    console.log('✅ [Monthly Notes] Monthly notes row is ready');
+    logInfo('✅ [Monthly Notes] Monthly notes row is ready');
     return true;
   } catch (error) {
-    console.error('❌ [Monthly Notes] Error ensuring monthly notes row:', error);
+    logError('❌ [Monthly Notes] Error ensuring monthly notes row:', error);
     return false;
   }
 };
@@ -522,18 +546,18 @@ export const appendMonthlyNote = async (note: string): Promise<boolean> => {
   const normalizedNote = normalizeMonthlyNoteInput(note);
 
   if (!normalizedNote) {
-    console.warn('⚠️ [Monthly Notes] Skipping empty monthly note');
+    logWarn('⚠️ [Monthly Notes] Skipping empty monthly note');
     return false;
   }
 
   try {
     const monthKey = getCurrentCstMonthKey();
-    console.log(`🗒️ [Monthly Notes] Appending note for month: ${monthKey}`);
-    console.log(`🗒️ [Monthly Notes] Note content: "${normalizedNote}"`);
+    logInfo(`🗒️ [Monthly Notes] Appending note for month: ${monthKey}`);
+    logInfo(`🗒️ [Monthly Notes] Note content: "${normalizedNote}"`);
 
     const ensured = await ensureMonthlyNotesRowForMonth(monthKey);
     if (!ensured) {
-      console.warn('⚠️ [Monthly Notes] Could not ensure monthly notes row; aborting append');
+      logWarn('⚠️ [Monthly Notes] Could not ensure monthly notes row; aborting append');
       return false;
     }
 
@@ -544,7 +568,7 @@ export const appendMonthlyNote = async (note: string): Promise<boolean> => {
       .single();
 
     if (error) {
-      console.error('❌ [Monthly Notes] Failed to fetch existing notes:', error);
+      logError('❌ [Monthly Notes] Failed to fetch existing notes:', error);
       return false;
     }
 
@@ -559,14 +583,14 @@ export const appendMonthlyNote = async (note: string): Promise<boolean> => {
       .eq('month_key', monthKey);
 
     if (updateError) {
-      console.error('❌ [Monthly Notes] Failed to append note:', updateError);
+      logError('❌ [Monthly Notes] Failed to append note:', updateError);
       return false;
     }
 
-    console.log('✅ [Monthly Notes] Note appended successfully');
+    logInfo('✅ [Monthly Notes] Note appended successfully');
     return true;
   } catch (error) {
-    console.error('❌ [Monthly Notes] Error appending monthly note:', error);
+    logError('❌ [Monthly Notes] Error appending monthly note:', error);
     return false;
   }
 };
@@ -584,17 +608,17 @@ export const getMonthlyNotesForMonth = async (
     const safeMonth = Number.isFinite(month) ? Math.floor(month as number) : current.month;
 
     if (!Number.isFinite(safeYear) || safeYear < 1970 || safeYear > 2100) {
-      console.warn('⚠️ [Monthly Notes] Invalid year for monthly notes retrieval', { year });
+      logWarn('⚠️ [Monthly Notes] Invalid year for monthly notes retrieval', { year });
       return { monthKey: current.key, lines: [] };
     }
 
     if (!Number.isFinite(safeMonth) || safeMonth < 1 || safeMonth > 12) {
-      console.warn('⚠️ [Monthly Notes] Invalid month for monthly notes retrieval', { month });
+      logWarn('⚠️ [Monthly Notes] Invalid month for monthly notes retrieval', { month });
       return { monthKey: current.key, lines: [] };
     }
 
     const monthKey = `${safeYear}-${String(safeMonth).padStart(2, '0')}`;
-    console.log('📚 [Monthly Notes] Retrieving notes for month', { monthKey });
+    logInfo('📚 [Monthly Notes] Retrieving notes for month', { monthKey });
 
     const { data, error } = await supabase
       .from(KAYLEY_MONTHLY_NOTES_TABLE)
@@ -603,7 +627,7 @@ export const getMonthlyNotesForMonth = async (
       .maybeSingle();
 
     if (error) {
-      console.error('❌ [Monthly Notes] Failed to retrieve notes:', error);
+      logError('❌ [Monthly Notes] Failed to retrieve notes:', error);
       return { monthKey, lines: [] };
     }
 
@@ -613,10 +637,10 @@ export const getMonthlyNotesForMonth = async (
       .filter((line) => line.length > 0)
       .map((line) => (line.startsWith('-') ? line : `- ${line}`));
 
-    console.log(`📚 [Monthly Notes] Retrieved ${lines.length} note line(s)`, { monthKey });
+    logInfo(`📚 [Monthly Notes] Retrieved ${lines.length} note line(s)`, { monthKey });
     return { monthKey, lines };
   } catch (error) {
-    console.error('❌ [Monthly Notes] Error retrieving notes:', error);
+    logError('❌ [Monthly Notes] Error retrieving notes:', error);
     return { monthKey: getCurrentCstMonthKey(), lines: [] };
   }
 };
@@ -754,7 +778,7 @@ export const ensureMilaMilestoneRowForDate = async (
   utcDate: string
 ): Promise<boolean> => {
   try {
-    console.log(`🗓️ [Mila Notes] Ensuring milestone row exists for UTC date: ${utcDate}`);
+    logInfo(`🗓️ [Mila Notes] Ensuring milestone row exists for UTC date: ${utcDate}`);
 
     const { error } = await supabase
       .from(MILA_MILESTONE_NOTES_TABLE)
@@ -768,14 +792,14 @@ export const ensureMilaMilestoneRowForDate = async (
       );
 
     if (error) {
-      console.error('❌ [Mila Notes] Failed to ensure milestone row:', error);
+      logError('❌ [Mila Notes] Failed to ensure milestone row:', error);
       return false;
     }
 
-    console.log('✅ [Mila Notes] Milestone row is ready');
+    logInfo('✅ [Mila Notes] Milestone row is ready');
     return true;
   } catch (error) {
-    console.error('❌ [Mila Notes] Error ensuring milestone row:', error);
+    logError('❌ [Mila Notes] Error ensuring milestone row:', error);
     return false;
   }
 };
@@ -787,18 +811,18 @@ export const appendMilaMilestoneNote = async (note: string): Promise<boolean> =>
   const normalizedNote = normalizeMilaNoteInput(note);
 
   if (!normalizedNote) {
-    console.warn('⚠️ [Mila Notes] Skipping empty milestone note');
+    logWarn('⚠️ [Mila Notes] Skipping empty milestone note');
     return false;
   }
 
   try {
     const utcDate = getTodayUtcDateString();
-    console.log(`🗒️ [Mila Notes] Appending milestone note for UTC date: ${utcDate}`);
-    console.log(`🗒️ [Mila Notes] Note content: "${normalizedNote}"`);
+    logInfo(`🗒️ [Mila Notes] Appending milestone note for UTC date: ${utcDate}`);
+    logInfo(`🗒️ [Mila Notes] Note content: "${normalizedNote}"`);
 
     const ensured = await ensureMilaMilestoneRowForDate(utcDate);
     if (!ensured) {
-      console.warn('⚠️ [Mila Notes] Could not ensure milestone row; aborting append');
+      logWarn('⚠️ [Mila Notes] Could not ensure milestone row; aborting append');
       return false;
     }
 
@@ -809,7 +833,7 @@ export const appendMilaMilestoneNote = async (note: string): Promise<boolean> =>
       .maybeSingle();
 
     if (error) {
-      console.error('❌ [Mila Notes] Failed to fetch existing milestone note:', error);
+      logError('❌ [Mila Notes] Failed to fetch existing milestone note:', error);
       return false;
     }
 
@@ -824,14 +848,14 @@ export const appendMilaMilestoneNote = async (note: string): Promise<boolean> =>
       .eq('note_entry_date', utcDate);
 
     if (updateError) {
-      console.error('❌ [Mila Notes] Failed to append milestone note:', updateError);
+      logError('❌ [Mila Notes] Failed to append milestone note:', updateError);
       return false;
     }
 
-    console.log('✅ [Mila Notes] Milestone note appended successfully');
+    logInfo('✅ [Mila Notes] Milestone note appended successfully');
     return true;
   } catch (error) {
-    console.error('❌ [Mila Notes] Error appending milestone note:', error);
+    logError('❌ [Mila Notes] Error appending milestone note:', error);
     return false;
   }
 };
@@ -853,11 +877,11 @@ export const getMilaMilestonesForMonth = async (
   month: number
 ): Promise<string[]> => {
   try {
-    console.log('📚 [Mila Notes] Retrieving milestones for month', { year, month });
+    logInfo('📚 [Mila Notes] Retrieving milestones for month', { year, month });
 
     const safeYear = Number.isFinite(year) ? Math.floor(year) : NaN;
     if (!Number.isFinite(safeYear) || safeYear < 1970 || safeYear > 2100) {
-      console.warn('⚠️ [Mila Notes] Invalid year for milestone retrieval', { year });
+      logWarn('⚠️ [Mila Notes] Invalid year for milestone retrieval', { year });
       return [];
     }
 
@@ -875,14 +899,14 @@ export const getMilaMilestonesForMonth = async (
       .order('note_entry_date', { ascending: true });
 
     if (error) {
-      console.error('❌ [Mila Notes] Failed to retrieve month milestones:', error);
+      logError('❌ [Mila Notes] Failed to retrieve month milestones:', error);
       return [];
     }
 
     const lines = (data || [])
       .flatMap((row) => formatMilaNoteLines(row.note, row.note_entry_date));
 
-    console.log('📚 [Mila Notes] Retrieved month milestone line(s)', {
+    logInfo('📚 [Mila Notes] Retrieved month milestone line(s)', {
       count: lines.length,
       startDate: startDateStr,
       endDate: endDateStr,
@@ -890,7 +914,7 @@ export const getMilaMilestonesForMonth = async (
 
     return lines;
   } catch (error) {
-    console.error('❌ [Mila Notes] Error retrieving month milestones:', error);
+    logError('❌ [Mila Notes] Error retrieving month milestones:', error);
     return [];
   }
 };
@@ -900,7 +924,7 @@ export const getMilaMilestonesForMonth = async (
  */
 export const getAllMilaMilestoneNotes = async (): Promise<string[]> => {
   try {
-    console.log('📚 [Mila Notes] Retrieving all milestone notes');
+    logInfo('📚 [Mila Notes] Retrieving all milestone notes');
 
     const { data, error } = await supabase
       .from(MILA_MILESTONE_NOTES_TABLE)
@@ -908,17 +932,17 @@ export const getAllMilaMilestoneNotes = async (): Promise<string[]> => {
       .order('note_entry_date', { ascending: true });
 
     if (error) {
-      console.error('❌ [Mila Notes] Failed to retrieve milestones:', error);
+      logError('❌ [Mila Notes] Failed to retrieve milestones:', error);
       return [];
     }
 
     const lines = (data || [])
       .flatMap((row) => formatMilaNoteLines(row.note, row.note_entry_date));
 
-    console.log(`📚 [Mila Notes] Retrieved ${lines.length} milestone line(s)`);
+    logInfo(`📚 [Mila Notes] Retrieved ${lines.length} milestone line(s)`);
     return lines;
   } catch (error) {
-    console.error('❌ [Mila Notes] Error retrieving milestones:', error);
+    logError('❌ [Mila Notes] Error retrieving milestones:', error);
     return [];
   }
 };
@@ -943,13 +967,13 @@ export const searchMemories = async (
   timeframe: 'recent' | 'all' = 'all'
 ): Promise<MemorySearchResult[]> => {
   try {
-    console.log(`🔍 [Memory] Searching for: "${query}" (timeframe: ${timeframe})`);
+    logInfo(`🔍 [Memory] Searching for: "${query}" (timeframe: ${timeframe})`);
     
     // Extract key terms from the query for searching
     const searchTerms = extractSearchTerms(query);
     
     if (searchTerms.length === 0) {
-      console.log('🔍 [Memory] No valid search terms found');
+      logInfo('🔍 [Memory] No valid search terms found');
       return [];
     }
 
@@ -969,12 +993,12 @@ export const searchMemories = async (
     const { data, error } = await queryBuilder;
 
     if (error) {
-      console.error('Failed to search memories:', error);
+      logError('Failed to search memories:', error);
       return [];
     }
 
     if (!data || data.length === 0) {
-      console.log('🔍 [Memory] No messages found in history');
+      logInfo('🔍 [Memory] No messages found in history');
       return [];
     }
 
@@ -1007,11 +1031,11 @@ export const searchMemories = async (
       .sort((a, b) => b.relevanceScore! - a.relevanceScore!)
       .slice(0, limit);
 
-    console.log(`🔍 [Memory] Found ${scoredResults.length} relevant memories`);
+    logInfo(`🔍 [Memory] Found ${scoredResults.length} relevant memories`);
     return scoredResults;
     
   } catch (error) {
-    console.error('Error searching memories:', error);
+    logError('Error searching memories:', error);
     return [];
   }
 };
@@ -1060,7 +1084,7 @@ export const getUserFacts = async (
   category: FactCategory = 'all'
 ): Promise<UserFact[]> => {
   try {
-    console.log(`📋 [Memory] Getting user facts (category: ${category})`);
+    logInfo(`📋 [Memory] Getting user facts (category: ${category})`);
 
     let queryBuilder = supabase
       .from(USER_FACTS_TABLE)
@@ -1074,15 +1098,15 @@ export const getUserFacts = async (
     const { data, error } = await queryBuilder;
 
     if (error) {
-      console.error('Failed to get user facts:', error);
+      logError('Failed to get user facts:', error);
       return [];
     }
 
-    console.log(`📋 [Memory] Found ${data?.length || 0} facts`);
+    logInfo(`📋 [Memory] Found ${data?.length || 0} facts`);
     return (data as UserFact[]) || [];
     
   } catch (error) {
-    console.error('Error getting user facts:', error);
+    logError('Error getting user facts:', error);
     return [];
   }
 };
@@ -1092,7 +1116,7 @@ export const getUserFacts = async (
  */
 export const getPinnedUserFacts = async (): Promise<UserFact[]> => {
   try {
-    console.log('📌 [Memory] Getting pinned user facts');
+    logInfo('📌 [Memory] Getting pinned user facts');
 
     const { data, error } = await supabase
       .from(USER_FACTS_TABLE)
@@ -1101,14 +1125,14 @@ export const getPinnedUserFacts = async (): Promise<UserFact[]> => {
       .order('updated_at', { ascending: false });
 
     if (error) {
-      console.error('Failed to get pinned user facts:', error);
+      logError('Failed to get pinned user facts:', error);
       return [];
     }
 
-    console.log(`📌 [Memory] Found ${data?.length || 0} pinned facts`);
+    logInfo(`📌 [Memory] Found ${data?.length || 0} pinned facts`);
     return (data as UserFact[]) || [];
   } catch (error) {
-    console.error('Error getting pinned user facts:', error);
+    logError('Error getting pinned user facts:', error);
     return [];
   }
 };
@@ -1134,7 +1158,7 @@ export const storeUserFact = async (
   try {
     const canonicalKey = normalizeUserFactKey(category, key);
     const pinned = shouldPinUserFact(category, canonicalKey);
-    console.log(`💾 [Memory] Storing fact: ${category}.${canonicalKey} = "${value}"`);
+    logInfo(`💾 [Memory] Storing fact: ${category}.${canonicalKey} = "${value}"`);
 
     const now = new Date().toISOString();
     
@@ -1155,7 +1179,7 @@ export const storeUserFact = async (
       .single();
 
     if (error) {
-      console.error('Failed to store user fact:', error);
+      logError('Failed to store user fact:', error);
       return false;
     }
 
@@ -1163,14 +1187,14 @@ export const storeUserFact = async (
     if (data) {
       import('./factEmbeddingsService')
         .then(({ upsertUserFactEmbedding }) => upsertUserFactEmbedding(data as UserFact))
-        .catch((err) => console.warn('[Memory] Failed to sync user fact embedding:', err));
+        .catch((err) => logWarn('[Memory] Failed to sync user fact embedding:', err));
     }
 
-    console.log(`💾 [Memory] Successfully stored fact`);
+    logInfo(`💾 [Memory] Successfully stored fact`);
     return true;
     
   } catch (error) {
-    console.error('Error storing user fact:', error);
+    logError('Error storing user fact:', error);
     return false;
   }
 };
@@ -1187,7 +1211,7 @@ export const deleteUserFact = async (
   key: string
 ): Promise<boolean> => {
   try {
-    console.log(`🗑️ [Memory] Deleting fact: ${category}.${key}`);
+    logInfo(`🗑️ [Memory] Deleting fact: ${category}.${key}`);
 
     // Capture row first so we can remove embedding by source_id after delete
     const { data: existingRow } = await supabase
@@ -1204,7 +1228,7 @@ export const deleteUserFact = async (
       .eq('fact_key', key);
 
     if (error) {
-      console.error('Failed to delete user fact:', error);
+      logError('Failed to delete user fact:', error);
       return false;
     }
 
@@ -1212,14 +1236,14 @@ export const deleteUserFact = async (
     if (existingRow?.id) {
       import('./factEmbeddingsService')
         .then(({ deleteFactEmbedding }) => deleteFactEmbedding('user_fact', existingRow.id))
-        .catch((err) => console.warn('[Memory] Failed to delete user fact embedding:', err));
+        .catch((err) => logWarn('[Memory] Failed to delete user fact embedding:', err));
     }
 
-    console.log(`🗑️ [Memory] Successfully deleted fact`);
+    logInfo(`🗑️ [Memory] Successfully deleted fact`);
     return true;
     
   } catch (error) {
-    console.error('Error deleting user fact:', error);
+    logError('Error deleting user fact:', error);
     return false;
   }
 };
@@ -1260,7 +1284,7 @@ export const getRecentContext = async (
     return `Recent conversation:\n${contextLines.join('\n')}`;
     
   } catch (error) {
-    console.error('Error getting recent context:', error);
+    logError('Error getting recent context:', error);
     return 'Unable to retrieve recent context.';
   }
 };
@@ -1617,7 +1641,7 @@ export const executeMemoryTool = async (
   args: ToolCallArgs[typeof toolName],
   context?: ToolExecutionContext
 ): Promise<string> => {
-  console.log(`🔧 [Memory Tool] Executing: ${toolName}`, args);
+  logInfo(`🔧 [Memory Tool] Executing: ${toolName}`, args);
 
   const normalizeRequestedFactKey = (rawKey: string, category: FactCategory): string => {
     return normalizeUserFactKey(category, rawKey);
@@ -2150,7 +2174,7 @@ export const executeMemoryTool = async (
           .maybeSingle();
 
         if (pendingLookupError) {
-          console.warn('[Memory Tool] email_action pending row lookup failed', pendingLookupError);
+          logWarn('[Memory Tool] email_action pending row lookup failed', pendingLookupError);
         }
 
         if (pendingRow?.id) {
@@ -2191,7 +2215,7 @@ export const executeMemoryTool = async (
 
         const { data: rows, error: selectError } = await selectQuery;
         if (selectError) {
-          console.warn('[Memory Tool] email_action_manage select failed', selectError);
+          logWarn('[Memory Tool] email_action_manage select failed', selectError);
           return formatToolFailure(`email_action_manage failed: ${selectError.message}`);
         }
 
@@ -2206,7 +2230,7 @@ export const executeMemoryTool = async (
           .in('id', ids);
 
         if (updateError) {
-          console.warn('[Memory Tool] email_action_manage update failed', updateError);
+          logWarn('[Memory Tool] email_action_manage update failed', updateError);
           return formatToolFailure(`email_action_manage update failed: ${updateError.message}`);
         }
 
@@ -2433,7 +2457,7 @@ export const executeMemoryTool = async (
                 gemini_attempted: geminiAttempted,
                 error: error instanceof Error ? error.message : String(error),
               });
-              console.error('Calendar create error:', error);
+              logError('Calendar create error:', error);
               return `Error creating calendar event: ${error instanceof Error ? error.message : 'Unknown error'}`;
             }
           }
@@ -2583,7 +2607,7 @@ export const executeMemoryTool = async (
               _calendarMutationPending = true;
               return `✓ Deleted ${deletedCount} calendar event(s)`;
             } catch (error) {
-              console.error('Calendar delete error:', error);
+              logError('Calendar delete error:', error);
               return `Error deleting calendar event: ${error instanceof Error ? error.message : 'Unknown error'}`;
             }
           }
@@ -2618,7 +2642,7 @@ export const executeMemoryTool = async (
 
               return `Found ${events.length} event(s):\n${eventLines.join('\n')}`;
             } catch (error) {
-              console.error('Calendar list error:', error);
+              logError('Calendar list error:', error);
               return `Error listing calendar events: ${error instanceof Error ? error.message : 'Unknown error'}`;
             }
           }
@@ -2647,35 +2671,35 @@ export const executeMemoryTool = async (
         const { resolveLoopsByTopic, dismissLoopsByTopic } = await import('./presenceDirector');
         const { topic, resolution_type, reason } = args as ToolCallArgs['resolve_open_loop'];
 
-        console.log(`🔄 [Memory Tool] resolve_open_loop called:`);
-        console.log(`   Topic: "${topic}"`);
-        console.log(`   Resolution type: ${resolution_type}`);
-        console.log(`   Reason: ${reason || '(none provided)'}`);
+        logInfo(`🔄 [Memory Tool] resolve_open_loop called:`);
+        logInfo(`   Topic: "${topic}"`);
+        logInfo(`   Resolution type: ${resolution_type}`);
+        logInfo(`   Reason: ${reason || '(none provided)'}`);
 
         try {
           if (resolution_type === 'dismissed') {
             // Dismiss by topic (user doesn't want to discuss)
             const dismissedCount = await dismissLoopsByTopic(topic);
             if (dismissedCount > 0) {
-              console.log(`✅ [Memory Tool] Dismissed ${dismissedCount} loop(s) for topic: "${topic}"`);
+              logInfo(`✅ [Memory Tool] Dismissed ${dismissedCount} loop(s) for topic: "${topic}"`);
               return `✓ Dismissed ${dismissedCount} open loop(s) about "${topic}"${reason ? ` (${reason})` : ''}`;
             } else {
-              console.log(`⚠️ [Memory Tool] No loops found to dismiss for topic: "${topic}"`);
+              logInfo(`⚠️ [Memory Tool] No loops found to dismiss for topic: "${topic}"`);
               return `No open loops found matching "${topic}" to dismiss.`;
             }
           } else {
             // Resolve by topic (user answered/addressed it)
             const resolvedCount = await resolveLoopsByTopic(topic);
             if (resolvedCount > 0) {
-              console.log(`✅ [Memory Tool] Resolved ${resolvedCount} loop(s) for topic: "${topic}"`);
+              logInfo(`✅ [Memory Tool] Resolved ${resolvedCount} loop(s) for topic: "${topic}"`);
               return `✓ Resolved ${resolvedCount} open loop(s) about "${topic}"${reason ? ` - ${reason}` : ''}`;
             } else {
-              console.log(`⚠️ [Memory Tool] No loops found to resolve for topic: "${topic}"`);
+              logInfo(`⚠️ [Memory Tool] No loops found to resolve for topic: "${topic}"`);
               return `No open loops found matching "${topic}" to resolve.`;
             }
           }
         } catch (error) {
-          console.error(`❌ [Memory Tool] Error resolving loop:`, error);
+          logError(`❌ [Memory Tool] Error resolving loop:`, error);
           return `Error resolving open loop: ${error instanceof Error ? error.message : 'Unknown error'}`;
         }
       }
@@ -2784,10 +2808,10 @@ export const executeMemoryTool = async (
         const { createPromise, resolvePromiseTimingFromTrigger } = await import('./promiseService');
         const { promiseType, description, triggerEvent, fulfillmentData } = args as ToolCallArgs['make_promise'];
 
-        console.log(`🤝 [Memory Tool] make_promise called:`);
-        console.log(`   Promise Type: ${promiseType}`);
-        console.log(`   Description: "${description}"`);
-        console.log(`   Trigger: "${triggerEvent}"`);
+        logInfo(`🤝 [Memory Tool] make_promise called:`);
+        logInfo(`   Promise Type: ${promiseType}`);
+        logInfo(`   Description: "${description}"`);
+        logInfo(`   Trigger: "${triggerEvent}"`);
 
         try {
           // Explicit times ("11:30 AM today") resolve to that clock time.
@@ -2808,14 +2832,14 @@ export const executeMemoryTool = async (
             const timingLabel = timingResolution.isExplicit
               ? `scheduled for ${estimatedTiming.toLocaleString()}`
               : `will fulfill in 10 minutes`;
-            console.log(`✅ [Memory Tool] Promise created successfully (${timingLabel})`);
+            logInfo(`✅ [Memory Tool] Promise created successfully (${timingLabel})`);
             return `✓ Promise created: ${description} (${timingLabel})`;
           } else {
-            console.error(`❌ [Memory Tool] Failed to create promise`);
+            logError(`❌ [Memory Tool] Failed to create promise`);
             return `Failed to create promise. Please try again.`;
           }
         } catch (error) {
-          console.error(`❌ [Memory Tool] Error creating promise:`, error);
+          logError(`❌ [Memory Tool] Error creating promise:`, error);
           return `Error creating promise: ${error instanceof Error ? error.message : 'Unknown error'}`;
         }
       }
@@ -2823,10 +2847,10 @@ export const executeMemoryTool = async (
         const { createStorylineFromTool } = await import('./storylineService');
         const { title, category, storylineType, initialAnnouncement, stakes, userInvolvement, emotionalTone, emotionalIntensity } = args as ToolCallArgs['create_life_storyline'];
 
-        console.log(`📖 [Memory Tool] create_life_storyline called:`);
-        console.log(`   Title: "${title}"`);
-        console.log(`   Category: ${category}`);
-        console.log(`   Type: ${storylineType}`);
+        logInfo(`📖 [Memory Tool] create_life_storyline called:`);
+        logInfo(`   Title: "${title}"`);
+        logInfo(`   Category: ${category}`);
+        logInfo(`   Type: ${storylineType}`);
 
         try {
           const result = await createStorylineFromTool({
@@ -2841,14 +2865,14 @@ export const executeMemoryTool = async (
           }, 'conversation');
 
           if (result.success) {
-            console.log(`✅ [Memory Tool] Storyline created successfully: ${result.storylineId}`);
+            logInfo(`✅ [Memory Tool] Storyline created successfully: ${result.storylineId}`);
             return `✓ Storyline "${title}" created successfully`;
           } else {
-            console.warn(`⚠️ [Memory Tool] Storyline creation failed: ${result.error}`);
+            logWarn(`⚠️ [Memory Tool] Storyline creation failed: ${result.error}`);
             return `${result.error}`;
           }
         } catch (error) {
-          console.error(`❌ [Memory Tool] Error creating storyline:`, error);
+          logError(`❌ [Memory Tool] Error creating storyline:`, error);
           return `Error creating storyline: ${error instanceof Error ? error.message : 'Unknown error'}`;
         }
       }
@@ -2856,11 +2880,11 @@ export const executeMemoryTool = async (
         const { createOpenLoop } = await import('./presenceDirector');
         const { loopType, topic, suggestedFollowUp, timeframe, salience, eventDateTime } = args as ToolCallArgs['create_open_loop'];
 
-        console.log(`🔄 [Memory Tool] create_open_loop called:`);
-        console.log(`   Loop Type: ${loopType}`);
-        console.log(`   Topic: "${topic}"`);
-        console.log(`   Timeframe: ${timeframe}`);
-        console.log(`   Salience: ${salience}`);
+        logInfo(`🔄 [Memory Tool] create_open_loop called:`);
+        logInfo(`   Loop Type: ${loopType}`);
+        logInfo(`   Topic: "${topic}"`);
+        logInfo(`   Timeframe: ${timeframe}`);
+        logInfo(`   Salience: ${salience}`);
 
         try {
           // Convert timeframe to shouldSurfaceAfter date
@@ -2910,14 +2934,14 @@ export const executeMemoryTool = async (
           );
 
           if (loop) {
-            console.log(`✅ [Memory Tool] Open loop created: "${topic}" (${loopType})`);
+            logInfo(`✅ [Memory Tool] Open loop created: "${topic}" (${loopType})`);
             return `✓ Created follow-up reminder about "${topic}" (${timeframe})`;
           } else {
-            console.log(`⚠️ [Memory Tool] Open loop already exists for topic: "${topic}"`);
+            logInfo(`⚠️ [Memory Tool] Open loop already exists for topic: "${topic}"`);
             return `Already tracking "${topic}" - no duplicate created`;
           }
         } catch (error) {
-          console.error(`❌ [Memory Tool] Error creating open loop:`, error);
+          logError(`❌ [Memory Tool] Error creating open loop:`, error);
           return `Error creating reminder: ${error instanceof Error ? error.message : 'Unknown error'}`;
         }
       }
@@ -2925,20 +2949,23 @@ export const executeMemoryTool = async (
         const { getProfileSection } = await import('../domain/characters/kayleyProfileSections');
         const { section, reason } = args as ToolCallArgs['recall_character_profile'];
 
-        console.log(`📋 [Memory Tool] recall_character_profile called:`);
-        console.log(`   Section: ${section}`);
-        if (reason) console.log(`   Reason: ${reason}`);
+        logInfo(`📋 [Memory Tool] recall_character_profile called:`);
+        logInfo(`   Section: ${section}`);
+        if (reason) logInfo(`   Reason: ${reason}`);
 
         try {
           const profileContent = getProfileSection(section as any);
-          console.log(`✅ [Memory Tool] Retrieved character profile section: ${section} (${profileContent.length} chars)`);
+          logInfo(`✅ [Memory Tool] Retrieved character profile section: ${section} (${profileContent.length} chars)`);
           return profileContent;
         } catch (error) {
-          console.error(`❌ [Memory Tool] Error retrieving character profile:`, error);
+          logError(`❌ [Memory Tool] Error retrieving character profile:`, error);
           return `Error retrieving character profile: ${error instanceof Error ? error.message : 'Unknown error'}`;
         }
       }
       case 'resolve_x_tweet': {
+        // Defensive guard: this tool is intentionally not declared for Gemini.
+        // If it is ever called manually or reintroduced accidentally, keep final
+        // tweet posting blocked behind the human approval surfaces.
         const { id, status, rejection_reason } = args as ToolCallArgs['resolve_x_tweet'];
         memoryToolLog.warning('resolve_x_tweet blocked - human approval required', {
           id,
@@ -2997,9 +3024,9 @@ export const executeMemoryTool = async (
         return `Draft created - waiting for Steven's approval.`;
       }
       case 'resolve_x_mention': {
-        const { getMentions, updateMentionStatus, postReply } = await import('../../server/services/xTwitterServerService');
+        const { getMentionById, updateMentionStatus, postReply } = await import('../../server/services/xTwitterServerService');
         const { id, status, reply_text } = args as ToolCallArgs['resolve_x_mention'];
-        console.log(`🐦 [Memory Tool] resolve_x_mention called:`, { id, status });
+        logInfo(`🐦 [Memory Tool] resolve_x_mention called:`, { id, status });
 
         if (status === 'skip') {
           await updateMentionStatus(id, 'skipped');
@@ -3008,8 +3035,7 @@ export const executeMemoryTool = async (
 
         if (status === 'approve') {
           // Send the auto-drafted reply
-          const mentions = await getMentions(undefined, 50);
-          const mention = mentions.find((m) => m.id === id);
+          const mention = await getMentionById(id);
           if (!mention) return `Could not find mention with id ${id}.`;
           if (!mention.replyText) return `No draft reply found for mention ${id}. Use status='reply' with reply_text instead.`;
 
@@ -3033,8 +3059,7 @@ export const executeMemoryTool = async (
             return `Error: reply_text is ${reply_text.length} characters (max 280)`;
           }
 
-          const mentions = await getMentions(undefined, 50);
-          const mention = mentions.find((m) => m.id === id);
+          const mention = await getMentionById(id);
           if (!mention) return `Could not find mention with id ${id}.`;
 
           try {
@@ -3116,7 +3141,7 @@ export const executeMemoryTool = async (
       }
       case 'query_database': {
         const { query, reason } = args as ToolCallArgs['query_database'];
-        console.log(`🔍 [Memory Tool] query_database called. Reason: ${reason}`);
+        logInfo(`🔍 [Memory Tool] query_database called. Reason: ${reason}`);
 
         const normalized = query.trim().toUpperCase();
         if (!normalized.startsWith('SELECT')) {
@@ -3135,7 +3160,7 @@ export const executeMemoryTool = async (
             max_rows: 50,
           });
           if (error) {
-            console.error('[Memory Tool] query_database error:', error);
+            logError('[Memory Tool] query_database error:', error);
             return `Query error: ${error.message}`;
           }
           return JSON.stringify(data, null, 2);
@@ -3147,7 +3172,7 @@ export const executeMemoryTool = async (
         return `Unknown tool: ${toolName}. Do NOT attempt to achieve the same goal via a different tool. Tell Steven you cannot do this right now.`;
     }
   } catch (error) {
-    console.error(`Error executing ${toolName}:`, error);
+    logError(`Error executing ${toolName}:`, error);
     return `Error executing ${toolName}. Please try again.`;
   }
 };
@@ -3284,7 +3309,7 @@ export const processDetectedFacts = async (
     return [];
   }
 
-  console.log(`🔍 [Memory] Processing ${detectedFacts.length} LLM-detected fact(s)`);
+  logInfo(`🔍 [Memory] Processing ${detectedFacts.length} LLM-detected fact(s)`);
 
   try {
     // Fetch existing facts to check for duplicates and current values
@@ -3299,7 +3324,7 @@ export const processDetectedFacts = async (
 
     for (const fact of detectedFacts) {
       if (isCurrentFactKey(fact.key)) {
-        console.log(`⏭️ [Memory] Skipping current_* fact (transient): ${fact.category}.${fact.key}`);
+        logInfo(`⏭️ [Memory] Skipping current_* fact (transient): ${fact.category}.${fact.key}`);
         continue;
       }
 
@@ -3307,12 +3332,12 @@ export const processDetectedFacts = async (
       const existingFact = existingFactsMap.get(factKey);
       const storageType = getFactStorageType(fact.key);
 
-      console.log(`📋 [Memory] Fact "${fact.key}" is ${storageType}, exists: ${!!existingFact}`);
+      logInfo(`📋 [Memory] Fact "${fact.key}" is ${storageType}, exists: ${!!existingFact}`);
 
       if (storageType === 'immutable') {
         // IMMUTABLE: Only store if doesn't exist
         if (existingFact) {
-          console.log(`⏭️ [Memory] Skipping immutable fact (already set): ${fact.category}.${fact.key}`);
+          logInfo(`⏭️ [Memory] Skipping immutable fact (already set): ${fact.category}.${fact.key}`);
           continue;
         }
       } else if (storageType === 'additive') {
@@ -3323,14 +3348,14 @@ export const processDetectedFacts = async (
 
           // Check if this value already exists in the array (case-insensitive)
           if (existingValues.some(v => v.toLowerCase() === newValue.toLowerCase())) {
-            console.log(`⏭️ [Memory] Skipping additive fact (value already in array): ${fact.category}.${fact.key} = "${newValue}"`);
+            logInfo(`⏭️ [Memory] Skipping additive fact (value already in array): ${fact.category}.${fact.key} = "${newValue}"`);
             continue;
           }
 
           // Append to array
           existingValues.push(newValue);
           fact.value = JSON.stringify(existingValues);
-          console.log(`➕ [Memory] Appending to additive fact: ${fact.category}.${fact.key} = ${fact.value}`);
+          logInfo(`➕ [Memory] Appending to additive fact: ${fact.category}.${fact.key} = ${fact.value}`);
         }
         // If doesn't exist, store as single value (will become array later if more added)
       }
@@ -3349,15 +3374,15 @@ export const processDetectedFacts = async (
         const action = existingFact
           ? (storageType === 'additive' ? 'appended to' : 'updated')
           : 'stored NEW';
-        console.log(`💾 [Memory] ${action} fact: ${fact.category}.${fact.key} = "${fact.value}"`);
+        logInfo(`💾 [Memory] ${action} fact: ${fact.category}.${fact.key} = "${fact.value}"`);
       }
     }
 
-    console.log(`✅ [Memory] Processed ${detectedFacts.length} detected facts, stored/updated ${storedFacts.length} fact(s)`);
+    logInfo(`✅ [Memory] Processed ${detectedFacts.length} detected facts, stored/updated ${storedFacts.length} fact(s)`);
     return storedFacts;
 
   } catch (error) {
-    console.error('❌ [Memory] Error processing detected facts:', error);
+    logError('❌ [Memory] Error processing detected facts:', error);
     return [];
   }
 };
@@ -3419,7 +3444,7 @@ export const detectAndStoreUserInfo = async (
       // Avoid common false positives
       if (!falsePositives.includes(name.toLowerCase()) && name.length > 2 && name.length < 20) {
         detected.push({ category: 'identity', key: 'name', value: name });
-        console.log(`🔍 [Auto-Detect] Found name: ${name}`);
+        logInfo(`🔍 [Auto-Detect] Found name: ${name}`);
         break; // Only detect one name per message
       }
     }
@@ -3443,7 +3468,7 @@ export const detectAndStoreUserInfo = async (
       const falsePositives = ['bit', 'little', 'lot', 'big', 'huge'];
       if (!falsePositives.some(fp => job.toLowerCase().startsWith(fp)) && job.length > 2 && job.length < 50) {
         detected.push({ category: 'identity', key: 'occupation', value: job });
-        console.log(`🔍 [Auto-Detect] Found occupation: ${job}`);
+        logInfo(`🔍 [Auto-Detect] Found occupation: ${job}`);
       }
     }
   }
@@ -3466,14 +3491,14 @@ export const detectAndStoreUserInfo = async (
         const value = match[2].trim();
         if (value.length > 1 && value.length < 50) {
           detected.push({ category: 'preference', key: `favorite_${topic}`, value: value });
-          console.log(`🔍 [Auto-Detect] Found favorite ${topic}: ${value}`);
+          logInfo(`🔍 [Auto-Detect] Found favorite ${topic}: ${value}`);
         }
       } else {
         // For "I love X" pattern
         const thing = match[1].trim();
         if (thing.length > 1 && thing.length < 30) {
           detected.push({ category: 'preference', key: 'likes', value: thing });
-          console.log(`🔍 [Auto-Detect] Found like: ${thing}`);
+          logInfo(`🔍 [Auto-Detect] Found like: ${thing}`);
         }
       }
     }
@@ -3500,7 +3525,7 @@ export const detectAndStoreUserInfo = async (
         const relationship = match[1].toLowerCase();
         const name = match[2].trim();
         detected.push({ category: 'relationship', key: `${relationship}_name`, value: name });
-        console.log(`🔍 [Auto-Detect] Found ${relationship} name: ${name}`);
+        logInfo(`🔍 [Auto-Detect] Found ${relationship} name: ${name}`);
       } else if (match[1]) {
         // Just status (I'm married, I have a wife)
         const status = match[1].toLowerCase();
@@ -3511,7 +3536,7 @@ export const detectAndStoreUserInfo = async (
         } else {
           detected.push({ category: 'relationship', key: 'has_partner', value: 'yes' });
         }
-        console.log(`🔍 [Auto-Detect] Found relationship info: ${status}`);
+        logInfo(`🔍 [Auto-Detect] Found relationship info: ${status}`);
       }
     }
   }
@@ -3543,7 +3568,7 @@ export const detectAndStoreUserInfo = async (
       
       if ((hasMonth || hasNumbers) && birthdayValue.length > 3 && birthdayValue.length < 30) {
         detected.push({ category: 'identity', key: 'birthday', value: birthdayValue });
-        console.log(`🔍 [Auto-Detect] Found birthday: ${birthdayValue}`);
+        logInfo(`🔍 [Auto-Detect] Found birthday: ${birthdayValue}`);
         break; // Only capture one birthday
       }
     }
@@ -3565,7 +3590,7 @@ export const detectAndStoreUserInfo = async (
       // Reasonable age range (1-120)
       if (age > 0 && age <= 120) {
         detected.push({ category: 'identity', key: 'age', value: match[1] });
-        console.log(`🔍 [Auto-Detect] Found age: ${match[1]}`);
+        logInfo(`🔍 [Auto-Detect] Found age: ${match[1]}`);
         break;
       }
     }
@@ -3579,7 +3604,7 @@ export const detectAndStoreUserInfo = async (
   }
 
   if (detected.length > 0) {
-    console.log(`✅ [Auto-Detect] Stored ${detected.length} fact(s) from user message`);
+    logInfo(`✅ [Auto-Detect] Stored ${detected.length} fact(s) from user message`);
   }
 
   return detected;
@@ -3627,7 +3652,7 @@ export interface ImportantDateFact {
  */
 export const getImportantDateFacts = async (): Promise<ImportantDateFact[]> => {
   try {
-    console.log(`📅 [Memory] Getting important date facts for greeting`);
+    logInfo(`📅 [Memory] Getting important date facts for greeting`);
 
     // Query for facts with date-related keys OR date-related categories
     const { data, error } = await supabase
@@ -3639,15 +3664,15 @@ export const getImportantDateFacts = async (): Promise<ImportantDateFact[]> => {
       .order('created_at', { ascending: false });
 
     if (error) {
-      console.error('Failed to get important date facts:', error);
+      logError('Failed to get important date facts:', error);
       return [];
     }
 
-    console.log(`📅 [Memory] Found ${data?.length || 0} date-related facts`);
+    logInfo(`📅 [Memory] Found ${data?.length || 0} date-related facts`);
     return (data as ImportantDateFact[]) || [];
 
   } catch (error) {
-    console.error('Error getting important date facts:', error);
+    logError('Error getting important date facts:', error);
     return [];
   }
 };

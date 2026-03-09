@@ -41,7 +41,7 @@ import { startStorylineIdleService, stopStorylineIdleService } from './services/
 import { isQuestionMessage } from './utils/textUtils';
 import { shuffleArray } from './utils/arrayUtils';
 import { StorageKey } from './utils/enums';
-import { handleXAuthCallback, refreshRecentTweetMetrics } from './services/xClient';
+import { getXAuthStatus, handleXAuthCallback, refreshRecentTweetMetrics } from './services/xClient';
 import { handleOAuthCallback as handleAnthropicOAuthCallback } from './services/anthropicService';
 import {
   ackPendingMessageDelivered,
@@ -164,7 +164,6 @@ const App: React.FC = () => {
   // --------------------------------------------------------------------------
   // X OAUTH CALLBACK HANDLER
   // --------------------------------------------------------------------------
-  const [xAuthStatus, setXAuthStatus] = useState<'idle' | 'processing' | 'success' | 'error'>('idle');
   const [anthropicAuthStatus, setAnthropicAuthStatus] = useState<'idle' | 'processing' | 'success' | 'error'>('idle');
   const anthropicCallbackHandledRef = useRef(false);
   const xCallbackHandledRef = useRef(false);
@@ -210,16 +209,13 @@ const App: React.FC = () => {
       const code = url.searchParams.get('code');
       const state = url.searchParams.get('state');
       if (code && state) {
-        setXAuthStatus('processing');
         handleXAuthCallback(code, state)
           .then(() => {
             clientLogger.info(`${LOG_PREFIX} X OAuth callback succeeded — account connected`, { source: 'App.tsx' });
-            setXAuthStatus('success');
             window.history.replaceState({}, '', '/');
           })
           .catch((error) => {
             clientLogger.error(`${LOG_PREFIX} X OAuth callback failed`, { source: 'App.tsx', error: error instanceof Error ? error.message : String(error) });
-            setXAuthStatus('error');
             window.history.replaceState({}, '', '/');
           });
       } else {
@@ -409,17 +405,28 @@ const App: React.FC = () => {
   useEffect(() => {
     const METRICS_INTERVAL = 30 * 60 * 1000; // 30 minutes
 
+    const refreshMetricsIfConnected = async (mode: 'initial' | 'periodic') => {
+      try {
+        const status = await getXAuthStatus();
+        if (!status.connected) {
+          return;
+        }
+        await refreshRecentTweetMetrics();
+      } catch (e) {
+        clientLogger.warning(
+          `${LOG_PREFIX} [X Metrics] ${mode === 'initial' ? 'Initial' : 'Periodic'} refresh failed`,
+          { source: 'App.tsx', error: e instanceof Error ? e.message : String(e) },
+        );
+      }
+    };
+
     // Initial refresh after a short delay
     const initialTimeout = setTimeout(() => {
-      refreshRecentTweetMetrics().catch(e =>
-        clientLogger.warning(`${LOG_PREFIX} [X Metrics] Initial refresh failed`, { source: 'App.tsx', error: e instanceof Error ? e.message : String(e) })
-      );
+      void refreshMetricsIfConnected('initial');
     }, 10000);
 
     const interval = setInterval(() => {
-      refreshRecentTweetMetrics().catch(e =>
-        clientLogger.warning(`${LOG_PREFIX} [X Metrics] Periodic refresh failed`, { source: 'App.tsx', error: e instanceof Error ? e.message : String(e) })
-      );
+      void refreshMetricsIfConnected('periodic');
     }, METRICS_INTERVAL);
 
     return () => {

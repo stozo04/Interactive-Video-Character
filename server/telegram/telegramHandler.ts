@@ -13,6 +13,7 @@ import { processUserMessage } from '../../src/services/messageOrchestrator';
 import {
   loadTodaysConversationHistory,
   getTodaysInteractionId,
+  appendConversationHistory,
 } from '../../src/services/conversationHistoryService';
 import type { OrchestratorResult } from '../../src/handlers/messageActions/types';
 import type { UserContent } from '../../src/services/aiService';
@@ -44,7 +45,6 @@ import fs from 'fs';
 import path from 'path';
 import { NewEmailPayload } from '../../src/types';
 
-const LOG_PREFIX = '[Telegram]';
 const runtimeLog = log.fromContext({ source: 'telegramHandler', route: 'telegram/handler' });
 const TYPING_INDICATOR_INTERVAL_MS = 4500;
 const INBOUND_DEDUPE_TTL_MS = 10 * 60 * 1000;
@@ -344,7 +344,10 @@ async function sendOrchestratorResult(chatId: number, result: OrchestratorResult
     try {
       const webpBuffer = await createSticker(result.rawGeneratedStickerBase64);
       await bot.api.sendSticker(chatId, new InputFile(webpBuffer, 'sticker.webp'));
-      console.log(`${LOG_PREFIX} Sent generated sticker`);
+      runtimeLog.info('Sent generated sticker', {
+        source: 'telegramHandler',
+        chatId,
+      });
     } catch (err) {
       runtimeLog.error('Failed to send generated sticker', {
         source: 'telegramHandler',
@@ -365,7 +368,10 @@ async function sendOrchestratorResult(chatId: number, result: OrchestratorResult
           await bot.api.sendAnimation(chatId, new InputFile(buf, 'animation.mp4'), {
             caption: result.gifMessageText || undefined,
           });
-          console.log(`${LOG_PREFIX} Sent GIF animation`);
+          runtimeLog.info('Sent GIF animation', {
+            source: 'telegramHandler',
+            chatId,
+          });
         } else {
           await bot.api.sendMessage(chatId, result.gifMessageText || "I tried to find a GIF but it didn't load.");
         }
@@ -386,7 +392,10 @@ async function sendOrchestratorResult(chatId: number, result: OrchestratorResult
   if (result.stickerBuffer) {
     try {
       await bot.api.sendSticker(chatId, new InputFile(result.stickerBuffer, 'sticker.webp'));
-      console.log(`${LOG_PREFIX} Sent sticker`);
+      runtimeLog.info('Sent sticker', {
+        source: 'telegramHandler',
+        chatId,
+      });
     } catch (err) {
       runtimeLog.error('Failed to send pre-made sticker', {
         source: 'telegramHandler',
@@ -417,10 +426,10 @@ async function sendOrchestratorResult(chatId: number, result: OrchestratorResult
       const filename = pickSelfieFilename(result.selfieImage.mimeType);
       const filePath = path.join(selfiesDir, `selfie_${timestamp}_${safeScene}_${filename}`);
       fs.writeFileSync(filePath, originalBuffer);
-      console.log(`${LOG_PREFIX} [SELFIE] Saved ${filePath}`);
       runtimeLog.info('Preparing selfie for Telegram send', {
         source: 'telegramHandler',
         chatId,
+        filePath,
         mimeType: result.selfieImage.mimeType || null,
         originalBytes: originalBuffer.length,
       });
@@ -479,7 +488,10 @@ async function sendOrchestratorResult(chatId: number, result: OrchestratorResult
         await bot.api.sendVideo(chatId, new InputFile(buf, 'video.mp4'), {
           caption: result.videoMessageText || undefined,
         });
-        console.log(`${LOG_PREFIX} Sent video`);
+        runtimeLog.info('Sent video', {
+          source: 'telegramHandler',
+          chatId,
+        });
       }
     } catch (err) {
       runtimeLog.error('Failed to send video', {
@@ -544,11 +556,21 @@ async function handleTweetApprovalCommand(
     return true;
   }
 
+  const confirmationText =
+    action === 'post'
+      ? (resolution.tweetUrl ? `Posted it: ${resolution.tweetUrl}` : 'Posted it.')
+      : 'Rejected that tweet draft.';
+
   if (action === 'post') {
-    await bot.api.sendMessage(chatId, resolution.tweetUrl ? `Posted it: ${resolution.tweetUrl}` : 'Posted it.');
+    await bot.api.sendMessage(chatId, confirmationText);
   } else {
-    await bot.api.sendMessage(chatId, 'Rejected that tweet draft.');
+    await bot.api.sendMessage(chatId, confirmationText);
   }
+
+  await appendConversationHistory(
+    [{ role: 'model', text: confirmationText }],
+    session?.interactionId,
+  );
 
   const systemMessage =
     action === 'post'
@@ -800,7 +822,11 @@ export async function handleTelegramMessage(ctx: Context): Promise<void> {
     // -----------------------------------------------------------------------
     const { text, userContent } = await buildInputFromMessage(ctx);
 
-    console.log(`${LOG_PREFIX} Processing: "${text.substring(0, 60)}..."`);
+    runtimeLog.info('Processing Telegram message text', {
+      source: 'telegramHandler',
+      chatId,
+      preview: text.substring(0, 60),
+    });
 
     // -----------------------------------------------------------------------
     // Load conversation context
@@ -882,8 +908,6 @@ export async function handleTelegramMessage(ctx: Context): Promise<void> {
       chatId,
       error: error instanceof Error ? error.message : String(error),
     });
-    console.error(`${LOG_PREFIX} Error processing message:`, error);
-
     try {
       await bot.api.sendMessage(chatId, "Sorry, I'm having trouble right now. Try again in a sec?");
     } catch { /* ignore fallback error */ }

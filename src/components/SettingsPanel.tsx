@@ -1,8 +1,9 @@
 // src/components/SettingsPanel.tsx
 import React, { useState, useEffect, useCallback } from 'react';
-import { hasXScope, isXConnected, initXAuth, revokeXAuth } from '../services/xClient';
+import { getXAuthStatus, initXAuth, revokeXAuth } from '../services/xClient';
 import { supabase } from '../services/supabaseClient';
 import { getMultiAgentHealth, getWhatsAppHealth, getTelegramHealth, getOpeyHealth } from '../services/multiAgentService';
+import { clientLogger } from '../services/clientLogger';
 import type { ProactiveSettings } from '../types';
 
 interface SettingsPanelProps {
@@ -18,6 +19,7 @@ export function SettingsPanel({
   onProactiveSettingsChange,
   onAdminDashboard
 }: SettingsPanelProps) {
+  const settingsLogger = clientLogger.scoped('SettingsPanel');
   const [isOpen, setIsOpen] = useState(false);
   // Check if all proactive features are off
   const allProactiveOff = proactiveSettings 
@@ -58,14 +60,9 @@ export function SettingsPanel({
 
   const checkXConnection = useCallback(async () => {
     try {
-      const connected = await isXConnected();
-      setXConnected(connected);
-      if (connected) {
-        const hasMediaWrite = await hasXScope('media.write');
-        setXMissingMediaScope(hasMediaWrite === false);
-      } else {
-        setXMissingMediaScope(false);
-      }
+      const status = await getXAuthStatus();
+      setXConnected(status.connected);
+      setXMissingMediaScope(status.connected ? !status.hasMediaWrite : false);
     } catch {
       setXConnected(false);
       setXMissingMediaScope(false);
@@ -114,7 +111,9 @@ export function SettingsPanel({
       setTelegramStatus(telegram.ok && telegram.running ? 'ok' : 'unreachable');
       setOpeyStatus(!opey.ok ? 'unreachable' : opey.currentTicketId ? 'busy' : 'ok');
     } catch (error) {
-      console.error('Server health check failed:', error);
+      settingsLogger.error('Server health check failed', {
+        error: error instanceof Error ? error.message : String(error),
+      });
       setServerHealthStatus('unreachable');
       setServerHealthLatencyMs(null);
       setServerHealthError('Server health check failed.');
@@ -142,7 +141,9 @@ export function SettingsPanel({
       // Same-tab redirect — user authorizes on X, then App.tsx handles the callback
       window.location.href = authUrl;
     } catch (error) {
-      console.error('Failed to start X OAuth:', error);
+      settingsLogger.error('Failed to start X OAuth', {
+        error: error instanceof Error ? error.message : String(error),
+      });
       setXLoading(false);
     }
   };
@@ -153,7 +154,9 @@ export function SettingsPanel({
       await revokeXAuth();
       setXConnected(false);
     } catch (error) {
-      console.error('Failed to disconnect X:', error);
+      settingsLogger.error('Failed to disconnect X', {
+        error: error instanceof Error ? error.message : String(error),
+      });
     } finally {
       setXLoading(false);
     }
@@ -170,7 +173,9 @@ export function SettingsPanel({
           { onConflict: 'category,fact_key' }
         );
     } catch (error) {
-      console.error('Failed to save X posting mode:', error);
+      settingsLogger.error('Failed to save X posting mode', {
+        error: error instanceof Error ? error.message : String(error),
+      });
       // Revert on failure
       setXPostingMode(xPostingMode);
     }

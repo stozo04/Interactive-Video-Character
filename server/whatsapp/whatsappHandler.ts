@@ -4,6 +4,7 @@ import { processUserMessage } from "../../src/services/messageOrchestrator";
 import {
   loadTodaysConversationHistory,
   getTodaysInteractionId,
+  appendConversationHistory,
 } from "../../src/services/conversationHistoryService";
 import type { OrchestratorResult } from "../../src/handlers/messageActions/types";
 import type { UserContent } from "../../src/services/aiService";
@@ -32,7 +33,6 @@ import {
 import fs from "fs";
 import path from "path";
 import { NewEmailPayload } from "../../src/types";
-const LOG_PREFIX = "[WhatsApp]";
 const INBOUND_DEDUPE_TTL_MS = 10 * 60 * 1000;
 
 // ============================================================================
@@ -304,7 +304,6 @@ async function fetchAndValidateVideo(
       reason: "host_not_allowed",
       urlPreview: url.substring(0, 100),
     });
-    console.error(`${LOG_PREFIX} [MEDIA] ${options.label} blocked (host not allowed):`, { url });
     return { ok: false, reason: "host_not_allowed" };
   }
 
@@ -334,7 +333,6 @@ async function fetchAndValidateVideo(
       error: err instanceof Error ? err.message : String(err),
       reason: "fetch_error",
     });
-    console.error(`${LOG_PREFIX} [MEDIA] ${options.label} fetch failed:`, err);
     return { ok: false, reason: "fetch_error" };
   }
 
@@ -346,11 +344,6 @@ async function fetchAndValidateVideo(
       statusText: response.statusText,
       urlPreview: url.substring(0, 100),
       reason: "bad_status",
-    });
-    console.error(`${LOG_PREFIX} [MEDIA] ${options.label} fetch status:`, {
-      status: response.status,
-      statusText: response.statusText,
-      url,
     });
     return { ok: false, reason: "bad_status" };
   }
@@ -379,11 +372,6 @@ async function fetchAndValidateVideo(
       reason: "payload_too_large_header",
       urlPreview: url.substring(0, 100),
     });
-    console.error(`${LOG_PREFIX} [MEDIA] ${options.label} payload too large (header):`, {
-      contentLength,
-      maxBytes: options.maxBytes,
-      url,
-    });
     return { ok: false, reason: "payload_too_large_header" };
   }
 
@@ -396,10 +384,6 @@ async function fetchAndValidateVideo(
       reason: "invalid_content_type",
       urlPreview: url.substring(0, 100),
     });
-    console.error(`${LOG_PREFIX} [MEDIA] ${options.label} invalid content-type (expected mp4):`, {
-      contentType,
-      url,
-    });
     return { ok: false, reason: "invalid_content_type" };
   }
 
@@ -411,10 +395,6 @@ async function fetchAndValidateVideo(
       requireMp4: false,
       reason: "invalid_content_type",
       urlPreview: url.substring(0, 100),
-    });
-    console.error(`${LOG_PREFIX} [MEDIA] ${options.label} invalid content-type (expected video/*):`, {
-      contentType,
-      url,
     });
     return { ok: false, reason: "invalid_content_type" };
   }
@@ -431,7 +411,6 @@ async function fetchAndValidateVideo(
         reason: "empty_payload",
         urlPreview: url.substring(0, 100),
       });
-      console.error(`${LOG_PREFIX} [MEDIA] ${options.label} empty payload:`, { url });
       return { ok: false, reason: "empty_payload" };
     }
 
@@ -443,11 +422,6 @@ async function fetchAndValidateVideo(
         maxBytes: options.maxBytes,
         reason: "payload_too_large_buffer",
         urlPreview: url.substring(0, 100),
-      });
-      console.error(`${LOG_PREFIX} [MEDIA] ${options.label} payload too large (buffer):`, {
-        bufferLength: buffer.length,
-        maxBytes: options.maxBytes,
-        url,
       });
       return { ok: false, reason: "payload_too_large_buffer" };
     }
@@ -467,7 +441,6 @@ async function fetchAndValidateVideo(
       error: bufferError instanceof Error ? bufferError.message : String(bufferError),
       urlPreview: url.substring(0, 100),
     });
-    console.error(`${LOG_PREFIX} [MEDIA] ${options.label} buffer conversion failed:`, bufferError);
     return { ok: false, reason: "buffer_conversion_error" };
   }
 }
@@ -501,14 +474,6 @@ async function sendAndTrack(
       fromMe: sent?.key?.fromMe,
       status: sent?.status,
       contentTypes: contentKeys.join(", "),
-    });
-
-    console.log(`${LOG_PREFIX} [SEND] Sending to ${jid}:`, Object.keys(content));
-    console.log(`${LOG_PREFIX} [SEND] Local Result:`, {
-      id: sent?.key?.id,
-      remoteJid: sent?.key?.remoteJid,
-      fromMe: sent?.key?.fromMe,
-      status: sent?.status,
     });
 
     if (sent?.key?.id) {
@@ -553,7 +518,6 @@ async function sendAndTrack(
       error: err instanceof Error ? err.message : String(err),
       errorType: err instanceof Error ? err.constructor.name : "unknown",
     });
-    console.error(`${LOG_PREFIX} [SEND] FAILED:`, err);
     throw err;
   }
 }
@@ -776,9 +740,6 @@ export async function handleWhatsAppMessage(
     userContentType: userContent?.type,
   });
 
-  console.log(`${LOG_PREFIX} Reply JID: ${replyJid} (original: ${jid})`);
-  console.log(`${LOG_PREFIX} Processing: "${text.substring(0, 60)}..."`);
-
   try {
     // -----------------------------------------------------------------------
     // AUTO-ARCHIVE CONFIRMATION — short-circuit before the full pipeline
@@ -949,8 +910,6 @@ export async function handleWhatsAppMessage(
       error: error instanceof Error ? error.message : String(error),
       errorType: error instanceof Error ? error.constructor.name : "unknown",
     });
-    console.error(`${LOG_PREFIX} Error processing message:`, error);
-
     try {
       await sendAndTrack(sock, replyJid, {
         text: "Sorry, I'm having trouble right now. Try again in a sec?",
@@ -1018,7 +977,6 @@ async function sendOrchestratorResult(
           await sendAndTrack(sock, jid, {
               sticker: webpBuffer
           });
-          console.log(`${LOG_PREFIX} Sent generated Sticker`);
           runtimeLog.info("Generated sticker sent successfully", {
             source: "whatsappHandler",
             jid,
@@ -1030,7 +988,6 @@ async function sendOrchestratorResult(
             error: err instanceof Error ? err.message : String(err),
             errorType: err instanceof Error ? err.constructor.name : "unknown",
           });
-          console.error(`${LOG_PREFIX} Failed to send Sticker:`, err);
       }
   }
   // --- Sending a GIF ---
@@ -1101,14 +1058,6 @@ async function sendOrchestratorResult(
             gifPlayback: true, // THIS FLAG IS THE MAGIC TRICK
             caption: result.gifMessageText || undefined,
         });
-        console.log(`${LOG_PREFIX} Sent GIF`, {
-          contentType: validated.contentType,
-          declaredMimeType: "video/mp4",
-          sizeBytes: validated.buffer.length,
-          giphyRendition: giphyResult.rendition,
-          giphyMp4Size: giphyResult.mp4Size ?? null,
-        });
-
         runtimeLog.info("GIF sent successfully", {
           source: "whatsappHandler",
           jid,
@@ -1121,7 +1070,6 @@ async function sendOrchestratorResult(
           gifQueryPreview: result.gifQuery.substring(0, 60),
           error: err instanceof Error ? err.message : String(err),
         });
-        console.error(`${LOG_PREFIX} Failed to send GIF:`, err);
     }
   }
 
@@ -1138,8 +1086,6 @@ async function sendOrchestratorResult(
           await sendAndTrack(sock, jid, {
               sticker: result.stickerBuffer
           });
-          console.log(`${LOG_PREFIX} Sent Sticker`);
-
           runtimeLog.info("Pre-made sticker sent successfully", {
             source: "whatsappHandler",
             jid,
@@ -1152,7 +1098,6 @@ async function sendOrchestratorResult(
             stickerSize: result.stickerBuffer.length,
             error: err instanceof Error ? err.message : String(err),
           });
-          console.error(`${LOG_PREFIX} Failed to send Sticker:`, err);
       }
   }
 
@@ -1213,7 +1158,6 @@ async function sendOrchestratorResult(
         filePath,
         fileSize: fileBuffer.length,
       });
-      console.log(`${LOG_PREFIX} [SELFIE] Saved ${filePath}`);
 
       const imageBuffer = Buffer.from(result.selfieImage.base64, "base64");
       await sendAndTrack(sock, jid, {
@@ -1234,7 +1178,6 @@ async function sendOrchestratorResult(
         error: err instanceof Error ? err.message : String(err),
         errorType: err instanceof Error ? err.constructor.name : "unknown",
       });
-      console.error(`${LOG_PREFIX} Failed to send selfie:`, err);
     }
   }
 
@@ -1284,11 +1227,6 @@ async function sendOrchestratorResult(
           video: validated.buffer,
           caption: result.videoMessageText || undefined,
         });
-        console.log(`${LOG_PREFIX} Sent video`, {
-          contentType: validated.contentType,
-          sizeBytes: validated.buffer.length,
-        });
-
         runtimeLog.info("Video sent successfully", {
           source: "whatsappHandler",
           jid,
@@ -1360,7 +1298,6 @@ async function sendOrchestratorResult(
         error: err instanceof Error ? err.message : String(err),
         errorType: err instanceof Error ? err.constructor.name : "unknown",
       });
-      console.error(`${LOG_PREFIX} Failed to send voice note:`, err);
     }
   }
 }
@@ -1390,11 +1327,19 @@ async function handleTweetApprovalCommand(
     return true;
   }
 
-  await sendAndTrack(sock, replyJid, {
-    text: action === "post"
+  const confirmationText =
+    action === "post"
       ? (resolution.tweetUrl ? `Posted it: ${resolution.tweetUrl}` : "Posted it.")
-      : "Rejected that tweet draft.",
+      : "Rejected that tweet draft.";
+
+  await sendAndTrack(sock, replyJid, {
+    text: confirmationText,
   });
+
+  await appendConversationHistory(
+    [{ role: "model", text: confirmationText }],
+    session?.interactionId,
+  );
 
   const systemMessage =
     action === "post"

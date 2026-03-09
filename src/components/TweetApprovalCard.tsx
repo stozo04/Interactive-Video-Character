@@ -8,21 +8,34 @@ interface TweetApprovalCardProps {
 
 const TweetApprovalCard: React.FC<TweetApprovalCardProps> = ({ draft, onResolve }) => {
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submittingAction, setSubmittingAction] = useState<'post' | 'reject' | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const handleResolve = async (action: 'post' | 'reject') => {
     if (isSubmitting) return;
     setIsSubmitting(true);
+    setSubmittingAction(action);
     setError(null);
-    const result = await onResolve(action);
-    if (!result.success) {
-      setError(result.error || 'Failed to resolve tweet draft.');
+    try {
+      const result = await onResolve(action);
+      if (!result.success) {
+        setError(result.error || 'Failed to resolve tweet draft.');
+      }
+    } catch (error) {
+      setError(error instanceof Error ? error.message : 'Failed to resolve tweet draft.');
+    } finally {
+      setIsSubmitting(false);
+      setSubmittingAction(null);
     }
-    setIsSubmitting(false);
   };
 
   return (
-    <div className="mt-3 rounded-2xl border border-slate-700 bg-slate-900/80 p-4 shadow-lg">
+    <div
+      className="mt-3 rounded-2xl border border-slate-700 bg-slate-900/80 p-4 shadow-lg"
+      role="region"
+      aria-label="Tweet approval card"
+      aria-live="polite"
+    >
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-2 text-sm font-semibold text-slate-200">
           <span className="inline-flex h-2 w-2 rounded-full bg-sky-400" />
@@ -42,7 +55,7 @@ const TweetApprovalCard: React.FC<TweetApprovalCardProps> = ({ draft, onResolve 
       )}
 
       {error && (
-        <div className="mt-2 text-xs text-red-300">
+        <div className="mt-2 text-xs text-red-300" role="alert">
           {error}
         </div>
       )}
@@ -54,7 +67,7 @@ const TweetApprovalCard: React.FC<TweetApprovalCardProps> = ({ draft, onResolve 
           disabled={isSubmitting}
           className="flex-1 rounded-lg bg-sky-500/90 px-3 py-2 text-sm font-semibold text-white hover:bg-sky-400 disabled:cursor-not-allowed disabled:opacity-60"
         >
-          {isSubmitting ? 'Posting...' : 'Post it'}
+          {submittingAction === 'post' ? 'Posting...' : 'Post it'}
         </button>
         <button
           type="button"
@@ -62,7 +75,7 @@ const TweetApprovalCard: React.FC<TweetApprovalCardProps> = ({ draft, onResolve 
           disabled={isSubmitting}
           className="flex-1 rounded-lg border border-slate-600 bg-slate-800/70 px-3 py-2 text-sm font-semibold text-slate-200 hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-60"
         >
-          {isSubmitting ? 'Working...' : 'Discard'}
+          {submittingAction === 'reject' ? 'Working...' : 'Discard'}
         </button>
       </div>
     </div>

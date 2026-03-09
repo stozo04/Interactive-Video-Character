@@ -101,8 +101,8 @@ async function tick(): Promise<void> {
 let intervalId: NodeJS.Timeout | null = null;
 
 export function startXMentionHeartbeat(): { stop: () => void } {
-  console.log(`${LOG_PREFIX} Starting (every ${TICK_MS / 60000} min)`);
   runtimeLog.info("X mention heartbeat started", {
+    logPrefix: LOG_PREFIX,
     tickMs: TICK_MS,
     initialDelayMs: INITIAL_DELAY_MS,
   });
@@ -120,8 +120,9 @@ export function startXMentionHeartbeat(): { stop: () => void } {
       if (!intervalId) return;
       clearInterval(intervalId);
       intervalId = null;
-      console.log(`${LOG_PREFIX} Stopped`);
-      runtimeLog.info("X mention heartbeat stopped");
+      runtimeLog.info("X mention heartbeat stopped", {
+        logPrefix: LOG_PREFIX,
+      });
     },
   };
 }

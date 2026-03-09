@@ -338,7 +338,7 @@ Responsibilities:
 
 Important detail:
 - polling logic and storage happen here
-- �Kayley knows about mentions� because `buildMentionsPromptSection()` injects stored mention state into the main system prompt
+- "Kayley knows about mentions" because `buildMentionsPromptSection()` injects stored mention state into the main system prompt
 
 ## `server/services/xMentionHeartbeat.ts`
 
@@ -544,7 +544,7 @@ Important operational detail:
 14. Gemini can then call `resolve_x_mention`
 15. reply is posted or skipped
 
-### How Kayley �knows� about mentions
+### How Kayley "knows" about mentions
 
 She does not know because of a magic live socket.
 She knows because:

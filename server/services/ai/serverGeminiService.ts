@@ -54,6 +54,8 @@ import { getLastInteractionDate } from "../../../src/services/conversationHistor
 import { getActiveStorylines } from "../../../src/services/storylineService";
 
 import { log } from "../../runtimeLogger";
+import { buildXTweetPromptSection } from "../xPromptContextService";
+import { buildMentionsPromptSection } from "../xMentionService";
 
 const runtimeLog = log.fromContext({ source: "serverGeminiService" });
 const FUNCTION_TOOL_NAMES = new Set(
@@ -398,13 +400,18 @@ export class ServerGeminiService implements IAIChatService {
         : input.type === "image_text" ? input.text
         : undefined;
 
+      const [xTweetPrompt, xMentionsPrompt] = await Promise.all([
+        buildXTweetPromptSection(),
+        buildMentionsPromptSection(),
+      ]);
+
       // Build system prompt
       const systemPrompt = await buildSystemPromptForNonGreeting(
         ctx.relationship,
-        ctx.upcomingEvents,
         session?.interactionId,
         currentUserMessage,
         0,
+        { xTweetPrompt, xMentionsPrompt },
       );
 
       // Create callable tools with context
@@ -639,12 +646,17 @@ export class ServerGeminiService implements IAIChatService {
 
     const ctx = await this.fetchUserContext();
 
+    const [xTweetPrompt, xMentionsPrompt] = await Promise.all([
+      buildXTweetPromptSection(),
+      buildMentionsPromptSection(),
+    ]);
+
     let systemPrompt = await buildSystemPromptForNonGreeting(
       ctx.relationship,
-      ctx.upcomingEvents,
       session.interactionId,
       undefined,
       0,
+      { xTweetPrompt, xMentionsPrompt },
     );
 
     // Inject pending storyline suggestion (Phase 2 feature)

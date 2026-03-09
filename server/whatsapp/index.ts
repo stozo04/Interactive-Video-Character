@@ -116,6 +116,8 @@ function releaseSingleInstanceLock() {
 }
 
 async function main() {
+  let stopXMentionBridge: (() => void) | null = null;
+
   console.log(`${LOG_PREFIX} Starting WhatsApp bridge...`);
   runtimeLog.info("WhatsApp bridge initialization starting", {
     source: "whatsappIndex",
@@ -131,10 +133,12 @@ async function main() {
 
   process.on("exit", () => releaseSingleInstanceLock());
   process.on("SIGINT", () => {
+    stopXMentionBridge?.();
     releaseSingleInstanceLock();
     process.exit(0);
   });
   process.on("SIGTERM", () => {
+    stopXMentionBridge?.();
     releaseSingleInstanceLock();
     process.exit(0);
   });
@@ -190,7 +194,7 @@ async function main() {
     startEmailBridge();
 
     // Forward queued X mention notifications from the main server
-    startXMentionBridge();
+    stopXMentionBridge = startXMentionBridge().stop;
 
     // Forward engineering ticket lifecycle notifications to WhatsApp
     startWhatsAppEngineeringTicketBridge();
@@ -215,6 +219,7 @@ async function main() {
     console.error(`${LOG_PREFIX} Failed to initialize WhatsApp client:`, initError);
     throw initError;
   } finally {
+    stopXMentionBridge?.();
     releaseSingleInstanceLock();
   }
 }

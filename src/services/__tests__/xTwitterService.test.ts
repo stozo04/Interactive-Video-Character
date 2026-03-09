@@ -1,6 +1,5 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
-// Mock server-only deps before importing the X service module.
 vi.mock("../../../server/services/supabaseAdmin", () => ({
   supabaseAdmin: { from: vi.fn() },
 }));
@@ -19,20 +18,20 @@ vi.mock("../imageGenerationService", () => ({
   generateCompanionSelfie: vi.fn(),
 }));
 
-vi.stubEnv("VITE_X_CLIENT_ID", "test");
-vi.stubEnv("VITE_X_CLIENT_SECRET", "test");
-vi.stubEnv("VITE_X_CALLBACK_URL", "http://localhost");
+vi.stubEnv("X_CLIENT_ID", "test");
+vi.stubEnv("X_CLIENT_SECRET", "test");
+vi.stubEnv("X_CALLBACK_URL", "http://localhost");
 
-import { parseMediaUploadResponse } from "../../../server/services/xTwitterServerService";
+import { parseTweetApprovalAction } from "../../../server/services/xTwitterServerService";
 
-describe("xTwitterServerService.parseMediaUploadResponse", () => {
-  it("throws when the v2 response is missing data.id", () => {
-    expect(() => parseMediaUploadResponse({})).toThrow(
-      "Media upload failed: missing media id in response"
-    );
+describe("xTwitterServerService.parseTweetApprovalAction", () => {
+  it("recognizes positive approval phrases", () => {
+    expect(parseTweetApprovalAction("POST TWEET")).toBe("post");
+    expect(parseTweetApprovalAction("lets do it")).toBe("post");
   });
 
-  it("returns the media id when present", () => {
-    expect(parseMediaUploadResponse({ data: { id: "12345" } })).toBe("12345");
+  it("recognizes rejection phrases and ignores unrelated text", () => {
+    expect(parseTweetApprovalAction("reject tweet")).toBe("reject");
+    expect(parseTweetApprovalAction("maybe later")).toBeNull();
   });
 });

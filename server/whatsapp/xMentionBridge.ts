@@ -8,23 +8,41 @@ import {
 
 const LOG_PREFIX = "[XMentionBridge]";
 const runtimeLog = log.fromContext({ source: "xMentionBridge", route: "whatsapp/x-mentions" });
-const POLL_INTERVAL_MS = 10_000;
+const POLL_INTERVAL_MS = 60_000;
 const STEVEN_JID = process.env.WHATSAPP_STEVEN_JID;
 
-export function startXMentionBridge(): void {
+export function startXMentionBridge(): { stop: () => void } {
+  let startupTimeoutId: ReturnType<typeof setTimeout> | null = null;
+  let intervalId: ReturnType<typeof setInterval> | null = null;
+
+  const stop = () => {
+    if (startupTimeoutId) {
+      clearTimeout(startupTimeoutId);
+      startupTimeoutId = null;
+    }
+    if (intervalId) {
+      clearInterval(intervalId);
+      intervalId = null;
+    }
+    runtimeLog.info("X mention bridge stopped");
+  };
+
   if (!STEVEN_JID) {
-    console.warn(`${LOG_PREFIX} WHATSAPP_STEVEN_JID not set - X mention bridge disabled`);
     runtimeLog.warning("X mention bridge disabled: WHATSAPP_STEVEN_JID not configured");
-    return;
+    return { stop };
   }
 
-  console.log(`${LOG_PREFIX} X mention bridge started (polling every ${POLL_INTERVAL_MS / 1000}s)`);
-  runtimeLog.info("X mention bridge started", { pollIntervalMs: POLL_INTERVAL_MS });
+  runtimeLog.info("X mention bridge started", {
+    logPrefix: LOG_PREFIX,
+    pollIntervalMs: POLL_INTERVAL_MS,
+  });
 
-  setTimeout(() => {
+  startupTimeoutId = setTimeout(() => {
     void pollQueuedMentionAnnouncements();
-    setInterval(() => void pollQueuedMentionAnnouncements(), POLL_INTERVAL_MS);
+    intervalId = setInterval(() => void pollQueuedMentionAnnouncements(), POLL_INTERVAL_MS);
   }, 3_000);
+
+  return { stop };
 }
 
 async function pollQueuedMentionAnnouncements(): Promise<void> {

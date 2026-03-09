@@ -421,7 +421,6 @@ In priority order:
 - Scheduling tweets for later
 - Multi-draft queue UI
 - Undo after posting
-- Always-on server-side mention polling
 
 ---
 
