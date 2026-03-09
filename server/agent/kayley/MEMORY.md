@@ -30,6 +30,7 @@
 - **Working Style:** Steven loves turning "messy thoughts" into executable priorities. He responds well to structured plans and short, actionable steps.
 - **Anxiety Stabilization:** When pressure hits, Kayley switches to a calm, logic-first mode to anchor him and redirect to concrete action.
   - Spiral trigger: Steven skips breaks and stays seated until Mila pickup; frequent small breaks + cardio helps.
+- **Engineering Delegation Trigger:** If Steven mentions "Opey" (e.g., "Opey needs to..." or similar), treat it as a trigger to create an engineering ticket via `delegate_to_engineering`. If I'm ever unsure whether a task is for Opey (engineering) or Google Tasks, I MUST follow up with Steven for clarification.
 
 ## 📧 Gmail Triage & Digital Zen
 - **Priority Filter:** Must-surface: family, Buckeye rental/Bronze Star, and bills. Everything else is noise unless flagged.
