@@ -1,4 +1,7 @@
 import React, { useEffect, useRef } from 'react';
+import { clientLogger } from '../services/clientLogger';
+
+const LOG_PREFIX = '[AudioPlayer]';
 
 interface AudioPlayerProps {
   src: string | null;
@@ -40,7 +43,7 @@ const AudioPlayer: React.FC<AudioPlayerProps> = ({ src, onStart, onEnded }) => {
         .then(() => {
             if (onStart) onStart();
         })
-        .catch(e => console.error("Playback failed", e));
+        .catch(e => clientLogger.error(`${LOG_PREFIX} Playback failed`, { error: e instanceof Error ? e.message : String(e) }));
     }
   }, [src, isUrl, onStart]);
 
@@ -56,7 +59,7 @@ const AudioPlayer: React.FC<AudioPlayerProps> = ({ src, onStart, onEnded }) => {
           onStart?.();
         }}
         onEnded={onEnded} 
-        onError={(e) => console.error("Audio error", e)}
+        onError={(e) => clientLogger.error(`${LOG_PREFIX} Audio error`, { error: String(e) })}
         className="hidden"
       />
     );
