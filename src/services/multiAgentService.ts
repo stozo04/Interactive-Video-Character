@@ -199,6 +199,8 @@ const LOG_PREFIX = "[MultiAgentService]";
 const DEFAULT_AGENT_BASE_URL = "http://localhost:4010";
 const DEFAULT_WHATSAPP_BRIDGE_URL = "http://localhost:4011";
 const DEFAULT_TELEGRAM_HEALTH_URL = "http://localhost:4011";
+const DEFAULT_OPEY_HEALTH_URL = "http://localhost:4013";
+const DEFAULT_TIDY_HEALTH_URL = "http://localhost:4014";
 
 function getWhatsAppBaseUrl(): string {
   const configuredUrl = import.meta.env.VITE_WHATSAPP_BRIDGE_URL as string | undefined;
@@ -234,6 +236,28 @@ function getBaseUrl(): string {
 
   const rawBaseUrl = DEFAULT_AGENT_BASE_URL.trim();
   return rawBaseUrl.replace(/\/+$/, "");
+}
+
+function getOpeyBaseUrl(): string {
+  const configuredUrl = import.meta.env.VITE_OPEY_HEALTH_URL as string | undefined;
+  if (configuredUrl && configuredUrl.trim()) {
+    return configuredUrl.trim().replace(/\/+$/, "");
+  }
+  if (import.meta.env.DEV) {
+    return "/opey-agent";
+  }
+  return DEFAULT_OPEY_HEALTH_URL;
+}
+
+function getTidyBaseUrl(): string {
+  const configuredUrl = import.meta.env.VITE_TIDY_HEALTH_URL as string | undefined;
+  if (configuredUrl && configuredUrl.trim()) {
+    return configuredUrl.trim().replace(/\/+$/, "");
+  }
+  if (import.meta.env.DEV) {
+    return "/tidy-agent";
+  }
+  return DEFAULT_TIDY_HEALTH_URL;
 }
 
 async function parseResponse<T>(response: Response): Promise<T> {
@@ -802,6 +826,7 @@ export interface OpeyHealthResult {
   alive: boolean;
   currentTicketId?: string;
   lastPollAt?: number;
+  latencyMs?: number;
   error?: string;
 }
 
@@ -812,12 +837,14 @@ export interface OpeyRestartResult {
 }
 
 export async function getOpeyHealth(): Promise<OpeyHealthResult> {
-  const endpoint = `${getBaseUrl()}/multi-agent/opey/health`;
+  const endpoint = `${getOpeyBaseUrl()}/health`;
+  const t0 = Date.now();
   try {
     const response = await fetch(endpoint, {
       method: "GET",
       headers: { Accept: "application/json" },
     });
+    const latencyMs = Date.now() - t0;
     const body = await parseResponse<{ ok?: boolean; alive?: boolean; currentTicketId?: string; lastPollAt?: number; error?: string }>(response);
 
     if (!response.ok) {
@@ -829,6 +856,7 @@ export async function getOpeyHealth(): Promise<OpeyHealthResult> {
       alive: body.alive === true,
       currentTicketId: body.currentTicketId,
       lastPollAt: body.lastPollAt,
+      latencyMs,
     };
   } catch {
     return { ok: false, alive: false, error: "Multi-agent service is unreachable." };
@@ -836,7 +864,7 @@ export async function getOpeyHealth(): Promise<OpeyHealthResult> {
 }
 
 export async function restartOpey(): Promise<OpeyRestartResult> {
-  const endpoint = `${getBaseUrl()}/multi-agent/opey/restart`;
+  const endpoint = `${getOpeyBaseUrl()}/restart`;
   try {
     const response = await fetch(endpoint, {
       method: "POST",
@@ -851,6 +879,78 @@ export async function restartOpey(): Promise<OpeyRestartResult> {
     return { ok: true, message: body.message };
   } catch {
     return { ok: false, error: "Multi-agent service is unreachable." };
+  }
+}
+
+export interface TidyHealthResult {
+  ok: boolean;
+  alive: boolean;
+  isProcessing: boolean;
+  lastTickAt?: number;
+  latencyMs?: number;
+  error?: string;
+}
+
+export interface TidyRestartResult {
+  ok: boolean;
+  message?: string;
+  error?: string;
+}
+
+export async function getTidyHealth(): Promise<TidyHealthResult> {
+  const endpoint = `${getTidyBaseUrl()}/health`;
+  const t0 = Date.now();
+  try {
+    const response = await fetch(endpoint, {
+      method: "GET",
+      headers: { Accept: "application/json" },
+    });
+    const latencyMs = Date.now() - t0;
+    const body = await parseResponse<{
+      ok?: boolean;
+      alive?: boolean;
+      isProcessing?: boolean;
+      lastTickAt?: number;
+      error?: string;
+    }>(response);
+
+    if (!response.ok) {
+      return {
+        ok: false,
+        alive: false,
+        isProcessing: false,
+        error: body.error || `Tidy health failed with status ${response.status}.`,
+      };
+    }
+
+    return {
+      ok: true,
+      alive: body.alive === true,
+      isProcessing: body.isProcessing === true,
+      lastTickAt: body.lastTickAt,
+      latencyMs,
+    };
+  } catch {
+    return { ok: false, alive: false, isProcessing: false, error: "Tidy agent is unreachable." };
+  }
+}
+
+export async function restartTidy(): Promise<TidyRestartResult> {
+  const endpoint = `${getTidyBaseUrl()}/restart`;
+  try {
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+    });
+    const body = await parseResponse<{ ok?: boolean; message?: string; error?: string }>(response);
+
+    if (!response.ok) {
+      return { ok: false, error: body.error || `Tidy restart failed with status ${response.status}.` };
+    }
+
+    return { ok: true, message: body.message };
+  } catch {
+    return { ok: false, error: "Tidy agent is unreachable." };
   }
 }
 

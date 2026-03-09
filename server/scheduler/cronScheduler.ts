@@ -5,8 +5,6 @@ import { toZonedTime, fromZonedTime } from "date-fns-tz";
 import { addDays, addMonths, lastDayOfMonth, set } from "date-fns";
 import { log } from "../runtimeLogger";
 import { ai, GEMINI_MODEL } from "../services/ai/geminiClient";
-import { runCodeCleanerBatch } from "./codeCleanerHandler";
-import { runTidyBranchCleanup } from "./tidyBranchCleanupHandler";
 
 const LOG_PREFIX = "[CronScheduler]";
 const DEFAULT_TICK_MS = 60_000;
@@ -69,8 +67,8 @@ const CRON_JOB_EVENTS_TABLE = "cron_job_events";
 const PROMISES_TABLE = "promises";
 const PENDING_MESSAGES_TABLE = "pending_messages";
 const MONTHLY_NOTES_TABLE = "kayley_monthly_notes";
-const SOUL_PATH = "server/agent/kayley/SOUL.md";
-const IDENTITY_PATH = "server/agent/kayley/IDENTITY.md";
+const SOUL_PATH = "agents/kayley/SOUL.md";
+const IDENTITY_PATH = "agents/kayley/IDENTITY.md";
 
 // ==========================================
 // 1. Timezone Engine (Powered by date-fns-tz)
@@ -384,15 +382,7 @@ const JOB_HANDLERS: Record<string, JobHandler> = {
     return { summary, metadata: { promiseId }, skipSuccessMessage: true };
   },
 
-  "code_cleaner": async (job, client) => {
-    return runCodeCleanerBatch(job, client);
-  },
-
-  "tidy_branch_cleanup": async (job, client) => {
-    return runTidyBranchCleanup(job, client);
-  },
-
-  // Future skills (e.g., "bug_finder", "tiktok_scraper") get dropped right here!
+  // code_cleaner and tidy_branch_cleanup are now handled by the standalone Tidy process (npm run tidy:dev)
 };
 
 // ==========================================

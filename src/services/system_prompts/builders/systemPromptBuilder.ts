@@ -31,14 +31,14 @@ import {
   buildStandardOutputSection,
   buildGreetingOutputSection
 } from "../format";
-import soulContent from "../../../../server/agent/kayley/SOUL.md?raw";
-import agentsContent from "../../../../server/agent/kayley/AGENTS.md?raw";
-import identityContent from "../../../../server/agent/kayley/IDENTITY.md?raw";
-import memoryContent from "../../../../server/agent/kayley/MEMORY.md?raw";
-import memoryRulesContent from "../../../../server/agent/kayley/MEMORY_RULES.md?raw";
-import userContent from "../../../../server/agent/kayley/USER.md?raw";
-import toolsContent from "../../../../server/agent/kayley/TOOLS.md?raw";
-import safetyContent from "../../../../server/agent/kayley/SAFETY.md?raw";
+import soulContent from "../../../../agents/kayley/SOUL.md?raw";
+import agentsContent from "../../../../agents/kayley/AGENTS.md?raw";
+import identityContent from "../../../../agents/kayley/IDENTITY.md?raw";
+import memoryContent from "../../../../agents/kayley/MEMORY.md?raw";
+import memoryRulesContent from "../../../../agents/kayley/MEMORY_RULES.md?raw";
+import userContent from "../../../../agents/kayley/USER.md?raw";
+import toolsContent from "../../../../agents/kayley/TOOLS.md?raw";
+import safetyContent from "../../../../agents/kayley/SAFETY.md?raw";
 
 // Greeting-specific imports
 import {

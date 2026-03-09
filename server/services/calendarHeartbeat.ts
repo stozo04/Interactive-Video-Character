@@ -10,8 +10,8 @@
 
 import { fetchCalendarWindow as gogFetchCalendarWindow, type GogCalendarEvent } from './gogService';
 import { ai, GEMINI_MODEL } from './ai/geminiClient';
-import { bot, getStevenChatId } from '../telegram/telegramClient';
-import { getActiveSock } from '../whatsapp/baileyClient';
+import { bot, getStevenChatId } from '../../telegram/telegramClient';
+import { getActiveSock } from '../../whatsapp/baileyClient';
 import {
   appendConversationHistory,
   getTodaysInteractionId,

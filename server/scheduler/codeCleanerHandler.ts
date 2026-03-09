@@ -12,9 +12,9 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
-import { runTidyLoop } from "../agent/tidy/orchestrator";
-import { BranchManager } from "../agent/opey-dev/branchManager";
-import { createPullRequest } from "../agent/opey-dev/githubOps";
+import { runTidyLoop } from "../../agents/tidy/orchestrator";
+import { BranchManager } from "../../agents/opey-dev/branchManager";
+import { createPullRequest } from "../../agents/opey-dev/githubOps";
 import { log } from "../runtimeLogger";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
@@ -29,7 +29,7 @@ const INCLUDE_EXTENSIONS = new Set([".ts", ".tsx"]);
 const SKIP_DIRS = new Set(["node_modules", "dist", ".git", ".claude"]);
 const SKIP_SUFFIXES = [".d.ts", ".test.ts", ".spec.ts"];
 // Never let Tidy clean himself
-const SKIP_ABS_DIRS = [path.join(REPO_ROOT, "server", "agent", "tidy")];
+const SKIP_ABS_DIRS = [path.join(REPO_ROOT, "agents", "tidy")];
 
 // ============================================================================
 // File indexing
