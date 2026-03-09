@@ -128,6 +128,7 @@ export interface WorkspaceAgentRunEvent {
 
 const LOG_PREFIX = "[ProjectAgentService]";
 const DEFAULT_AGENT_BASE_URL = "http://localhost:4010";
+const WORKSPACE_AGENT_BASE_PATH = "/workspace-agent";
 const DEFAULT_POLL_INTERVAL_MS = 350;
 const DEFAULT_POLL_TIMEOUT_MS = 15_000;
 
@@ -145,6 +146,10 @@ function getWorkspaceAgentBaseUrl(): string {
     | undefined;
   const rawBaseUrl = (configuredUrl || DEFAULT_AGENT_BASE_URL).trim();
   return rawBaseUrl.replace(/\/+$/, "");
+}
+
+function buildWorkspaceAgentUrl(pathname: string): string {
+  return `${getWorkspaceAgentBaseUrl()}${WORKSPACE_AGENT_BASE_PATH}${pathname}`;
 }
 
 function buildCreateRunPayload(request: WorkspaceActionRequest): {
@@ -221,7 +226,7 @@ export async function requestWorkspaceAction(
 ): Promise<WorkspaceActionResult> {
   const waitForTerminal = options?.waitForTerminal ?? true;
   const baseUrl = getWorkspaceAgentBaseUrl();
-  const endpoint = `${baseUrl}/agent/runs`;
+  const endpoint = buildWorkspaceAgentUrl("/runs");
   const payload = buildCreateRunPayload(request);
 
   console.log(`${LOG_PREFIX} Sending workspace action`, {
@@ -315,7 +320,7 @@ export async function rejectWorkspaceRun(
 }
 
 export async function getWorkspaceAgentHealth(): Promise<WorkspaceAgentHealthResult> {
-  const endpoint = `${getWorkspaceAgentBaseUrl()}/agent/health`;
+  const endpoint = buildWorkspaceAgentUrl("/health");
 
   try {
     const response = await fetch(endpoint, {
@@ -365,7 +370,7 @@ export async function listWorkspaceAgentRuns(
   limit = 25,
 ): Promise<WorkspaceAgentRunsResult> {
   const normalizedLimit = Number.isFinite(limit) && limit > 0 ? Math.floor(limit) : 25;
-  const endpoint = `${getWorkspaceAgentBaseUrl()}/agent/runs?limit=${normalizedLimit}`;
+  const endpoint = `${buildWorkspaceAgentUrl("/runs")}?limit=${normalizedLimit}`;
 
   try {
     const response = await fetch(endpoint, {
@@ -412,8 +417,8 @@ export function subscribeWorkspaceAgentEvents(options: {
 }): () => void {
   const { runId, onEvent, onError } = options;
   const endpoint = runId
-    ? `${getWorkspaceAgentBaseUrl()}/agent/runs/${encodeURIComponent(runId)}/events`
-    : `${getWorkspaceAgentBaseUrl()}/agent/events`;
+    ? buildWorkspaceAgentUrl(`/runs/${encodeURIComponent(runId)}/events`)
+    : buildWorkspaceAgentUrl("/events");
   const eventSource = new EventSource(endpoint);
 
   eventSource.onmessage = (event) => {
@@ -483,7 +488,7 @@ async function pollRunUntilWaiting(
 ): Promise<WorkspaceActionResult> {
   const { baseUrl, runId, pollIntervalMs, pollTimeoutMs, initialHttpStatus } =
     options;
-  const runEndpoint = `${baseUrl}/agent/runs/${encodeURIComponent(runId)}`;
+  const runEndpoint = `${baseUrl}${WORKSPACE_AGENT_BASE_PATH}/runs/${encodeURIComponent(runId)}`;
   const deadline = Date.now() + pollTimeoutMs;
 
   while (Date.now() <= deadline) {
@@ -533,9 +538,7 @@ async function resolveWorkspaceRunApproval(
   runId: string,
   reason?: string,
 ): Promise<WorkspaceAgentApprovalResult> {
-  const endpoint = `${getWorkspaceAgentBaseUrl()}/agent/runs/${encodeURIComponent(
-    runId,
-  )}/${action}`;
+  const endpoint = buildWorkspaceAgentUrl(`/runs/${encodeURIComponent(runId)}/${action}`);
 
   try {
     const response = await fetch(endpoint, {

@@ -78,10 +78,12 @@ interface WorkspaceAgentRouterOptions {
 
 const runtimeLog = log.fromContext({
   source: "workspaceAgentRoutes",
-  route: "/agent",
+  route: "/workspace-agent",
 });
 
 const runs: WorkspaceAgentRun[] = [];
+const WORKSPACE_AGENT_BASE_PATH = "/workspace-agent";
+const sseClients = new Set<ServerResponse>();
 
 function writeJson(res: ServerResponse, statusCode: number, payload: unknown): void {
   Object.entries(JSON_HEADERS).forEach(([key, value]) => {
@@ -89,6 +91,83 @@ function writeJson(res: ServerResponse, statusCode: number, payload: unknown): v
   });
   res.statusCode = statusCode;
   res.end(JSON.stringify(payload));
+}
+
+function writeSseEvent(
+  res: ServerResponse,
+  eventType: string,
+  payload: unknown,
+): void {
+  res.write(`event: ${eventType}\n`);
+  res.write(`data: ${JSON.stringify(payload)}\n\n`);
+}
+
+function createSseHeaders(): Record<string, string> {
+  return {
+    "Content-Type": "text/event-stream; charset=utf-8",
+    "Cache-Control": "no-cache, no-transform",
+    Connection: "keep-alive",
+    "Access-Control-Allow-Origin": "*",
+  };
+}
+
+function broadcastRunEvent(eventType: "run_created" | "run_updated", run: WorkspaceAgentRun): void {
+  if (sseClients.size === 0) {
+    return;
+  }
+
+  const payload = {
+    type: eventType,
+    runId: run.id,
+    timestamp: new Date().toISOString(),
+    run,
+  };
+
+  for (const client of sseClients) {
+    writeSseEvent(client, eventType, payload);
+  }
+}
+
+function handleSseSubscription(
+  req: IncomingMessage,
+  res: ServerResponse,
+  runId?: string,
+): void {
+  Object.entries(createSseHeaders()).forEach(([key, value]) => {
+    res.setHeader(key, value);
+  });
+  res.flushHeaders?.();
+
+  sseClients.add(res);
+
+  writeSseEvent(res, "connected", {
+    type: "connected",
+    runId,
+    activeRunId: null,
+    pendingCount: 0,
+    message: "Workspace agent event stream connected.",
+    timestamp: new Date().toISOString(),
+  });
+
+  const heartbeat = setInterval(() => {
+    writeSseEvent(res, "heartbeat", {
+      type: "heartbeat",
+      runId,
+      activeRunId: null,
+      pendingCount: 0,
+      message: "Workspace agent heartbeat.",
+      timestamp: new Date().toISOString(),
+    });
+  }, 15_000);
+
+  const cleanup = (): void => {
+    clearInterval(heartbeat);
+    sseClients.delete(res);
+    res.end();
+  };
+
+  req.on("close", cleanup);
+  req.on("aborted", cleanup);
 }
 
 async function parseJsonBody<T>(req: IncomingMessage): Promise<T> {
@@ -186,7 +265,7 @@ export function createWorkspaceAgentRouter(options: WorkspaceAgentRouterOptions)
     const url = new URL(req.url, "http://localhost");
     const pathname = url.pathname;
 
-    if (!pathname.startsWith("/agent")) {
+    if (!pathname.startsWith(WORKSPACE_AGENT_BASE_PATH)) {
       return false;
     }
 
@@ -195,7 +274,7 @@ export function createWorkspaceAgentRouter(options: WorkspaceAgentRouterOptions)
       return true;
     }
 
-    if (req.method === "GET" && pathname === "/agent/health") {
+    if (req.method === "GET" && pathname === `${WORKSPACE_AGENT_BASE_PATH}/health`) {
       const health: WorkspaceAgentHealth = {
         status: "ok",
         service: "workspace_agent",
@@ -209,14 +288,53 @@ export function createWorkspaceAgentRouter(options: WorkspaceAgentRouterOptions)
       return true;
     }
 
-    if (req.method === "GET" && pathname === "/agent/runs") {
+    if (req.method === "GET" && pathname === `${WORKSPACE_AGENT_BASE_PATH}/events`) {
+      handleSseSubscription(req, res);
+      return true;
+    }
+
+    const runEventsMatch = pathname.match(/^\/workspace-agent\/runs\/([^/]+)\/events$/);
+    if (req.method === "GET" && runEventsMatch) {
+      handleSseSubscription(req, res, runEventsMatch[1]);
+      return true;
+    }
+
+    if (req.method === "GET" && pathname === `${WORKSPACE_AGENT_BASE_PATH}/runs`) {
       const limit = Math.max(1, Math.min(Number(url.searchParams.get("limit") ?? 25), 200));
       const sorted = [...runs].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
       writeJson(res, 200, { runs: sorted.slice(0, limit) });
       return true;
     }
 
-    if (req.method === "POST" && pathname === "/agent/runs") {
+    const runDetailMatch = pathname.match(/^\/workspace-agent\/runs\/([^/]+)$/);
+    if (req.method === "GET" && runDetailMatch) {
+      const run = runs.find((candidate) => candidate.id === runDetailMatch[1]);
+      if (!run) {
+        writeJson(res, 404, { error: "Run not found." });
+        return true;
+      }
+
+      writeJson(res, 200, { run });
+      return true;
+    }
+
+    const runApprovalMatch = pathname.match(/^\/workspace-agent\/runs\/([^/]+)\/(approve|reject)$/);
+    if (req.method === "POST" && runApprovalMatch) {
+      const [, runId, action] = runApprovalMatch;
+      const run = runs.find((candidate) => candidate.id === runId);
+      if (!run) {
+        writeJson(res, 404, { error: "Run not found." });
+        return true;
+      }
+
+      writeJson(res, 409, {
+        run,
+        error: `Run ${runId} does not support ${action} in the local workspace agent.`,
+      });
+      return true;
+    }
+
+    if (req.method === "POST" && pathname === `${WORKSPACE_AGENT_BASE_PATH}/runs`) {
       try {
         const payload = await parseJsonBody<WorkspaceActionRequestBody>(req);
         const action = payload.action;
@@ -314,6 +432,7 @@ export function createWorkspaceAgentRouter(options: WorkspaceAgentRouterOptions)
 
         const run = buildRun(workspaceRoot, action, args, summary, step, status);
         runs.push(run);
+        broadcastRunEvent("run_created", run);
 
         runtimeLog.info("Workspace action processed", {
           action,
