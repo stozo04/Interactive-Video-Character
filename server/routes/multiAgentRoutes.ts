@@ -3,7 +3,7 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
-import { REQUEST_TYPES, TICKET_STATUSES } from "../agent/opey-dev/types";
+import { REQUEST_TYPES, TICKET_STATUSES } from "../../agents/opey-dev/types";
 import { log } from "../runtimeLogger";
 
 const LOG_PREFIX = "[MultiAgentRoutes]";
@@ -17,19 +17,9 @@ const JSON_HEADERS = {
 
 type JsonRecord = Record<string, unknown>;
 
-interface OpeyStatusSnapshot {
-  alive: boolean;
-  currentTicketId: string | undefined;
-  lastPollAt: number;
-}
-
 interface MultiAgentRouterOptions {
   supabaseUrl: string;
   supabaseServiceRoleKey: string;
-  opey?: {
-    getStatus: () => OpeyStatusSnapshot;
-    restart: () => void;
-  };
 }
 
 interface TicketCreatePayload {
@@ -267,7 +257,6 @@ function writeJson(res: ServerResponse, statusCode: number, payload: unknown): v
 
 export function createMultiAgentRouter(options: MultiAgentRouterOptions) {
   const supabase = createSupabaseClient(options);
-  const { opey } = options;
 
   return async function routeMultiAgentRequest(
     req: IncomingMessage,
@@ -388,26 +377,15 @@ export function createMultiAgentRouter(options: MultiAgentRouterOptions) {
       return true;
     }
 
-    // GET /multi-agent/opey/health
+    // GET /multi-agent/opey/health — Opey is now a standalone process
     if (segments.length === 3 && segments[1] === "opey" && segments[2] === "health" && req.method === "GET") {
-      if (!opey) {
-        writeJson(res, 503, { ok: false, error: "Opey is not running." });
-        return true;
-      }
-      const status = opey.getStatus();
-      writeJson(res, 200, { ok: true, ...status });
+      writeJson(res, 200, { ok: true, message: "Opey runs as a standalone process (npm run opey:dev)" });
       return true;
     }
 
-    // POST /multi-agent/opey/restart
+    // POST /multi-agent/opey/restart — Opey is now a standalone process
     if (segments.length === 3 && segments[1] === "opey" && segments[2] === "restart" && req.method === "POST") {
-      if (!opey) {
-        writeJson(res, 503, { ok: false, error: "Opey is not running." });
-        return true;
-      }
-      opey.restart();
-      log.info("Opey poll loop restarted via API", { source: "MultiAgentRouter" });
-      writeJson(res, 200, { ok: true, message: "Opey poll loop restarted." });
+      writeJson(res, 200, { ok: false, message: "Opey is a standalone process — restart from its terminal" });
       return true;
     }
 

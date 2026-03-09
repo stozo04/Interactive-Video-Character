@@ -21,7 +21,7 @@ import {
 } from './gogService';
 import { generateEmailAnnouncement } from '../../src/services/emailProcessingService';
 import { supabaseAdmin as supabase } from './supabaseAdmin';
-import { bot, getStevenChatId } from '../telegram/telegramClient';
+import { bot, getStevenChatId } from '../../telegram/telegramClient';
 import { log } from '../runtimeLogger';
 import {
   checkAutoArchiveRule,

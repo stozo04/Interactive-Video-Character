@@ -38,13 +38,33 @@ const isNode = typeof process !== 'undefined' && process.versions?.node != null;
 
 ---
 
-## Phase 2: Opey-Dev as Standalone Process
+## Phase 2: Move Agents to Top-Level + Make Opey Standalone
 
-**Goal:** Server restart no longer kills Opey.
+**Goal:** Agents live at `agents/` (top-level, independent of server). Opey runs as its own process.
 
-### Step 2a: Create standalone entry point
+### Step 2a: Move agent directories to top-level
 
-**New file: `server/agent/opey-dev/index.ts`**
+Move `server/agent/opey-dev/` → `agents/opey-dev/`
+Move `server/agent/tidy/` → `agents/tidy/`
+
+### Step 2b: Update imports in all moved agent files
+
+**Opey-Dev files** (`agents/opey-dev/main.ts`, `ticketStore.ts`, `branchManager.ts`, `githubOps.ts`, `processManager.ts`, `executor.ts`, `orchestrator.ts`, `orchestrator-openai.ts`, `types.ts`, `skillLoader.ts`):
+
+| Old import | New import |
+|---|---|
+| `../../runtimeLogger` | `../../lib/logger` |
+| `../../services/*` | `../../server/services/*` |
+
+**Tidy files** (`agents/tidy/orchestrator.ts`):
+
+| Old import | New import |
+|---|---|
+| `../../runtimeLogger` | `../../lib/logger` |
+
+### Step 2c: Create Opey standalone entry point
+
+**New file: `agents/opey-dev/index.ts`**
 
 Extract from `startOpeyDev()` in `main.ts` (lines 350-410):
 1. Load env via dotenv (same as server/index.ts lines 39-58)
@@ -52,18 +72,18 @@ Extract from `startOpeyDev()` in `main.ts` (lines 350-410):
 3. Run `pruneAllStaleWorktrees()` + `failOrphanedTickets()`
 4. Start the poll loop (`processNextTicket` every 30s)
 5. Handle SIGINT/SIGTERM gracefully (clear interval, log shutdown)
-6. Import logger from `lib/logger.ts`
+6. Import logger from `../../lib/logger`
 
-### Step 2b: Add npm script
+### Step 2d: Add npm script
 
 **Modify: `package.json`** — add:
 ```
-"opey:dev": "npx tsx watch --ignore '.worktrees/**' --ignore 'node_modules/**' --ignore 'src/**' --ignore 'server/agent/**' --import ./server/envShim.ts server/agent/opey-dev/index.ts"
+"opey:dev": "npx tsx watch --ignore '.worktrees/**' --ignore 'node_modules/**' --ignore 'src/**' --ignore 'agents/**' --import ./server/envShim.ts agents/opey-dev/index.ts"
 ```
 
-Key: `--ignore 'server/agent/**'` prevents Opey's own file saves from restarting itself. Changes to shared `server/services/` still trigger restart (those are genuine dependency changes).
+Key: `--ignore 'agents/**'` prevents Opey's own file saves from restarting itself.
 
-### Step 2c: Remove Opey from server/index.ts
+### Step 2e: Remove Opey from server/index.ts
 
 **Modify: `server/index.ts`**
 - Remove `import { startOpeyDev }` (line 8)
@@ -71,16 +91,25 @@ Key: `--ignore 'server/agent/**'` prevents Opey's own file saves from restarting
 - Remove `opeyDevHandle.stop()` from shutdown (line 364)
 - Remove `opey` option from `createMultiAgentRouter` call (lines 131-135)
 
-### Step 2d: Update multiAgentRoutes
+### Step 2f: Update multiAgentRoutes
 
 **Modify: `server/routes/multiAgentRoutes.ts`**
-- `/multi-agent/opey/health` → return `{ ok: true, message: "Opey runs as a standalone process" }` (or read heartbeat from Supabase if we want real status later)
+- Update `import { REQUEST_TYPES, TICKET_STATUSES } from "../agent/opey-dev/types"` → `"../../agents/opey-dev/types"`
+- `/multi-agent/opey/health` → return `{ ok: true, message: "Opey runs as a standalone process" }`
 - `/multi-agent/opey/restart` → return `{ ok: false, message: "Opey is a standalone process — restart from its terminal" }`
 - Remove `opey` from `MultiAgentRouterOptions` interface
 
+### Step 2g: Update other server imports of agent code
+
+**Modify: `server/scheduler/codeCleanerHandler.ts`**
+- `../agent/tidy/orchestrator` → `../../agents/tidy/orchestrator`
+- `../agent/opey-dev/branchManager` → `../../agents/opey-dev/branchManager`
+- `../agent/opey-dev/githubOps` → `../../agents/opey-dev/githubOps`
+
 ### Files
-- **Create:** `server/agent/opey-dev/index.ts`
-- **Modify:** `package.json`, `server/index.ts`, `server/routes/multiAgentRoutes.ts`
+- **Move:** `server/agent/opey-dev/` → `agents/opey-dev/`, `server/agent/tidy/` → `agents/tidy/`
+- **Create:** `agents/opey-dev/index.ts`
+- **Modify:** all moved agent files (imports), `package.json`, `server/index.ts`, `server/routes/multiAgentRoutes.ts`, `server/scheduler/codeCleanerHandler.ts`
 
 ---
 
@@ -90,7 +119,7 @@ Key: `--ignore 'server/agent/**'` prevents Opey's own file saves from restarting
 
 ### Step 3a: Create standalone entry point
 
-**New file: `server/agent/tidy/index.ts`**
+**New file: `agents/tidy/index.ts`**
 
 Standalone process that:
 1. Loads env via dotenv
@@ -113,11 +142,11 @@ Standalone process that:
 
 **Modify: `package.json`** — add:
 ```
-"tidy:dev": "npx tsx watch --ignore '.worktrees/**' --ignore 'node_modules/**' --ignore 'src/**' --ignore 'server/agent/**' --import ./server/envShim.ts server/agent/tidy/index.ts"
+"tidy:dev": "npx tsx watch --ignore '.worktrees/**' --ignore 'node_modules/**' --ignore 'src/**' --ignore 'agents/**' --import ./server/envShim.ts agents/tidy/index.ts"
 ```
 
 ### Files
-- **Create:** `server/agent/tidy/index.ts`
+- **Create:** `agents/tidy/index.ts`
 - **Modify:** `package.json`, `server/scheduler/cronScheduler.ts`
 
 ---
@@ -214,37 +243,20 @@ Check if anything in `server/` imports from `server/whatsapp/` and update paths.
 
 ---
 
-## Phase 7: Update Agent Imports to Root Logger
-
-**Switch these files from `import { log } from "../../runtimeLogger"` to `import { log } from "../../../lib/logger"`:**
-
-- `server/agent/opey-dev/main.ts`
-- `server/agent/opey-dev/ticketStore.ts`
-- `server/agent/opey-dev/branchManager.ts`
-- `server/agent/opey-dev/githubOps.ts`
-- `server/agent/opey-dev/processManager.ts`
-- `server/agent/opey-dev/executor.ts`
-- `server/agent/tidy/orchestrator.ts`
-- `server/scheduler/codeCleanerHandler.ts` (if still used by tidy's standalone entry point)
-
-### Files
-- **Modify:** 6-8 agent files (import path change only)
-
----
-
 ## Execution Order
 
 1. Create `lib/logger.ts` (new file, zero risk, testable in isolation)
-2. Create `server/agent/opey-dev/index.ts` (standalone entry point)
-3. Add `opey:dev` to `package.json` and test standalone launch
-4. Remove Opey coupling from `server/index.ts` + `multiAgentRoutes.ts`
-5. Create `server/agent/tidy/index.ts` (standalone entry point)
-6. Remove Tidy handlers from `cronScheduler.ts`
-7. Add `tidy:dev` to `package.json`
-8. Move `server/telegram/` → `telegram/`, update all imports
-9. Move `server/whatsapp/` → `whatsapp/`, update all imports
-10. Update `start-agent-window.ps1` with Opey + Tidy windows + updated Telegram/WhatsApp paths
-11. Switch agent file imports to root logger
+2. Move `server/agent/` → `agents/`, update all imports in agent files
+3. Create `agents/opey-dev/index.ts` (standalone entry point)
+4. Add `opey:dev` to `package.json` and test standalone launch
+5. Remove Opey coupling from `server/index.ts` + `multiAgentRoutes.ts`
+6. Update `server/scheduler/codeCleanerHandler.ts` imports to point at `agents/`
+7. Create `agents/tidy/index.ts` (standalone entry point)
+8. Remove Tidy handlers from `cronScheduler.ts`
+9. Add `tidy:dev` to `package.json`
+10. Move `server/telegram/` → `telegram/`, update all imports
+11. Move `server/whatsapp/` → `whatsapp/`, update all imports
+12. Update `start-agent-window.ps1` with Opey + Tidy windows + updated Telegram/WhatsApp paths
 
 ---
 
@@ -264,12 +276,12 @@ Check if anything in `server/` imports from `server/whatsapp/` and update paths.
 
 ```
 Interactive-Video-Character/
-├── lib/                    # Shared utilities (logger)
-│   └── logger.ts
+├── agents/                 # Standalone agent processes
+│   ├── opey-dev/           # Opey-Dev (npm run opey:dev)
+│   └── tidy/               # Tidy (npm run tidy:dev)
+├── lib/                    # Shared utilities
+│   └── logger.ts           # Root logger (replaces both old loggers)
 ├── server/                 # Central hub (port 4010)
-│   ├── agent/              # Agent code (own processes)
-│   │   ├── opey-dev/       # Opey-Dev (standalone, npm run opey:dev)
-│   │   └── tidy/           # Tidy (standalone, npm run tidy:dev)
 │   ├── routes/
 │   ├── scheduler/          # Cron (minus tidy handlers)
 │   ├── services/           # Shared server services

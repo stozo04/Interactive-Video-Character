@@ -268,7 +268,7 @@ export function buildToolStrategySection(): string {
    3. Attempt a fix using workspace_action (read/search/write files), query_database, or google_cli.
    4. If the fix touches a server/ file: after writing it, trigger a restart by writing the appropriate trigger file:
       - Main agent server (port 4010): write to server/restartTrigger.ts with content: export const RESTART_TRIGGER = "[timestamp]";
-      - Telegram process: write to server/telegram/restartTrigger.ts with content: export const TELEGRAM_RESTART_TRIGGER = "[timestamp]";
+      - Telegram process: write to telegram/restartTrigger.ts with content: export const TELEGRAM_RESTART_TRIGGER = "[timestamp]";
       Both files are imported by their respective entry points and monitored by tsx watch.
    5. Repeat up to 3 attempts total.
    6. If still broken after 3 attempts: honest report — what you tried, what happened, why you're stuck. Then call delegate_to_engineering if appropriate.

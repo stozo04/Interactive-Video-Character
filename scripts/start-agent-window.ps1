@@ -64,3 +64,46 @@ if (Test-AgentListening -Port $telegramHealthPort) {
     # Non-fatal — dev can still work without Telegram
   }
 }
+
+# ── Opey-Dev agent ──────────────────────────────────────────────────
+# Standalone process — no port to check. Supabase ticket locking prevents
+# double-processing, so launching unconditionally is safe.
+
+$opeyCommand = "cd `"$repoRoot`"; npm run opey:dev"
+
+try {
+  Start-Process -FilePath "powershell.exe" -ArgumentList @(
+    "-NoExit",
+    "-NoProfile",
+    "-ExecutionPolicy",
+    "Bypass",
+    "-Command",
+    "`$Host.UI.RawUI.WindowTitle = 'Opey Dev'; $opeyCommand"
+  ) -ErrorAction Stop | Out-Null
+
+  Write-Host "[dev] Started Opey-Dev agent in a new PowerShell window."
+} catch {
+  Write-Error "[dev] Failed to start Opey-Dev window: $($_.Exception.Message)"
+  # Non-fatal
+}
+
+# ── Tidy agent ──────────────────────────────────────────────────────
+# Standalone process — polls cron_jobs for code_cleaner and branch cleanup.
+
+$tidyCommand = "cd `"$repoRoot`"; npm run tidy:dev"
+
+try {
+  Start-Process -FilePath "powershell.exe" -ArgumentList @(
+    "-NoExit",
+    "-NoProfile",
+    "-ExecutionPolicy",
+    "Bypass",
+    "-Command",
+    "`$Host.UI.RawUI.WindowTitle = 'Tidy Agent'; $tidyCommand"
+  ) -ErrorAction Stop | Out-Null
+
+  Write-Host "[dev] Started Tidy agent in a new PowerShell window."
+} catch {
+  Write-Error "[dev] Failed to start Tidy window: $($_.Exception.Message)"
+  # Non-fatal
+}

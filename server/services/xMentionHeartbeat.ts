@@ -1,4 +1,4 @@
-import { bot, getStevenChatId } from "../telegram/telegramClient";
+import { bot, getStevenChatId } from "../../telegram/telegramClient";
 import { log } from "../runtimeLogger";
 import {
   appendConversationHistory,

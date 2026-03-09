@@ -13,8 +13,10 @@
     "test": "vitest",
     "test:ui": "vitest --ui",
     "test:coverage": "vitest --coverage",
-    "whatsapp:dev": "npx tsx --import ./server/envShim.ts server/whatsapp/index.ts",
-    "telegram:dev": "npx tsx watch --ignore '.worktrees/**' --ignore 'node_modules/**' --ignore 'src/**' --import ./server/envShim.ts server/telegram/index.ts"
+    "opey:dev": "npx tsx watch --ignore '.worktrees/**' --ignore 'node_modules/**' --ignore 'src/**' --ignore 'agents/**' --import ./server/envShim.ts agents/opey-dev/index.ts",
+    "tidy:dev": "npx tsx watch --ignore '.worktrees/**' --ignore 'node_modules/**' --ignore 'src/**' --ignore 'agents/**' --import ./server/envShim.ts agents/tidy/index.ts",
+    "whatsapp:dev": "npx tsx --import ./server/envShim.ts whatsapp/index.ts",
+    "telegram:dev": "npx tsx watch --ignore '.worktrees/**' --ignore 'node_modules/**' --ignore 'src/**' --import ./server/envShim.ts telegram/index.ts"
   },
   "dependencies": {
     "@ai-sdk/xai": "^2.0.55",

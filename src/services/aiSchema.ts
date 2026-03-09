@@ -1227,7 +1227,7 @@ export const GeminiMemoryToolDeclarations = [
           type: "string",
           description:
             "Verbose note to append as a single bullet line. " +
-            "Must include the reason for any SOUL/IDENTITY edits and reference paths (e.g., server/agent/kayley/SOUL.md, server/agent/kayley/IDENTITY.md).",
+            "Must include the reason for any SOUL/IDENTITY edits and reference paths (e.g., agents/kayley/SOUL.md, agents/kayley/IDENTITY.md).",
         },
       },
       required: ["note"],

@@ -90,7 +90,10 @@
       "Bash(ZONEINFO=\"$HOME/.local/share/zoneinfo.zip\" gog calendar:*)",
       "Bash(ZONEINFO=\"C:/Users/gates/.local/share/zoneinfo.zip\" gog calendar:*)",
       "Bash(source:*)",
-      "WebFetch(domain:raw.githubusercontent.com)"
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "Bash(sed:*)",
+      "Bash(cp:*)",
+      "Bash(do sed:*)"
     ]
   },
   "enabledPlugins": {

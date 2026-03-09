@@ -5,7 +5,6 @@ import { routeAnthropicRequest } from "./routes/anthropicRoutes";
 import { createMultiAgentRouter } from "./routes/multiAgentRoutes";
 import { createWorkspaceAgentRouter } from "./routes/workspaceAgentRoutes";
 import { createAgentRouter } from "./routes/agentRoutes";
-import { startOpeyDev } from "./agent/opey-dev/main";
 import { startCronScheduler } from "./scheduler/cronScheduler";
 import { startCalendarHeartbeat } from "./services/calendarHeartbeat";
 import { startXMentionHeartbeat } from "./services/xMentionHeartbeat";
@@ -106,21 +105,7 @@ runtimeLog.info("Supabase configuration validated", {
   hasServiceRoleKey: !!supabaseServiceRoleKey,
 });
 
-// 4) Start Opey development agent system.
-runtimeLog.info("Starting Opey development agent system", {
-  source: "serverIndex",
-  workspaceRoot,
-});
-
-const opeyDevHandle = startOpeyDev({
-  workspaceRoot,
-});
-
-runtimeLog.info("Opey development agent system started", {
-  source: "serverIndex",
-});
-
-// Create multi-agent router
+// 4) Create multi-agent router (Opey now runs as a standalone process — npm run opey:dev).
 runtimeLog.info("Creating multi-agent router", {
   source: "serverIndex",
 });
@@ -128,10 +113,6 @@ runtimeLog.info("Creating multi-agent router", {
 const routeMultiAgentRequest = createMultiAgentRouter({
   supabaseUrl,
   supabaseServiceRoleKey,
-  opey: {
-    getStatus: () => opeyDevHandle.getStatus(),
-    restart: () => opeyDevHandle.restart(),
-  },
 });
 
 runtimeLog.info("Multi-agent router created", {
@@ -357,11 +338,6 @@ function shutdown(signal: string): void {
     signal,
     timestamp: new Date().toISOString(),
   });
-
-  runtimeLog.info("Stopping Opey development agent system", {
-    source: "serverIndex",
-  });
-  opeyDevHandle.stop();
 
   runtimeLog.info("Stopping cron scheduler", {
     source: "serverIndex",

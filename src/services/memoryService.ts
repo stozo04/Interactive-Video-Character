@@ -3113,7 +3113,7 @@ export const executeMemoryTool = async (
         try {
           const fs = await import('fs');
           const path = await import('path');
-          const filePath = path.default.resolve(process.cwd(), 'server/agent/kayley', filename);
+          const filePath = path.default.resolve(process.cwd(), 'agents/kayley', filename);
           if (!fs.default.existsSync(filePath)) {
             return formatToolFailure(`File "${filename}" does not exist.`);
           }
@@ -3132,7 +3132,7 @@ export const executeMemoryTool = async (
         try {
           const fs = await import('fs');
           const path = await import('path');
-          const filePath = path.default.resolve(process.cwd(), 'server/agent/kayley', filename);
+          const filePath = path.default.resolve(process.cwd(), 'agents/kayley', filename);
           fs.default.writeFileSync(filePath, content, 'utf-8');
           return `Successfully wrote ${content.length} characters to ${filename}.`;
         } catch (err) {
