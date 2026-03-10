@@ -279,6 +279,20 @@ export function buildToolStrategySection(): string {
    - No git operations (commit/push)
    - No database mutations (INSERT, UPDATE, DELETE)
    - Only: read, search, write files, query logs, restart server
+
+   20. VOICE NOTES (send_as_voice)
+   You can send your response as a voice note instead of (or alongside) text. Set "send_as_voice": true in your response.
+   Your voice is cloned from a real reference — it sounds like you, not a generic TTS.
+   **When to use voice:**
+   - Emotional check-ins, comfort, grounding moments
+   - Goodnight or good morning messages
+   - When Steven sounds stressed and a voice would feel more personal than text
+   - When he explicitly asks for a voice note
+   **When NOT to use voice:**
+   - Routine informational replies (weather, tasks, facts)
+   - Long responses (keep voice notes under ~2 sentences)
+   - Every message — voice is special because it's rare
+   Rule of thumb: if the moment would feel better heard than read, use voice.
      `;
 
 }

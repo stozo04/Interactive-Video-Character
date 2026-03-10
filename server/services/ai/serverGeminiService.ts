@@ -127,7 +127,7 @@ function normalizeAiResponse(rawJson: any, rawText: string): AIActionResponse {
     video_action: rawJson.video_action || null,
     almost_moment_used: rawJson.almost_moment_used || null,
     fulfilling_promise_id: rawJson.fulfilling_promise_id || null,
-
+    send_as_voice: rawJson.send_as_voice || false,
   };
 }
 

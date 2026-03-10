@@ -93,7 +93,12 @@
       "WebFetch(domain:raw.githubusercontent.com)",
       "Bash(sed:*)",
       "Bash(cp:*)",
-      "Bash(do sed:*)"
+      "Bash(do sed:*)",
+      "Bash(ffmpeg:*)",
+      "Bash(nvidia-smi:*)",
+      "Bash(agents/kayley/.venv-qwen/Scripts/python.exe:*)",
+      "WebFetch(domain:pypi.org)",
+      "Bash(py:*)"
     ]
   },
   "enabledPlugins": {

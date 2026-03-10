@@ -524,6 +524,45 @@ Run Opey in a detached child process so main server restarts (tsx watch, Kayley'
 
 ---
 
+## Qwen TTS Voice Notes
+
+Kayley can send Telegram voice notes in her own cloned voice using a local Qwen3 TTS model running on GPU. No cloud API — fully offline.
+
+### How It Works
+
+1. Kayley sets `"send_as_voice": true` in her JSON response
+2. `telegramHandler.ts` checks `result.rawResponse?.send_as_voice`
+3. `telegram/serverVoiceQwen.ts` spawns the Python TTS script
+4. Python generates a WAV using Qwen3-TTS voice cloning from `agents/kayley/kayley-voice.mp3`
+5. ffmpeg converts WAV → OGG/Opus
+6. `bot.api.sendVoice()` sends as a Telegram voice bubble
+
+### Infrastructure
+
+- **Venv:** `agents/kayley/.venv-qwen/` — Python 3.13 + torch (CUDA 12.8) + qwen-tts + soundfile
+- **Script:** `agents/kayley/kayley-voice.py`
+- **Orchestrator:** `telegram/serverVoiceQwen.ts`
+- **Model:** `Qwen3-TTS-12Hz-0.6B-Base` (~1.2GB, auto-downloaded to HuggingFace cache on first run)
+- **GPU:** RTX 4070 Laptop, ~1.5GB VRAM usage, 3–6 second generation time (warm)
+
+### Rebuilding the Venv
+
+```bash
+# From repo root — must use Python 3.13, NOT 3.14
+py -3.13 -m venv agents/kayley/.venv-qwen
+
+agents/kayley/.venv-qwen/Scripts/python.exe -m pip install \
+  torch torchaudio --index-url https://download.pytorch.org/whl/cu128
+
+agents/kayley/.venv-qwen/Scripts/python.exe -m pip install qwen-tts soundfile
+```
+
+### ESM Note
+
+`telegram/serverVoiceQwen.ts` uses `fileURLToPath(import.meta.url)` for path resolution — `__dirname` is undefined in ESM modules. All new files that need path resolution must follow this pattern.
+
+---
+
 ## Lessons Learned
 
 - A Vite proxy avoids CORS in development, but it does not create backend routes. The server still must implement `/multi-agent/*`.

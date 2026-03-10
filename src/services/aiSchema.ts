@@ -18,6 +18,15 @@ export const AIActionResponseSchema = z.object({
     .describe("The conversational text to display in the chat."),
 
   /**
+   * If true, send this response as a voice note (Telegram/WhatsApp) instead of text only.
+   * Use for emotional moments, check-ins, goodnight messages, or when a voice feels more personal.
+   */
+  send_as_voice: z
+    .boolean()
+    .optional()
+    .describe("If true, deliver this response as a Kayley voice note. Use sparingly for emotional/personal moments."),
+
+  /**
    * If the user provided audio input, this field MUST contain the
    * text transcription of what the user said.
    * If the input was text, this can be null or the same as the input.
