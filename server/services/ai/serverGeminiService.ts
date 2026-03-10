@@ -45,6 +45,7 @@ import { getActiveStorylines } from "../../../src/services/storylineService";
 
 import { log } from "../../runtimeLogger";
 import { buildXTweetPromptSection } from "../xPromptContextService";
+import { buildMediaNudgePromptSection } from "../mediaNudgePromptService";
 import { buildMentionsPromptSection } from "../xMentionService";
 
 const runtimeLog = log.fromContext({ source: "serverGeminiService" });
@@ -390,9 +391,10 @@ export class ServerGeminiService implements IAIChatService {
         : input.type === "image_text" ? input.text
         : undefined;
 
-      const [xTweetPrompt, xMentionsPrompt] = await Promise.all([
+      const [xTweetPrompt, xMentionsPrompt, mediaNudgePrompt] = await Promise.all([
         buildXTweetPromptSection(),
         buildMentionsPromptSection(),
+        buildMediaNudgePromptSection(currentUserMessage),
       ]);
 
       // Build system prompt
@@ -401,7 +403,7 @@ export class ServerGeminiService implements IAIChatService {
         session?.interactionId,
         currentUserMessage,
         0,
-        { xTweetPrompt, xMentionsPrompt },
+        { xTweetPrompt, xMentionsPrompt, mediaNudgePrompt },
       );
 
       // Create callable tools with context

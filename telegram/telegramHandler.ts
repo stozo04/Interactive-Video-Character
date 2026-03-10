@@ -22,6 +22,14 @@ import { createSticker } from './serverSticker';
 import { log } from '../lib/logger';
 import { supabaseAdmin as supabase } from '../server/services/supabaseAdmin';
 import {
+  MediaDeliveryStatus,
+  recordVideoGenerationHistory,
+  recordVoiceNoteHistory,
+  updateSelfieGenerationHistory,
+  updateVideoGenerationHistory,
+  updateVoiceNoteHistory,
+} from '../server/services/mediaHistoryService';
+import {
   fetchEmailBody as gogFetchEmailBody,
   archiveEmail as gogArchiveEmail,
   sendReply as gogSendReply,
@@ -440,6 +448,13 @@ async function sendOrchestratorResult(chatId: number, result: OrchestratorResult
         await bot.api.sendPhoto(chatId, new InputFile(prepared.buffer, 'selfie.jpg'), {
           caption: result.selfieMessageText || undefined,
         });
+        if (result.selfieHistoryId) {
+          await updateSelfieGenerationHistory(result.selfieHistoryId, {
+            deliveryStatus: MediaDeliveryStatus.DELIVERED,
+            deliveryChannel: 'telegram',
+            messageText: result.selfieMessageText ?? null,
+          });
+        }
         runtimeLog.info('Selfie sent as photo', {
           source: 'telegramHandler',
           chatId,
@@ -459,6 +474,13 @@ async function sendOrchestratorResult(chatId: number, result: OrchestratorResult
         await bot.api.sendDocument(chatId, new InputFile(originalBuffer, filename), {
           caption: result.selfieMessageText || undefined,
         });
+        if (result.selfieHistoryId) {
+          await updateSelfieGenerationHistory(result.selfieHistoryId, {
+            deliveryStatus: MediaDeliveryStatus.DELIVERED,
+            deliveryChannel: 'telegram',
+            messageText: result.selfieMessageText ?? null,
+          });
+        }
         runtimeLog.info('Selfie sent as document fallback', {
           source: 'telegramHandler',
           chatId,
@@ -467,6 +489,14 @@ async function sendOrchestratorResult(chatId: number, result: OrchestratorResult
         });
       }
     } catch (err) {
+      if (result.selfieHistoryId) {
+        await updateSelfieGenerationHistory(result.selfieHistoryId, {
+          deliveryStatus: MediaDeliveryStatus.FAILED,
+          deliveryChannel: 'telegram',
+          deliveryError: err instanceof Error ? err.message : String(err),
+          messageText: result.selfieMessageText ?? null,
+        });
+      }
       runtimeLog.error('Failed to send selfie', {
         source: 'telegramHandler',
         chatId,
@@ -488,12 +518,39 @@ async function sendOrchestratorResult(chatId: number, result: OrchestratorResult
         await bot.api.sendVideo(chatId, new InputFile(buf, 'video.mp4'), {
           caption: result.videoMessageText || undefined,
         });
+        const historyId = await recordVideoGenerationHistory({
+          scene: result.videoScene || 'video',
+          mood: result.videoMood || undefined,
+          messageText: result.videoMessageText,
+          videoUrl: result.videoUrl,
+        });
+        if (historyId) {
+          await updateVideoGenerationHistory(historyId, {
+            deliveryStatus: MediaDeliveryStatus.DELIVERED,
+            deliveryChannel: 'telegram',
+            messageText: result.videoMessageText ?? null,
+          });
+        }
         runtimeLog.info('Sent video', {
           source: 'telegramHandler',
           chatId,
         });
       }
     } catch (err) {
+      const historyId = await recordVideoGenerationHistory({
+        scene: result.videoScene || 'video',
+        mood: result.videoMood || undefined,
+        messageText: result.videoMessageText,
+        videoUrl: result.videoUrl,
+      });
+      if (historyId) {
+        await updateVideoGenerationHistory(historyId, {
+          deliveryStatus: MediaDeliveryStatus.FAILED,
+          deliveryChannel: 'telegram',
+          deliveryError: err instanceof Error ? err.message : String(err),
+          messageText: result.videoMessageText ?? null,
+        });
+      }
       runtimeLog.error('Failed to send video', {
         source: 'telegramHandler',
         chatId,
@@ -509,12 +566,32 @@ async function sendOrchestratorResult(chatId: number, result: OrchestratorResult
 
   // --- Voice note (Qwen TTS) — only when Kayley chooses to ---
   if (textResponse && result.rawResponse?.send_as_voice) {
+    const historyId = await recordVoiceNoteHistory({
+      messageText: textResponse,
+      provider: 'qwen',
+      audioMimeType: 'audio/ogg',
+    });
     try {
       const audioBuffer = await generateQwenVoice(textResponse);
       if (audioBuffer) {
         await bot.api.sendVoice(chatId, new InputFile(audioBuffer, 'kayley-voice.ogg'));
+        if (historyId) {
+          await updateVoiceNoteHistory(historyId, {
+            deliveryStatus: MediaDeliveryStatus.DELIVERED,
+            deliveryChannel: 'telegram',
+            messageText: textResponse,
+          });
+        }
       }
     } catch (err) {
+      if (historyId) {
+        await updateVoiceNoteHistory(historyId, {
+          deliveryStatus: MediaDeliveryStatus.FAILED,
+          deliveryChannel: 'telegram',
+          deliveryError: err instanceof Error ? err.message : String(err),
+          messageText: textResponse,
+        });
+      }
       runtimeLog.error('Failed to send voice note', {
         source: 'telegramHandler',
         chatId,

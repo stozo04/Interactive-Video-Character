@@ -82,6 +82,7 @@ export interface SelfieResult {
   imageBase64?: string;
   mimeType?: string;
   error?: string;
+  historyId?: string | null;
 }
 
 /**
@@ -380,7 +381,7 @@ export async function generateCompanionSelfie(
       // ====================================
 
       try {
-        await recordSelfieGeneration(
+        const historyId = await recordSelfieGeneration(
           selectedReferenceId,
           selectedHairstyle,
           selectedOutfitStyle,
@@ -395,11 +396,16 @@ export async function generateCompanionSelfie(
           },
         );
         log.info('Recorded generation in history');
+        return {
+          success: true,
+          imageBase64: generatedPart.inlineData.data,
+          mimeType: generatedPart.inlineData.mimeType || "image/png",
+          historyId,
+        };
       } catch (error) {
         log.error('Error recording generation', { error: error instanceof Error ? error.message : String(error) });
         // Non-fatal, continue
       }
-
       return {
         success: true,
         imageBase64: generatedPart.inlineData.data,
@@ -455,7 +461,7 @@ export async function generateCompanionSelfie(
       // ====================================
 
       try {
-        await recordSelfieGeneration(
+        const historyId = await recordSelfieGeneration(
           crypto.randomUUID(),
           selectedHairstyle,
           selectedOutfitStyle,
@@ -470,11 +476,16 @@ export async function generateCompanionSelfie(
           },
         );
         log.info('Recorded generation in history');
+        return {
+          success: true,
+          imageBase64: result.data[0].b64_json,
+          mimeType: "image/png",
+          historyId,
+        };
       } catch (error) {
         log.error('Error recording generation', { error: error instanceof Error ? error.message : String(error) });
         // Non-fatal, continue
       }
-
       return {
         success: true,
         imageBase64: result.data[0].b64_json,

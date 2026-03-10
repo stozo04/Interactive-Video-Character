@@ -35,6 +35,7 @@ export interface SelfieActionResult {
   success: boolean;
   imageBase64?: string;
   mimeType?: string;
+  historyId?: string | null;
   error?: string;
 }
 
@@ -76,6 +77,7 @@ export async function processSelfieAction(
         success: true,
         imageBase64: selfieResult.imageBase64,
         mimeType: selfieResult.mimeType,
+        historyId: selfieResult.historyId ?? null,
       };
     } else {
       console.error("❌ Selfie generation failed:", selfieResult.error);

@@ -27,6 +27,14 @@ import { getClaudeSessionSummary, lookUpClaudeQuota } from "../services/anthropi
 import { getOpenAICodexSessionSummary } from "../services/openai/codexSessionService";
 import { TurnEventBus } from "../services/ai/turnEventBus";
 import { drainTaskNotifications } from "../services/backgroundTaskManager";
+import {
+  MediaDeliveryStatus,
+  recordVideoGenerationHistory,
+  recordVoiceNoteHistory,
+  updateSelfieGenerationHistory,
+  updateVideoGenerationHistory,
+  updateVoiceNoteHistory,
+} from "../services/mediaHistoryService";
 
 const runtimeLog = log.fromContext({ source: "agentRoutes" });
 
@@ -71,6 +79,18 @@ interface TweetDraftResolveRequest {
 interface XAuthCallbackRequest {
   code: string;
   state: string;
+}
+
+interface MediaHistoryEventRequest {
+  mediaType: "selfie" | "video" | "voice_note";
+  status: "delivered" | "failed";
+  historyId?: string | null;
+  scene?: string;
+  mood?: string | null;
+  messageText?: string | null;
+  videoUrl?: string | null;
+  deliveryChannel?: string | null;
+  error?: string | null;
 }
 
 // ============================================================================
@@ -147,6 +167,11 @@ export function createAgentRouter(): (
 
     if (req.method === "POST" && url.pathname === "/agent/greeting") {
       await handleAgentGreeting(req, res);
+      return true;
+    }
+
+    if (req.method === "POST" && url.pathname === "/agent/media-history") {
+      await handleMediaHistoryEvent(req, res);
       return true;
     }
 
@@ -323,6 +348,88 @@ async function handleAgentGreeting(req: IncomingMessage, res: ServerResponse): P
   } catch (err) {
     const errorMsg = err instanceof Error ? err.message : String(err);
     runtimeLog.error("Agent greeting failed", { error: errorMsg });
+    sendJson(res, 500, { success: false, error: errorMsg });
+  }
+}
+
+async function handleMediaHistoryEvent(req: IncomingMessage, res: ServerResponse): Promise<void> {
+  try {
+    const body = await parseJsonBody<MediaHistoryEventRequest>(req);
+
+    if (body.mediaType === "selfie") {
+      if (!body.historyId) {
+        sendJson(res, 400, { success: false, error: "Missing 'historyId' for selfie history event." });
+        return;
+      }
+
+      await updateSelfieGenerationHistory(body.historyId, {
+        deliveryStatus:
+          body.status === "delivered" ? MediaDeliveryStatus.DELIVERED : MediaDeliveryStatus.FAILED,
+        deliveryChannel: body.deliveryChannel ?? "web",
+        deliveryError: body.error ?? null,
+        messageText: body.messageText ?? null,
+      });
+
+      sendJson(res, 200, { success: true });
+      return;
+    }
+
+    if (body.mediaType === "video") {
+      if (!body.videoUrl || !body.scene) {
+        sendJson(res, 400, { success: false, error: "Missing 'videoUrl' or 'scene' for video history event." });
+        return;
+      }
+
+      const historyId = await recordVideoGenerationHistory({
+        scene: body.scene,
+        mood: body.mood ?? undefined,
+        messageText: body.messageText ?? undefined,
+        videoUrl: body.videoUrl,
+      });
+
+      if (historyId) {
+        await updateVideoGenerationHistory(historyId, {
+          deliveryStatus:
+            body.status === "delivered" ? MediaDeliveryStatus.DELIVERED : MediaDeliveryStatus.FAILED,
+          deliveryChannel: body.deliveryChannel ?? "web",
+          deliveryError: body.error ?? null,
+          messageText: body.messageText ?? null,
+        });
+      }
+
+      sendJson(res, 200, { success: true });
+      return;
+    }
+
+    if (body.mediaType === "voice_note") {
+      if (!body.messageText) {
+        sendJson(res, 400, { success: false, error: "Missing 'messageText' for voice note history event." });
+        return;
+      }
+
+      const historyId = await recordVoiceNoteHistory({
+        messageText: body.messageText,
+        provider: "web",
+        audioMimeType: undefined,
+      });
+      if (historyId) {
+        await updateVoiceNoteHistory(historyId, {
+          deliveryStatus:
+            body.status === "delivered" ? MediaDeliveryStatus.DELIVERED : MediaDeliveryStatus.FAILED,
+          deliveryChannel: body.deliveryChannel ?? "web",
+          deliveryError: body.error ?? null,
+          messageText: body.messageText ?? null,
+        });
+      }
+
+      sendJson(res, 200, { success: true });
+      return;
+    }
+
+    sendJson(res, 400, { success: false, error: `Unsupported mediaType '${body.mediaType}'.` });
+  } catch (err) {
+    const errorMsg = err instanceof Error ? err.message : String(err);
+    runtimeLog.error("Media history event failed", { error: errorMsg });
     sendJson(res, 500, { success: false, error: errorMsg });
   }
 }

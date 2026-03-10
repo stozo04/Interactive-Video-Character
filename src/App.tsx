@@ -1340,8 +1340,27 @@ const App: React.FC = () => {
         const selfieMsg = result.selfieMessageText || (result.selfieImage ? "Here you go!" : "I couldn't take that pic right now, sorry!");
         if (result.selfieImage) {
           setChatHistory(prev => [...prev, { role: 'model', text: selfieMsg, assistantImage: result.selfieImage!.base64, assistantImageMimeType: result.selfieImage!.mimeType }]);
+          if (result.selfieHistoryId) {
+            void agentClient.sendMediaHistoryEvent({
+              mediaType: 'selfie',
+              status: 'delivered',
+              historyId: result.selfieHistoryId,
+              messageText: selfieMsg,
+              deliveryChannel: 'web',
+            });
+          }
         } else {
           setChatHistory(prev => [...prev, { role: 'model', text: selfieMsg }]);
+          if (result.selfieHistoryId) {
+            void agentClient.sendMediaHistoryEvent({
+              mediaType: 'selfie',
+              status: 'failed',
+              historyId: result.selfieHistoryId,
+              messageText: selfieMsg,
+              deliveryChannel: 'web',
+              error: result.selfieError || 'Selfie was not rendered in web client.',
+            });
+          }
         }
         maybePlayResponseAction(result.actionToPlay);
         return;
@@ -1365,8 +1384,29 @@ const App: React.FC = () => {
         const videoMsg = result.videoMessageText || (result.videoUrl ? "Here's a little video for you!" : "I couldn't make that video right now, sorry!");
         if (result.videoUrl) {
           setChatHistory(prev => [...prev, { role: 'model', text: videoMsg, assistantVideoUrl: result.videoUrl }]);
+          void agentClient.sendMediaHistoryEvent({
+            mediaType: 'video',
+            status: 'delivered',
+            scene: result.videoScene || 'video',
+            mood: result.videoMood || null,
+            messageText: videoMsg,
+            videoUrl: result.videoUrl,
+            deliveryChannel: 'web',
+          });
         } else {
           setChatHistory(prev => [...prev, { role: 'model', text: videoMsg }]);
+          if (result.videoScene) {
+            void agentClient.sendMediaHistoryEvent({
+              mediaType: 'video',
+              status: 'failed',
+              scene: result.videoScene,
+              mood: result.videoMood || null,
+              messageText: videoMsg,
+              videoUrl: result.videoUrl || null,
+              deliveryChannel: 'web',
+              error: result.videoError || 'Video was not rendered in web client.',
+            });
+          }
         }
         maybePlayResponseAction(result.actionToPlay);
         return;
@@ -1376,6 +1416,25 @@ const App: React.FC = () => {
       // DEFAULT: Apply standard results
       // ============================================
       if (result.chatMessages.length > 0) setChatHistory(prev => [...prev, ...attachToolCalls(result.chatMessages)]);
+      if (result.rawResponse?.send_as_voice) {
+        const voiceNoteText = result.chatMessages?.[0]?.text || '';
+        if (result.audioToPlay && !isMuted) {
+          void agentClient.sendMediaHistoryEvent({
+            mediaType: 'voice_note',
+            status: 'delivered',
+            messageText: voiceNoteText,
+            deliveryChannel: 'web',
+          });
+        } else if (!isMuted) {
+          void agentClient.sendMediaHistoryEvent({
+            mediaType: 'voice_note',
+            status: 'failed',
+            messageText: voiceNoteText,
+            deliveryChannel: 'web',
+            error: 'Voice note was requested but no audio payload was available for the web client.',
+          });
+        }
+      }
       if (result.audioToPlay && !isMuted) media.enqueueAudio(result.audioToPlay);
       maybePlayResponseAction(result.actionToPlay);
       if (result.appToOpen) window.location.href = result.appToOpen;

@@ -193,6 +193,9 @@ export async function processUserMessage(input: OrchestratorInput): Promise<Orch
               base64: selfieResult.imageBase64,
               mimeType: selfieResult.mimeType || "image/png",
             };
+            result.selfieHistoryId = selfieResult.historyId ?? null;
+            result.selfieScene = selfieAction.scene;
+            result.selfieMood = selfieAction.mood ?? null;
             // The selfie message text (App.tsx will generate TTS for this)
             result.selfieMessageText = "Here you go!";
             console.log(`📸 [Orchestrator] Selfie generated successfully`);
@@ -234,6 +237,8 @@ export async function processUserMessage(input: OrchestratorInput): Promise<Orch
         if (videoResult.handled) {
           if (videoResult.success && videoResult.videoUrl) {
             result.videoUrl = videoResult.videoUrl;
+            result.videoScene = videoAction.scene;
+            result.videoMood = videoAction.mood ?? null;
             result.videoMessageText = "Here's a little video for you!";
             console.log(`🎬 [Orchestrator] Video generated successfully`);
           } else {

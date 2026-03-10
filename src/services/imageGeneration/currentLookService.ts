@@ -139,8 +139,8 @@ export async function recordSelfieGeneration(
   isOldPhoto: boolean,
   referenceDate: Date | undefined,
   selectionFactors: Record<string, any>
-): Promise<void> {
-  const { error } = await supabase
+): Promise<string | null> {
+  const { data, error } = await supabase
     .from('selfie_generation_history')
     .insert({
       reference_image_id: referenceImageId,
@@ -151,9 +151,16 @@ export async function recordSelfieGeneration(
       is_old_photo: isOldPhoto,
       reference_date: referenceDate?.toISOString() || null,
       selection_factors: selectionFactors,
-    });
+      delivery_status: 'generated',
+      delivered_at: null,
+    })
+    .select('id')
+    .single();
 
   if (error) {
     console.error('[CurrentLook] Error recording generation:', error);
+    return null;
   }
+
+  return (data as { id?: string } | null)?.id ?? null;
 }

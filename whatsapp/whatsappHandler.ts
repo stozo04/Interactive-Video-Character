@@ -13,6 +13,14 @@ import { createWhatsAppSticker } from "./serverSticker";
 import { log } from "../lib/logger";
 import { supabaseAdmin as supabase } from "../server/services/supabaseAdmin";
 import {
+  MediaDeliveryStatus,
+  recordVideoGenerationHistory,
+  recordVoiceNoteHistory,
+  updateSelfieGenerationHistory,
+  updateVideoGenerationHistory,
+  updateVoiceNoteHistory,
+} from "../server/services/mediaHistoryService";
+import {
   fetchEmailBody as gogFetchEmailBody,
   archiveEmail as gogArchiveEmail,
   sendReply as gogSendReply,
@@ -1165,6 +1173,13 @@ async function sendOrchestratorResult(
         mimetype: result.selfieImage.mimeType || "image/png",
         caption: result.selfieMessageText || undefined,
       });
+      if (result.selfieHistoryId) {
+        await updateSelfieGenerationHistory(result.selfieHistoryId, {
+          deliveryStatus: MediaDeliveryStatus.DELIVERED,
+          deliveryChannel: "whatsapp",
+          messageText: result.selfieMessageText ?? null,
+        });
+      }
 
       runtimeLog.info("Selfie image sent successfully", {
         source: "whatsappHandler",
@@ -1172,6 +1187,14 @@ async function sendOrchestratorResult(
         fileSize: imageBuffer.length,
       });
     } catch (err) {
+      if (result.selfieHistoryId) {
+        await updateSelfieGenerationHistory(result.selfieHistoryId, {
+          deliveryStatus: MediaDeliveryStatus.FAILED,
+          deliveryChannel: "whatsapp",
+          deliveryError: err instanceof Error ? err.message : String(err),
+          messageText: result.selfieMessageText ?? null,
+        });
+      }
       runtimeLog.error("Failed to process or send selfie", {
         source: "whatsappHandler",
         jid,
@@ -1227,6 +1250,19 @@ async function sendOrchestratorResult(
           video: validated.buffer,
           caption: result.videoMessageText || undefined,
         });
+        const historyId = await recordVideoGenerationHistory({
+          scene: result.videoScene || "video",
+          mood: result.videoMood || undefined,
+          messageText: result.videoMessageText,
+          videoUrl: result.videoUrl,
+        });
+        if (historyId) {
+          await updateVideoGenerationHistory(historyId, {
+            deliveryStatus: MediaDeliveryStatus.DELIVERED,
+            deliveryChannel: "whatsapp",
+            messageText: result.videoMessageText ?? null,
+          });
+        }
         runtimeLog.info("Video sent successfully", {
           source: "whatsappHandler",
           jid,
@@ -1234,6 +1270,20 @@ async function sendOrchestratorResult(
         });
       }
     } catch (err) {
+      const historyId = await recordVideoGenerationHistory({
+        scene: result.videoScene || "video",
+        mood: result.videoMood || undefined,
+        messageText: result.videoMessageText,
+        videoUrl: result.videoUrl,
+      });
+      if (historyId) {
+        await updateVideoGenerationHistory(historyId, {
+          deliveryStatus: MediaDeliveryStatus.FAILED,
+          deliveryChannel: "whatsapp",
+          deliveryError: err instanceof Error ? err.message : String(err),
+          messageText: result.videoMessageText ?? null,
+        });
+      }
       runtimeLog.error("Failed to send video", {
         source: "whatsappHandler",
         jid,
@@ -1254,7 +1304,12 @@ async function sendOrchestratorResult(
     }
   }
 
-  if (textResponse) {
+  if (textResponse && result.rawResponse?.send_as_voice) {
+    const historyId = await recordVoiceNoteHistory({
+      messageText: textResponse,
+      provider: "qwen",
+      audioMimeType: "audio/mpeg",
+    });
     try {
       runtimeLog.info("Generating speech audio for text response", {
         source: "whatsappHandler",
@@ -1277,6 +1332,13 @@ async function sendOrchestratorResult(
           mimetype: "audio/mpeg",
           ptt: true,
         });
+        if (historyId) {
+          await updateVoiceNoteHistory(historyId, {
+            deliveryStatus: MediaDeliveryStatus.DELIVERED,
+            deliveryChannel: "whatsapp",
+            messageText: textResponse,
+          });
+        }
 
         runtimeLog.info("Voice note sent successfully", {
           source: "whatsappHandler",
@@ -1291,6 +1353,14 @@ async function sendOrchestratorResult(
         });
       }
     } catch (err) {
+      if (historyId) {
+        await updateVoiceNoteHistory(historyId, {
+          deliveryStatus: MediaDeliveryStatus.FAILED,
+          deliveryChannel: "whatsapp",
+          deliveryError: err instanceof Error ? err.message : String(err),
+          messageText: textResponse,
+        });
+      }
       runtimeLog.error("Failed to generate or send voice note", {
         source: "whatsappHandler",
         jid,

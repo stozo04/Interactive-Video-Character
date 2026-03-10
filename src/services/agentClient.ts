@@ -64,6 +64,18 @@ interface ResolveTweetDraftResponse {
   error?: string;
 }
 
+export interface MediaHistoryEventRequest {
+  mediaType: 'selfie' | 'video' | 'voice_note';
+  status: 'delivered' | 'failed';
+  historyId?: string | null;
+  scene?: string;
+  mood?: string | null;
+  messageText?: string | null;
+  videoUrl?: string | null;
+  deliveryChannel?: string | null;
+  error?: string | null;
+}
+
 // ============================================================================
 // Client
 // ============================================================================
@@ -140,6 +152,19 @@ async function resolveTweetDraft(
   }
 
   return data;
+}
+
+async function sendMediaHistoryEvent(request: MediaHistoryEventRequest): Promise<void> {
+  const response = await fetch(`${AGENT_BASE_URL}/media-history`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(request),
+  });
+
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`Media history event failed (${response.status}): ${text}`);
+  }
 }
 
 // ============================================================================
@@ -248,4 +273,5 @@ export const agentClient = {
   getGreeting,
   healthCheck,
   resolveTweetDraft,
+  sendMediaHistoryEvent,
 };

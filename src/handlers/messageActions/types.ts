@@ -171,6 +171,9 @@ export interface OrchestratorResult {
     base64: string;
     mimeType: string;
   };
+  selfieHistoryId?: string | null;
+  selfieScene?: string | null;
+  selfieMood?: string | null;
 
   /** Selfie error message (if selfie action failed) */
   selfieError?: string;
@@ -180,6 +183,8 @@ export interface OrchestratorResult {
 
   /** Video URL result (if video action succeeded) */
   videoUrl?: string;
+  videoScene?: string | null;
+  videoMood?: string | null;
 
   /** Video error message (if video action failed) */
   videoError?: string;

@@ -100,6 +100,7 @@ export interface GreetingContext {
 export interface NonGreetingPromptSections {
   xTweetPrompt?: string;
   xMentionsPrompt?: string;
+  mediaNudgePrompt?: string;
 }
 
 export const buildSystemPromptForNonGreeting = async (
@@ -169,6 +170,7 @@ ${lessonsLearnedPrompt}
 ${storylinePromptContext}
 ${scheduledDigestsPrompt}
 ${promisesContext}
+${sections.mediaNudgePrompt ?? ""}
 ${buildSelfieRulesPrompt()}
 ${buildVideoRulesPrompt(relationship)}
 ${getRecentNewsContext()}
