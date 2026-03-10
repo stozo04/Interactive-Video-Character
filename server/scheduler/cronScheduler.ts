@@ -67,8 +67,13 @@ const CRON_JOB_EVENTS_TABLE = "cron_job_events";
 const PROMISES_TABLE = "promises";
 const PENDING_MESSAGES_TABLE = "pending_messages";
 const MONTHLY_NOTES_TABLE = "kayley_monthly_notes";
+const RUNTIME_LOGS_TABLE = "server_runtime_logs";
+const ENGINEERING_TICKET_EVENTS_TABLE = "engineering_ticket_events";
 const SOUL_PATH = "agents/kayley/SOUL.md";
 const IDENTITY_PATH = "agents/kayley/IDENTITY.md";
+const DEFAULT_LOG_RETENTION_DAYS = 7;
+const MIN_LOG_RETENTION_DAYS = 1;
+const MAX_LOG_RETENTION_DAYS = 90;
 
 // ==========================================
 // 1. Timezone Engine (Powered by date-fns-tz)
@@ -297,6 +302,67 @@ const JOB_HANDLERS: Record<string, JobHandler> = {
     return { summary, metadata: { instruction }, skipSuccessMessage: true };
   },
 
+  "runtime_log_cleanup": async (job, client, schedulerId) => {
+    log.info("Executing runtime log cleanup handler", {
+      source: "JobHandler",
+      jobId: job.id,
+      jobTitle: job.title,
+      actionType: "runtime_log_cleanup",
+      schedulerId,
+    });
+
+    const retentionDays = resolveLogRetentionDays(job);
+    const cutoffIso = new Date(Date.now() - retentionDays * 24 * 60 * 60 * 1000).toISOString();
+
+    log.info("Computed log cleanup cutoff", {
+      source: "LogCleanup",
+      jobId: job.id,
+      schedulerId,
+      retentionDays,
+      cutoffIso,
+    });
+
+    const runtimeCleanup = await deleteRowsOlderThan(client, RUNTIME_LOGS_TABLE, cutoffIso, {
+      jobId: job.id,
+      schedulerId,
+    });
+
+    if (runtimeCleanup.error) {
+      throw new Error(`Log cleanup failed for ${RUNTIME_LOGS_TABLE}: ${runtimeCleanup.error}`);
+    }
+
+    const eventCleanup = await deleteRowsOlderThan(client, ENGINEERING_TICKET_EVENTS_TABLE, cutoffIso, {
+      jobId: job.id,
+      schedulerId,
+    });
+
+    if (eventCleanup.error) {
+      throw new Error(`Log cleanup failed for ${ENGINEERING_TICKET_EVENTS_TABLE}: ${eventCleanup.error}`);
+    }
+
+    const summary = `Cleanup complete. Removed ${runtimeCleanup.deletedCount ?? "unknown"} runtime log rows and ${eventCleanup.deletedCount ?? "unknown"} ticket event rows older than ${retentionDays} days.`;
+    log.info("Runtime log cleanup completed", {
+      source: "LogCleanup",
+      jobId: job.id,
+      schedulerId,
+      retentionDays,
+      cutoffIso,
+      runtimeDeleted: runtimeCleanup.deletedCount ?? null,
+      ticketEventDeleted: eventCleanup.deletedCount ?? null,
+    });
+
+    return {
+      summary,
+      metadata: {
+        retentionDays,
+        cutoffIso,
+        runtimeLogDeletedCount: runtimeCleanup.deletedCount ?? null,
+        ticketEventDeletedCount: eventCleanup.deletedCount ?? null,
+      },
+      skipSuccessMessage: true,
+    };
+  },
+
   "monthly_memory_rollover": async (job, client, schedulerId) => {
     log.info("Executing monthly memory rollover handler", {
       source: "JobHandler",
@@ -404,6 +470,63 @@ function buildFallbackSummary(jobTitle: string, results: TavilyResult[]): string
   if (!results.length) return `I checked the web for "${jobTitle}" but did not find strong results right now.`;
   const topItems = results.slice(0, 3).map((r, i) => `${i + 1}. ${r.title || "Untitled result"} (${r.url || "N/A"})`);
   return `Quick scheduled digest:\n${topItems.join("\n")}`;
+}
+
+function resolveLogRetentionDays(job: CronJobRow): number {
+  const rawValue = job.payload?.retentionDays ?? job.payload?.retention_days ?? job.payload?.retention;
+  const parsed =
+    typeof rawValue === "number"
+      ? rawValue
+      : typeof rawValue === "string"
+        ? Number.parseFloat(rawValue)
+        : Number.NaN;
+
+  if (!Number.isFinite(parsed)) return DEFAULT_LOG_RETENTION_DAYS;
+  return Math.min(MAX_LOG_RETENTION_DAYS, Math.max(MIN_LOG_RETENTION_DAYS, Math.floor(parsed)));
+}
+
+async function deleteRowsOlderThan(
+  client: SupabaseClient,
+  table: string,
+  cutoffIso: string,
+  context: { jobId: string; schedulerId: string },
+): Promise<{ deletedCount: number | null; error?: string }> {
+  log.info("Deleting old rows", {
+    source: "LogCleanup",
+    table,
+    cutoffIso,
+    jobId: context.jobId,
+    schedulerId: context.schedulerId,
+  });
+
+  const { error, count } = await client
+    .from(table)
+    .delete({ count: "exact" })
+    .lt("created_at", cutoffIso);
+
+  if (error) {
+    log.error("Failed to delete old rows", {
+      source: "LogCleanup",
+      table,
+      cutoffIso,
+      jobId: context.jobId,
+      schedulerId: context.schedulerId,
+      error: error.message,
+      errorCode: error.code,
+    });
+    return { deletedCount: null, error: error.message };
+  }
+
+  log.info("Deleted old rows", {
+    source: "LogCleanup",
+    table,
+    cutoffIso,
+    jobId: context.jobId,
+    schedulerId: context.schedulerId,
+    deletedCount: count ?? null,
+  });
+
+  return { deletedCount: count ?? null };
 }
 
 async function runWebSearch(query: string): Promise<TavilyResult[]> {
