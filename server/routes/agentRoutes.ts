@@ -26,6 +26,7 @@ import { pollAndProcessMentions } from "../services/xMentionService";
 import { getClaudeSessionSummary, lookUpClaudeQuota } from "../services/anthropic/claudeSessionService";
 import { getOpenAICodexSessionSummary } from "../services/openai/codexSessionService";
 import { TurnEventBus } from "../services/ai/turnEventBus";
+import { drainTaskNotifications } from "../services/backgroundTaskManager";
 
 const runtimeLog = log.fromContext({ source: "agentRoutes" });
 
@@ -519,10 +520,24 @@ async function handleAgentMessageStream(req: IncomingMessage, res: ServerRespons
     // Emit turn_start
     res.write(`data: ${JSON.stringify({ type: 'turn_start', timestamp: Date.now() })}\n\n`);
 
+    // Drain any pending background task completion notifications.
+    // Prepend them to the user message so Kayley sees them without polling.
+    const taskNotifications = drainTaskNotifications();
+    let messageWithNotifications = body.message;
+    if (taskNotifications.length > 0 && messageWithNotifications) {
+      const notifLines = taskNotifications.map((n) => {
+        const dur = n.durationMs < 1000 ? `${n.durationMs}ms` : `${(n.durationMs / 1000).toFixed(1)}s`;
+        const tail = n.tailOutput.length > 0 ? `\nLast output:\n${n.tailOutput.join('\n')}` : '';
+        return `[Background task finished] "${n.label}" — ${n.status} (exit ${n.exitCode}, ${dur})${tail}`;
+      });
+      messageWithNotifications = `[SYSTEM NOTE: ${notifLines.join('\n\n')}]\n\n${messageWithNotifications}`;
+    }
+
     runtimeLog.info("Processing agent message (stream)", {
       sessionId: body.sessionId,
       messageLength: body.message?.length || 0,
       historyCount: body.chatHistory?.length || 0,
+      taskNotificationCount: taskNotifications.length,
     });
 
     // Serialize turns per session — Gemini SDK chat sessions can't handle concurrent sends.
@@ -532,7 +547,7 @@ async function handleAgentMessageStream(req: IncomingMessage, res: ServerRespons
       const session = sessions.get(body.sessionId) || null;
 
       const orchestratorResult = await processUserMessage({
-        userMessage: body.message,
+        userMessage: messageWithNotifications,
         userMessageForAI: body.messageForAI,
         userContent: body.userContent,
         aiService: serverGeminiService,

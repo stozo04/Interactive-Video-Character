@@ -146,7 +146,19 @@ Corpses rot. Every dead function is a lie about what the codebase does, a trap f
    - **Old Google OAuth files are deleted** (`gmailService.ts`, `calendarService.ts`, `googleAuth.ts`, `GoogleAuthContext.tsx`, `LoginPage.tsx`, etc.) — see `server/README.md` → "Google Workspace Access (gogcli)" for full architecture doc
    - **Token refresh is automatic** — gogcli handles it via OS keyring. No token health checks needed in app code.
 
-6. **Respect the working contract:**
+6. **SSE Streaming & Autonomous Agent Mode:**
+   - Web client uses `POST /agent/message/stream` (SSE) instead of `POST /agent/message` for real-time tool visibility
+   - `TurnEventBus` (per-request EventEmitter) threads from `agentRoutes.ts` → `messageOrchestrator.ts` → `serverGeminiService.ts` → `toolBridge.ts`
+   - `toolBridge.ts` emits `tool_start`/`tool_end` events; orchestrator emits `action_start`/`action_end` for media generation
+   - **Key files:** `server/services/ai/sseTypes.ts` (event types + display name map), `server/services/ai/turnEventBus.ts` (EventEmitter), `src/components/ToolCallBox.tsx` (UI component)
+   - **Client:** `agentClient.ts` has `sendMessageStream()` using `fetch` + `ReadableStream` reader (not `EventSource` — POST not GET)
+   - **Concurrent chat:** `pendingRequestCount` counter in `App.tsx` (not boolean) allows multiple requests in flight. Server uses `withSessionLock()` per-session Promise chain in `agentRoutes.ts` to serialize Gemini SDK turns
+   - **Background tasks:** `server/services/backgroundTaskManager.ts` manages long-running child processes. Tools: `start_background_task`, `check_task_status`, `cancel_task`
+   - **Backward compat:** Telegram/WhatsApp use `POST /agent/message` (no eventBus) — zero behavior change
+   - **Security:** `workspace_action` command execution uses same minimal blocked-commands list as Claude Code (format, mkfs, dd, shutdown, etc.)
+   - **System prompt:** Sections 21 (web_fetch), 22 (autonomous agent mode), 23 (background tasks) in `toolsAndCapabilities.ts`
+
+7. **Respect the working contract:**
    - For non-trivial work: discuss approach + tradeoffs BEFORE coding
    - For bugs: form no hypothesis until you've read the execution path
    - For changes: surface assumptions, ask clarifying questions

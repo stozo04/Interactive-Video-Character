@@ -4,8 +4,10 @@
 // Tasks persist stdout/stderr output and are tracked by UUID.
 
 import { spawn, type ChildProcess } from "node:child_process";
+import crypto from "node:crypto";
 import path from "node:path";
 import { log } from "../runtimeLogger";
+import { APPROVAL_PATTERNS, BLOCKED_COMMANDS } from "./commandSafety";
 
 const runtimeLog = log.fromContext({ source: "backgroundTaskManager" });
 
@@ -28,6 +30,16 @@ export interface BackgroundTask {
   pid: number | null;
 }
 
+/** Notification queued when a background task finishes, drained on next turn. */
+export interface TaskCompletionNotification {
+  taskId: string;
+  label: string;
+  status: BackgroundTaskStatus;
+  exitCode: number | null;
+  durationMs: number;
+  tailOutput: string[];
+}
+
 interface InternalTask extends BackgroundTask {
   process: ChildProcess | null;
 }
@@ -39,20 +51,17 @@ interface InternalTask extends BackgroundTask {
 const MAX_OUTPUT_LINES = 200;
 const TASK_TTL_MS = 60 * 60 * 1000; // 1 hour after completion
 const CLEANUP_INTERVAL_MS = 5 * 60 * 1000; // check every 5 min
-
-// Same blocked list as workspace agent exec_command
-const BLOCKED_COMMANDS = new Set([
-  "format", "mkfs", "dd",
-  "shutdown", "reboot", "halt", "poweroff",
-  "passwd", "useradd", "userdel",
-  "env", "printenv",
-]);
+const DEFAULT_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes — kill if exceeded
+const NOTIFICATION_TAIL_LINES = 10;
 
 // ============================================================================
-// Task Store
+// Task Store + Notification Queue
 // ============================================================================
 
 const tasks = new Map<string, InternalTask>();
+
+/** Pending exit notifications — drained by agentRoutes on next turn. */
+const pendingNotifications: TaskCompletionNotification[] = [];
 
 // Periodic cleanup of old completed tasks
 setInterval(() => {
@@ -73,13 +82,35 @@ export function startBackgroundTask(opts: {
   label: string;
   cwd?: string;
   workspaceRoot: string;
+  timeoutMs?: number;
+  /** Whether the user has approved a dangerous command pattern. */
+  approved?: boolean;
+  /** Pre-existing child process (for auto-background promotion from workspace agent) */
+  existingChild?: import("node:child_process").ChildProcess;
+  /** Pre-existing output lines captured before promotion */
+  existingOutput?: string[];
 }): BackgroundTask {
   const { command, label, workspaceRoot } = opts;
+  const timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
 
-  // Security: check base command
-  const baseCmd = command.split(/\s+/)[0].replace(/^.*[/\\]/, "");
-  if (BLOCKED_COMMANDS.has(baseCmd.toLowerCase())) {
-    throw new Error(`Command "${baseCmd}" is blocked for safety.`);
+  // Security: check base command (skip if existingChild — already validated by caller)
+  if (!opts.existingChild) {
+    const baseCmd = command.split(/\s+/)[0].replace(/^.*[/\\]/, "");
+    if (BLOCKED_COMMANDS.has(baseCmd.toLowerCase())) {
+      throw new Error(`Command "${baseCmd}" is blocked for safety.`);
+    }
+
+    // Approval gate: same patterns as workspace_action command
+    const approvalMatch = APPROVAL_PATTERNS.find((p) => p.pattern.test(command));
+    if (approvalMatch && !opts.approved) {
+      throw new Error(
+        `APPROVAL_REQUIRED: This command requires Steven's approval before execution.\n` +
+        `Command: ${command}\n` +
+        `Reason: ${approvalMatch.reason}\n` +
+        `Ask Steven if he wants you to proceed. If he approves, re-call start_background_task ` +
+        `with the same command and set approved=true.`
+      );
+    }
   }
 
   // Resolve cwd
@@ -94,7 +125,7 @@ export function startBackgroundTask(opts: {
 
   const id = crypto.randomUUID();
 
-  const child = spawn(command, [], {
+  const child = opts.existingChild ?? spawn(command, [], {
     cwd,
     shell: true,
     env: { ...process.env, FORCE_COLOR: "0" },
@@ -108,7 +139,7 @@ export function startBackgroundTask(opts: {
     cwd,
     status: "running",
     exitCode: null,
-    output: [],
+    output: opts.existingOutput ? [...opts.existingOutput] : [],
     startedAt: Date.now(),
     finishedAt: null,
     pid: child.pid ?? null,
@@ -134,11 +165,37 @@ export function startBackgroundTask(opts: {
     for (const line of lines) appendLine(`[stderr] ${line}`);
   });
 
+  // Timeout: kill if exceeds limit
+  const killTimer = setTimeout(() => {
+    if (task.status !== "running" || !task.process) return;
+    try {
+      task.process.kill("SIGTERM");
+    } catch {
+      // Process may have already exited
+    }
+    task.status = "failed";
+    task.finishedAt = Date.now();
+    task.process = null;
+    appendLine(`[timeout] Task killed after ${Math.round(timeoutMs / 1000)}s timeout.`);
+
+    enqueueNotification(task);
+
+    runtimeLog.warning("Background task timed out", {
+      taskId: id,
+      label,
+      timeoutMs,
+      durationMs: task.finishedAt - task.startedAt,
+    });
+  }, timeoutMs);
+
   child.on("close", (code) => {
+    clearTimeout(killTimer);
     task.exitCode = code;
     task.status = code === 0 ? "completed" : "failed";
     task.finishedAt = Date.now();
     task.process = null;
+
+    enqueueNotification(task);
 
     runtimeLog.info("Background task finished", {
       taskId: id,
@@ -150,10 +207,13 @@ export function startBackgroundTask(opts: {
   });
 
   child.on("error", (err) => {
+    clearTimeout(killTimer);
     task.status = "failed";
     task.finishedAt = Date.now();
     task.process = null;
     appendLine(`[error] ${err.message}`);
+
+    enqueueNotification(task);
 
     runtimeLog.error("Background task error", {
       taskId: id,
@@ -167,6 +227,8 @@ export function startBackgroundTask(opts: {
     label,
     command,
     pid: child.pid,
+    timeoutMs,
+    promoted: !!opts.existingChild,
   });
 
   return toPublic(task);
@@ -183,7 +245,11 @@ export function cancelTask(taskId: string): boolean {
   if (!task) return false;
   if (task.status !== "running" || !task.process) return false;
 
-  task.process.kill("SIGTERM");
+  try {
+    task.process.kill("SIGTERM");
+  } catch {
+    // Process may have already exited
+  }
   task.status = "cancelled";
   task.finishedAt = Date.now();
   task.process = null;
@@ -198,6 +264,15 @@ export function listActiveTasks(): BackgroundTask[] {
     .map(toPublic);
 }
 
+/**
+ * Drain all pending task completion notifications.
+ * Called by agentRoutes on each new turn to inject into the conversation context.
+ */
+export function drainTaskNotifications(): TaskCompletionNotification[] {
+  if (pendingNotifications.length === 0) return [];
+  return pendingNotifications.splice(0, pendingNotifications.length);
+}
+
 // ============================================================================
 // Helpers
 // ============================================================================
@@ -205,4 +280,15 @@ export function listActiveTasks(): BackgroundTask[] {
 function toPublic(task: InternalTask): BackgroundTask {
   const { process: _proc, ...pub } = task;
   return pub;
+}
+
+function enqueueNotification(task: InternalTask): void {
+  pendingNotifications.push({
+    taskId: task.id,
+    label: task.label,
+    status: task.status,
+    exitCode: task.exitCode,
+    durationMs: (task.finishedAt ?? Date.now()) - task.startedAt,
+    tailOutput: task.output.slice(-NOTIFICATION_TAIL_LINES),
+  });
 }

@@ -19,22 +19,23 @@ Today, Kayley's tools are limited (memory lookups, email, calendar, database que
 
 ## Phasing
 
-### Phase 1: SSE Infrastructure + Tool Visibility (this PR)
+### Phase 1: SSE Infrastructure + Tool Visibility (COMPLETE)
 - SSE streaming endpoint for web client
 - Tool execution boxes in the UI (collapsible, showing existing tool calls)
 - Keep existing POST endpoint for Telegram/WhatsApp unchanged
 
-### Phase 2: Expanded Tool Set
-- New Gemini function tools: `exec_command`, `read_file`, `write_file`, `search_codebase`, `web_search`, `web_fetch`
-- Security boundaries (allowlists, approval for destructive ops)
-- System prompt updates teaching Kayley how/when to use these tools
+### Phase 2: Expanded Tool Set (COMPLETE)
+- Added `command` action to workspace_action (shell execution via execSync)
+- Added `web_fetch` tool (fetch URL → strip HTML → return text)
+- Minimal blocked-commands list (same trust as Claude Code)
+- System prompt sections 21 (web_fetch), 22 (autonomous agent mode), 23 (background tasks)
 
-### Phase 3: Background Tasks + Concurrent Chat
-- Background task management (start, check status, cancel)
-- User can send messages while Kayley is working
-- Server handles concurrent conversation turns
+### Phase 3: Background Tasks + Concurrent Chat (COMPLETE)
+- Background task management (start_background_task, check_task_status, cancel_task)
+- User can send messages while Kayley is working (pendingRequestCount counter)
+- Server serializes Gemini SDK turns via withSessionLock() Promise chains
 
-### Phase 4: Token Streaming + Full Polish
+### Phase 4: Token Streaming + Full Polish (NOT STARTED)
 - Stream text token-by-token (Gemini `sendMessageStream`)
 - Text interleaved with tool boxes in real-time
 - Edge client simplified updates ("Searching your codebase...", "Running tests...")

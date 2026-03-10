@@ -194,6 +194,12 @@ function computeNextMonthlyRunAt(
 type JobHandlerResult = { summary: string; metadata: any; skipSuccessMessage?: boolean };
 type JobHandler = (job: CronJobRow, client: SupabaseClient, schedulerId: string) => Promise<JobHandlerResult>;
 
+/**
+ * Action types owned by the standalone Tidy process (npm run tidy:dev).
+ * The main scheduler MUST NOT claim these — exclude them from the due-jobs query.
+ */
+export const EXTERNALLY_HANDLED_JOB_TYPES = ["code_cleaner", "tidy_branch_cleanup"] as const;
+
 const JOB_HANDLERS: Record<string, JobHandler> = {
   "web_search": async (job) => {
     log.info("Executing web_search job handler", {
@@ -1006,6 +1012,7 @@ class CronScheduler {
       .eq("status", "active")
       .not("next_run_at", "is", null)
       .lte("next_run_at", nowIso)
+      .not("action_type", "in", `(${EXTERNALLY_HANDLED_JOB_TYPES.join(",")})`)
       .order("next_run_at", { ascending: true })
       .limit(MAX_DUE_JOBS_PER_TICK);
 
@@ -1026,6 +1033,8 @@ class CronScheduler {
       jobCount: jobs.length,
       jobIds: jobs.map(j => j.id).join(", "),
       jobTitles: jobs.map(j => j.title).join(", "),
+      actionTypes: jobs.map(j => j.action_type).join(", "),
+      excludedTypes: EXTERNALLY_HANDLED_JOB_TYPES.join(", "),
     });
     return jobs;
   }

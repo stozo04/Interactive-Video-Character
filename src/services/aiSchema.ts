@@ -564,6 +564,7 @@ export const RetrieveMilaNotesSchema = z.object({
 export const WorkspaceActionSchema = z.object({
   action: z
     .enum([
+      "command",
       "mkdir",
       "read",
       "write",
@@ -624,6 +625,22 @@ export const WorkspaceActionSchema = z.object({
     .boolean()
     .optional()
     .describe("Delete action: recursive deletion for directories."),
+  command: z
+    .string()
+    .optional()
+    .describe("Shell command to execute (for command action)."),
+  cwd: z
+    .string()
+    .optional()
+    .describe("Working directory relative to workspace root (for command action)."),
+  timeout_ms: z
+    .number()
+    .optional()
+    .describe("Auto-background threshold in milliseconds (for command action). Commands exceeding this time are promoted to background tasks. Default 10000."),
+  approved: z
+    .boolean()
+    .optional()
+    .describe("Set to true when Steven has approved a destructive command (rm -rf, git push --force, etc). Required for dangerous operations."),
 });
 
 /**
@@ -1513,7 +1530,11 @@ export const GeminiMemoryToolDeclarations = [
         },
         timeout_ms: {
           type: "number",
-          description: "Command timeout in milliseconds, max 60000 (for command action).",
+          description: "Auto-background threshold in milliseconds (for command action). Commands exceeding this time are promoted to background tasks — NOT a kill timeout. Default 10000. Background tasks are killed after 5 minutes.",
+        },
+        approved: {
+          type: "boolean",
+          description: "Set to true when Steven has approved a destructive command. Required for dangerous operations (rm -rf, git push --force, git reset --hard, etc).",
         },
       },
       required: ["action"],
@@ -2076,6 +2097,7 @@ export const GeminiMemoryToolDeclarations = [
         command: { type: "string", description: "Shell command to run." },
         label: { type: "string", description: "Short label (e.g., 'Installing PyTorch')." },
         cwd: { type: "string", description: "Working directory relative to project root." },
+        approved: { type: "boolean", description: "Set to true when Steven has approved a dangerous command (rm -rf, git push --force, etc)." },
       },
       required: ["command", "label"],
     },
@@ -2103,6 +2125,16 @@ export const GeminiMemoryToolDeclarations = [
         task_id: { type: "string", description: "Task ID to cancel." },
       },
       required: ["task_id"],
+    },
+  },
+  {
+    name: "list_active_tasks",
+    description:
+      "List all currently running background tasks. Returns task IDs, labels, commands, and durations. " +
+      "Use this to discover what's running without needing to remember task IDs.",
+    parameters: {
+      type: "object",
+      properties: {},
     },
   },
   {

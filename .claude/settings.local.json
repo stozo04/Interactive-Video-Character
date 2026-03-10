@@ -98,7 +98,8 @@
       "Bash(nvidia-smi:*)",
       "Bash(agents/kayley/.venv-qwen/Scripts/python.exe:*)",
       "WebFetch(domain:pypi.org)",
-      "Bash(py:*)"
+      "Bash(py:*)",
+      "WebFetch(domain:deepwiki.com)"
     ]
   },
   "enabledPlugins": {

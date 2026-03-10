@@ -82,6 +82,7 @@ export interface WorkspaceActionRequest {
   action: WorkspaceActionType;
   args: Record<string, unknown>;
   prompt?: string;
+  approved?: boolean;
 }
 
 export interface WorkspaceActionRequestOptions {
@@ -156,11 +157,13 @@ function buildCreateRunPayload(request: WorkspaceActionRequest): {
   action: WorkspaceActionType;
   prompt?: string;
   args: Record<string, unknown>;
+  approved?: boolean;
 } {
   return {
     action: request.action,
     prompt: request.prompt,
     args: { ...request.args },
+    approved: request.approved,
   };
 }
 

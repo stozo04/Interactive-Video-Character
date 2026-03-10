@@ -1340,6 +1340,7 @@ export type MemoryToolName =
   | 'start_background_task'
   | 'check_task_status'
   | 'cancel_task'
+  | 'list_active_tasks'
   | 'workspace_action'
   | 'cron_job_action'
   | 'delegate_to_engineering'
@@ -1402,6 +1403,7 @@ export interface ToolCallArgs {
     command: string;
     label: string;
     cwd?: string;
+    approved?: boolean;
   };
   check_task_status: {
     task_id: string;
@@ -1410,6 +1412,7 @@ export interface ToolCallArgs {
   cancel_task: {
     task_id: string;
   };
+  list_active_tasks: Record<string, never>;
   workspace_action: {
     action:
       | 'command'
@@ -1436,6 +1439,7 @@ export interface ToolCallArgs {
     command?: string;
     cwd?: string;
     timeout_ms?: number;
+    approved?: boolean;
   };
   cron_job_action: {
     action:
@@ -1781,7 +1785,7 @@ export const executeMemoryTool = async (
         }
       }
       case "start_background_task": {
-        const { command, label, cwd } = args as ToolCallArgs['start_background_task'];
+        const { command, label, cwd, approved } = args as ToolCallArgs['start_background_task'];
         const bgLog = clientLogger.scoped('BackgroundTask');
         bgLog.info('Starting background task', { command, label });
 
@@ -1791,6 +1795,7 @@ export const executeMemoryTool = async (
             command,
             label,
             cwd,
+            approved,
             workspaceRoot: process.cwd(),
           });
           return `Background task started.\nTask ID: ${task.id}\nLabel: ${task.label}\nPID: ${task.pid}\n\nUse check_task_status with this task_id to monitor progress.`;
@@ -1845,6 +1850,25 @@ export const executeMemoryTool = async (
           return `Failed to cancel task: ${errMsg}`;
         }
       }
+      case "list_active_tasks": {
+        try {
+          const { listActiveTasks } = await import('../../server/services/backgroundTaskManager');
+          const activeTasks = listActiveTasks();
+          if (activeTasks.length === 0) {
+            return "No background tasks are currently running.";
+          }
+
+          const lines = activeTasks.map((t) => {
+            const durationMs = Date.now() - t.startedAt;
+            const durationStr = durationMs < 1000 ? `${durationMs}ms` : `${(durationMs / 1000).toFixed(1)}s`;
+            return `- ${t.label} (ID: ${t.id}, running for ${durationStr}, PID: ${t.pid ?? 'N/A'})`;
+          });
+          return `${activeTasks.length} active task(s):\n${lines.join('\n')}`;
+        } catch (error) {
+          const errMsg = error instanceof Error ? error.message : String(error);
+          return `Failed to list tasks: ${errMsg}`;
+        }
+      }
       case 'workspace_action': {
         const { requestWorkspaceAction } = await import('./projectAgentService');
         const actionArgs = args as ToolCallArgs['workspace_action'];
@@ -1858,7 +1882,7 @@ export const executeMemoryTool = async (
           append: actionArgs.append,
           contentLength,
         });
-        const { action, ...rawArgs } = actionArgs;
+        const { action, approved, ...rawArgs } = actionArgs;
         const filteredArgs = Object.fromEntries(
           Object.entries(rawArgs).filter(([, value]) => value !== undefined),
         );
@@ -1867,6 +1891,7 @@ export const executeMemoryTool = async (
           action,
           args: filteredArgs,
           prompt: context?.userMessage,
+          approved,
         }, {
           waitForTerminal: false,
         });

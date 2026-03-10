@@ -104,6 +104,7 @@ const TOOL_DISPLAY_NAMES: Record<string, string> = {
   start_background_task: 'Starting background task',
   check_task_status: 'Checking task progress',
   cancel_task: 'Cancelling task',
+  list_active_tasks: 'Listing active tasks',
 };
 
 export function getToolDisplayName(toolName: string): string {
