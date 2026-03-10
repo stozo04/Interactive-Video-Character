@@ -1,8 +1,14 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
+import { spawn } from "node:child_process";
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { log } from "../runtimeLogger";
+import {
+  startBackgroundTask,
+  type BackgroundTask,
+} from "../services/backgroundTaskManager";
+import { BLOCKED_COMMANDS, APPROVAL_PATTERNS } from "../services/commandSafety";
 
 const JSON_HEADERS = {
   "Content-Type": "application/json; charset=utf-8",
@@ -16,7 +22,13 @@ const MAX_SEARCH_RESULTS = 50;
 const MAX_READ_CHARS = 20_000;
 const SKIP_DIRS = new Set(["node_modules", ".git", "dist", ".worktrees"]);
 
+// Auto-background: commands run async via spawn. If they finish within this
+// threshold, the result is returned synchronously. Otherwise, the command is
+// promoted to a background task and the task ID is returned to Kayley.
+const YIELD_MS = 10_000;
+
 type WorkspaceActionType =
+  | "command"
   | "mkdir"
   | "read"
   | "write"
@@ -30,6 +42,7 @@ interface WorkspaceActionRequestBody {
   action?: WorkspaceActionType;
   args?: Record<string, unknown>;
   prompt?: string;
+  approved?: boolean;
 }
 
 interface WorkspaceAgentRunStep {
@@ -254,6 +267,84 @@ function buildRun(
   };
 }
 
+// ============================================================================
+// Auto-background command execution
+// ============================================================================
+
+type AutoBackgroundResult = {
+  promoted: false;
+  output: string;
+  exitCode: number;
+} | {
+  promoted: true;
+  taskId: string;
+}
+
+function runWithAutoBackground(opts: {
+  cmd: string;
+  cwd: string;
+  yieldMs: number;
+  workspaceRoot: string;
+  label: string;
+}): Promise<AutoBackgroundResult> {
+  const { cmd, cwd, yieldMs, workspaceRoot, label } = opts;
+
+  return new Promise((resolve) => {
+    let stdout = "";
+    let stderr = "";
+    let settled = false;
+
+    const child = spawn(cmd, [], {
+      cwd,
+      shell: true,
+      env: { ...process.env, FORCE_COLOR: "0" },
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+
+    child.stdout?.on("data", (data: Buffer) => { stdout += data.toString(); });
+    child.stderr?.on("data", (data: Buffer) => { stderr += data.toString(); });
+
+    child.on("close", (code) => {
+      if (settled) return; // already promoted to background
+      settled = true;
+      clearTimeout(timer);
+      const output = stdout + (stderr ? `\n[stderr]\n${stderr}` : "");
+      resolve({ promoted: false, output, exitCode: code ?? 1 });
+    });
+
+    child.on("error", (err) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve({ promoted: false, output: `[error] ${err.message}`, exitCode: 1 });
+    });
+
+    // If command doesn't finish within yieldMs, promote to background task
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+
+      // Transfer the running child to backgroundTaskManager
+      const task = startBackgroundTask({
+        command: cmd,
+        label,
+        cwd: path.relative(workspaceRoot, cwd) || undefined,
+        workspaceRoot,
+        existingChild: child,
+        existingOutput: (stdout + stderr).split("\n").filter(Boolean),
+      });
+
+      runtimeLog.info("Command auto-promoted to background", {
+        command: cmd,
+        taskId: task.id,
+        yieldMs,
+      });
+
+      resolve({ promoted: true, taskId: task.id });
+    }, yieldMs);
+  });
+}
+
 export function createWorkspaceAgentRouter(options: WorkspaceAgentRouterOptions) {
   const { workspaceRoot } = options;
 
@@ -409,6 +500,60 @@ export function createWorkspaceAgentRouter(options: WorkspaceAgentRouterOptions)
             evidence.push(`query: ${query}`);
             evidence.push(`matches:\n${matches.map((m) => `- ${m}`).join("\n")}`);
             summary = `Found ${matches.length} match(es) for "${query}".`;
+          } else if (action === "command") {
+            const cmd = String(args.command ?? "").trim();
+            if (!cmd) {
+              throw new Error("Missing command.");
+            }
+
+            // Extract the base command (first word) for safety checks
+            const baseCmd = cmd.split(/\s+/)[0].replace(/^.*[/\\]/, ''); // strip path prefix
+
+            if (BLOCKED_COMMANDS.has(baseCmd.toLowerCase())) {
+              throw new Error(`Command "${baseCmd}" is blocked for safety. Ask Steven to run it manually.`);
+            }
+
+            // Approval gate: check if command matches dangerous patterns
+            const approvalMatch = APPROVAL_PATTERNS.find((p) => p.pattern.test(cmd));
+            if (approvalMatch && !payload.approved) {
+              throw new Error(
+                `APPROVAL_REQUIRED: This command requires Steven's approval before execution.\n` +
+                `Command: ${cmd}\n` +
+                `Reason: ${approvalMatch.reason}\n` +
+                `Ask Steven if he wants you to proceed. If he approves, re-call workspace_action ` +
+                `with the same command and set approved=true.`
+              );
+            }
+
+            const cwd = args.cwd ? resolveWorkspacePath(workspaceRoot, String(args.cwd)) : workspaceRoot;
+            const yieldMs = Math.min(Number(args.timeout_ms ?? YIELD_MS), 60_000);
+
+            // Auto-background: run with spawn (non-blocking), wait up to yieldMs.
+            // If the command finishes quickly, return output directly.
+            // If it exceeds yieldMs, promote to a background task.
+            const result = await runWithAutoBackground({
+              cmd,
+              cwd,
+              yieldMs,
+              workspaceRoot,
+              label: cmd.slice(0, 80),
+            });
+
+            evidence.push(`command: ${cmd}`);
+            evidence.push(`cwd: ${path.relative(workspaceRoot, cwd) || '.'}`);
+
+            if (result.promoted === true) {
+              evidence.push(`background_task_id: ${result.taskId}`);
+              evidence.push(`message: Command exceeded ${yieldMs}ms — auto-promoted to background task.`);
+              summary = `Command auto-promoted to background task ${result.taskId}. Use check_task_status to monitor.`;
+            } else if (result.promoted === false && result.exitCode !== 0) {
+              evidence.push(`exit_code: ${result.exitCode}`);
+              evidence.push(`output:\n${truncateText(result.output, MAX_READ_CHARS)}`);
+              throw new Error(`Command exited with code ${result.exitCode}: ${truncateText(result.output, 500)}`);
+            } else if (result.promoted === false) {
+              evidence.push(`output:\n${truncateText(result.output, MAX_READ_CHARS)}`);
+              summary = `Executed: ${cmd}`;
+            }
           } else {
             throw new Error(`Unsupported action: ${action}`);
           }

@@ -69,6 +69,7 @@ export async function processUserMessage(input: OrchestratorInput): Promise<Orch
     isMuted,
     pendingEmail,
     conversationScopeId,
+    eventBus,
   } = input;
 
   // console.log(`🎯 [Orchestrator] Processing message: "${userMessage.substring(0, 50)}..."`);
@@ -131,6 +132,7 @@ export async function processUserMessage(input: OrchestratorInput): Promise<Orch
       chatHistory,
       audioMode: isMuted ? "none" : "sync",
       conversationScopeId,
+      eventBus,
     };
 
     const aiResult = await aiService.generateResponse(
@@ -177,10 +179,13 @@ export async function processUserMessage(input: OrchestratorInput): Promise<Orch
     if (actionType === ActionType.SELFIE) {
       const selfieAction = response.selfie_action as SelfieAction | undefined;
       if (selfieAction?.scene) {
+        const selfieStartMs = Date.now();
+        eventBus?.emit('sse', { type: 'action_start', actionName: 'selfie', actionDisplayName: 'Generating selfie', timestamp: Date.now() });
         const selfieResult = await processSelfieAction(selfieAction, {
           userMessage,
           chatHistory,
         });
+        eventBus?.emit('sse', { type: 'action_end', actionName: 'selfie', durationMs: Date.now() - selfieStartMs, success: selfieResult.success, timestamp: Date.now() });
         if (selfieResult.handled) {
           if (selfieResult.success && selfieResult.imageBase64) {
             // Phase 5: Add selfie message with image directly to chatMessages
@@ -219,10 +224,13 @@ export async function processUserMessage(input: OrchestratorInput): Promise<Orch
     if (actionType === ActionType.VIDEO) {
       const videoAction = (response as any).video_action as VideoAction | undefined;
       if (videoAction?.scene) {
+        const videoStartMs = Date.now();
+        eventBus?.emit('sse', { type: 'action_start', actionName: 'video', actionDisplayName: 'Generating video', timestamp: Date.now() });
         const videoResult = await processVideoAction(videoAction, {
           userMessage,
           chatHistory,
         });
+        eventBus?.emit('sse', { type: 'action_end', actionName: 'video', durationMs: Date.now() - videoStartMs, success: videoResult.success, timestamp: Date.now() });
         if (videoResult.handled) {
           if (videoResult.success && videoResult.videoUrl) {
             result.videoUrl = videoResult.videoUrl;

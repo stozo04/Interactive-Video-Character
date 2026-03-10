@@ -41,6 +41,12 @@
 
 - **Real-World Awareness** - Time-aware, location-aware, and news-aware. Your AI can search the web and understands what's happening in your world right now.
 
+- **Autonomous Agent Mode** - Kayley can chain tools autonomously to investigate, plan, execute, and verify complex tasks — just like a senior engineer. She runs shell commands, reads/writes files, searches the web, and manages background processes. The web UI shows real-time tool execution as collapsible boxes (like Claude Code), and you can keep chatting while she works.
+
+- **Background Task Management** - Long-running commands (installs, builds, test suites) run in the background without blocking conversation. Kayley starts tasks, monitors progress, and reports back when they finish or fail.
+
+- **SSE Streaming & Tool Visibility** - The web client uses Server-Sent Events to show Kayley's tool calls in real-time. Each tool execution appears as a collapsible box with status, duration, and result summary — no more mystery dots.
+
 - **Cloned Voice Notes** - Kayley can send Telegram voice notes in her own cloned voice using local Qwen3 TTS (runs on GPU, no cloud API). She decides when a voice feels more personal than text — emotional check-ins, goodnight messages, grounding moments. Pipeline: text → Qwen3 WAV → ffmpeg OGG/Opus → Telegram voice bubble.
 
 - **Server-Side AI Brain** - All AI intelligence runs on a central Node.js server (port 4010). The browser is a thin client — the Gemini API key never reaches the browser. Web, Telegram, and WhatsApp all share the same intelligence layer.
@@ -212,6 +218,7 @@ See `.env.example` for the complete list of available configuration options.
 | [Google OAuth Setup](docs/GOOGLE_OAUTH_SETUP.md) | Authentication configuration guide |
 | [System Prompt Guidelines](docs/System_Prompt_Guidelines.md) | How to modify AI behavior |
 | [Idle Thinking System](docs/features/Idle_Thinking_System.md) | Idle-time storyline, browsing, and curiosity questions |
+| [Autonomous Agent Mode](documents/features/autonomous-agent-mode.md) | SSE streaming, tool visibility, background tasks, concurrent chat |
 | [CLAUDE.md](CLAUDE.md) | Developer guide for Claude Code |
 
 ---
@@ -245,3 +252,10 @@ If you encounter any issues or have questions:
 <div align="center">
   <p>Built with the belief that AI companions should remember, grow, and feel authentically yours.</p>
 </div>
+
+
+Sacred Texts
+SOUL.md — Molty’s identity document
+memory/*.md — The long-term memory files
+AGENTS.md — Operating instructions
+USER.md — Context about the creator

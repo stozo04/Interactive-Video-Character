@@ -100,17 +100,36 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
     sample_prompts: ["Open Spotify."],
   },
   {
+    tool_key: "web_fetch",
+    name: "Web Page Reader",
+    description: "Fetch and read the content of a specific web page URL.",
+    user_value: "Lets Kayley read articles, docs, or API responses for you.",
+    permissions_needed: ["web_access"],
+    triggers: ["read this page", "check this URL", "what does this link say"],
+    sample_prompts: ["Read this article for me: https://example.com/post"],
+  },
+  {
+    tool_key: "start_background_task",
+    name: "Background Tasks",
+    description: "Start, monitor, and cancel long-running shell commands in the background.",
+    user_value: "Lets Kayley run installs, builds, and tests without blocking the conversation.",
+    permissions_needed: ["local_workspace_agent"],
+    triggers: ["install", "run in background", "start build", "run tests"],
+    sample_prompts: ["Install PyTorch in the background.", "Run the test suite."],
+  },
+  {
     tool_key: "workspace_action",
     name: "Workspace Agent",
     description:
-      "Run local project operations via the workspace agent (files + git with policy checks). Use search -> read -> write for file edits.",
+      "Run local project operations via the workspace agent (files, git, and shell commands with policy checks). Use search -> read -> write for file edits.",
     user_value:
-      "Lets Kayley manage project files and git workflows with verification and approval gates.",
+      "Lets Kayley manage project files, run commands, and git workflows with verification and approval gates.",
     permissions_needed: ["local_workspace_agent"],
-    triggers: ["create folder", "read file", "write file", "edit file", "append", "git status", "commit", "push", "search"],
+    triggers: ["create folder", "read file", "write file", "edit file", "append", "git status", "commit", "push", "search", "run command", "check version"],
     sample_prompts: [
       "Create a folder called docs/notes.",
       "Read PROMPT.md and add Hello World.",
+      "Check what Python version is installed.",
     ],
   },
   {

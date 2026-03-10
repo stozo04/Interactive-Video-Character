@@ -1336,6 +1336,11 @@ export function consumeCalendarMutationSignal(): boolean {
 
 export type MemoryToolName =
   | 'web_search'
+  | 'web_fetch'
+  | 'start_background_task'
+  | 'check_task_status'
+  | 'cancel_task'
+  | 'list_active_tasks'
   | 'workspace_action'
   | 'cron_job_action'
   | 'delegate_to_engineering'
@@ -1382,14 +1387,35 @@ export interface ToolExecutionContext {
   userMessage?: string;
   conversationScopeId?: string;
   conversationLogId?: string;
+  /** SSE event bus for streaming tool visibility. Node.js EventEmitter interface. */
+  eventBus?: { emit(event: string, data: unknown): boolean };
 }
 
 export interface ToolCallArgs {
   web_search: {
     query: string;
   };
+  web_fetch: {
+    url: string;
+    max_chars?: number;
+  };
+  start_background_task: {
+    command: string;
+    label: string;
+    cwd?: string;
+    approved?: boolean;
+  };
+  check_task_status: {
+    task_id: string;
+    tail_lines?: number;
+  };
+  cancel_task: {
+    task_id: string;
+  };
+  list_active_tasks: Record<string, never>;
   workspace_action: {
     action:
+      | 'command'
       | 'mkdir'
       | 'read'
       | 'write'
@@ -1410,6 +1436,10 @@ export interface ToolCallArgs {
     remote?: string;
     branch?: string;
     recursive?: boolean;
+    command?: string;
+    cwd?: string;
+    timeout_ms?: number;
+    approved?: boolean;
   };
   cron_job_action: {
     action:
@@ -1686,6 +1716,159 @@ export const executeMemoryTool = async (
           return "I tried to check the internet, but my internal browser is acting up!";
         }
       }
+      case "web_fetch": {
+        const { url, max_chars } = args as ToolCallArgs['web_fetch'];
+        const webFetchLog = clientLogger.scoped('WebFetch');
+        webFetchLog.info('Fetching URL', { url });
+
+        try {
+          // Validate URL
+          const parsed = new URL(url);
+          if (!['http:', 'https:'].includes(parsed.protocol)) {
+            return "I can only fetch http/https URLs.";
+          }
+
+          const controller = new AbortController();
+          const timeout = setTimeout(() => controller.abort(), 15_000);
+
+          const response = await fetch(url, {
+            signal: controller.signal,
+            headers: {
+              'User-Agent': 'Mozilla/5.0 (compatible; KayleyBot/1.0)',
+              'Accept': 'text/html,application/xhtml+xml,text/plain,application/json',
+            },
+          });
+          clearTimeout(timeout);
+
+          if (!response.ok) {
+            return `Failed to fetch URL (HTTP ${response.status}): ${response.statusText}`;
+          }
+
+          const contentType = response.headers.get('content-type') || '';
+          const rawText = await response.text();
+          const maxChars = Math.min(max_chars ?? 10_000, 50_000);
+
+          let content: string;
+          if (contentType.includes('application/json')) {
+            // JSON: return as-is, truncated
+            content = rawText.slice(0, maxChars);
+          } else {
+            // HTML or other: strip tags, collapse whitespace
+            content = rawText
+              .replace(/<script[\s\S]*?<\/script>/gi, '')
+              .replace(/<style[\s\S]*?<\/style>/gi, '')
+              .replace(/<[^>]+>/g, ' ')
+              .replace(/&nbsp;/g, ' ')
+              .replace(/&amp;/g, '&')
+              .replace(/&lt;/g, '<')
+              .replace(/&gt;/g, '>')
+              .replace(/&quot;/g, '"')
+              .replace(/&#39;/g, "'")
+              .replace(/\s+/g, ' ')
+              .trim()
+              .slice(0, maxChars);
+          }
+
+          if (!content) {
+            return "The page loaded but contained no readable text content.";
+          }
+
+          webFetchLog.info('Fetch complete', { url, contentLength: content.length });
+          return `Content from ${url} (${content.length} chars):\n\n${content}`;
+        } catch (error) {
+          const errMsg = error instanceof Error ? error.message : String(error);
+          webFetchLog.error('Fetch failed', { url, error: errMsg });
+          if (errMsg.includes('aborted') || errMsg.includes('abort')) {
+            return "The page took too long to load (timed out after 15 seconds).";
+          }
+          return `I couldn't fetch that page: ${errMsg}`;
+        }
+      }
+      case "start_background_task": {
+        const { command, label, cwd, approved } = args as ToolCallArgs['start_background_task'];
+        const bgLog = clientLogger.scoped('BackgroundTask');
+        bgLog.info('Starting background task', { command, label });
+
+        try {
+          const { startBackgroundTask } = await import('../../server/services/backgroundTaskManager');
+          const task = startBackgroundTask({
+            command,
+            label,
+            cwd,
+            approved,
+            workspaceRoot: process.cwd(),
+          });
+          return `Background task started.\nTask ID: ${task.id}\nLabel: ${task.label}\nPID: ${task.pid}\n\nUse check_task_status with this task_id to monitor progress.`;
+        } catch (error) {
+          const errMsg = error instanceof Error ? error.message : String(error);
+          bgLog.error('Failed to start background task', { error: errMsg });
+          return `Failed to start background task: ${errMsg}`;
+        }
+      }
+      case "check_task_status": {
+        const { task_id, tail_lines } = args as ToolCallArgs['check_task_status'];
+
+        try {
+          const { checkTaskStatus } = await import('../../server/services/backgroundTaskManager');
+          const task = checkTaskStatus(task_id);
+          if (!task) {
+            return `No task found with ID: ${task_id}. It may have expired (tasks are cleaned up 1 hour after completion).`;
+          }
+
+          const lines = tail_lines ?? 30;
+          const outputTail = task.output.slice(-lines).join('\n');
+          const durationMs = (task.finishedAt ?? Date.now()) - task.startedAt;
+          const durationStr = durationMs < 1000 ? `${durationMs}ms` : `${(durationMs / 1000).toFixed(1)}s`;
+
+          return [
+            `Task: ${task.label}`,
+            `Status: ${task.status}`,
+            `Duration: ${durationStr}`,
+            task.exitCode !== null ? `Exit code: ${task.exitCode}` : null,
+            `PID: ${task.pid ?? 'N/A'}`,
+            '',
+            `Recent output (last ${Math.min(lines, task.output.length)} lines):`,
+            outputTail || '(no output yet)',
+          ].filter(Boolean).join('\n');
+        } catch (error) {
+          const errMsg = error instanceof Error ? error.message : String(error);
+          return `Failed to check task status: ${errMsg}`;
+        }
+      }
+      case "cancel_task": {
+        const { task_id } = args as ToolCallArgs['cancel_task'];
+
+        try {
+          const { cancelTask } = await import('../../server/services/backgroundTaskManager');
+          const cancelled = cancelTask(task_id);
+          if (cancelled) {
+            return `Task ${task_id} has been cancelled.`;
+          }
+          return `Could not cancel task ${task_id}. It may have already finished or doesn't exist.`;
+        } catch (error) {
+          const errMsg = error instanceof Error ? error.message : String(error);
+          return `Failed to cancel task: ${errMsg}`;
+        }
+      }
+      case "list_active_tasks": {
+        try {
+          const { listActiveTasks } = await import('../../server/services/backgroundTaskManager');
+          const activeTasks = listActiveTasks();
+          if (activeTasks.length === 0) {
+            return "No background tasks are currently running.";
+          }
+
+          const lines = activeTasks.map((t) => {
+            const durationMs = Date.now() - t.startedAt;
+            const durationStr = durationMs < 1000 ? `${durationMs}ms` : `${(durationMs / 1000).toFixed(1)}s`;
+            return `- ${t.label} (ID: ${t.id}, running for ${durationStr}, PID: ${t.pid ?? 'N/A'})`;
+          });
+          return `${activeTasks.length} active task(s):\n${lines.join('\n')}`;
+        } catch (error) {
+          const errMsg = error instanceof Error ? error.message : String(error);
+          return `Failed to list tasks: ${errMsg}`;
+        }
+      }
       case 'workspace_action': {
         const { requestWorkspaceAction } = await import('./projectAgentService');
         const actionArgs = args as ToolCallArgs['workspace_action'];
@@ -1699,7 +1882,7 @@ export const executeMemoryTool = async (
           append: actionArgs.append,
           contentLength,
         });
-        const { action, ...rawArgs } = actionArgs;
+        const { action, approved, ...rawArgs } = actionArgs;
         const filteredArgs = Object.fromEntries(
           Object.entries(rawArgs).filter(([, value]) => value !== undefined),
         );
@@ -1708,6 +1891,7 @@ export const executeMemoryTool = async (
           action,
           args: filteredArgs,
           prompt: context?.userMessage,
+          approved,
         }, {
           waitForTerminal: false,
         });

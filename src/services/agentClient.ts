@@ -8,8 +8,14 @@
 //   const greeting = await agentClient.getGreeting({ sessionId, ... });
 
 import type { OrchestratorResult } from '../handlers/messageActions/types';
-import type { ChatMessage, NewEmailPayload } from '../types';
+import type { ChatMessage, NewEmailPayload, ToolCallDisplay } from '../types';
 import type { UserContent } from './aiService';
+import type {
+  SSEToolStartEvent,
+  SSEToolEndEvent,
+  SSEActionStartEvent,
+  SSEActionEndEvent,
+} from '../../server/services/ai/sseTypes';
 
 const AGENT_BASE_URL = '/agent';
 
@@ -136,8 +142,109 @@ async function resolveTweetDraft(
   return data;
 }
 
+// ============================================================================
+// Stream Callbacks
+// ============================================================================
+
+export interface StreamCallbacks {
+  onToolStart?: (event: SSEToolStartEvent) => void;
+  onToolEnd?: (event: SSEToolEndEvent) => void;
+  onActionStart?: (event: SSEActionStartEvent) => void;
+  onActionEnd?: (event: SSEActionEndEvent) => void;
+  onComplete: (result: OrchestratorResult) => void;
+  onError: (error: string) => void;
+}
+
+// ============================================================================
+// Streaming Client
+// ============================================================================
+
+async function sendMessageStream(
+  request: AgentMessageRequest,
+  callbacks: StreamCallbacks,
+): Promise<void> {
+  try {
+    const response = await fetch(`${AGENT_BASE_URL}/message/stream`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(request),
+    });
+
+    if (!response.ok) {
+      const text = await response.text();
+      callbacks.onError(`Agent stream failed (${response.status}): ${text}`);
+      return;
+    }
+
+    const reader = response.body?.getReader();
+    if (!reader) {
+      callbacks.onError('No readable stream available');
+      return;
+    }
+
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+
+      // Parse SSE lines: each event is "data: {...}\n\n"
+      const lines = buffer.split('\n\n');
+      // Keep incomplete last chunk in buffer
+      buffer = lines.pop() || '';
+
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed || !trimmed.startsWith('data: ')) continue;
+
+        try {
+          const event = JSON.parse(trimmed.slice(6));
+
+          switch (event.type) {
+            case 'tool_start':
+              callbacks.onToolStart?.(event);
+              break;
+            case 'tool_end':
+              callbacks.onToolEnd?.(event);
+              break;
+            case 'action_start':
+              callbacks.onActionStart?.(event);
+              break;
+            case 'action_end':
+              callbacks.onActionEnd?.(event);
+              break;
+            case 'turn_complete':
+              callbacks.onComplete(event.result);
+              break;
+            case 'turn_error':
+              callbacks.onError(event.error);
+              break;
+            // turn_start — no action needed
+          }
+        } catch {
+          // Skip malformed SSE lines
+        }
+      }
+    }
+  } catch (err) {
+    // Fallback: try regular sendMessage on connection failure
+    try {
+      const result = await sendMessage(request);
+      callbacks.onComplete(result);
+    } catch (fallbackErr) {
+      callbacks.onError(
+        fallbackErr instanceof Error ? fallbackErr.message : String(fallbackErr),
+      );
+    }
+  }
+}
+
 export const agentClient = {
   sendMessage,
+  sendMessageStream,
   getGreeting,
   healthCheck,
   resolveTweetDraft,

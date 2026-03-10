@@ -25,11 +25,22 @@ import {
 import { pollAndProcessMentions } from "../services/xMentionService";
 import { getClaudeSessionSummary, lookUpClaudeQuota } from "../services/anthropic/claudeSessionService";
 import { getOpenAICodexSessionSummary } from "../services/openai/codexSessionService";
+import { TurnEventBus } from "../services/ai/turnEventBus";
+import { drainTaskNotifications } from "../services/backgroundTaskManager";
 
 const runtimeLog = log.fromContext({ source: "agentRoutes" });
 
 const JSON_HEADERS: Record<string, string> = {
   "Content-Type": "application/json; charset=utf-8",
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
+  "Access-Control-Allow-Headers": "Content-Type, Authorization",
+};
+
+const SSE_HEADERS: Record<string, string> = {
+  "Content-Type": "text/event-stream",
+  "Cache-Control": "no-cache",
+  "Connection": "keep-alive",
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
   "Access-Control-Allow-Headers": "Content-Type, Authorization",
@@ -69,6 +80,19 @@ interface XAuthCallbackRequest {
 import type { AIChatSession } from "../../src/services/aiService";
 
 const sessions = new Map<string, AIChatSession>();
+
+// Per-session turn lock — ensures Gemini SDK chat sessions process one turn at a time.
+// New requests wait for the previous turn to finish before starting.
+const sessionTurnChains = new Map<string, Promise<void>>();
+
+function withSessionLock<T>(sessionId: string, fn: () => Promise<T>): Promise<T> {
+  const prev = sessionTurnChains.get(sessionId) ?? Promise.resolve();
+  // Chain this turn after the previous one. Swallow errors so the chain doesn't break.
+  const current = prev.then(fn, fn);
+  // Store only the "done" signal (void), not the result
+  sessionTurnChains.set(sessionId, current.then(() => {}, () => {}));
+  return current;
+}
 
 // ============================================================================
 // Body Parser
@@ -113,6 +137,11 @@ export function createAgentRouter(): (
 
     if (req.method === "POST" && url.pathname === "/agent/message") {
       await handleAgentMessage(req, res);
+      return true;
+    }
+
+    if (req.method === "POST" && url.pathname === "/agent/message/stream") {
+      await handleAgentMessageStream(req, res);
       return true;
     }
 
@@ -453,6 +482,115 @@ async function handleTweetDraftResolve(
     const errorMsg = err instanceof Error ? err.message : String(err);
     runtimeLog.error("Tweet draft resolve failed", { draftId, error: errorMsg });
     sendJson(res, 500, { success: false, error: errorMsg });
+  }
+}
+
+// ============================================================================
+// /agent/message/stream — SSE streaming endpoint (web client only)
+// ============================================================================
+
+async function handleAgentMessageStream(req: IncomingMessage, res: ServerResponse): Promise<void> {
+  const startMs = Date.now();
+
+  try {
+    const body = await parseJsonBody<AgentMessageRequest>(req);
+
+    if (!body.message && !body.userContent) {
+      sendJson(res, 400, { success: false, error: "Missing 'message' or 'userContent'." });
+      return;
+    }
+    if (!body.sessionId) {
+      sendJson(res, 400, { success: false, error: "Missing 'sessionId'." });
+      return;
+    }
+
+    // Set SSE headers — from here on we write SSE events, not JSON
+    res.writeHead(200, SSE_HEADERS);
+
+    // Create per-turn event bus
+    const eventBus = new TurnEventBus();
+
+    // Wire bus events to SSE response
+    eventBus.on('sse', (event: unknown) => {
+      if (!res.destroyed) {
+        res.write(`data: ${JSON.stringify(event)}\n\n`);
+      }
+    });
+
+    // Emit turn_start
+    res.write(`data: ${JSON.stringify({ type: 'turn_start', timestamp: Date.now() })}\n\n`);
+
+    // Drain any pending background task completion notifications.
+    // Prepend them to the user message so Kayley sees them without polling.
+    const taskNotifications = drainTaskNotifications();
+    let messageWithNotifications = body.message;
+    if (taskNotifications.length > 0 && messageWithNotifications) {
+      const notifLines = taskNotifications.map((n) => {
+        const dur = n.durationMs < 1000 ? `${n.durationMs}ms` : `${(n.durationMs / 1000).toFixed(1)}s`;
+        const tail = n.tailOutput.length > 0 ? `\nLast output:\n${n.tailOutput.join('\n')}` : '';
+        return `[Background task finished] "${n.label}" — ${n.status} (exit ${n.exitCode}, ${dur})${tail}`;
+      });
+      messageWithNotifications = `[SYSTEM NOTE: ${notifLines.join('\n\n')}]\n\n${messageWithNotifications}`;
+    }
+
+    runtimeLog.info("Processing agent message (stream)", {
+      sessionId: body.sessionId,
+      messageLength: body.message?.length || 0,
+      historyCount: body.chatHistory?.length || 0,
+      taskNotificationCount: taskNotifications.length,
+    });
+
+    // Serialize turns per session — Gemini SDK chat sessions can't handle concurrent sends.
+    // If a previous turn is still processing, this request waits in the queue.
+    // The SSE connection stays open (turn_start already sent) so the client knows we're waiting.
+    const result = await withSessionLock(body.sessionId, async () => {
+      const session = sessions.get(body.sessionId) || null;
+
+      const orchestratorResult = await processUserMessage({
+        userMessage: messageWithNotifications,
+        userMessageForAI: body.messageForAI,
+        userContent: body.userContent,
+        aiService: serverGeminiService,
+        session,
+        chatHistory: body.chatHistory || [],
+        isMuted: body.isMuted ?? false,
+        pendingEmail: body.pendingEmail,
+        conversationScopeId: body.sessionId,
+        eventBus,
+      });
+
+      if (orchestratorResult.updatedSession) {
+        sessions.set(body.sessionId, orchestratorResult.updatedSession);
+      }
+
+      return orchestratorResult;
+    });
+
+    const elapsedMs = Date.now() - startMs;
+    runtimeLog.info("Agent message stream completed", {
+      sessionId: body.sessionId,
+      elapsedMs,
+      actionType: result.actionType,
+      success: result.success,
+    });
+
+    // Emit turn_complete with full result
+    res.write(`data: ${JSON.stringify({ type: 'turn_complete', result, timestamp: Date.now() })}\n\n`);
+    res.end();
+  } catch (err) {
+    const errorMsg = err instanceof Error ? err.message : String(err);
+    runtimeLog.error("Agent message stream failed", {
+      error: errorMsg,
+      stack: err instanceof Error ? err.stack : undefined,
+    });
+
+    // If headers already sent (SSE mode), emit error event
+    if (res.headersSent) {
+      res.write(`data: ${JSON.stringify({ type: 'turn_error', error: errorMsg, timestamp: Date.now() })}\n\n`);
+      res.end();
+    } else {
+      sendJson(res, 500, { success: false, error: errorMsg });
+    }
   }
 }
 

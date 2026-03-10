@@ -54,7 +54,8 @@ Base path: `/agent`
 | Endpoint | Method | Description |
 |----------|--------|-------------|
 | `/agent/health` | `GET` | `{ status: "ok", sessions: <n> }` — active SDK Chat sessions |
-| `/agent/message` | `POST` | Process a user message. Returns `OrchestratorResult`. |
+| `/agent/message` | `POST` | Process a user message. Returns `OrchestratorResult`. Used by Telegram/WhatsApp. |
+| `/agent/message/stream` | `POST` | SSE streaming version. Returns tool events in real-time, then `turn_complete` with `OrchestratorResult`. Used by web client. |
 | `/agent/greeting` | `POST` | Generate a first-login daily greeting. |
 
 ### X Mention Architecture
@@ -110,15 +111,53 @@ Schema reference:
 server/services/ai/
   geminiClient.ts          ← Singleton GoogleGenAI instance (server-only API key)
   chatSessionManager.ts    ← SDK Chat session lifecycle, TTL eviction (2hr)
-  toolBridge.ts            ← Wraps executeMemoryTool as SDK CallableTool
+  toolBridge.ts            ← Wraps executeMemoryTool as SDK CallableTool + emits SSE events
   serverGeminiService.ts   ← Implements IAIChatService, automatic function calling
+  sseTypes.ts              ← SSE event type definitions + tool display name map
+  turnEventBus.ts          ← Per-request EventEmitter for SSE streaming
 
-server/routes/agentRoutes.ts  ← HTTP gateway for /agent/*
+server/services/
+  backgroundTaskManager.ts ← Background child process lifecycle (start/check/cancel)
+
+server/routes/agentRoutes.ts  ← HTTP gateway for /agent/* (includes SSE stream route)
 ```
 
 ### SDK Chat Sessions
 
 Sessions are stored in-memory keyed by `sessionId`. On server restart, history is reloaded from the `conversation_history` Supabase table. Sessions expire after 2 hours of inactivity.
+
+### SSE Streaming (`POST /agent/message/stream`)
+
+The web client uses SSE to get real-time visibility into tool execution. The flow:
+
+1. Client sends same body as `/agent/message`
+2. Server creates a `TurnEventBus` (per-request EventEmitter)
+3. Bus is threaded through: `agentRoutes` → `messageOrchestrator` → `serverGeminiService` → `toolBridge`
+4. `toolBridge.ts` emits `tool_start`/`tool_end` for each Gemini function call
+5. `messageOrchestrator.ts` emits `action_start`/`action_end` for media generation (selfie, video)
+6. On completion: `turn_complete` with full `OrchestratorResult`
+7. On error: `turn_error` with error message
+
+SSE event types: `turn_start`, `tool_start`, `tool_end`, `action_start`, `action_end`, `turn_complete`, `turn_error`.
+
+Telegram/WhatsApp use `POST /agent/message` (no eventBus) — zero behavior change.
+
+### Concurrent Chat
+
+The web UI allows sending messages while a previous request is processing. Server-side, `withSessionLock()` in `agentRoutes.ts` serializes Gemini SDK turns per session using Promise chains. Client-side, `pendingRequestCount` (a counter, not boolean) tracks in-flight requests.
+
+### Background Task Manager
+
+`server/services/backgroundTaskManager.ts` manages long-running child processes (installs, builds, test suites).
+
+| Function | Description |
+|----------|-------------|
+| `startBackgroundTask({ command, label, cwd?, workspaceRoot })` | Spawn a background process, returns task with UUID |
+| `checkTaskStatus(taskId)` | Get status + last 200 lines of output |
+| `cancelTask(taskId)` | Kill the process via SIGTERM |
+| `listActiveTasks()` | All currently running tasks |
+
+Tasks have a 1-hour TTL after completion. Output is stored in a 200-line ring buffer. Same minimal blocked-commands list as the workspace agent (format, mkfs, dd, shutdown, etc.).
 
 ---
 
