@@ -16,12 +16,14 @@
 import {
   searchEmails,
   fetchEmailBody,
+  fetchEmailHtml,
   archiveEmail as gogArchiveEmail,
   type GogEmailResult,
 } from './gogService';
 import { generateEmailAnnouncement } from '../../src/services/emailProcessingService';
 import { supabaseAdmin as supabase } from './supabaseAdmin';
 import { bot, getStevenChatId } from '../../telegram/telegramClient';
+import { InputFile } from 'grammy';
 import { log } from '../runtimeLogger';
 import {
   checkAutoArchiveRule,
@@ -88,6 +90,152 @@ const IGNORED_SENDERS_PATTERNS = [
 const VIP_SENDER_QUERIES: string[] = [
   'from:procaresoftware.com', // Mila's daycare daily summaries
 ];
+
+const PROCARE_SENDER_DOMAIN = 'procaresoftware.com';
+const MAX_EMAIL_PHOTOS = 2;
+const PHOTO_FETCH_TIMEOUT_MS = 15_000;
+const IMAGE_SRC_PATTERN = /<img\b[^>]*\bsrc=(['"])(.*?)\1/gi;
+
+function decodeHtmlEntities(value: string): string {
+  return value
+    .replace(/&amp;/gi, '&')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>');
+}
+
+function normalizePhotoUrl(rawUrl: string): string {
+  const decoded = decodeHtmlEntities(rawUrl).replace(/\s+/g, '');
+  const wrappedIndex = decoded.indexOf('#https://');
+  if (wrappedIndex >= 0) {
+    return decoded.slice(wrappedIndex + 1);
+  }
+
+  const wrappedHttpIndex = decoded.indexOf('#http://');
+  if (wrappedHttpIndex >= 0) {
+    return decoded.slice(wrappedHttpIndex + 1);
+  }
+
+  return decoded;
+}
+
+function extractPhotoUrlsFromHtml(html: string): string[] {
+  if (!html) return [];
+
+  const urls = new Set<string>();
+
+  for (const match of html.matchAll(IMAGE_SRC_PATTERN)) {
+    const rawSrc = match[2]?.trim();
+    if (!rawSrc) continue;
+
+    const normalized = normalizePhotoUrl(rawSrc);
+    if (
+      normalized.includes('private.cdn.procareconnect.com/photos/') ||
+      normalized.includes('googleusercontent.com/meips/')
+    ) {
+      urls.add(normalized);
+    }
+  }
+
+  return [...urls].slice(0, MAX_EMAIL_PHOTOS);
+}
+
+async function fetchPhotoBuffer(photoUrl: string, photoIndex: number): Promise<InputFile | null> {
+  try {
+    const response = await fetch(photoUrl, {
+      signal: AbortSignal.timeout(PHOTO_FETCH_TIMEOUT_MS),
+    });
+
+    if (!response.ok) {
+      runtimeLog.warning('Email photo fetch failed', {
+        source: 'gmailPoller',
+        photoIndex,
+        photoUrl,
+        status: response.status,
+      });
+      return null;
+    }
+
+    const contentType = response.headers.get('content-type') || '';
+    if (!contentType.toLowerCase().startsWith('image/')) {
+      runtimeLog.warning('Email photo fetch returned non-image content', {
+        source: 'gmailPoller',
+        photoIndex,
+        photoUrl,
+        contentType,
+      });
+      return null;
+    }
+
+    const arrayBuffer = await response.arrayBuffer();
+    const extension = contentType.includes('png') ? 'png' : 'jpg';
+    return new InputFile(Buffer.from(arrayBuffer), `email-photo-${photoIndex + 1}.${extension}`);
+  } catch (err) {
+    runtimeLog.warning('Email photo fetch threw', {
+      source: 'gmailPoller',
+      photoIndex,
+      photoUrl,
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return null;
+  }
+}
+
+async function sendEmailPhotosToTelegram(
+  chatId: number,
+  email: NewEmailPayload,
+  senderEmail: string,
+): Promise<void> {
+  if (!senderEmail.endsWith(PROCARE_SENDER_DOMAIN)) {
+    return;
+  }
+
+  const html = await fetchEmailHtml(email.id);
+  if (!html) {
+    runtimeLog.info('Skipping email photo forwarding because HTML body is unavailable', {
+      source: 'gmailPoller',
+      gmailMessageId: email.id,
+      senderEmail,
+    });
+    return;
+  }
+
+  const photoUrls = extractPhotoUrlsFromHtml(html);
+  if (photoUrls.length === 0) {
+    runtimeLog.info('No forwardable email photos found in HTML', {
+      source: 'gmailPoller',
+      gmailMessageId: email.id,
+      senderEmail,
+    });
+    return;
+  }
+
+  const photoFiles = (
+    await Promise.all(photoUrls.map((photoUrl, index) => fetchPhotoBuffer(photoUrl, index)))
+  ).filter((file): file is InputFile => file !== null);
+
+  if (photoFiles.length === 0) {
+    runtimeLog.warning('Email photo forwarding skipped because all photo fetches failed', {
+      source: 'gmailPoller',
+      gmailMessageId: email.id,
+      senderEmail,
+      requestedCount: photoUrls.length,
+    });
+    return;
+  }
+
+  for (const photoFile of photoFiles) {
+    await bot.api.sendPhoto(chatId, photoFile);
+  }
+
+  runtimeLog.info('Email photos sent to Telegram', {
+    source: 'gmailPoller',
+    gmailMessageId: email.id,
+    senderEmail,
+    photoCount: photoFiles.length,
+  });
+}
 
 // ============================================================================
 // AUTO-ARCHIVE FAST PATH
@@ -307,6 +455,18 @@ async function processNewEmail(email: NewEmailPayload): Promise<void> {
     runtimeLog.error('Failed to send announcement to Telegram', {
       source: 'gmailPoller',
       gmailMessageId: email.id,
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return;
+  }
+
+  try {
+    await sendEmailPhotosToTelegram(chatId, email, senderEmail);
+  } catch (err) {
+    runtimeLog.error('Failed to send email photos to Telegram', {
+      source: 'gmailPoller',
+      gmailMessageId: email.id,
+      senderEmail,
       error: err instanceof Error ? err.message : String(err),
     });
   }

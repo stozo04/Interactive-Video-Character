@@ -23,6 +23,33 @@ export interface GogEmailResult {
   body?: string;
 }
 
+function extractMessageBody(raw: any): string {
+  return raw?.body || raw?.text || raw?.snippet || '';
+}
+
+function extractMessageHtml(raw: any): string {
+  if (!raw || typeof raw !== 'object') {
+    return '';
+  }
+
+  const htmlCandidates = [
+    raw.html,
+    raw.bodyHtml,
+    raw.htmlBody,
+    raw.content?.html,
+    raw.payload?.body?.html,
+    raw.payload?.html,
+  ];
+
+  for (const candidate of htmlCandidates) {
+    if (typeof candidate === 'string' && candidate.trim()) {
+      return candidate;
+    }
+  }
+
+  return '';
+}
+
 /**
  * Search Gmail using Gmail search syntax. Returns structured results.
  */
@@ -79,10 +106,26 @@ export async function searchEmails(query: string, maxResults = 5): Promise<GogEm
 export async function fetchEmailBody(messageId: string): Promise<string> {
   try {
     const raw = await execGogJson<any>(['gmail', 'get', messageId], DEFAULT_TIMEOUT_MS, CALLER);
-    // gogcli message detail includes body/text
-    return raw?.body || raw?.text || raw?.snippet || '';
+    return extractMessageBody(raw);
   } catch (err) {
     runtimeLog.warning('fetchEmailBody failed', {
+      source: CALLER,
+      messageId,
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return '';
+  }
+}
+
+/**
+ * Fetch full email HTML for a single message.
+ */
+export async function fetchEmailHtml(messageId: string): Promise<string> {
+  try {
+    const raw = await execGogJson<any>(['gmail', 'get', messageId], DEFAULT_TIMEOUT_MS, CALLER);
+    return extractMessageHtml(raw);
+  } catch (err) {
+    runtimeLog.warning('fetchEmailHtml failed', {
       source: CALLER,
       messageId,
       error: err instanceof Error ? err.message : String(err),
@@ -239,4 +282,3 @@ export async function getInboxStats(): Promise<{ messagesTotal: number; messages
     return { messagesTotal: 0, messagesUnread: 0 };
   }
 }
-
