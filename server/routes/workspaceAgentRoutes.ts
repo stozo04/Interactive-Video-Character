@@ -1,4 +1,5 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
+import { execSync } from "node:child_process";
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
@@ -16,7 +17,17 @@ const MAX_SEARCH_RESULTS = 50;
 const MAX_READ_CHARS = 20_000;
 const SKIP_DIRS = new Set(["node_modules", ".git", "dist", ".worktrees"]);
 
+// Only block truly catastrophic system-level commands.
+// Steven trusts Kayley with rm, mkdir, mv, git, npm, etc. — same as Claude Code.
+const BLOCKED_COMMANDS = new Set([
+  'format', 'mkfs', 'dd',                          // disk destruction
+  'shutdown', 'reboot', 'halt', 'poweroff',         // system control
+  'passwd', 'useradd', 'userdel',                   // user management
+  'env', 'printenv',                                // credential leak risk
+]);
+
 type WorkspaceActionType =
+  | "command"
   | "mkdir"
   | "read"
   | "write"
@@ -409,6 +420,43 @@ export function createWorkspaceAgentRouter(options: WorkspaceAgentRouterOptions)
             evidence.push(`query: ${query}`);
             evidence.push(`matches:\n${matches.map((m) => `- ${m}`).join("\n")}`);
             summary = `Found ${matches.length} match(es) for "${query}".`;
+          } else if (action === "command") {
+            const cmd = String(args.command ?? "").trim();
+            if (!cmd) {
+              throw new Error("Missing command.");
+            }
+
+            // Extract the base command (first word) for safety checks
+            const baseCmd = cmd.split(/\s+/)[0].replace(/^.*[/\\]/, ''); // strip path prefix
+
+            if (BLOCKED_COMMANDS.has(baseCmd.toLowerCase())) {
+              throw new Error(`Command "${baseCmd}" is blocked for safety. Ask Steven to run it manually.`);
+            }
+
+            const cwd = args.cwd ? resolveWorkspacePath(workspaceRoot, String(args.cwd)) : workspaceRoot;
+            const timeoutMs = Math.min(Number(args.timeout_ms ?? 30_000), 60_000);
+
+            try {
+              const output = execSync(cmd, {
+                cwd,
+                timeout: timeoutMs,
+                maxBuffer: 1024 * 1024, // 1MB
+                encoding: 'utf8',
+                shell: true as unknown as string,
+                env: { ...process.env, FORCE_COLOR: '0' }, // disable color codes
+              });
+              evidence.push(`command: ${cmd}`);
+              evidence.push(`cwd: ${path.relative(workspaceRoot, cwd) || '.'}`);
+              evidence.push(`output:\n${truncateText(output, MAX_READ_CHARS)}`);
+              summary = `Executed: ${cmd}`;
+            } catch (execErr: any) {
+              // execSync throws on non-zero exit — still capture output
+              const output = (execErr.stdout ?? '') + (execErr.stderr ?? '');
+              evidence.push(`command: ${cmd}`);
+              evidence.push(`exit_code: ${execErr.status ?? 'unknown'}`);
+              evidence.push(`output:\n${truncateText(output, MAX_READ_CHARS)}`);
+              throw new Error(`Command exited with code ${execErr.status ?? 'unknown'}: ${truncateText(output, 500)}`);
+            }
           } else {
             throw new Error(`Unsupported action: ${action}`);
           }

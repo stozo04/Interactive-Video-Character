@@ -99,6 +99,9 @@ export interface OrchestratorInput {
 
   /** Channel-scoped conversation id for payloads and deferred UI state. */
   conversationScopeId?: string;
+
+  /** SSE event bus for streaming tool/action visibility to web clients. */
+  eventBus?: { emit(event: string, data: unknown): boolean };
 }
 
 export interface PendingTweetDraft {

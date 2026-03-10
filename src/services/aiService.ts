@@ -44,6 +44,9 @@ export interface AIChatOptions {
    * Examples: web tab id, Telegram chat id, WhatsApp JID, future Slack channel/thread id.
    */
   conversationScopeId?: string;
+
+  /** SSE event bus for streaming tool visibility to web clients. */
+  eventBus?: { emit(event: string, data: unknown): boolean };
 }
 
 export interface AIMessage {

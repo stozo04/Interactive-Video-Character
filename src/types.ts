@@ -1,3 +1,13 @@
+export interface ToolCallDisplay {
+  callIndex: number;
+  toolName: string;
+  toolDisplayName: string;
+  status: 'running' | 'success' | 'failed';
+  durationMs?: number;
+  resultSummary?: string;
+  startedAt: number;
+}
+
 export interface ChatMessage {
   role: 'user' | 'assistant' | 'system' | 'model';
   text: string;
@@ -9,6 +19,7 @@ export interface ChatMessage {
   assistantVideoUrl?: string; // URL for AI-generated videos
   assistantGifUrl?: string; // URL for AI-triggered GIFs (GIPHY)
   gifUrl?: string; // URL for user-sent GIFs (GIPHY)
+  toolCalls?: ToolCallDisplay[]; // tool executions that preceded this response
 }
 
 export interface ChatFileMeta {

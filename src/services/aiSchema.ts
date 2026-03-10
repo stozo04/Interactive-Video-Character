@@ -835,10 +835,38 @@ export const WebSearchSchema = z.object({
 });
 export type WebSearchArgs = z.infer<typeof WebSearchSchema>;
 
+export const WebFetchSchema = z.object({
+  url: z.string().describe("The URL to fetch."),
+  max_chars: z.number().optional().describe("Maximum characters to return (default 10000)."),
+});
+export type WebFetchArgs = z.infer<typeof WebFetchSchema>;
+
+export const StartBackgroundTaskSchema = z.object({
+  command: z.string().describe("Shell command to run in the background."),
+  label: z.string().describe("Short human-readable label for the task (e.g., 'Installing PyTorch')."),
+  cwd: z.string().optional().describe("Working directory relative to workspace root."),
+});
+export type StartBackgroundTaskArgs = z.infer<typeof StartBackgroundTaskSchema>;
+
+export const CheckTaskStatusSchema = z.object({
+  task_id: z.string().describe("Task ID returned from start_background_task."),
+  tail_lines: z.number().optional().describe("Number of recent output lines to return (default 30)."),
+});
+export type CheckTaskStatusArgs = z.infer<typeof CheckTaskStatusSchema>;
+
+export const CancelTaskSchema = z.object({
+  task_id: z.string().describe("Task ID to cancel."),
+});
+export type CancelTaskArgs = z.infer<typeof CancelTaskSchema>;
+
 // Union type for all memory tool arguments
 export type MemoryToolArgs =
   | { tool: "recall_memory"; args: RecallMemoryArgs }
   | { tool: "web_search"; args: WebSearchArgs }
+  | { tool: "web_fetch"; args: WebFetchArgs }
+  | { tool: "start_background_task"; args: StartBackgroundTaskArgs }
+  | { tool: "check_task_status"; args: CheckTaskStatusArgs }
+  | { tool: "cancel_task"; args: CancelTaskArgs }
   | { tool: "workspace_action"; args: WorkspaceActionArgs }
   | { tool: "cron_job_action"; args: CronJobActionArgs }
   | { tool: "delegate_to_engineering"; args: DelegateToEngineeringArgs }
@@ -1405,13 +1433,14 @@ export const GeminiMemoryToolDeclarations = [
     name: "workspace_action",
     description:
       "Execute a safe local workspace action through the background workspace agent. " +
-      "Supports filesystem and git actions with policy checks and verification.",
+      "Supports filesystem, git, and shell command actions with policy checks and verification.",
     parameters: {
       type: "object",
       properties: {
         action: {
           type: "string",
           enum: [
+            "command",
             "mkdir",
             "read",
             "write",
@@ -1473,6 +1502,18 @@ export const GeminiMemoryToolDeclarations = [
         recursive: {
           type: "boolean",
           description: "Delete action: recursive deletion for directories.",
+        },
+        command: {
+          type: "string",
+          description: "Shell command to execute (for command action).",
+        },
+        cwd: {
+          type: "string",
+          description: "Working directory relative to workspace root (for command action).",
+        },
+        timeout_ms: {
+          type: "number",
+          description: "Command timeout in milliseconds, max 60000 (for command action).",
         },
       },
       required: ["action"],
@@ -2004,6 +2045,67 @@ export const GeminiMemoryToolDeclarations = [
     },
   },
   {
+    name: "web_fetch",
+    description:
+      "Fetch and read the content of a specific web page. Returns the page text stripped of HTML. " +
+      "Use this after web_search to read a specific result, or when the user provides a URL to read.",
+    parameters: {
+      type: "object",
+      properties: {
+        url: {
+          type: "string",
+          description: "The URL to fetch.",
+        },
+        max_chars: {
+          type: "number",
+          description: "Maximum characters of page content to return (default 10000).",
+        },
+      },
+      required: ["url"],
+    },
+  },
+  {
+    name: "start_background_task",
+    description:
+      "Start a long-running shell command in the background. Returns a task ID to check progress later. " +
+      "Use this for installs, builds, tests, downloads, or any command that takes more than a few seconds. " +
+      "After starting, chat naturally with Steven and check back using check_task_status.",
+    parameters: {
+      type: "object",
+      properties: {
+        command: { type: "string", description: "Shell command to run." },
+        label: { type: "string", description: "Short label (e.g., 'Installing PyTorch')." },
+        cwd: { type: "string", description: "Working directory relative to project root." },
+      },
+      required: ["command", "label"],
+    },
+  },
+  {
+    name: "check_task_status",
+    description:
+      "Check the status and recent output of a background task. " +
+      "Returns status (running/completed/failed/cancelled), exit code, and tail of output.",
+    parameters: {
+      type: "object",
+      properties: {
+        task_id: { type: "string", description: "Task ID from start_background_task." },
+        tail_lines: { type: "number", description: "Number of recent output lines (default 30)." },
+      },
+      required: ["task_id"],
+    },
+  },
+  {
+    name: "cancel_task",
+    description: "Cancel a running background task by sending SIGTERM.",
+    parameters: {
+      type: "object",
+      properties: {
+        task_id: { type: "string", description: "Task ID to cancel." },
+      },
+      required: ["task_id"],
+    },
+  },
+  {
     name: "post_x_tweet",
     description:
       "Post a tweet to X with specific text. " +
@@ -2275,6 +2377,10 @@ export interface PendingToolCall {
     | "create_open_loop"
     | "recall_character_profile"
     | "web_search"
+    | "web_fetch"
+    | "start_background_task"
+    | "check_task_status"
+    | "cancel_task"
     | "workspace_action"
     | "cron_job_action"
     | "delegate_to_engineering"

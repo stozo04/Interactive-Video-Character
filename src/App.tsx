@@ -26,7 +26,7 @@ import CharacterManagementView from './components/CharacterManagementView';
 import { SettingsPanel } from './components/SettingsPanel';
 import AdminDashboardView from './components/AdminDashboardView';
 import { processSelfieAction } from './handlers/messageActions';
-import type { PendingTweetDraft } from './handlers/messageActions/types';
+import type { PendingTweetDraft, OrchestratorResult } from './handlers/messageActions/types';
 import { agentClient } from './services/agentClient';
 import { useDebounce } from './hooks/useDebounce';
 import { useMediaQueues } from './hooks/useMediaQueues';
@@ -248,7 +248,9 @@ const App: React.FC = () => {
   // --------------------------------------------------------------------------
   const [chatHistory, setChatHistory] = useState<ChatMessage[]>([]);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [isProcessingAction, setIsProcessingAction] = useState(false);
+  const [pendingRequestCount, setPendingRequestCount] = useState(0);
+  const isProcessingAction = pendingRequestCount > 0;
+  const [activeToolCalls, setActiveToolCalls] = useState<import('./types').ToolCallDisplay[]>([]);
   const [aiSession, setAiSession] = useState<AIChatSession | null>(null);
   const [pendingTweetDraft, setPendingTweetDraft] = useState<PendingTweetDraft | null>(null);
   /** Stable session ID for the server agent — persists for this browser tab's lifetime */
@@ -666,7 +668,7 @@ const App: React.FC = () => {
     if (!selectedCharacter) return;
 
     // 1. Show typing indicator immediately
-    setIsProcessingAction(true);
+    setPendingRequestCount(c => c + 1);
 
     try {
       // 2. Send system prompt through server agent (no user bubble)
@@ -694,7 +696,7 @@ const App: React.FC = () => {
     } catch (error) {
       clientLogger.error(`${LOG_PREFIX} Briefing error`, { source: 'App.tsx', error: error instanceof Error ? error.message : String(error) });
     } finally {
-      setIsProcessingAction(false);
+      setPendingRequestCount(c => Math.max(0, c - 1));
     }
   }, [
     aiSession,
@@ -1097,7 +1099,7 @@ const App: React.FC = () => {
     setErrorMessage(null);
     const trimmedMessage = message.trim();
     if (!trimmedMessage && !attachment) return;
-    setIsProcessingAction(true);
+    setPendingRequestCount(c => c + 1);
 
     if (attachment?.kind === 'image') {
       const userText = trimmedMessage || '📷 [Sent an Image]';
@@ -1134,7 +1136,7 @@ const App: React.FC = () => {
         clientLogger.error(`${LOG_PREFIX} Error sending image`, { source: 'App.tsx', error: error instanceof Error ? error.message : String(error) });
         setErrorMessage('Failed to process image.');
       } finally {
-        setIsProcessingAction(false);
+        setPendingRequestCount(c => Math.max(0, c - 1));
       }
       return;
     }
@@ -1165,7 +1167,7 @@ const App: React.FC = () => {
         clientLogger.error(`${LOG_PREFIX} GIF send failed`, { source: 'App.tsx', error: error instanceof Error ? error.message : String(error) });
         setErrorMessage('Failed to send GIF');
       } finally {
-        setIsProcessingAction(false);
+        setPendingRequestCount(c => Math.max(0, c - 1));
       }
       return;
     }
@@ -1214,7 +1216,7 @@ const App: React.FC = () => {
         clientLogger.error(`${LOG_PREFIX} File attachment processing failed`, { source: 'App.tsx', error: error instanceof Error ? error.message : String(error) });
         setErrorMessage('Failed to process attachment');
       } finally {
-        setIsProcessingAction(false);
+        setPendingRequestCount(c => Math.max(0, c - 1));
       }
       return;
     }
@@ -1234,16 +1236,70 @@ const App: React.FC = () => {
       talkingActionId = playRandomTalkingAction(true);
     }
 
+    // Track accumulated tool calls for this turn
+    const turnToolCalls: import('./types').ToolCallDisplay[] = [];
+
     try {
       // ============================================
-      // ORCHESTRATOR: AI Call + Background Processing
+      // ORCHESTRATOR: AI Call + Background Processing (SSE Stream)
       // ============================================
-      const result = await agentClient.sendMessage({
-        message:          trimmedMessage,
-        sessionId:        webSessionIdRef.current,
-        chatHistory,
-        isMuted,
+      const result = await new Promise<OrchestratorResult>((resolve, reject) => {
+        agentClient.sendMessageStream(
+          {
+            message:   trimmedMessage,
+            sessionId: webSessionIdRef.current,
+            chatHistory,
+            isMuted,
+          },
+          {
+            onToolStart: (event) => {
+              const tc: import('./types').ToolCallDisplay = {
+                callIndex: event.callIndex,
+                toolName: event.toolName,
+                toolDisplayName: event.toolDisplayName,
+                status: 'running',
+                startedAt: event.timestamp,
+              };
+              turnToolCalls.push(tc);
+              setActiveToolCalls([...turnToolCalls]);
+            },
+            onToolEnd: (event) => {
+              const existing = turnToolCalls.find(t => t.callIndex === event.callIndex);
+              if (existing) {
+                existing.status = event.success ? 'success' : 'failed';
+                existing.durationMs = event.durationMs;
+                existing.resultSummary = event.resultSummary;
+              }
+              setActiveToolCalls([...turnToolCalls]);
+            },
+            onActionStart: (_event) => {
+              // Action events update tool calls display too
+              const tc: import('./types').ToolCallDisplay = {
+                callIndex: turnToolCalls.length,
+                toolName: _event.actionName,
+                toolDisplayName: _event.actionDisplayName,
+                status: 'running',
+                startedAt: _event.timestamp,
+              };
+              turnToolCalls.push(tc);
+              setActiveToolCalls([...turnToolCalls]);
+            },
+            onActionEnd: (_event) => {
+              const existing = turnToolCalls.find(t => t.toolName === _event.actionName && t.status === 'running');
+              if (existing) {
+                existing.status = _event.success ? 'success' : 'failed';
+                existing.durationMs = _event.durationMs;
+              }
+              setActiveToolCalls([...turnToolCalls]);
+            },
+            onComplete: resolve,
+            onError: (err) => reject(new Error(err)),
+          },
+        );
       });
+
+      // Clear active tool calls — they'll be attached to the chat message
+      setActiveToolCalls([]);
 
       if (result.updatedSession) setAiSession(result.updatedSession);
       setPendingTweetDraft(result.pendingTweetDraft ?? null);
@@ -1255,13 +1311,23 @@ const App: React.FC = () => {
         }
       };
 
+      // Helper: attach accumulated tool calls to the first model message
+      const attachToolCalls = (messages: ChatMessage[]): ChatMessage[] => {
+        if (turnToolCalls.length === 0) return messages;
+        const firstModelIdx = messages.findIndex(m => m.role === 'model');
+        if (firstModelIdx === -1) return messages;
+        return messages.map((m, i) =>
+          i === firstModelIdx ? { ...m, toolCalls: [...turnToolCalls] } : m
+        );
+      };
+
       // ============================================
       // ACTION-SPECIFIC PROCESSING (Phase 6: Simplified)
       // ============================================
 
       // NEWS ACTIONS (orchestrator fetched, we trigger system message)
       if (result.newsPrompt) {
-        if (result.chatMessages.length > 0) setChatHistory(prev => [...prev, ...result.chatMessages]);
+        if (result.chatMessages.length > 0) setChatHistory(prev => [...prev, ...attachToolCalls(result.chatMessages)]);
         if (result.audioToPlay) media.enqueueAudio(result.audioToPlay);
         await triggerSystemMessage(result.newsPrompt);
         return;
@@ -1269,11 +1335,11 @@ const App: React.FC = () => {
 
       // SELFIE ACTIONS (Phase 5: Use orchestrator-generated message text)
       if (result.selfieImage || result.selfieError) {
-        if (result.chatMessages.length > 0) setChatHistory(prev => [...prev, ...result.chatMessages]);
+        if (result.chatMessages.length > 0) setChatHistory(prev => [...prev, ...attachToolCalls(result.chatMessages)]);
         if (result.audioToPlay) media.enqueueAudio(result.audioToPlay);
         const selfieMsg = result.selfieMessageText || (result.selfieImage ? "Here you go!" : "I couldn't take that pic right now, sorry!");
         if (result.selfieImage) {
-          setChatHistory(prev => [...prev, { role: 'model', text: selfieMsg, assistantImage: result.selfieImage.base64, assistantImageMimeType: result.selfieImage.mimeType }]);
+          setChatHistory(prev => [...prev, { role: 'model', text: selfieMsg, assistantImage: result.selfieImage!.base64, assistantImageMimeType: result.selfieImage!.mimeType }]);
         } else {
           setChatHistory(prev => [...prev, { role: 'model', text: selfieMsg }]);
         }
@@ -1283,7 +1349,7 @@ const App: React.FC = () => {
 
       // GIF ACTIONS (Fetch from GIPHY and display inline)
       if (result.gifQuery) {
-        if (result.chatMessages.length > 0) setChatHistory(prev => [...prev, ...result.chatMessages]);
+        if (result.chatMessages.length > 0) setChatHistory(prev => [...prev, ...attachToolCalls(result.chatMessages)]);
         if (result.audioToPlay) media.enqueueAudio(result.audioToPlay);
         const gifUrl = await fetchGiphyGifUrl(result.gifQuery);
         const gifText = result.gifMessageText || '';
@@ -1294,7 +1360,7 @@ const App: React.FC = () => {
 
       // VIDEO ACTIONS (Generate companion video)
       if (result.videoUrl || result.videoError) {
-        if (result.chatMessages.length > 0) setChatHistory(prev => [...prev, ...result.chatMessages]);
+        if (result.chatMessages.length > 0) setChatHistory(prev => [...prev, ...attachToolCalls(result.chatMessages)]);
         if (result.audioToPlay) media.enqueueAudio(result.audioToPlay);
         const videoMsg = result.videoMessageText || (result.videoUrl ? "Here's a little video for you!" : "I couldn't make that video right now, sorry!");
         if (result.videoUrl) {
@@ -1309,7 +1375,7 @@ const App: React.FC = () => {
       // ============================================
       // DEFAULT: Apply standard results
       // ============================================
-      if (result.chatMessages.length > 0) setChatHistory(prev => [...prev, ...result.chatMessages]);
+      if (result.chatMessages.length > 0) setChatHistory(prev => [...prev, ...attachToolCalls(result.chatMessages)]);
       if (result.audioToPlay && !isMuted) media.enqueueAudio(result.audioToPlay);
       maybePlayResponseAction(result.actionToPlay);
       if (result.appToOpen) window.location.href = result.appToOpen;
@@ -1317,8 +1383,9 @@ const App: React.FC = () => {
     } catch (error) {
       clientLogger.error(`${LOG_PREFIX} Message processing failed`, { source: 'App.tsx', error: error instanceof Error ? error.message : String(error) });
       setErrorMessage('Failed to process message');
+      setActiveToolCalls([]);
     } finally {
-      setIsProcessingAction(false);
+      setPendingRequestCount(c => Math.max(0, c - 1));
     }
   };
 
@@ -1481,6 +1548,7 @@ const App: React.FC = () => {
                     onUserActivity={markInteraction}
                     pendingTweetDraft={pendingTweetDraft}
                     onResolveTweetDraft={handleResolveTweetDraft}
+                    activeToolCalls={activeToolCalls}
                   />
                 </div>
              </div>

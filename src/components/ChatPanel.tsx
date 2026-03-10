@@ -1,10 +1,11 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { ChatMessage, PendingChatAttachment, PendingGifAttachment } from '../types';
+import { ChatMessage, PendingChatAttachment, PendingGifAttachment, ToolCallDisplay } from '../types';
 import { clientLogger } from '../services/clientLogger';
 import LoadingSpinner from './LoadingSpinner';
 import TypingIndicator from './TypingIndicator';
 import TweetCard, { extractTweetUrls } from './TweetCard';
 import TweetApprovalCard from './TweetApprovalCard';
+import ToolCallBox from './ToolCallBox';
 import type { PendingTweetDraft } from '../handlers/messageActions/types';
 import {
   DEFAULT_MAX_FILE_BYTES,
@@ -26,6 +27,7 @@ interface ChatPanelProps {
   isSending: boolean;
   pendingTweetDraft?: PendingTweetDraft | null;
   onResolveTweetDraft?: (action: 'post' | 'reject') => Promise<{ success: boolean; error?: string }>;
+  activeToolCalls?: ToolCallDisplay[];
 }
 
 const formatBytes = (bytes: number): string => {
@@ -37,14 +39,15 @@ const formatBytes = (bytes: number): string => {
   return `${mb.toFixed(1)} MB`;
 };
 
-const ChatPanel: React.FC<ChatPanelProps> = ({ 
-  history, 
-  onSendMessage, 
+const ChatPanel: React.FC<ChatPanelProps> = ({
+  history,
+  onSendMessage,
   onOpenWhiteboard,
   onUserActivity,
   isSending,
   pendingTweetDraft,
   onResolveTweetDraft,
+  activeToolCalls,
 }) => {
   const [input, setInput] = useState('');
   const [isListening, setIsListening] = useState(false);
@@ -174,7 +177,7 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     const trimmed = input.trim();
-    if ((!trimmed && !pendingAttachment) || isSending) return;
+    if (!trimmed && !pendingAttachment) return;
     onSendMessage(trimmed, pendingAttachment || undefined);
     setInput('');
     setPendingAttachment(null);
@@ -258,7 +261,7 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
   };
 
   const isMicSupported = !!recognitionRef.current || hasRecognition;
-  const canSend = (!!input.trim() || !!pendingAttachment) && !isSending && !isListening;
+  const canSend = (!!input.trim() || !!pendingAttachment) && !isListening;
   const micLabel = isListening ? "Click to Send" : "Click to Speak";
   const emojiOptions = ['😀','😁','😊','😉','😍','🤔','😅','😭','☹️','😴','🤗','😬','🔥','✨','🎉','💪','👍','👎','🙏','❤️'];
 
@@ -273,6 +276,16 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
       <div className="flex-1 min-h-0 overflow-y-auto pr-2 space-y-4 mb-4" style={{ scrollbarWidth: 'thin', scrollbarColor: '#4B5563 #1F2937' }}>
       {history.map((msg, index) => (
         <React.Fragment key={index}>
+          {/* Tool call boxes rendered above the model message they belong to */}
+          {msg.role === 'model' && msg.toolCalls && msg.toolCalls.length > 0 && (
+            <div className="flex justify-start">
+              <div className="max-w-xs md:max-w-md lg:max-w-sm xl:max-w-md w-full">
+                {msg.toolCalls.map((tc) => (
+                  <ToolCallBox key={tc.callIndex} toolCall={tc} />
+                ))}
+              </div>
+            </div>
+          )}
           <div className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
             <div className={`max-w-xs md:max-w-md lg:max-w-sm xl:max-w-md px-4 py-2 rounded-2xl ${msg.role === 'user' ? 'bg-indigo-600 text-white rounded-br-none' : 'bg-gray-700 text-gray-200 rounded-bl-none'}`}>
             {/* User-sent images */}
@@ -360,6 +373,16 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
       {showTweetApprovalCard && lastModelIndex === -1 && (
         <TweetApprovalCard draft={pendingTweetDraft!} onResolve={onResolveTweetDraft!} />
       )}
+        {/* Active tool calls shown during processing */}
+        {isSending && activeToolCalls && activeToolCalls.length > 0 && (
+          <div className="flex justify-start">
+            <div className="max-w-xs md:max-w-md lg:max-w-sm xl:max-w-md w-full">
+              {activeToolCalls.map((tc) => (
+                <ToolCallBox key={tc.callIndex} toolCall={tc} />
+              ))}
+            </div>
+          </div>
+        )}
         {isSending && <TypingIndicator />}
         <div ref={messagesEndRef} />
       </div>
@@ -465,7 +488,7 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
             if (e.key === 'Enter' && !e.shiftKey) {
               e.preventDefault();
               const trimmed = input.trim();
-              if ((!trimmed && !pendingAttachment) || isSending) return;
+              if (!trimmed && !pendingAttachment) return;
               onSendMessage(trimmed, pendingAttachment || undefined);
               setInput('');
               setPendingAttachment(null);
@@ -474,11 +497,10 @@ const ChatPanel: React.FC<ChatPanelProps> = ({
             // Shift+Enter allows default behavior (new line)
           }}
           placeholder={
-            isSending ? "Processing..." : 
-            isListening ? "Listening..." : 
+            isListening ? "Listening..." :
             'Type a message...'
           }
-          disabled={isSending || isListening}
+          disabled={isListening}
           rows={1}
           className="flex-grow bg-gray-700 rounded-2xl py-2 px-4 text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:opacity-50 resize-none overflow-hidden"
           style={{ minHeight: '40px', maxHeight: '120px' }}

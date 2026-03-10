@@ -21,17 +21,7 @@ import type {
 import type { AIActionResponse } from "../../../src/services/aiSchema";
 import { GeminiMemoryToolDeclarations } from "../../../src/services/aiSchema";
 import type { TurnTokenUsage } from "../../../src/services/conversationHistoryService";
-// CalendarEvent type — minimal definition (calendarService.ts is being removed)
-interface CalendarEvent {
-  id: string;
-  summary: string;
-  description?: string;
-  location?: string;
-  start: { dateTime?: string; date?: string; timeZone?: string };
-  end: { dateTime?: string; date?: string; timeZone?: string };
-  status?: string;
-  attendees?: Array<{ self?: boolean; responseStatus?: string }>;
-}
+import type { CalendarEvent } from "../../../src/types";
 import type { RelationshipMetrics } from "../../../src/services/relationshipService";
 
 import { GEMINI_MODEL } from "./geminiClient";
@@ -419,6 +409,7 @@ export class ServerGeminiService implements IAIChatService {
         userMessage: currentUserMessage,
         conversationScopeId: options.conversationScopeId,
         conversationLogId,
+        eventBus: options.eventBus,
       });
 
       // Get or create SDK Chat session

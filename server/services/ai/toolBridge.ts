@@ -17,6 +17,8 @@ import {
 } from "../../../src/services/memoryService";
 import { log } from "../../runtimeLogger";
 import { runClassifierShadow } from "../memoryClassifier";
+import { getToolDisplayName, sanitizeToolArgs, truncateResultSummary } from "./sseTypes";
+import type { SSEToolStartEvent, SSEToolEndEvent } from "./sseTypes";
 
 const runtimeLog = log.fromContext({ source: "toolBridge" });
 const DECLARED_TOOL_NAMES = new Set(
@@ -125,6 +127,22 @@ export function createCallableTools(context?: ToolExecutionContext): CallableToo
             argsKeys: Object.keys(toolArgs),
           });
 
+          // SSE: emit tool_start if eventBus is available
+          const callIndex = context?.eventBus
+            ? (context.eventBus as any).nextCallIndex?.() ?? 0
+            : 0;
+          if (context?.eventBus) {
+            const startEvent: SSEToolStartEvent = {
+              type: 'tool_start',
+              toolName,
+              toolDisplayName: getToolDisplayName(toolName),
+              toolArgs: sanitizeToolArgs(toolArgs),
+              callIndex,
+              timestamp: Date.now(),
+            };
+            context.eventBus.emit('sse', startEvent);
+          }
+
           try {
             const result = await executeMemoryTool(toolName, toolArgs, context);
             runtimeLog.info("tool_call_summary", {
@@ -132,6 +150,20 @@ export function createCallableTools(context?: ToolExecutionContext): CallableToo
               status: "success",
               durationMs: Date.now() - startedAt,
             });
+
+            // SSE: emit tool_end success
+            if (context?.eventBus) {
+              const endEvent: SSEToolEndEvent = {
+                type: 'tool_end',
+                toolName,
+                callIndex,
+                durationMs: Date.now() - startedAt,
+                success: true,
+                resultSummary: truncateResultSummary(result),
+                timestamp: Date.now(),
+              };
+              context.eventBus.emit('sse', endEvent);
+            }
 
             // Stage 1 shadow classifier — fire-and-forget, zero write impact.
             // Logs what the classifier WOULD decide for each memory write.
@@ -168,6 +200,20 @@ export function createCallableTools(context?: ToolExecutionContext): CallableToo
               error: errorMsg,
               failureCount,
             });
+
+            // SSE: emit tool_end failure
+            if (context?.eventBus) {
+              const endEvent: SSEToolEndEvent = {
+                type: 'tool_end',
+                toolName,
+                callIndex,
+                durationMs: Date.now() - startedAt,
+                success: false,
+                resultSummary: errorMsg.slice(0, 200),
+                timestamp: Date.now(),
+              };
+              context.eventBus.emit('sse', endEvent);
+            }
 
             const feedbackMessage = failureCount >= 3
               ? `Tool "${toolName}" failed: ${errorMsg}. You have now failed 3 times this turn. Stop retrying. Report back to Steven honestly: what you were trying to do, what failed each time, and why you're stuck.`
