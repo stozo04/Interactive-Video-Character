@@ -17,7 +17,7 @@ import {
 } from '../src/services/conversationHistoryService';
 import type { OrchestratorResult } from '../src/handlers/messageActions/types';
 import type { UserContent } from '../src/services/aiService';
-import { generateSpeechBuffer } from './serverAudio';
+import { generateQwenVoice } from './serverVoiceQwen';
 import { createSticker } from './serverSticker';
 import { log } from '../lib/logger';
 import { supabaseAdmin as supabase } from '../server/services/supabaseAdmin';
@@ -507,12 +507,12 @@ async function sendOrchestratorResult(chatId: number, result: OrchestratorResult
     }
   }
 
-  // --- Voice note (TTS) ---
-  if (textResponse) {
+  // --- Voice note (Qwen TTS) — only when Kayley chooses to ---
+  if (textResponse && result.rawResponse?.send_as_voice) {
     try {
-      const audioBuffer = await generateSpeechBuffer(textResponse);
+      const audioBuffer = await generateQwenVoice(textResponse);
       if (audioBuffer) {
-        await bot.api.sendVoice(chatId, new InputFile(audioBuffer, 'voice.mp3'));
+        await bot.api.sendVoice(chatId, new InputFile(audioBuffer, 'kayley-voice.ogg'));
       }
     } catch (err) {
       runtimeLog.error('Failed to send voice note', {

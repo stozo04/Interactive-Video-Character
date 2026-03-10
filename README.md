@@ -41,6 +41,8 @@
 
 - **Real-World Awareness** - Time-aware, location-aware, and news-aware. Your AI can search the web and understands what's happening in your world right now.
 
+- **Cloned Voice Notes** - Kayley can send Telegram voice notes in her own cloned voice using local Qwen3 TTS (runs on GPU, no cloud API). She decides when a voice feels more personal than text — emotional check-ins, goodnight messages, grounding moments. Pipeline: text → Qwen3 WAV → ffmpeg OGG/Opus → Telegram voice bubble.
+
 - **Server-Side AI Brain** - All AI intelligence runs on a central Node.js server (port 4010). The browser is a thin client — the Gemini API key never reaches the browser. Web, Telegram, and WhatsApp all share the same intelligence layer.
 
 ---

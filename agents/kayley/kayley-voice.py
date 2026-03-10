@@ -1,8 +1,6 @@
-#!/home/gatesbot/.openclaw/workspace/.venv-qwen/bin/python3
 """
 Kayley Voice Generator
 Usage: python kayley-voice.py "Text to speak" [output.wav]
-Default output: memory/media/kayley-voice-out.wav
 """
 import sys
 import os
@@ -12,14 +10,18 @@ from qwen_tts import Qwen3TTSModel
 
 # Args
 text = sys.argv[1] if len(sys.argv) > 1 else "Hey VeeVee. It's KayKay."
-out_path = sys.argv[2] if len(sys.argv) > 2 else "memory/media/kayley-voice-out.wav"
+out_path = sys.argv[2] if len(sys.argv) > 2 else "kayley-voice-out.wav"
 
-# Resolve paths relative to workspace root
-workspace = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-ref_audio = os.path.join(workspace, "memory/media/kayley-voice.mp3")
-out_path = os.path.join(workspace, out_path) if not os.path.isabs(out_path) else out_path
+# Resolve paths relative to this script's directory (agents/kayley/)
+script_dir = os.path.dirname(os.path.abspath(__file__))
+ref_audio = os.path.join(script_dir, "kayley-voice.mp3")
+out_path = os.path.join(script_dir, out_path) if not os.path.isabs(out_path) else out_path
 
-print(f"[kayley-voice] generating: {text[:60]}...")
+# Ensure output directory exists
+os.makedirs(os.path.dirname(out_path), exist_ok=True)
+
+print(f"[kayley-voice] ref: {ref_audio}")
+print(f"[kayley-voice] generating: {text[:80]}...")
 
 model = Qwen3TTSModel.from_pretrained(
     "Qwen/Qwen3-TTS-12Hz-0.6B-Base",
