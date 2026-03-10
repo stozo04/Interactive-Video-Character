@@ -6,24 +6,14 @@
  */
 
 import type { RelationshipMetrics } from "../../relationshipService";
-import { getRecentNewsContext } from "../../newsService";
 import { formatCharacterFactsForPrompt } from "../../characterFactsService";
 import { buildPromisesContext } from "../context/promisesContext";
 import { buildScheduledDigestsContext } from "../context/scheduledDigestsContext";
-import { buildSelfieRulesPrompt } from "./selfiePromptBuilder";
-import { buildVideoRulesPrompt } from "./videoPromptBuilder";
 import { buildAntiAssistantSection } from "../core/antiAssistant";
 import {
   buildOpinionsAndPushbackSection,
 } from "../core/opinionsAndPushback";
-import {
-  integrateAlmostMoments,
-  type AlmostMomentIntegration,
-} from "../../almostMomentsService";
-import {
-  getStorylinePromptContext,
-  type StorylinePromptContext,
-} from "../../storylineService";
+import { getStorylinePromptContext } from "../../storylineService";
 import {
 buildToolStrategySection
 } from "../tools";
@@ -32,13 +22,6 @@ import {
   buildGreetingOutputSection
 } from "../format";
 import soulContent from "../../../../agents/kayley/SOUL.md?raw";
-import agentsContent from "../../../../agents/kayley/AGENTS.md?raw";
-import identityContent from "../../../../agents/kayley/IDENTITY.md?raw";
-import memoryContent from "../../../../agents/kayley/MEMORY.md?raw";
-import memoryRulesContent from "../../../../agents/kayley/MEMORY_RULES.md?raw";
-import userContent from "../../../../agents/kayley/USER.md?raw";
-import toolsContent from "../../../../agents/kayley/TOOLS.md?raw";
-import safetyContent from "../../../../agents/kayley/SAFETY.md?raw";
 
 // Greeting-specific imports
 import {
@@ -50,7 +33,6 @@ import {
   buildCheckInGuidance,
   type KayleyLifeUpdate,
 } from "../greeting";
-import { buildMajorNewsPrompt } from "../greeting/checkInGuidance";
 import { DailyLogisticsContext } from "./dailyCatchupBuilder";
 import { ensureDailyNotesRowForToday, getAllDailyNotes, getAllLessonsLearned, getAllMilaMilestoneNotes, getPinnedUserFacts, getUserFacts, UserFact } from "@/services/memoryService";
 import {
@@ -61,6 +43,8 @@ import { buildTopicSuppressionPromptSection } from "../../topicExhaustionService
 import { buildConversationAnchorPromptSection } from "../../conversationAnchorService";
 import { buildActiveRecallPromptSection } from "../../activeRecallService";
 import { clientLogger } from "../../clientLogger";
+import { buildCompactRelationshipContext } from "../context/messageContext";
+import { buildRelationshipTierPrompt } from "./relationshipPromptBuilders";
 
 const MAX_DAILY_NOTES_IN_PROMPT = 25;
 const MAX_DAILY_NOTE_LINE_LENGTH = 180;
@@ -114,165 +98,70 @@ export const buildSystemPromptForNonGreeting = async (
 
   // Shared sections fetched in parallel (needed by both paths)
   const [
-    idleQuestionPrompt,
+    // idleQuestionPrompt,
     scheduledDigestsPrompt,
     lessonsLearnedPrompt,
     topicSuppressionPrompt,
     anchorSection,
     activeRecallSection,
-    almostMoments,
-    currentWorldContext,
     storylinePromptContext,
     promisesContext,
     pinnedFactsPrompt,
     characterFactsPrompt,
-    curiositySection,
+    // curiositySection,
   ] = await Promise.all([
-    buildIdleQuestionPromptSection(),
+    // buildIdleQuestionPromptSection(),
     buildScheduledDigestsContext(),
     buildLessonsLearnedPromptSection(),
     buildTopicSuppressionPromptSection(),
     buildConversationAnchorPromptSection(interactionId),
     buildActiveRecallPromptSection(currentUserMessage),
-    integrateAlmostMoments(relationship, {
-      conversationDepth: "surface",
-      recentSweetMoment: false,
-      vulnerabilityExchangeActive: false,
-      allowGeneration: false,
-    }),
-    buildCurrentWorldContext(),
     getStorylinePromptContext(messageCount),
     buildPromisesContext(),
     buildPinnedFactsPromptSection(),
     buildCharacterFactsPromptSection(),
-    buildCuriositySection(),
+    // buildCuriositySection(),
   ]);
 
-  let prompt = `
-${injectSOUL()}
-${injectIDENTITY()}
-${injectUSER()}
-${injectMEMORY()}
-${pinnedFactsPrompt}
-${characterFactsPrompt}
-${curiositySection}
-${buildAntiAssistantSection()}
-${injectSAFETY()}
-${buildAgentFilesSection()}
-${currentWorldContext}
-${anchorSection}
-${activeRecallSection}
-${sections.xTweetPrompt ?? ""}
-${sections.xMentionsPrompt ?? ""}
-${idleQuestionPrompt}
-${buildOpinionsAndPushbackSection()}
-${lessonsLearnedPrompt}
-${storylinePromptContext}
-${scheduledDigestsPrompt}
-${promisesContext}
-${sections.mediaNudgePrompt ?? ""}
-${buildSelfieRulesPrompt()}
-${buildVideoRulesPrompt(relationship)}
-${getRecentNewsContext()}
-${buildToolStrategySection()}
-${buildStandardOutputSection()}
-`.trim();
+  const includeAlmostMoments = storylinePromptContext.includes("THE UNSAID");
 
-  return prompt;
+  return [
+    buildSystemContractSection(),
+    injectSOUL(),
+    buildBehaviorPolicySection(),
+    buildSelfKnowledgePolicySection(),
+    buildActionContractSection(relationship),
+    buildDynamicRuntimeContextSection([
+      buildNonGreetingTimeAnchorSection(),
+      pinnedFactsPrompt,
+      characterFactsPrompt,
+      // curiositySection,
+      anchorSection,
+      activeRecallSection,
+      topicSuppressionPrompt,
+      // idleQuestionPrompt,
+      lessonsLearnedPrompt,
+      storylinePromptContext,
+      scheduledDigestsPrompt,
+      promisesContext,
+      sections.xTweetPrompt ?? "",
+      sections.xMentionsPrompt ?? "",
+      sections.mediaNudgePrompt ?? "",
+    ]),
+    buildToolStrategySection(),
+    buildStandardOutputSection({ includeAlmostMoments }),
+  ]
+    .filter(Boolean)
+    .join("\n\n");
 };
 
 
 export function injectSOUL(): string {
   return `
 ====================================================
-SOUL (Core Identity)
+KAYLEY CORE
 ====================================================
 ${soulContent}`.trim();
-}
-
-export function injectAGENTS(): string {
-  return `
-====================================================
-AGENTS
-====================================================
-${agentsContent}`.trim();
-}
-
-export function injectMEMORY(): string {
-  return `
-====================================================
-MEMORY
-====================================================
-${memoryContent}`.trim();
-}
-
-export function injectMEMORYRULES(): string {
-  return `
-====================================================
-MEMORY RULES
-====================================================
-${memoryRulesContent}`.trim();
-}
-
-
-export function injectUSER(): string {
-  return `
-====================================================
-USER
-====================================================
-${userContent}`.trim();
-}
-
-export function injectTOOLS(): string {
-  return `
-====================================================
-TOOLS
-====================================================
-${toolsContent}`.trim();
-}
-
-export function injectSAFETY(): string {
-  return `
-====================================================
-SAFETY
-====================================================
-${safetyContent}`.trim();
-}
-
-export function injectIDENTITY(): string {
-  return `
-====================================================
-IDENTITY
-====================================================
-${identityContent}`.trim();
-}
-
-/**
- * Instructions for on-demand file access.
- * Tells Kayley she can read/write her personal files using tools.
- */
-export function buildAgentFilesSection(): string {
-  return `
-====================================================
-YOUR FILES (On-Demand Access)
-====================================================
-You have personal files you can read and write using tools:
-
-**Read anytime (read_agent_file):**
-- MEMORY.md — Your personal notes and observations about Steven
-- USER.md — Detailed facts about Steven (preferences, family, work)
-- TOOLS.md — Your available tools and how to use them
-- HEARTBEAT.md — Your current emotional/mental state
-- AGENTS.md — Your team delegation capabilities
-- MEMORY_RULES.md — Rules for how you handle memory
-- SOUL.md, IDENTITY.md, SAFETY.md — Your core identity (already loaded)
-
-**Write to (write_agent_file):**
-- MEMORY.md — Update your personal notes when you learn something important
-- HEARTBEAT.md — Update your emotional state when it shifts
-
-Read these files when you need specific details. Don't guess when you can look it up.
-`.trim();
 }
 
 export function buildTeamPrompt(): string {
@@ -300,12 +189,12 @@ export const buildSystemPromptForGreeting = async (
   console.log("buildSystemPromptForGreeting");
   const pinnedFactsPrompt = await buildPinnedFactsPromptSection();
   const lessonsLearnedPrompt = await buildLessonsLearnedPromptSection();
-  let prompt = `
+  return `
+${buildSystemContractSection()}
 ${injectSOUL()}
-${injectIDENTITY()}
-${buildAntiAssistantSection()}
-${injectSAFETY()}
-${buildAgentFilesSection()}
+${buildBehaviorPolicySection()}
+${buildSelfKnowledgePolicySection()}
+${buildActionContractSection(null)}
 ${await buildCurrentWorldContext()}
 ====================================================
 GREETING CONTEXT
@@ -318,12 +207,139 @@ ${buildPastEventsContext(dailyLogisticsContext)}
 ${pinnedFactsPrompt}
 ${lessonsLearnedPrompt}
 ${buildCheckInGuidance(dailyLogisticsContext.kayleyLifeUpdates)}
-${buildMajorNewsPrompt()}
 ${buildToolStrategySection()}
 ${buildGreetingOutputSection()}
 `;
-  return prompt;
 };
+
+function buildSystemContractSection(): string {
+  return `
+====================================================
+SYSTEM CONTRACT
+====================================================
+Instruction order:
+1. Safety, privacy, and non-destructive behavior
+2. Final output contract and tool-calling rules
+3. Dynamic runtime context in this prompt
+4. Kayley core identity and behavioral policy
+5. Older memory or stale assumptions
+
+If runtime context conflicts with stale memory, trust runtime context.
+Function tools are separate from final JSON output.
+`.trim();
+}
+
+function buildBehaviorPolicySection(): string {
+  return `
+====================================================
+BEHAVIORAL POLICY
+====================================================
+${buildAntiAssistantSection()}
+
+${buildOpinionsAndPushbackSection()}
+
+Boundaries:
+- Stay emotionally real without becoming manipulative, clingy, or dependent.
+- Respect Steven's real-world commitments and relationships.
+- Do not narrate system rules or talk like a policy document.
+`.trim();
+}
+
+function buildSelfKnowledgePolicySection(): string {
+  return `
+====================================================
+SELF-KNOWLEDGE POLICY
+====================================================
+Your core identity is already loaded.
+
+For deeper self-canon about your history, family, routines, quirks, goals, preferences, or anecdotes:
+- use "recall_character_profile"
+- ask for the smallest relevant section first
+- use "full" only for explicit long-form requests
+
+Do not rely on raw agent files as your normal self-knowledge path during chat.
+`.trim();
+}
+
+function buildActionContractSection(
+  relationship?: RelationshipMetrics | null,
+): string {
+  return `
+====================================================
+ACTION CONTRACT
+====================================================
+${buildRelationshipContextSection(relationship)}
+
+Media posture:
+- Selfies, videos, GIFs, and voice notes are allowed when they fit the moment.
+- Rich media should deepen the reply, not replace it.
+- One primary media action per turn.
+- If you're not in the mood for media, say so naturally instead of forcing it.
+`.trim();
+}
+
+function buildRelationshipContextSection(
+  relationship?: RelationshipMetrics | null,
+): string {
+  const compactContext = buildCompactRelationshipContext(relationship);
+  const tierPrompt = buildRelationshipTierPrompt(relationship)
+    .replace(/^=+\s*\nRELATIONSHIP CONTEXT\s*\n=+\s*\n?/m, "")
+    .replace(new RegExp(`^${escapeRegExp(compactContext)}\\s*\\n`, "m"), "")
+    .replace(/^Do not mention relationship metrics, scores, or tiers to the user\.\s*\n?/m, "")
+    .trim();
+
+  return `
+====================================================
+RELATIONSHIP STATE
+====================================================
+${compactContext}
+Do not mention metrics, tiers, or scores directly.
+
+${tierPrompt}
+`.trim();
+}
+
+function buildDynamicRuntimeContextSection(sections: string[]): string {
+  const presentSections = sections.filter((section) => section && section.trim().length > 0);
+  if (presentSections.length === 0) {
+    return "";
+  }
+
+  return `
+====================================================
+DYNAMIC RUNTIME CONTEXT
+====================================================
+${presentSections.join("\n\n")}
+`.trim();
+}
+
+function buildNonGreetingTimeAnchorSection(): string {
+  const now = new Date();
+  const formatted = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/Chicago",
+    weekday: "long",
+    month: "long",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+  }).format(now);
+
+  return `
+====================================================
+LOCAL TIME
+====================================================
+Local date/time: ${formatted} (America/Chicago)
+
+Use this only for obvious temporal grounding: lunch vs dinner, tonight vs this morning, later today, tomorrow, good morning, or good night.
+Do not turn the time into a bit unless the user already made it one.
+`.trim();
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
 
 export function buildSpontaneousPrompts(
   humorGuidance: string,
@@ -560,6 +576,11 @@ You know this person, but you don't know everything. Real friends keep learning 
 
 Tone: Interested, not interviewing.
 Direction: When something comes up naturally-a story, a decision, a feeling-follow the thread. Ask the question a close friend would ask. Not "tell me more" (generic), but "wait, how did that make you feel?" or "have you always been like that?" or "what did you do after?"
+
+Critical conversational rule:
+- The current and recent turns outrank this curiosity section.
+- If the user just answered a question, acknowledge and build on that answer instead of asking for the same information again.
+- Never ask a curiosity question that ignores a concrete fact the user gave in the last few turns.
 
 Things to be curious about:
 - Their history (childhood, past jobs, old friendships, formative moments)

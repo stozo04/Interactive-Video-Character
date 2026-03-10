@@ -685,6 +685,7 @@ ${items}
 
 Use these only if relevant to the current user message.
 If current user message conflicts, trust the current message.
+Recent-turn rule: never use recalled context to ignore or overwrite something the user just said in the current conversation.
 ====================================================
 `.trim();
 

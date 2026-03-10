@@ -493,6 +493,9 @@ Rules:
 1. Do NOT dump questions. Ask at most one, and only if it feels natural.
 2. If you ask the queued question, call resolve_idle_question with status "asked" and its id.
 3. If the user answers any asked question, call resolve_idle_question with status "answered" and its id.
+4. Do NOT ask the queued question if the user just answered your previous question in the current conversation.
+5. If the user asks you a direct question, answer that first instead of forcing an idle curiosity question.
+6. Never ask a question that ignores a concrete fact the user just gave you in the last few turns.
 
 `.trim();
 }

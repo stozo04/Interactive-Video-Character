@@ -1,0 +1,135 @@
+  # Kayley Prompt Architecture Refactor v3                                                                                                                                         
+                                                                                                                                                                                   
+  ## Summary                                                                                                                                                                       
+                                                                                                                                                                                   
+  - Replace the current prompt dump with a layered system: small durable core, compact always-on policy overlays, selective server-generated runtime context, and one final        
+    output contract.                                                                                                                                                               
+  - Runtime truth lives in Supabase for user/self/continuity state. The only injected durable markdown should be SOUL.md.                                                          
+  - Kayley’s long-form life story stays non-injected. Kayley_Adams_Character_Profile.md remains a reference corpus accessed on demand through recall_character_profile, not via    
+    default prompt injection.                                                                                                                                                      
+  - news_action is removed from the chat architecture. News and current-events behavior should go through web_search and web_fetch, not a dedicated JSON output action or Hacker   
+    News-specific side path.                                                                                                                                                       
+  - Server owns prompt assembly. The web app remains a dumb terminal.                                                                                                              
+                                                                                                                                                                                   
+  ## Source Of Truth                                                                                                                                                               
+                                                                                                                                                                                   
+  - Durable injected core: SOUL.md, rewritten to contain only identity, voice, boundaries, relationship stance, and high-level media posture.                                      
+  - Runtime memory/state: Supabase-backed selectors and context builders.                                                                                                          
+  - Non-injected lore source: Kayley_Adams_Character_Profile.md, sectioned through kayleyProfileSections.ts and retrieved only through recall_character_profile.                   
+  - Output/tool contract truth: aiSchema.ts. The prompt’s final JSON section must be generated from this contract, not hand-maintained separately.                                 
+  - Assembly truth: systemPromptBuilder.ts during transition, with final ownership staying in serverGeminiService.ts.                                                              
+                                                                                                                                                                                   
+  ## Target Prompt Architecture                                                                                                                                                    
+                                                                                                                                                                                   
+  - SYSTEM CONTRACT                                                                                                                                                                
+      - One short hierarchy block: current user message overrides stale memory; safety and output/tool contract outrank style; dynamic runtime context outranks archived lore.     
+  - KAYLEY CORE                                                                                                                                                                    
+      - Inject only rewritten SOUL.md.                                                                                                                                             
+      - No file-management instructions, no database tables, no long continuity prose, no duplicated media rules.                                                                  
+  - BEHAVIORAL POLICY                                                                                                                                                              
+      - Compact merged overlay replacing separate anti-assistant/pushback/identity-anchor duplication.                                                                             
+      - Covers tone, partial-answer style, earned warmth, disagreement, anxiety stabilization, and realism.                                                                        
+  - SELF-KNOWLEDGE POLICY                                                                                                                                                          
+      - New short always-on rule: core identity is already loaded; for deeper past/family/quirks/routines/stories/goals, use recall_character_profile.                             
+      - Prefer the smallest relevant section.                                                                                                                                      
+      - Do not use read_agent_file for the life-story file in normal chat.                                                                                                         
+      - full profile retrieval is allowed only for explicit “tell me your whole story” style asks or internal authoring/debug flows.                                               
+  - ACTION POLICY                                                                                                                                                                  
+      - Split the current giant tool section into compact overlays:                                                                                                                
+      - memoryPolicy for recall/store rules.                                                                                                                                       
+      - opsPolicy for always-on autonomy/workspace/self-healing, but much shorter.                                                                                                 
+      - mediaPolicy as the only source of truth for selfie_action, video_action, gif_action, and send_as_voice.                                                                    
+      - platformPolicy for email/X/google/workspace specifics only when relevant.                                                                                                  
+      - webPolicy for current events, fact-checking, and URL reading via web_search and web_fetch.                                                                                 
+  - DYNAMIC RUNTIME CONTEXT                                                                                                                                                        
+      - Only inject applicable blocks: relationship state, active recall, conversation anchor, pinned user facts, relevant self facts, open promises, pending platform items,      
+        media decision context, topic cooldowns, greeting/world context.                                                                                                           
+  - FINAL OUTPUT CONTRACT                                                                                                                                                          
+      - Always last.                                                                                                                                                               
+      - Must explicitly include send_as_voice, fulfilling_promise_id, and any other live fields still supported by runtime.                                                        
+      - Only fields actually supported by runtime stay in this contract.                                                                                                           
+                                                                                                                                                                                   
+  ## Required Refactor Decisions                                                                                                                                                   
+                                                                                                                                                                                   
+  - Stop live injection of IDENTITY.md, USER.md, MEMORY.md, TOOLS.md, MEMORY_RULES.md, and AGENTS.md.                                                                              
+  - Keep Kayley_Adams_Character_Profile.md as non-injected lore. Promote recall_character_profile as the sanctioned self-canon retrieval path.                                     
+  - Keep kayleyProfileSections.ts as the retrieval index, but require it to stay source-aligned with the markdown file. No second independent lore source.                         
+  - Remove buildAgentFilesSection() from default live prompting. File access instructions are noisy and encourage the wrong lookup path.                                           
+  - Unify media behavior into one policy:                                                                                                                                          
+      - selfie_action for explicit photo asks, surfaced promise fulfillment, or positive playful/affectionate server nudge.                                                        
+      - video_action for explicit motion/video asks or rare high-signal playful nudge only.                                                                                        
+      - send_as_voice for explicit voice asks or emotional/supportive/good-morning/goodnight moments.                                                                              
+      - gif_action for short playful reactions only.                                                                                                                               
+      - Only one rich-media primary action per turn. send_as_voice does not stack with selfie/video/gif.                                                                           
+  - Fix schema drift:                                                                                                                                                              
+      - Add send_as_voice and fulfilling_promise_id to the prompt-declared output schema.                                                                                          
+      - Remove news_action entirely from the chat response schema and prompt contract.                                                                                             
+      - Only instruct almost_moment_used when THE UNSAID block is actually injected.                                                                                               
+  - Resolve dead or drifted prompt features:                                                                                                                                       
+      - Relationship context must be present in non-greeting turns.                                                                                                                
+      - topicSuppressionPrompt must be either reinserted or deleted.                                                                                                               
+      - almostMoments must be either reinserted or removed from default schema/policy expectations.                                                                                
+      - Storyline context must stop relying on the always-zero messageCount path.                                                                                                  
+  - Security prerequisite:                                                                                                                                                         
+      - scrub prompt-reachable markdown of credentials before refactor ships. MEMORY.md currently contains plaintext credential material and cannot remain prompt-adjacent.        
+                                                                                                                                                                                   
+  ## Life Story Reference Model                                                                                                                                                    
+                                                                                                                                                                                   
+  - Desired behavior:                                                                                                                                                              
+      - Kayley knows her basic selfhood from core prompt.                                                                                                                          
+      - When the conversation needs deeper canon, she fetches only the needed profile slice.                                                                                       
+  - Retrieval triggers for recall_character_profile:                                                                                                                               
+      - user asks about her childhood, family, best friend, routines, insecurities, goals, favorite things, memorable stories, or “tell me more about yourself”                    
+      - Kayley wants to verify a specific self-detail before improvising                                                                                                           
+      - Kayley wants a concrete anecdote or habit to make a response feel lived-in                                                                                                 
+  - Retrieval rules:                                                                                                                                                               
+      - choose one section first: background, relationships, challenges, quirks, goals, preferences, anecdotes, routines, or interests                                             
+      - use full only for explicit long-form requests                                                                                                                              
+      - never read the raw lore file directly during ordinary chat                                                                                                                 
+      - treat fetched lore as canon unless contradicted by a newer explicit self-fact or a deliberate author update                                                                
+  - Resulting benefit:                                                                                                                                                             
+      - Kayley keeps her life story available without paying the token cost every turn                                                                                             
+      - deeper self-reference becomes more reliable because it is fetched intentionally instead of diluted in the base prompt                                                      
+                                                                                                                                                                                   
+  ## Remove Dedicated News Path                                                                                                                                                    
+                                                                                                                                                                                   
+  - Remove news_action from aiSchema.ts, serverGeminiService.ts, messageOrchestrator.ts, and types.ts.                                                                             
+  - Delete the dedicated news-response path in newsActions.ts and remove its exports from index.ts.                                                                                
+  - Remove the news_action catalog entry from toolCatalog.ts.                                                                                                                      
+  - Remove prompt references to the old news side path, especially getRecentNewsContext() injection from systemPromptBuilder.ts.                                                   
+  - Retire newsService.ts from Kayley chat unless another subsystem still needs its Hacker News cache. If no other owner exists, delete it.                                        
+  - Replace all “latest news” behavior with:                                                                                                                                       
+      - web_search for current-event lookup                                                                                                                                        
+      - web_fetch for reading a chosen result                                                                                                                                      
+      - optional server-generated digest context only when a scheduled digest already exists                                                                                       
+  - Keep greeting-level “major news awareness” only as a permission rule to use web_search, not as a separate action type or dedicated HN fetch workflow.                          
+                                                                                                                                                                                   
+  ## Validation                                                                                                                                                                    
+                                                                                                                                                                                   
+  - Snapshot tests for greeting and non-greeting prompt assembly after refactor, including high-context cases for promises, media nudge, and profile recall guidance.
+  - Schema-alignment tests that fail if prompt-declared JSON diverges from AIActionResponseSchema.                                                                                 
+  - Media-policy tests for explicit selfie, explicit video, emotional voice note, playful overdue nudge, logistical no-media, and promise fulfillment.                             
+  - Profile-recall tests for:                                                                                                                                                      
+      - routine question -> recall_character_profile(routines)
+      - no full recall unless explicitly warranted
+  - News-removal regression tests for:
+      - no news_action in final schema
+      - no NEWS action routing in orchestrator
+      - current-events requests choose web tools instead of JSON action output
+      - no leftover prompt text instructing Hacker News fetches or news_action
+  - Prompt budget tests:
+      - durable core target: 800-1200 tokens
+      - static base prompt target: <= 3000 tokens
+      - representative non-greeting assembled prompt target: <= 6500 tokens
+      - hard fail above 8500 tokens
+  - Security regression test to block credential-like content from any injected or tool-retrievable prompt source.
+
+  ## Assumptions And Defaults
+
+  - Always-on ops/autonomy behavior stays in core, per your preference, but as a compact charter instead of a long operator manual.
+  - Supabase remains authoritative for runtime memory and continuity.
+  - SOUL.md becomes the only injected durable markdown summary.
+  - Kayley_Adams_Character_Profile.md remains a non-injected lore file and should not be moved into Supabase unless you later want editable structured lore tooling.
+  - The existing recall_character_profile path is the right architectural direction and should be promoted, not replaced.
+  - Dedicated Hacker News response actions are intentionally removed from Kayley chat. If curated proactive news returns later, it should come back as server-owned digest
+    context, not as news_action.

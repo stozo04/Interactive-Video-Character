@@ -1113,6 +1113,8 @@ export const getUserFacts = async (
 
 /**
  * Get user facts that are marked as pinned.
+ * 
+ * removed:       .eq('pinned', true)
  */
 export const getPinnedUserFacts = async (): Promise<UserFact[]> => {
   try {
@@ -1121,7 +1123,6 @@ export const getPinnedUserFacts = async (): Promise<UserFact[]> => {
     const { data, error } = await supabase
       .from(USER_FACTS_TABLE)
       .select('*')
-      .eq('pinned', true)
       .order('updated_at', { ascending: false });
 
     if (error) {

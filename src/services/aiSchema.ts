@@ -47,7 +47,9 @@ export const AIActionResponseSchema = z.object({
     .nullable()
     .optional()
     .describe(
-      "The URL scheme to launch an external application (e.g. 'slack://'), or null."
+      "The URL scheme to launch an external application when Steven asks to open or launch one. " +
+      "Examples: 'slack://', 'spotify:', 'zoommtg://', 'notion://', 'vscode:', 'cursor://', 'msteams:', 'outlook:', 'wt:'. " +
+      "Return null when no app launch is requested."
     ),
 
   /**
@@ -77,21 +79,6 @@ export const AIActionResponseSchema = z.object({
     .describe(
       "For Tic-Tac-Toe: the cell position (0-8) where the AI sees the USER's X mark from the image."
     ),
-
-  /**
-   * News action - triggered when user asks about tech/AI news
-   */
-  news_action: z
-    .object({
-      action: z
-        .enum(["fetch"])
-        .describe(
-          "The news action to perform: 'fetch' to get latest AI/tech news from Hacker News"
-        ),
-    })
-    .nullable()
-    .optional()
-    .describe("News action if the user asks about latest tech/AI news"),
 
   /**
    * Whiteboard action for more complex interactions (guessing, describing, etc.)
@@ -575,7 +562,8 @@ export const WorkspaceActionSchema = z.object({
       "delete",
     ])
     .describe(
-      "Workspace action to execute through the local agent. For edits: search -> read -> write."
+      "Workspace action to execute through the local agent. This tool operates on the full local project workspace. " +
+      "For edits: search -> read -> write."
     ),
   path: z
     .string()
@@ -632,7 +620,7 @@ export const WorkspaceActionSchema = z.object({
   cwd: z
     .string()
     .optional()
-    .describe("Working directory relative to workspace root (for command action)."),
+    .describe("Working directory relative to workspace root (for command action). The workspace root is the project root."),
   timeout_ms: z
     .number()
     .optional()
@@ -640,7 +628,7 @@ export const WorkspaceActionSchema = z.object({
   approved: z
     .boolean()
     .optional()
-    .describe("Set to true when Steven has approved a destructive command (rm -rf, git push --force, etc). Required for dangerous operations."),
+    .describe("Set to true only after Steven explicitly approves a destructive or forceful command in the current conversation (rm -rf, git push --force, git reset --hard, taskkill, etc). Required for dangerous operations."),
 });
 
 /**
@@ -1449,8 +1437,9 @@ export const GeminiMemoryToolDeclarations = [
   {
     name: "workspace_action",
     description:
-      "Execute a safe local workspace action through the background workspace agent. " +
-      "Supports filesystem, git, and shell command actions with policy checks and verification.",
+      "Execute a local workspace action through the workspace agent. " +
+      "This tool gives you access to the entire project workspace for filesystem, git, and shell command actions with policy checks and verification. " +
+      "Use search first, read before write, and keep paths relative to the project root.",
     parameters: {
       type: "object",
       properties: {
@@ -1467,7 +1456,7 @@ export const GeminiMemoryToolDeclarations = [
             "push",
             "delete",
           ],
-          description: "Workspace action to execute.",
+          description: "Workspace action to execute against the local project workspace.",
         },
         path: {
           type: "string",
@@ -1526,7 +1515,7 @@ export const GeminiMemoryToolDeclarations = [
         },
         cwd: {
           type: "string",
-          description: "Working directory relative to workspace root (for command action).",
+          description: "Working directory relative to workspace root (for command action). The workspace root is the project root.",
         },
         timeout_ms: {
           type: "number",
@@ -1534,7 +1523,7 @@ export const GeminiMemoryToolDeclarations = [
         },
         approved: {
           type: "boolean",
-          description: "Set to true when Steven has approved a destructive command. Required for dangerous operations (rm -rf, git push --force, git reset --hard, etc).",
+          description: "Set to true only after Steven explicitly approves a destructive or forceful command in the current conversation. Required for dangerous operations (rm -rf, git push --force, git reset --hard, taskkill, etc).",
         },
       },
       required: ["action"],
@@ -1546,6 +1535,7 @@ export const GeminiMemoryToolDeclarations = [
       "Create, update, delete, pause, resume, or run scheduled cron jobs. " +
       "Use action_type to route the job (e.g., 'web_search', 'maintenance_reminder', 'selfie_send'). " +
       "If action_type is 'web_search', include search_query (required). " +
+      "Use this for recurring reminders, scheduled digests, and background upkeep. " +
       "Use mark_summary_delivered after you share a queued scheduled digest summary.",
     parameters: {
       type: "object",
@@ -2090,6 +2080,7 @@ export const GeminiMemoryToolDeclarations = [
     description:
       "Start a long-running shell command in the background. Returns a task ID to check progress later. " +
       "Use this for installs, builds, tests, downloads, or any command that takes more than a few seconds. " +
+      "Prefer this over a normal workspace command when the work is likely to block the conversation. " +
       "After starting, chat naturally with Steven and check back using check_task_status.",
     parameters: {
       type: "object",
@@ -2097,7 +2088,7 @@ export const GeminiMemoryToolDeclarations = [
         command: { type: "string", description: "Shell command to run." },
         label: { type: "string", description: "Short label (e.g., 'Installing PyTorch')." },
         cwd: { type: "string", description: "Working directory relative to project root." },
-        approved: { type: "boolean", description: "Set to true when Steven has approved a dangerous command (rm -rf, git push --force, etc)." },
+        approved: { type: "boolean", description: "Set to true only after Steven explicitly approves a destructive or forceful command in the current conversation (rm -rf, git push --force, git reset --hard, taskkill, etc)." },
       },
       required: ["command", "label"],
     },
@@ -2143,6 +2134,7 @@ export const GeminiMemoryToolDeclarations = [
       "Post a tweet to X with specific text. " +
       "Use this when you and the user have collaborated on tweet text in conversation " +
       "and the user approves it. This creates a pending draft that must be approved by the human. " +
+      "Use this for normal X or Twitter posting requests. " +
       "Web uses the Tweet Approval Card. Telegram/WhatsApp use POST TWEET or REJECT TWEET. " +
       "Do NOT claim the tweet is posted until approval happens.",
     parameters: {
@@ -2258,6 +2250,7 @@ export const GeminiMemoryToolDeclarations = [
             "'drive search budget', 'drive upload ./file.txt', " +
             "'calendar events primary --today', 'gmail thread get <threadId>', " +
             "'contacts create --name \"Jane Doe\" --email jane@example.com'. " +
+            "Use this as broad raw Google Workspace access when more specific Google tools do not cover the need. " +
             "Wrap multi-word values in quotes (e.g., --summary \"Pizza Night with Andre\").",
         },
       },

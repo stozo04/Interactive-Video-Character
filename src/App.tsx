@@ -1325,14 +1325,6 @@ const App: React.FC = () => {
       // ACTION-SPECIFIC PROCESSING (Phase 6: Simplified)
       // ============================================
 
-      // NEWS ACTIONS (orchestrator fetched, we trigger system message)
-      if (result.newsPrompt) {
-        if (result.chatMessages.length > 0) setChatHistory(prev => [...prev, ...attachToolCalls(result.chatMessages)]);
-        if (result.audioToPlay) media.enqueueAudio(result.audioToPlay);
-        await triggerSystemMessage(result.newsPrompt);
-        return;
-      }
-
       // SELFIE ACTIONS (Phase 5: Use orchestrator-generated message text)
       if (result.selfieImage || result.selfieError) {
         if (result.chatMessages.length > 0) setChatHistory(prev => [...prev, ...attachToolCalls(result.chatMessages)]);

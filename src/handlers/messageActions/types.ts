@@ -23,7 +23,6 @@ import type { TurnTokenUsage } from '../../services/conversationHistoryService';
  */
 export enum ActionType {
   CALENDAR = 'calendar',
-  NEWS = 'news',
   SELFIE = 'selfie',
   VIDEO = 'video',
   GIF = 'gif',
@@ -192,9 +191,6 @@ export interface OrchestratorResult {
   /** Video message text for TTS */
   videoMessageText?: string;
 
-  /** News prompt for system message (if news action succeeded) */
-  newsPrompt?: string;
-
   /** Detected email action for App.tsx to execute (archive / reply / dismiss) */
   detectedEmailAction?: {
     action: 'archive' | 'reply' | 'dismiss';
@@ -342,7 +338,6 @@ export function createUnhandledResult(): ActionHandlerResult {
  * Determine action type from AI response
  */
 export function determineActionType(response: AIActionResponse): ActionType {
-  if (response.news_action) return ActionType.NEWS;
   if (response.selfie_action) return ActionType.SELFIE;
   if (response.video_action) return ActionType.VIDEO;
   if (response.gif_action) return ActionType.GIF;

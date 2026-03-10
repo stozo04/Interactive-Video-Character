@@ -19,15 +19,6 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
     sample_prompts: ["What is the latest in AI news?"],
   },
   {
-    tool_key: "news_action",
-    name: "News Fetch",
-    description: "Fetch and summarize the latest tech/AI news.",
-    user_value: "Gives you a quick, curated recap when you ask.",
-    permissions_needed: ["web_access"],
-    triggers: ["latest tech news", "AI headlines"],
-    sample_prompts: ["What is the latest in AI this week?"],
-  },
-  {
     tool_key: "calendar_action",
     name: "Calendar Manager",
     description: "Create, delete, or list Google Calendar events.",

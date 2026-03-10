@@ -38,14 +38,6 @@ export {
   type CalendarActionResult,
 } from './calendarActions';
 
-// News actions
-export {
-  processNewsAction,
-  formatNewsForAI,
-  type NewsAction,
-  type NewsActionResult,
-} from './newsActions';
-
 // Selfie actions
 export {
   processSelfieAction,

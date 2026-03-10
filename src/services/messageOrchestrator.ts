@@ -19,12 +19,9 @@ import {
   determineActionType,
 } from '../handlers/messageActions/types';
 
-// Action handlers
 import {
-  processNewsAction,
   processSelfieAction,
   processVideoAction,
-  type NewsAction,
   type SelfieAction,
   type VideoAction,
 } from '../handlers/messageActions';
@@ -40,23 +37,15 @@ import { clientLogger } from './clientLogger';
 
 const log = clientLogger.scoped('MessageOrchestrator');
 
-
-// ============================================================================
-// MAIN ORCHESTRATOR
-// ============================================================================
-
 /**
  * Main entry point for processing user messages
  *
  * Flow:
- * 1. Pre-processing (calendar context injection)
- * 2. AI call (generate response)
- * 3. Action routing (task, calendar, news, selfie)
- * 4. Post-processing (facts, presence - fire-and-forget)
+ * 1. Pre-processing
+ * 2. AI call
+ * 3. Action routing
+ * 4. Post-processing
  * 5. Result building
- *
- * @param input - OrchestratorInput with message, services, and context
- * @returns OrchestratorResult with all UI updates needed
  */
 export async function processUserMessage(input: OrchestratorInput): Promise<OrchestratorResult> {
   const {
@@ -72,34 +61,19 @@ export async function processUserMessage(input: OrchestratorInput): Promise<Orch
     eventBus,
   } = input;
 
-  // console.log(`🎯 [Orchestrator] Processing message: "${userMessage.substring(0, 50)}..."`);
-
-  // Start with empty result
   const result: OrchestratorResult = {
     ...createEmptyResult(ProcessingStage.PREPROCESSING),
   };
 
   try {
-    // ========================================================================
-    // PHASE 1: PRE-PROCESSING
-    // ========================================================================
-
-    // Calendar events are now fetched on-demand via the check_calendar tool.
-    // No per-message calendar injection needed.
-
-    // ========================================================================
-    // PHASE 2: AI CALL
-    // ========================================================================
-
     result.stage = ProcessingStage.AI_CALL;
-    console.log(`⚡ [Orchestrator] Calling AI service...`);
+    console.log(`AI [Orchestrator] Calling AI service...`);
 
     let textToSend = userMessageForAI ?? userMessage;
 
-    // Append pending email context if Kayley is waiting on a decision
     if (pendingEmail) {
       const emailContext = [
-        `[PENDING EMAIL ACTION — Steven is responding to an email you announced:]`,
+        `[PENDING EMAIL ACTION - Steven is responding to an email you announced:]`,
         `  Message ID : ${pendingEmail.id}`,
         `  Thread ID  : ${pendingEmail.threadId}`,
         `  From       : ${pendingEmail.from}`,
@@ -110,7 +84,7 @@ export async function processUserMessage(input: OrchestratorInput): Promise<Orch
         `  action="reply"   with message_id + reply_body (+ thread_id optional)`,
         `  action="archive" with message_id`,
         `  action="dismiss" with message_id`,
-        `CRITICAL: "respond saying X" means reply TO THE SENDER with X — not just an acknowledgment to Steven.`,
+        `CRITICAL: "respond saying X" means reply TO THE SENDER with X - not just an acknowledgment to Steven.`,
         `For reply actions, keep Steven's intent in reply_body and run email_action.`,
       ].join('\n');
 
@@ -118,19 +92,17 @@ export async function processUserMessage(input: OrchestratorInput): Promise<Orch
       log.info(`Injected pending email context`, { emailId: pendingEmail.id });
     }
 
-    // Build input and options for AI service
-    let content: UserContent = userContent || { type: "text", text: textToSend };
-    if (content.type === "image_text") {
+    let content: UserContent = userContent || { type: 'text', text: textToSend };
+    if (content.type === 'image_text') {
       content = { ...content, text: textToSend };
-    } else if (content.type === "text") {
-      content = { type: "text", text: textToSend };
+    } else if (content.type === 'text') {
+      content = { type: 'text', text: textToSend };
     }
+
     const options: AIChatOptions = {
-      // Pass original message to intent detection (keeps payload small)
-      // Intent detection doesn't need calendar data - only main chat does
       originalMessageForIntent: undefined,
       chatHistory,
-      audioMode: isMuted ? "none" : "sync",
+      audioMode: isMuted ? 'none' : 'sync',
       conversationScopeId,
       eventBus,
     };
@@ -138,44 +110,22 @@ export async function processUserMessage(input: OrchestratorInput): Promise<Orch
     const aiResult = await aiService.generateResponse(
       content,
       options,
-      session || undefined
+      session || undefined,
     );
-
-    // ========================================================================
-    // PHASE 3: ACTION ROUTING
-    // ========================================================================
 
     result.stage = ProcessingStage.ACTION_ROUTING;
     const response = aiResult.response;
     const actionType = determineActionType(response);
 
-    console.log(`🎯 [Orchestrator] Action type: ${actionType}`);
+    console.log(`Action [Orchestrator] Type: ${actionType}`);
     result.actionType = actionType;
 
-    // Set refresh flags when calendar_action ran as a function tool.
-    // The function tool runs inside the AI interaction loop before the response reaches
-    // the orchestrator, so response fields are never populated for these.
     if (consumeCalendarMutationSignal()) {
       result.refreshCalendar = true;
     }
 
-    // ========================================================================
-    // PHASE 4: EXECUTE ACTION HANDLERS
-    // ========================================================================
+    result.stage = ProcessingStage.POSTPROCESSING;
 
-    // News Action
-    if (actionType === ActionType.NEWS) {
-      const newsAction = response.news_action as NewsAction | undefined;
-      if (newsAction?.action === "fetch") {
-        const newsResult = await processNewsAction(newsAction);
-        if (newsResult.handled && newsResult.newsPrompt) {
-          result.newsPrompt = newsResult.newsPrompt;
-          console.log(`📰 [Orchestrator] News fetched, prompt ready`);
-        }
-      }
-    }
-
-    // Selfie Action (Phase 5: Generate complete message with image)
     if (actionType === ActionType.SELFIE) {
       const selfieAction = response.selfie_action as SelfieAction | undefined;
       if (selfieAction?.scene) {
@@ -186,44 +136,38 @@ export async function processUserMessage(input: OrchestratorInput): Promise<Orch
           chatHistory,
         });
         eventBus?.emit('sse', { type: 'action_end', actionName: 'selfie', durationMs: Date.now() - selfieStartMs, success: selfieResult.success, timestamp: Date.now() });
+
         if (selfieResult.handled) {
           if (selfieResult.success && selfieResult.imageBase64) {
-            // Phase 5: Add selfie message with image directly to chatMessages
             result.selfieImage = {
               base64: selfieResult.imageBase64,
-              mimeType: selfieResult.mimeType || "image/png",
+              mimeType: selfieResult.mimeType || 'image/png',
             };
             result.selfieHistoryId = selfieResult.historyId ?? null;
             result.selfieScene = selfieAction.scene;
             result.selfieMood = selfieAction.mood ?? null;
-            // The selfie message text (App.tsx will generate TTS for this)
-            result.selfieMessageText = "Here you go!";
-            console.log(`📸 [Orchestrator] Selfie generated successfully`);
+            result.selfieMessageText = 'Here you go!';
+            console.log(`Selfie [Orchestrator] Generated successfully`);
           } else {
             result.selfieError =
               selfieResult.error ||
               "I couldn't take that pic right now, sorry!";
-            // The error message text (App.tsx will generate TTS for this)
             result.selfieMessageText = result.selfieError;
-            console.log(
-              `📸 [Orchestrator] Selfie failed: ${result.selfieError}`
-            );
+            console.log(`Selfie [Orchestrator] Failed: ${result.selfieError}`);
           }
         }
       }
     }
 
-    // GIF Action (Send inline animated GIF via WhatsApp)
     if (actionType === ActionType.GIF) {
       const gifAction = (response as any).gif_action as { query: string; message_text?: string } | undefined;
       if (gifAction?.query) {
         result.gifQuery = gifAction.query;
         result.gifMessageText = gifAction.message_text;
-        console.log(`🎞️ [Orchestrator] GIF action query: ${gifAction.query.substring(0, 80)}`);
+        console.log(`GIF [Orchestrator] Query: ${gifAction.query.substring(0, 80)}`);
       }
     }
 
-    // Video Action (Generate companion video)
     if (actionType === ActionType.VIDEO) {
       const videoAction = (response as any).video_action as VideoAction | undefined;
       if (videoAction?.scene) {
@@ -234,44 +178,28 @@ export async function processUserMessage(input: OrchestratorInput): Promise<Orch
           chatHistory,
         });
         eventBus?.emit('sse', { type: 'action_end', actionName: 'video', durationMs: Date.now() - videoStartMs, success: videoResult.success, timestamp: Date.now() });
+
         if (videoResult.handled) {
           if (videoResult.success && videoResult.videoUrl) {
             result.videoUrl = videoResult.videoUrl;
             result.videoScene = videoAction.scene;
             result.videoMood = videoAction.mood ?? null;
             result.videoMessageText = "Here's a little video for you!";
-            console.log(`🎬 [Orchestrator] Video generated successfully`);
+            console.log(`Video [Orchestrator] Generated successfully`);
           } else {
             result.videoError =
               videoResult.error ||
               "I couldn't make that video right now, sorry!";
             result.videoMessageText = result.videoError;
-            console.log(
-              `🎬 [Orchestrator] Video failed: ${result.videoError}`
-            );
+            console.log(`Video [Orchestrator] Failed: ${result.videoError}`);
           }
         }
       }
     }
 
-    // ========================================================================
-    // PHASE 4: POST-PROCESSING (Fire-and-forget)
-    // ========================================================================
-
-    result.stage = ProcessingStage.POSTPROCESSING;
-
-    // User facts detection has been removed from intent detection to reduce payload size
-    // Facts can be stored via the store_user_info tool in the main chat instead
-
-    // Character facts are now stored exclusively via the store_self_info LLM tool
-    // Pattern-based detection has been removed in favor of LLM semantic understanding
-
-
-
-    // Background conversation history - don't await
     const historyMessages = [
-      { role: "user" as const, text: userMessage },
-      { role: "model" as const, text: response.text_response },
+      { role: 'user' as const, text: userMessage },
+      { role: 'model' as const, text: response.text_response },
     ];
     appendConversationHistory(
       historyMessages,
@@ -279,29 +207,22 @@ export async function processUserMessage(input: OrchestratorInput): Promise<Orch
       aiResult.conversationLogId,
       aiResult.tokenUsage,
     ).catch((err) =>
-      console.error("❌ [Orchestrator] Failed to append history:", err)
+      console.error('Failed to append history:', err),
     );
 
-    // Background post-processing: topic tracking + anchor refresh — zero latency impact
-    // Turn index = current user turn number (historical user messages + current turn)
-    // This matches human/log meaning of "turn number" and avoids "turn 0" on first write
-    const turnIndex = chatHistory.filter((m) => m.role === "user").length + 1;
-
-    // Build recent turns including current exchange (so anchor captures THIS turn's asks/commitments)
+    const turnIndex = chatHistory.filter((m) => m.role === 'user').length + 1;
     const recentHistory = chatHistory.slice(-8).map((msg) => ({
-      role: msg.role === "assistant" ? "model" : (msg.role as "user" | "model"),
+      role: msg.role === 'assistant' ? 'model' : (msg.role as 'user' | 'model'),
       text: msg.text,
     }));
     const recentTurnsWithCurrent = [
       ...recentHistory,
-      { role: "user" as const, text: userMessage },
-      { role: "model" as const, text: response.text_response },
-    ].slice(-10); // Cap at 10 messages (5 turns)
+      { role: 'user' as const, text: userMessage },
+      { role: 'model' as const, text: response.text_response },
+    ].slice(-10);
 
     Promise.all([
       extractAndRecordTopics(response.text_response, userMessage),
-
-      // Anchor refresh (skip if missing interactionId)
       aiResult.session?.interactionId
         ? refreshConversationAnchor({
             interactionId: aiResult.session.interactionId,
@@ -311,40 +232,29 @@ export async function processUserMessage(input: OrchestratorInput): Promise<Orch
           })
         : Promise.resolve(),
     ]).catch((err) =>
-      console.error("❌ [Orchestrator] Background post-processing failed:", err)
+      console.error('Background post-processing failed:', err),
     );
-
-    // ========================================================================
-    // PHASE 5: BUILD RESULT
-    // ========================================================================
 
     result.stage = ProcessingStage.COMPLETE;
     result.success = true;
     result.conversationLogId = aiResult.conversationLogId;
     result.tokenUsage = aiResult.tokenUsage;
-
-    // Chat message
     result.chatMessages = [
       {
-        role: "model",
+        role: 'model',
         text: response.text_response,
       },
     ];
 
-    // Audio (only if not muted)
     if (!isMuted && aiResult.audioData) {
       result.audioToPlay = aiResult.audioData;
     }
 
-    // App opening
     if (response.open_app) {
       result.appToOpen = response.open_app;
     }
 
-    // Session
     result.updatedSession = aiResult.session;
-
-    // Raw response for action routing in App.tsx
     result.rawResponse = response;
 
     if (conversationScopeId) {
@@ -369,13 +279,10 @@ export async function processUserMessage(input: OrchestratorInput): Promise<Orch
       }
     }
 
-    console.log(
-      `✅ [Orchestrator] Complete: actionType=${actionType}, success=true`
-    );
-
+    console.log(`Complete [Orchestrator]: actionType=${actionType}, success=true`);
     return result;
   } catch (error) {
-    console.error(`❌ [Orchestrator] Error:`, error);
+    console.error(`Error [Orchestrator]:`, error);
 
     return {
       ...createEmptyResult(ProcessingStage.ERROR),
@@ -385,4 +292,3 @@ export async function processUserMessage(input: OrchestratorInput): Promise<Orch
     };
   }
 }
-

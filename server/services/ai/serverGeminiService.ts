@@ -110,7 +110,6 @@ function normalizeAiResponse(rawJson: any, rawText: string): AIActionResponse {
     text_response: rawJson.text_response || rawJson.response || rawText,
     user_transcription: rawJson.user_transcription || null,
     open_app: rawJson.open_app || null,
-    news_action: rawJson.news_action || null,
     whiteboard_action: wbAction,
     game_move: rawJson.game_move,
     selfie_action: rawJson.selfie_action || null,
@@ -402,7 +401,7 @@ export class ServerGeminiService implements IAIChatService {
         ctx.relationship,
         session?.interactionId,
         currentUserMessage,
-        0,
+        options.chatHistory?.length ?? 0,
         { xTweetPrompt, xMentionsPrompt, mediaNudgePrompt },
       );
 
@@ -648,7 +647,7 @@ export class ServerGeminiService implements IAIChatService {
       ctx.relationship,
       session.interactionId,
       undefined,
-      0,
+      1,
       { xTweetPrompt, xMentionsPrompt },
     );
 
