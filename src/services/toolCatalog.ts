@@ -28,20 +28,6 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
     sample_prompts: ["Schedule lunch tomorrow at 12:30."],
   },
   {
-    tool_key: "cron_job_action",
-    name: "Scheduled Jobs",
-    description:
-      "Create and manage one-time/daily background cron jobs (set action_type per job).",
-    user_value:
-      "Lets Kayley proactively run scheduled updates like daily news digests.",
-    permissions_needed: ["scheduled_jobs"],
-    triggers: ["every day", "daily reminder", "schedule this for later", "run at noon"],
-    sample_prompts: [
-      "Every day at 12pm, read the news and summarize what matters.",
-      "Every Monday at 9am, remind yourself to review notes and identity files.",
-    ],
-  },
-  {
     tool_key: "delegate_to_engineering",
     name: "Engineering Delegation",
     description:

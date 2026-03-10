@@ -208,6 +208,12 @@ Provide proof via: - Tests passing (unit/integration/e2e as relevant) -
 Build/typecheck/lint clean - Manual verification steps when UI is
 involved
 
+**Named contract check (mandatory for any feature touching both code and DB/config):**
+If you introduced a string literal that must match across two artifacts (e.g. a handler key
+in code AND an `action_type` in a SQL migration, an event name in an emitter AND a listener,
+a tool name in a schema AND a switch case), do a literal character-for-character comparison
+before committing. TypeScript cannot catch these. They compile fine and break silently at runtime.
+
 If verification is impossible, explicitly state what could not be run
 and why.
 

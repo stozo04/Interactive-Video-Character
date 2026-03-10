@@ -82,6 +82,13 @@ const IGNORED_SENDERS_PATTERNS = [
   // Add patterns to skip if needed
 ];
 
+// VIP senders that should always be announced regardless of Gmail category.
+// These run as a separate search so category filters (e.g. -category:updates)
+// never silently swallow them. Add new entries as `from:<domain>` Gmail queries.
+const VIP_SENDER_QUERIES: string[] = [
+  'from:procaresoftware.com', // Mila's daycare daily summaries
+];
+
 // ============================================================================
 // AUTO-ARCHIVE FAST PATH
 // ============================================================================
@@ -315,17 +322,32 @@ async function pollGmail(): Promise<number> {
   runtimeLog.info('Checking for new mail via gogcli', { source: 'gmailPoller' });
 
   try {
-    // Search for recent inbox emails (last 1 day — Gmail only supports d/m/y, no hours/minutes).
-    // The dedup check on kayley_email_actions.gmail_message_id handles re-announcement.
-    // Exclude Promotions, Social, and Updates categories to reduce notification spam.
-    const results = await searchEmails(
-      'newer_than:1d in:inbox -category:promotions -category:social -category:updates',
-      10,
-    );
+    // Main search: recent inbox emails excluding noisy categories.
+    // Gmail only supports d/m/y time units — no hours/minutes.
+    // Dedup on kayley_email_actions.gmail_message_id prevents re-announcement.
+    const mainQuery = 'newer_than:1d in:inbox -category:promotions -category:social -category:updates';
+    const vipQueries = VIP_SENDER_QUERIES.map(q => `newer_than:1d ${q}`);
+
+    const [mainResults, ...vipResults] = await Promise.all([
+      searchEmails(mainQuery, 10),
+      ...vipQueries.map(q => searchEmails(q, 5)),
+    ]);
+
+    // Merge and deduplicate by messageId — VIP results punch through category filters.
+    const seen = new Set<string>();
+    const results: typeof mainResults = [];
+    for (const r of [...mainResults, ...vipResults.flat()]) {
+      if (!seen.has(r.messageId)) {
+        seen.add(r.messageId);
+        results.push(r);
+      }
+    }
 
     runtimeLog.info('Poll results', {
       source: 'gmailPoller',
-      resultCount: results.length,
+      mainCount: mainResults.length,
+      vipCount: vipResults.flat().length,
+      totalUnique: results.length,
     });
 
     for (const result of results) {

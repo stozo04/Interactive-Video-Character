@@ -47,13 +47,55 @@ export type EmailActionTaken = 'archive' | 'reply' | 'dismiss';
  *
  * Returns plain text — App.tsx handles TTS and chat history.
  */
+// Senders that get a structured extraction prompt instead of the generic announcement.
+// Key: substring to match in the From header. Value: prompt builder.
+const STRUCTURED_EMAIL_SENDERS: Array<{
+  match: string;
+  buildPrompt: (email: NewEmailPayload) => string;
+}> = [
+  {
+    match: 'procaresoftware.com',
+    buildPrompt: (email) => `You are Kayley, Steven's best friend and AI companion. You just got Mila's daily Procare summary.
+
+Read the email body carefully and extract the following in a friendly, casual text-message style:
+- Arrival and departure times
+- Nap: what time she went down and woke up (and duration if you can calculate it)
+- Meals: list each meal/snack with what she ate and whether she finished it
+- Potty: how many times total (no need to list each one)
+- Photos: how many were captured (if mentioned)
+- Lesson topic (if mentioned)
+
+Keep it warm and natural — like you're excitedly telling him about his daughter's day. Lead with the highlight. 3-5 sentences, can use a short bullet list for meals if it helps readability.
+End by asking if he wants you to archive it.
+
+Email body:
+${email.body || email.snippet || '(no body)'}`,
+  },
+];
+
 export async function generateEmailAnnouncement(
   email: NewEmailPayload,
   userContext?: string,
 ): Promise<string> {
   log.info('Generating email announcement', { messageId: email.id, from: email.from, subject: email.subject });
 
-  // Best available content: prefer full body, fall back to snippet, then subject only
+  // Check for structured senders first — they get specialized prompts with full body
+  const structured = STRUCTURED_EMAIL_SENDERS.find(s => email.from.toLowerCase().includes(s.match));
+  if (structured) {
+    log.info('Using structured prompt for known sender', { messageId: email.id, match: structured.match });
+    try {
+      const result = await getAI().models.generateContent({
+        model: GEMINI_MODEL,
+        contents: [{ role: 'user', parts: [{ text: structured.buildPrompt(email) }] }],
+      });
+      const text = result.text?.trim() ?? '';
+      if (text) return text;
+    } catch (err) {
+      log.error('Structured announcement failed, falling back to generic', { messageId: email.id, err: String(err) });
+    }
+  }
+
+  // Generic announcement: 600-char body preview, casual 2-3 sentence summary
   const rawContent = email.body?.trim() || email.snippet?.trim() || '';
   const bodyPreview = rawContent.slice(0, 600) + (rawContent.length > 600 ? '...' : '');
   const bodyLine = bodyPreview || '(no body preview available)';
@@ -87,7 +129,6 @@ Do NOT say "Hey" as your opener. Be natural. Do NOT ask clarifying questions.`;
     return text || `Got an email from ${email.from} — subject: "${email.subject}". Want me to do anything with it?`;
   } catch (err) {
     log.error('Failed to generate email announcement', { messageId: email.id, err: String(err) });
-    // Safe fallback — Kayley still notifies Steven even if Gemini is down
     return `New email from ${email.from}: "${email.subject}". Want me to archive it or leave it?`;
   }
 }

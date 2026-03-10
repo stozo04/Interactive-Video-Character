@@ -19,5 +19,3 @@ export {
 // Promises context
 export { buildPromisesContext } from "./promisesContext";
 
-// Scheduled digests context
-export { buildScheduledDigestsContext } from "./scheduledDigestsContext";

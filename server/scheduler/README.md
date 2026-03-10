@@ -36,6 +36,19 @@ There are **two separate pollers** that both read the `cron_jobs` Supabase table
 
 Adding a new job type to the wrong poller will result in an `Unknown action_type` error at runtime.
 
+### Main server handler inventory
+
+| `action_type` | What it does |
+|---|---|
+| `web_search` | Fetches news/info via Tavily, summarizes with Gemini, delivers to Kayley |
+| `maintenance_reminder` | Kayley-to-Steven reminder messages |
+| `monthly_memory_rollover` | Rolls over memory summaries in Supabase |
+| `promise_mirror` | Reflects back promises Kayley made to Steven |
+| `persona_evolution` | Reviews last 24h of conversation, proposes behavioral note updates |
+| `log_cleanup` | Deletes `server_runtime_logs` + `engineering_ticket_events` rows older than 7 days |
+
+> **Keep this table in sync with `JOB_HANDLERS` in `cronScheduler.ts`.** If you add or rename a handler, update this table. A mismatch between the handler key here and the `action_type` value in the DB is the #1 cause of `Unknown action_type` failures.
+
 ---
 
 ## Adding a New Job Type

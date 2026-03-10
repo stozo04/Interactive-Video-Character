@@ -630,80 +630,6 @@ export const WorkspaceActionSchema = z.object({
     .describe("Set to true only after Steven explicitly approves a destructive or forceful command in the current conversation (rm -rf, git push --force, git reset --hard, taskkill, etc). Required for dangerous operations."),
 });
 
-/**
- * Schema for the cron_job_action tool.
- * Creates, edits, and manages scheduled cron jobs for Kayley.
- */
-export const CronJobActionSchema = z.object({
-  action: z
-    .enum([
-      "create",
-      "list",
-      "update",
-      "delete",
-      "pause",
-      "resume",
-      "run_now",
-      "mark_summary_delivered",
-    ])
-    .describe("Cron job action to perform."),
-  id: z.string().optional().describe("Cron job id (required for update/delete/pause/resume/run_now)."),
-  run_id: z
-    .string()
-    .optional()
-    .describe("Run id for mark_summary_delivered."),
-  title: z.string().optional().describe("Job title for create/update."),
-  action_type: z
-    .string()
-    .optional()
-    .describe(
-      "Action type for the scheduled job (e.g., 'web_search', 'maintenance_reminder', 'selfie_send')."
-    ),
-  instruction: z
-    .string()
-    .optional()
-    .describe(
-      "Instruction or reminder content for non-web jobs (e.g., maintenance reminders)."
-    ),
-  payload: z
-    .record(z.any())
-    .optional()
-    .describe(
-      "Optional action-specific payload (e.g., { query, instruction, selfieParams })."
-    ),
-  search_query: z
-    .string()
-    .optional()
-    .describe("Web search query for web_search jobs only."),
-  summary_instruction: z
-    .string()
-    .optional()
-    .describe("How Kayley should summarize results for web_search jobs."),
-  schedule_type: z
-    .enum(["daily", "one_time", "monthly", "weekly"])
-    .optional()
-    .describe("Schedule type for create/update."),
-  timezone: z
-    .string()
-    .optional()
-    .describe("IANA timezone (e.g., America/Chicago)."),
-  hour: z
-    .number()
-    .min(0)
-    .max(23)
-    .optional()
-    .describe("Local hour for daily schedule (0-23)."),
-  minute: z
-    .number()
-    .min(0)
-    .max(59)
-    .optional()
-    .describe("Local minute for daily schedule (0-59)."),
-  one_time_at: z
-    .string()
-    .optional()
-    .describe("ISO datetime for one-time schedule."),
-});
 
 /**
  * Schema for the delegate_to_engineering tool.
@@ -805,7 +731,6 @@ export type RetrieveLessonsLearnedArgs = z.infer<typeof RetrieveLessonsLearnedSc
 export type MilaNoteArgs = z.infer<typeof MilaNoteSchema>;
 export type RetrieveMilaNotesArgs = z.infer<typeof RetrieveMilaNotesSchema>;
 export type WorkspaceActionArgs = z.infer<typeof WorkspaceActionSchema>;
-export type CronJobActionArgs = z.infer<typeof CronJobActionSchema>;
 export type DelegateToEngineeringArgs = z.infer<typeof DelegateToEngineeringSchema>;
 export type EngineeringTicketStatusArgs = z.infer<typeof EngineeringTicketStatusSchema>;
 export type SubmitClarificationArgs = z.infer<typeof SubmitClarificationSchema>;
@@ -872,7 +797,6 @@ export type MemoryToolArgs =
   | { tool: "check_task_status"; args: CheckTaskStatusArgs }
   | { tool: "cancel_task"; args: CancelTaskArgs }
   | { tool: "workspace_action"; args: WorkspaceActionArgs }
-  | { tool: "cron_job_action"; args: CronJobActionArgs }
   | { tool: "delegate_to_engineering"; args: DelegateToEngineeringArgs }
   | { tool: "get_engineering_ticket_status"; args: EngineeringTicketStatusArgs }
   | { tool: "submit_clarification"; args: SubmitClarificationArgs }
@@ -1522,96 +1446,6 @@ export const GeminiMemoryToolDeclarations = [
         approved: {
           type: "boolean",
           description: "Set to true only after Steven explicitly approves a destructive or forceful command in the current conversation. Required for dangerous operations (rm -rf, git push --force, git reset --hard, taskkill, etc).",
-        },
-      },
-      required: ["action"],
-    },
-  },
-  {
-    name: "cron_job_action",
-    description:
-      "Create, update, delete, pause, resume, or run scheduled cron jobs. " +
-      "Use action_type to route the job (e.g., 'web_search', 'maintenance_reminder', 'selfie_send'). " +
-      "If action_type is 'web_search', include search_query (required). " +
-      "Use this for recurring reminders, scheduled digests, and background upkeep. " +
-      "Use mark_summary_delivered after you share a queued scheduled digest summary.",
-    parameters: {
-      type: "object",
-      properties: {
-        action: {
-          type: "string",
-          enum: [
-            "create",
-            "list",
-            "update",
-            "delete",
-            "pause",
-            "resume",
-            "run_now",
-            "mark_summary_delivered",
-          ],
-          description: "Cron job action to perform.",
-        },
-        id: {
-          type: "string",
-          description:
-            "Cron job id (required for update/delete/pause/resume/run_now).",
-        },
-        run_id: {
-          type: "string",
-          description:
-            "Run id for mark_summary_delivered.",
-        },
-        title: {
-          type: "string",
-          description: "Job title for create/update.",
-        },
-        action_type: {
-          type: "string",
-          description:
-            "Action type for the scheduled job (e.g., 'web_search', 'maintenance_reminder', 'selfie_send').",
-        },
-        instruction: {
-          type: "string",
-          description:
-            "Instruction or reminder content for non-web jobs (e.g., maintenance reminders). If omitted, summary_instruction may be used.",
-        },
-        payload: {
-          type: "object",
-          description:
-            "Optional action-specific payload (e.g., { query, instruction, selfieParams }).",
-        },
-        search_query: {
-          type: "string",
-          description: "Web search query to run on schedule.",
-        },
-        summary_instruction: {
-          type: "string",
-          description: "How Kayley should summarize results. For non-web jobs, may be used as fallback instruction.",
-        },
-        schedule_type: {
-          type: "string",
-          enum: ["daily", "one_time", "monthly", "weekly"],
-          description: "Schedule type for create/update.",
-        },
-        timezone: {
-          type: "string",
-          description: "IANA timezone (e.g., America/Chicago).",
-        },
-        hour: {
-          type: "number",
-          description:
-            "Local hour for daily schedule (0-23).",
-        },
-        minute: {
-          type: "number",
-          description:
-            "Local minute for daily schedule (0-59).",
-        },
-        one_time_at: {
-          type: "string",
-          description:
-            "ISO datetime for one-time, monthly, or weekly schedules (monthly/weekly use this as the anchor date).",
         },
       },
       required: ["action"],
@@ -2411,7 +2245,6 @@ export interface PendingToolCall {
     | "check_task_status"
     | "cancel_task"
     | "workspace_action"
-    | "cron_job_action"
     | "delegate_to_engineering"
     | "get_engineering_ticket_status"
     | "submit_clarification"

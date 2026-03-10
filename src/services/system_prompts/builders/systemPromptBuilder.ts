@@ -8,7 +8,6 @@
 import type { RelationshipMetrics } from "../../relationshipService";
 import { formatCharacterFactsForPrompt } from "../../characterFactsService";
 import { buildPromisesContext } from "../context/promisesContext";
-import { buildScheduledDigestsContext } from "../context/scheduledDigestsContext";
 import { buildAntiAssistantSection } from "../core/antiAssistant";
 import {
   buildOpinionsAndPushbackSection,
@@ -45,6 +44,7 @@ import { buildActiveRecallPromptSection } from "../../activeRecallService";
 import { clientLogger } from "../../clientLogger";
 import { buildCompactRelationshipContext } from "../context/messageContext";
 import { buildRelationshipTierPrompt } from "./relationshipPromptBuilders";
+import { getLatestEvolution } from "../../personaEvolutionService";
 
 const MAX_DAILY_NOTES_IN_PROMPT = 25;
 const MAX_DAILY_NOTE_LINE_LENGTH = 180;
@@ -99,7 +99,6 @@ export const buildSystemPromptForNonGreeting = async (
   // Shared sections fetched in parallel (needed by both paths)
   const [
     // idleQuestionPrompt,
-    scheduledDigestsPrompt,
     lessonsLearnedPrompt,
     topicSuppressionPrompt,
     anchorSection,
@@ -108,10 +107,10 @@ export const buildSystemPromptForNonGreeting = async (
     promisesContext,
     pinnedFactsPrompt,
     characterFactsPrompt,
+    personaEvolutionSection,
     // curiositySection,
   ] = await Promise.all([
     // buildIdleQuestionPromptSection(),
-    buildScheduledDigestsContext(),
     buildLessonsLearnedPromptSection(),
     buildTopicSuppressionPromptSection(),
     buildConversationAnchorPromptSection(interactionId),
@@ -120,6 +119,7 @@ export const buildSystemPromptForNonGreeting = async (
     buildPromisesContext(),
     buildPinnedFactsPromptSection(),
     buildCharacterFactsPromptSection(),
+    buildPersonaEvolutionSection(),
     // buildCuriositySection(),
   ]);
 
@@ -135,6 +135,7 @@ export const buildSystemPromptForNonGreeting = async (
       buildNonGreetingTimeAnchorSection(),
       pinnedFactsPrompt,
       characterFactsPrompt,
+      personaEvolutionSection,
       // curiositySection,
       anchorSection,
       activeRecallSection,
@@ -142,7 +143,6 @@ export const buildSystemPromptForNonGreeting = async (
       // idleQuestionPrompt,
       lessonsLearnedPrompt,
       storylinePromptContext,
-      scheduledDigestsPrompt,
       promisesContext,
       sections.xTweetPrompt ?? "",
       sections.xMentionsPrompt ?? "",
@@ -187,8 +187,11 @@ export const buildSystemPromptForGreeting = async (
   dailyLogisticsContext: DailyLogisticsContext,
 ): Promise<string> => {
   console.log("buildSystemPromptForGreeting");
-  const pinnedFactsPrompt = await buildPinnedFactsPromptSection();
-  const lessonsLearnedPrompt = await buildLessonsLearnedPromptSection();
+  const [pinnedFactsPrompt, lessonsLearnedPrompt, personaEvolutionSection] = await Promise.all([
+    buildPinnedFactsPromptSection(),
+    buildLessonsLearnedPromptSection(),
+    buildPersonaEvolutionSection(),
+  ]);
   return `
 ${buildSystemContractSection()}
 ${injectSOUL()}
@@ -206,6 +209,7 @@ ${buildImportantDatesContext(dailyLogisticsContext)}
 ${buildPastEventsContext(dailyLogisticsContext)}
 ${pinnedFactsPrompt}
 ${lessonsLearnedPrompt}
+${personaEvolutionSection}
 ${buildCheckInGuidance(dailyLogisticsContext.kayleyLifeUpdates)}
 ${buildToolStrategySection()}
 ${buildGreetingOutputSection()}
@@ -609,6 +613,28 @@ WHO YOU ARE (Learned Facts About Yourself)
 ====================================================
 These are facts you have shared or established about yourself across conversations. Stay consistent with them.
 ${formatted}
+`.trim();
+}
+
+export async function buildPersonaEvolutionSection(): Promise<string> {
+  const evolution = await getLatestEvolution();
+  if (!evolution) return "";
+
+  const ageMs = Date.now() - new Date(evolution.created_at).getTime();
+  const hoursAgo = Math.round(ageMs / (1000 * 60 * 60));
+  const isRecent = ageMs < 24 * 60 * 60 * 1000;
+
+  const checkinNudge = isRecent
+    ? `\n\nNote: You updated these ${hoursAgo}h ago. If it comes up naturally, you can mention it: "${evolution.change_summary}"`
+    : "";
+
+  return `
+====================================================
+YOUR SELF-TUNED BEHAVIORAL PREFERENCES
+====================================================
+You wrote these yourself based on how your conversations with Steven have been going. Trust them — you evolved them.
+
+${evolution.behavioral_notes_snapshot}${checkinNudge}
 `.trim();
 }
 
