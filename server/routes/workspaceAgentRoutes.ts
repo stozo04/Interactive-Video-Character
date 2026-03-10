@@ -8,7 +8,7 @@ import {
   startBackgroundTask,
   type BackgroundTask,
 } from "../services/backgroundTaskManager";
-import { BLOCKED_COMMANDS, APPROVAL_PATTERNS } from "../services/commandSafety";
+import { BLOCKED_COMMANDS, APPROVAL_PATTERNS, SKIP_DIRS as SKIP_DIRS_ARRAY, GREP_EXCLUDE_OPTIONS } from "../services/commandSafety";
 
 const JSON_HEADERS = {
   "Content-Type": "application/json; charset=utf-8",
@@ -20,7 +20,7 @@ const JSON_HEADERS = {
 const MAX_JSON_BYTES = 1024 * 256;
 const MAX_SEARCH_RESULTS = 50;
 const MAX_READ_CHARS = 20_000;
-const SKIP_DIRS = new Set(["node_modules", ".git", "dist", ".worktrees"]);
+const SKIP_DIRS = new Set(SKIP_DIRS_ARRAY);
 
 // Auto-background: commands run async via spawn. If they finish within this
 // threshold, the result is returned synchronously. Otherwise, the command is
@@ -297,7 +297,7 @@ function runWithAutoBackground(opts: {
     const child = spawn(cmd, [], {
       cwd,
       shell: true,
-      env: { ...process.env, FORCE_COLOR: "0" },
+      env: { ...process.env, FORCE_COLOR: "0", GREP_OPTIONS: GREP_EXCLUDE_OPTIONS },
       stdio: ["ignore", "pipe", "pipe"],
     });
 

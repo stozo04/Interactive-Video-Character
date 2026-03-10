@@ -3328,7 +3328,9 @@ export const executeMemoryTool = async (
         const { query, reason } = args as ToolCallArgs['query_database'];
         logInfo(`🔍 [Memory Tool] query_database called. Reason: ${reason}`);
 
-        const normalized = query.trim().toUpperCase();
+        // Strip trailing semicolon — Supabase RPC rejects it with a syntax error
+        const cleanQuery = query.trim().replace(/;+$/, '');
+        const normalized = cleanQuery.toUpperCase();
         if (!normalized.startsWith('SELECT')) {
           return 'ERROR: Only SELECT queries are allowed.';
         }
@@ -3341,7 +3343,7 @@ export const executeMemoryTool = async (
 
         try {
           const { data, error } = await supabase.rpc('kayley_read_query', {
-            sql_query: query,
+            sql_query: cleanQuery,
             max_rows: 50,
           });
           if (error) {

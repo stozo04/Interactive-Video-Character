@@ -115,11 +115,11 @@ export function getToolDisplayName(toolName: string): string {
 // Helpers
 // ============================================================================
 
-/** Truncate a result string for SSE summaries. */
-export function truncateResultSummary(result: unknown, maxLen = 200): string {
-  const str = typeof result === 'string' ? result : JSON.stringify(result);
+/** Truncate a result string for SSE summaries (shown in expanded ToolCallBox). */
+export function truncateResultSummary(result: unknown, maxLen = 3000): string {
+  const str = typeof result === 'string' ? result : JSON.stringify(result, null, 2);
   if (str.length <= maxLen) return str;
-  return str.slice(0, maxLen) + '...';
+  return str.slice(0, maxLen) + `\n... (${str.length - maxLen} more chars)`;
 }
 
 /** Sanitize tool args for SSE (strip large values like base64). */

@@ -7,7 +7,7 @@ import { spawn, type ChildProcess } from "node:child_process";
 import crypto from "node:crypto";
 import path from "node:path";
 import { log } from "../runtimeLogger";
-import { APPROVAL_PATTERNS, BLOCKED_COMMANDS } from "./commandSafety";
+import { APPROVAL_PATTERNS, BLOCKED_COMMANDS, GREP_EXCLUDE_OPTIONS } from "./commandSafety";
 
 const runtimeLog = log.fromContext({ source: "backgroundTaskManager" });
 
@@ -128,7 +128,7 @@ export function startBackgroundTask(opts: {
   const child = opts.existingChild ?? spawn(command, [], {
     cwd,
     shell: true,
-    env: { ...process.env, FORCE_COLOR: "0" },
+    env: { ...process.env, FORCE_COLOR: "0", GREP_OPTIONS: GREP_EXCLUDE_OPTIONS },
     stdio: ["ignore", "pipe", "pipe"],
   });
 

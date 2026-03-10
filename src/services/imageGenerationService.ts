@@ -338,12 +338,26 @@ export async function generateCompanionSelfie(
       });
 
       // 4. Parse Response
-      const generatedPart = response.candidates?.[0]?.content?.parts?.find(
+      const candidate = response.candidates?.[0];
+      const finishReason = candidate?.finishReason;
+
+      // Check for safety/policy blocks before looking for image data
+      if (finishReason === "IMAGE_SAFETY") {
+        log.error('Selfie blocked by IMAGE_SAFETY filter', { scene: request.scene, finishReason });
+        return { success: false, error: "IMAGE_SAFETY: Google blocked the generated image. The scene or prompt triggered a safety filter. Try rephrasing the scene description." };
+      }
+
+      if (finishReason && finishReason !== "STOP" && finishReason !== "MAX_TOKENS") {
+        log.error('Selfie generation blocked', { finishReason, scene: request.scene });
+        return { success: false, error: `Image generation blocked (${finishReason}). Try a different scene description.` };
+      }
+
+      const generatedPart = candidate?.content?.parts?.find(
         (part) => part.inlineData,
       );
 
       if (!generatedPart?.inlineData?.data) {
-        log.error('No image returned from Gemini');
+        log.error('No image returned from Gemini', { finishReason, scene: request.scene });
         return { success: false, error: "No image generated" };
       }
 

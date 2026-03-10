@@ -556,7 +556,6 @@ export const WorkspaceActionSchema = z.object({
       "read",
       "write",
       "search",
-      "status",
       "commit",
       "push",
       "delete",
@@ -1451,7 +1450,6 @@ export const GeminiMemoryToolDeclarations = [
             "read",
             "write",
             "search",
-            "status",
             "commit",
             "push",
             "delete",
@@ -2290,10 +2288,16 @@ export const GeminiMemoryToolDeclarations = [
   {
     name: "query_database",
     description:
-      "Run a read-only SELECT query against your memory database. " +
+      "Run a read-only SELECT query against your memory database (PostgreSQL via Supabase). " +
       "Use for self-audits and proactive maintenance: checking if you wrote daily notes today, " +
       "verifying a fact before storing a duplicate, finding stale promises, reviewing storylines. " +
+      "For debugging errors, query server_runtime_logs — columns: occurred_at, severity, source, message, details (jsonb). " +
+      "ALWAYS filter by time when searching logs to avoid full-table scan timeouts. Use occurred_at > NOW() - INTERVAL '2 hours' (NOT occurred_at > NOW() — that returns nothing). " +
+      "For recent events use INTERVAL '1 hour' or '1 day'. NOW() alone means right now, NOW() - INTERVAL 'X' means X ago. " +
+      "For details jsonb, use details->>'key' ILIKE '%value%' (NOT details::text ILIKE) — casting the whole column is very slow. " +
+      "Do NOT include a trailing semicolon — it will cause a syntax error. " +
       "ONLY SELECT queries are allowed — no INSERT, UPDATE, DELETE, DROP, or ALTER. " +
+      "PostgreSQL syntax only — no ROWID, no SQLite functions. Use LIMIT, not TOP. Use ILIKE for case-insensitive search. " +
       "Results are limited to 50 rows. " +
       "Limit: 1-2 queries per conversation turn, not on every turn. " +
       "Available tables: character_facts, conversation_anchor, " +

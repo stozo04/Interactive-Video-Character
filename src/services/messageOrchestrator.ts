@@ -147,13 +147,13 @@ export async function processUserMessage(input: OrchestratorInput): Promise<Orch
             result.selfieScene = selfieAction.scene;
             result.selfieMood = selfieAction.mood ?? null;
             result.selfieMessageText = 'Here you go!';
-            console.log(`Selfie [Orchestrator] Generated successfully`);
+            log.info('Selfie generated successfully', { scene: selfieAction.scene });
           } else {
             result.selfieError =
               selfieResult.error ||
               "I couldn't take that pic right now, sorry!";
             result.selfieMessageText = result.selfieError;
-            console.log(`Selfie [Orchestrator] Failed: ${result.selfieError}`);
+            log.error('Selfie generation failed', { error: result.selfieError, scene: selfieAction.scene });
           }
         }
       }

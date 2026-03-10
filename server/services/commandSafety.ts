@@ -3,6 +3,21 @@
 // Shared command safety checks for workspace_action and background tasks.
 // Extracted to avoid circular imports between workspaceAgentRoutes and backgroundTaskManager.
 
+/**
+ * Directories to skip in recursive searches and file walks.
+ * Used by workspace_action search AND injected as GREP_OPTIONS into command spawns.
+ */
+export const SKIP_DIRS = [
+  "node_modules",
+  "dist",
+  ".git",
+  ".worktrees",
+  ".whatsapp-auth",
+];
+
+/** GREP_OPTIONS value — injected into command spawn env so all `grep` calls skip heavy dirs automatically. */
+export const GREP_EXCLUDE_OPTIONS = SKIP_DIRS.map(d => `--exclude-dir=${d}`).join(" ");
+
 /** Commands that are completely blocked — never allowed. */
 export const BLOCKED_COMMANDS = new Set([
   "format", "mkfs", "dd",

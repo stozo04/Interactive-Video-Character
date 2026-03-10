@@ -154,6 +154,39 @@ async function resolveTweetDraft(
   return data;
 }
 
+export interface ActiveBackgroundTask {
+  id: string;
+  label: string;
+  command: string;
+  status: 'running';
+  startedAt: number;
+  pid: number | null;
+}
+
+async function getActiveTasks(): Promise<ActiveBackgroundTask[]> {
+  try {
+    const response = await fetch(`${AGENT_BASE_URL}/tasks/active`);
+    if (!response.ok) return [];
+    const data: { tasks: ActiveBackgroundTask[] } = await response.json();
+    return data.tasks ?? [];
+  } catch {
+    return [];
+  }
+}
+
+async function cancelBackgroundTask(taskId: string): Promise<boolean> {
+  try {
+    const response = await fetch(`${AGENT_BASE_URL}/tasks/${taskId}/cancel`, {
+      method: 'POST',
+    });
+    if (!response.ok) return false;
+    const data: { cancelled: boolean } = await response.json();
+    return data.cancelled ?? false;
+  } catch {
+    return false;
+  }
+}
+
 async function sendMediaHistoryEvent(request: MediaHistoryEventRequest): Promise<void> {
   const response = await fetch(`${AGENT_BASE_URL}/media-history`, {
     method: 'POST',
@@ -274,4 +307,6 @@ export const agentClient = {
   healthCheck,
   resolveTweetDraft,
   sendMediaHistoryEvent,
+  getActiveTasks,
+  cancelBackgroundTask,
 };

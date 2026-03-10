@@ -54,6 +54,7 @@ import {
 } from './services/projectAgentService';
 import { buildActionKeyMap } from './utils/actionKeyMapper';
 import { subscribeToTicketUpdates, type TerminatedTicket } from './services/engineeringTicketWatcher';
+import BackgroundTaskIndicator from './components/BackgroundTaskIndicator';
 
 // ============================================================================
 // CONSTANTS & TYPES
@@ -1259,6 +1260,7 @@ const App: React.FC = () => {
                 toolDisplayName: event.toolDisplayName,
                 status: 'running',
                 startedAt: event.timestamp,
+                toolArgs: event.toolArgs,
               };
               turnToolCalls.push(tc);
               setActiveToolCalls([...turnToolCalls]);
@@ -1591,6 +1593,8 @@ const App: React.FC = () => {
                      />
                   </div>
                 )}
+                <BackgroundTaskIndicator />
+
                 <div className="h-full min-h-0">
                   <ChatPanel
                     history={chatHistory}

@@ -4,6 +4,7 @@ export interface ToolCallDisplay {
   toolDisplayName: string;
   status: 'running' | 'success' | 'failed';
   durationMs?: number;
+  toolArgs?: Record<string, unknown>;
   resultSummary?: string;
   startedAt: number;
 }

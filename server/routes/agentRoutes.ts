@@ -26,7 +26,11 @@ import { pollAndProcessMentions } from "../services/xMentionService";
 import { getClaudeSessionSummary, lookUpClaudeQuota } from "../services/anthropic/claudeSessionService";
 import { getOpenAICodexSessionSummary } from "../services/openai/codexSessionService";
 import { TurnEventBus } from "../services/ai/turnEventBus";
-import { drainTaskNotifications } from "../services/backgroundTaskManager";
+import {
+  drainTaskNotifications,
+  listActiveTasks,
+  cancelTask,
+} from "../services/backgroundTaskManager";
 import {
   MediaDeliveryStatus,
   recordVideoGenerationHistory,
@@ -152,6 +156,20 @@ export function createAgentRouter(): (
     if (req.method === "OPTIONS" && url.pathname.startsWith("/agent/")) {
       res.writeHead(204, JSON_HEADERS);
       res.end();
+      return true;
+    }
+
+    if (req.method === "GET" && url.pathname === "/agent/tasks/active") {
+      const tasks = listActiveTasks();
+      sendJson(res, 200, { tasks });
+      return true;
+    }
+
+    const cancelTaskMatch = url.pathname.match(/^\/agent\/tasks\/([^/]+)\/cancel$/);
+    if (req.method === "POST" && cancelTaskMatch) {
+      const taskId = cancelTaskMatch[1];
+      const cancelled = cancelTask(taskId);
+      sendJson(res, 200, { cancelled });
       return true;
     }
 
