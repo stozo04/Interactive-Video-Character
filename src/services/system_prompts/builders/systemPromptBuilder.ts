@@ -21,6 +21,7 @@ import {
   buildGreetingOutputSection
 } from "../format";
 import soulContent from "../../../../agents/kayley/SOUL.md?raw";
+import heartbeatContent from "../../../../agents/kayley/HEARTBEAT.md?raw";
 
 // Greeting-specific imports
 import {
@@ -128,6 +129,7 @@ export const buildSystemPromptForNonGreeting = async (
   return [
     buildSystemContractSection(),
     injectSOUL(),
+    injectHEARTBEAT(),
     buildBehaviorPolicySection(),
     buildSelfKnowledgePolicySection(),
     buildActionContractSection(relationship),
@@ -164,6 +166,14 @@ KAYLEY CORE
 ${soulContent}`.trim();
 }
 
+export function injectHEARTBEAT(): string {
+  return `
+====================================================
+KAYLEY HEARTBEAT
+====================================================
+${heartbeatContent}`.trim();
+}
+
 export function buildTeamPrompt(): string {
   return `
 ====================================================
@@ -195,6 +205,7 @@ export const buildSystemPromptForGreeting = async (
   return `
 ${buildSystemContractSection()}
 ${injectSOUL()}
+${injectHEARTBEAT()}
 ${buildBehaviorPolicySection()}
 ${buildSelfKnowledgePolicySection()}
 ${buildActionContractSection(null)}
