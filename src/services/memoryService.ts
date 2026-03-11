@@ -1344,6 +1344,7 @@ export type MemoryToolName =
   | 'list_active_tasks'
   | 'kayley_pulse'
   | 'review_pr'
+  | 'submit_pr_review'
   | 'workspace_action'
   | 'delegate_to_engineering'
   | 'get_engineering_ticket_status'
@@ -1422,6 +1423,12 @@ export interface ToolCallArgs {
   review_pr: {
     pr_url: string;
     ticket_id?: string;
+  };
+  submit_pr_review: {
+    ticket_id: string;
+    pr_url: string;
+    verdict: 'approved' | 'needs_changes';
+    feedback?: string;
   };
   workspace_action: {
     action:
@@ -1916,6 +1923,37 @@ export const executeMemoryTool = async (
           const errMsg = error instanceof Error ? error.message : String(error);
           reviewLog.error('review_pr tool failed', { error: errMsg, pr_url });
           return `PR review failed: ${errMsg}`;
+        }
+      }
+      case 'submit_pr_review': {
+        const { ticket_id, pr_url, verdict, feedback } = args as ToolCallArgs['submit_pr_review'];
+        const submitLog = clientLogger.scoped('SubmitPrReview');
+        submitLog.info('submit_pr_review tool invoked', { ticket_id, verdict });
+
+        if (verdict === 'approved') {
+          return `PR approved ✓\nTicket: ${ticket_id}\nPR: ${pr_url}\n\nNo changes needed — letting Steven know the PR looks good.`;
+        }
+
+        // needs_changes
+        if (!feedback?.trim()) {
+          return `submit_pr_review error: feedback is required when verdict is needs_changes.`;
+        }
+
+        try {
+          const { submitPrFeedback } = await import('../../server/services/githubReviewService');
+          await submitPrFeedback(ticket_id, feedback);
+          return [
+            `PR review submitted — changes requested.`,
+            `Ticket ${ticket_id} has been reset to 'created' with your feedback.`,
+            `Opey will pick it up and push fixes to the existing PR: ${pr_url}`,
+            ``,
+            `Feedback written to ticket:`,
+            feedback,
+          ].join('\n');
+        } catch (error) {
+          const errMsg = error instanceof Error ? error.message : String(error);
+          submitLog.error('submit_pr_review failed', { error: errMsg, ticket_id });
+          return `submit_pr_review failed: ${errMsg}`;
         }
       }
       case 'workspace_action': {

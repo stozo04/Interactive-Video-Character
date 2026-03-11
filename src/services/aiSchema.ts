@@ -755,6 +755,22 @@ export type RetrieveLessonsLearnedArgs = z.infer<typeof RetrieveLessonsLearnedSc
 export type MilaNoteArgs = z.infer<typeof MilaNoteSchema>;
 export type RetrieveMilaNotesArgs = z.infer<typeof RetrieveMilaNotesSchema>;
 export type ReviewPrArgs = z.infer<typeof ReviewPrSchema>;
+
+/**
+ * Schema for the submit_pr_review tool.
+ * Called after review_pr once Kayley has formed a verdict.
+ */
+export const SubmitPrReviewSchema = z.object({
+  ticket_id: z.string().describe("Engineering ticket ID the PR belongs to."),
+  pr_url: z.string().describe("Full GitHub PR URL — included in feedback message to Steven."),
+  verdict: z.enum(["approved", "needs_changes"]).describe(
+    "approved: PR looks good, notify Steven. needs_changes: write feedback to ticket and reset it for Opey to fix."
+  ),
+  feedback: z.string().optional().describe(
+    "Required when verdict is needs_changes. Specific, actionable feedback for Opey — what is missing, wrong, or needs to change."
+  ),
+});
+export type SubmitPrReviewArgs = z.infer<typeof SubmitPrReviewSchema>;
 export type KayleyPulseArgs = z.infer<typeof KayleyPulseSchema>;
 export type WorkspaceActionArgs = z.infer<typeof WorkspaceActionSchema>;
 export type DelegateToEngineeringArgs = z.infer<typeof DelegateToEngineeringSchema>;
@@ -824,6 +840,7 @@ export type MemoryToolArgs =
   | { tool: "cancel_task"; args: CancelTaskArgs }
   | { tool: "kayley_pulse"; args: KayleyPulseArgs }
   | { tool: "review_pr"; args: ReviewPrArgs }
+  | { tool: "submit_pr_review"; args: SubmitPrReviewArgs }
   | { tool: "workspace_action"; args: WorkspaceActionArgs }
   | { tool: "delegate_to_engineering"; args: DelegateToEngineeringArgs }
   | { tool: "get_engineering_ticket_status"; args: EngineeringTicketStatusArgs }
@@ -2033,6 +2050,37 @@ export const GeminiMemoryToolDeclarations = [
     },
   },
   {
+    name: "submit_pr_review",
+    description:
+      "Submit a verdict after reviewing Opey's PR. " +
+      "Use verdict='approved' when the PR looks correct — Kayley notifies Steven. " +
+      "Use verdict='needs_changes' with specific feedback — writes feedback to the ticket, resets it for Opey to fix the existing PR.",
+    parameters: {
+      type: "object",
+      properties: {
+        ticket_id: {
+          type: "string",
+          description: "Engineering ticket ID the PR belongs to.",
+        },
+        pr_url: {
+          type: "string",
+          description: "Full GitHub PR URL — included in the message to Steven.",
+        },
+        verdict: {
+          type: "string",
+          enum: ["approved", "needs_changes"],
+          description: "approved or needs_changes.",
+        },
+        feedback: {
+          type: "string",
+          description:
+            "Required when verdict is needs_changes. Specific, actionable feedback for Opey — what is missing, wrong, or needs changing.",
+        },
+      },
+      required: ["ticket_id", "pr_url", "verdict"],
+    },
+  },
+  {
     name: "post_x_tweet",
     description:
       "Post a tweet to X with specific text. " +
@@ -2318,6 +2366,7 @@ export interface PendingToolCall {
     | "cancel_task"
     | "kayley_pulse"
     | "review_pr"
+    | "submit_pr_review"
     | "workspace_action"
     | "delegate_to_engineering"
     | "get_engineering_ticket_status"

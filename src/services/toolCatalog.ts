@@ -110,6 +110,15 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
     ],
   },
   {
+    tool_key: "submit_pr_review",
+    name: "PR Review Verdict",
+    description: "Submit an approved or needs_changes verdict after reviewing Opey's PR.",
+    user_value: "Closes the review loop — either approves the PR or sends Opey back with specific feedback.",
+    permissions_needed: ["supabase_write"],
+    triggers: ["pr approved", "send opey feedback", "request pr changes", "pr looks good"],
+    sample_prompts: ["Approve Opey's PR.", "Send Opey back with feedback on what he missed."],
+  },
+  {
     tool_key: "review_pr",
     name: "PR Reviewer",
     description: "Fetch a GitHub PR's metadata, diff, and CI status so Kayley can review Opey's work.",

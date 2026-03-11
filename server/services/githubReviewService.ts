@@ -7,6 +7,7 @@
 // Uses GITHUB_API_KEY — same token Opey uses to create PRs in githubOps.ts.
 
 import { log } from "../runtimeLogger";
+import { supabaseAdmin } from "./supabaseAdmin";
 
 const runtimeLog = log.fromContext({ source: "githubReviewService", route: "github/review" });
 
@@ -199,4 +200,37 @@ export function formatPrReview(summary: PrReviewSummary): string {
     `--- DIFF ---${truncationNote}`,
     summary.diff,
   ].join("\n");
+}
+
+// ---------------------------------------------------------------------------
+// PR feedback submission — called by submit_pr_review tool when verdict is
+// 'needs_changes'. Writes feedback to the ticket and resets it to 'created'
+// so Opey picks it up and fixes the existing PR.
+// ---------------------------------------------------------------------------
+
+export async function submitPrFeedback(
+  ticketId: string,
+  feedback: string,
+): Promise<void> {
+  runtimeLog.info("Writing PR review feedback to ticket", {
+    source: "githubReviewService",
+    ticketId,
+  });
+
+  const { error } = await supabaseAdmin
+    .from("engineering_tickets")
+    .update({
+      pr_feedback: feedback,
+      status: "created",
+    })
+    .eq("id", ticketId);
+
+  if (error) {
+    throw new Error(`Failed to write PR feedback for ticket ${ticketId}: ${error.message}`);
+  }
+
+  runtimeLog.info("PR feedback written — ticket reset to created", {
+    source: "githubReviewService",
+    ticketId,
+  });
 }
