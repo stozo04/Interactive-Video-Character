@@ -2,6 +2,12 @@
 // Kayley Dashboard (pulse) - periodic service health checks + snapshot file.
 
 import { log } from "../runtimeLogger";
+import { ai, GEMINI_MODEL } from "../ai/geminiClient";
+import { bot, getStevenChatId } from "../../../telegram/telegramClient";
+import {
+  appendConversationHistory,
+  getTodaysInteractionId,
+} from "../../../src/services/conversationHistoryService";
 import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
@@ -279,6 +285,77 @@ function summarizeRun(services: Record<string, PulseServiceStatus>): {
   return { overallStatus, okCount, failCount, failingServices: failing };
 }
 
+async function generatePulseAlertMessage(
+  run: PulseRun,
+  type: "degraded" | "recovered",
+): Promise<string> {
+  const failing = run.summary.failingServices.join(", ");
+
+  const prompt =
+    type === "degraded"
+      ? `I just ran a system health check and these services are down: ${failing}. Overall status: ${run.overallStatus}. Write a brief, calm 1-2 sentence notification to Steven — concerned but not panicked. Mention which services are affected.`
+      : `All services just came back online after being down. Write a brief, relieved 1-sentence message to Steven that everything is back to normal.`;
+
+  const response = await ai.models.generateContent({
+    model: GEMINI_MODEL,
+    contents: [{ role: "user", parts: [{ text: prompt }] }],
+    config: {
+      temperature: 0.6,
+      systemInstruction:
+        "You are Kayley Adams, a warm AI companion texting Steven. Be natural and brief. No excessive emojis.",
+      maxOutputTokens: 100,
+    },
+  });
+
+  return (
+    response.text?.trim() ||
+    (type === "degraded"
+      ? `Hey, health check flagged an issue — ${failing} ${run.summary.failCount === 1 ? "appears" : "appear"} to be down.`
+      : "All systems are back online!")
+  );
+}
+
+async function sendPulseAlert(
+  run: PulseRun,
+  type: "degraded" | "recovered",
+): Promise<void> {
+  const message = await generatePulseAlertMessage(run, type);
+
+  // Telegram push
+  const chatId = getStevenChatId();
+  if (chatId) {
+    try {
+      await bot.api.sendMessage(chatId, message);
+      runtimeLog.info("Pulse alert delivered to Telegram", {
+        source: "kayleyDashboard",
+        type,
+        overallStatus: run.overallStatus,
+      });
+    } catch (err) {
+      runtimeLog.error("Failed to deliver pulse alert to Telegram", {
+        source: "kayleyDashboard",
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
+  // Persist to conversation_history so Kayley remembers the alert on her next turn
+  try {
+    const interactionId = await getTodaysInteractionId();
+    const logId = crypto.randomUUID();
+    await appendConversationHistory(
+      [{ role: "model", text: message }],
+      interactionId ?? undefined,
+      logId,
+    );
+  } catch (err) {
+    runtimeLog.error("Failed to persist pulse alert to conversation_history", {
+      source: "kayleyDashboard",
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+}
+
 export async function readPulseConfig(): Promise<PulseConfig> {
   try {
     const raw = await fs.readFile(PULSE_CONFIG_PATH, "utf8");
@@ -358,6 +435,10 @@ export async function runPulseCheck(options?: {
   };
 
   const current = await readPulseConfig();
+  // Capture previous status BEFORE writing — used for transition detection.
+  // null means first run ever; treat as "ok" so we don't alert on cold start.
+  const previousStatus: PulseOverallStatus = current.latest?.overallStatus ?? "ok";
+
   const updatedHistory = [run, ...current.history].slice(0, MAX_HISTORY);
   const updated: PulseConfig = {
     version: 1,
@@ -384,6 +465,30 @@ export async function runPulseCheck(options?: {
       overallStatus: run.overallStatus,
       failingServices: run.summary.failingServices,
     });
+  }
+
+  // Push alerts on state transitions — scheduled runs only.
+  // Manual runs skip alerts: Kayley triggered it herself, she already knows.
+  if (reason === "scheduled") {
+    const wentDown = previousStatus === "ok" && run.overallStatus !== "ok";
+    const recovered = previousStatus !== "ok" && run.overallStatus === "ok";
+
+    if (wentDown || recovered) {
+      const alertType = wentDown ? "degraded" : "recovered";
+      runtimeLog.info("Pulse state transition detected — sending alert", {
+        source: "kayleyDashboard",
+        runId,
+        previousStatus,
+        currentStatus: run.overallStatus,
+        alertType,
+      });
+      sendPulseAlert(run, alertType).catch((err) => {
+        runtimeLog.error("Pulse alert delivery failed", {
+          source: "kayleyDashboard",
+          error: err instanceof Error ? err.message : String(err),
+        });
+      });
+    }
   }
 
   return run;
