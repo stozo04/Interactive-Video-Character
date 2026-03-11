@@ -110,6 +110,15 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
     ],
   },
   {
+    tool_key: "review_pr",
+    name: "PR Reviewer",
+    description: "Fetch a GitHub PR's metadata, diff, and CI status so Kayley can review Opey's work.",
+    user_value: "Lets Kayley verify Opey built what was asked before Steven merges.",
+    permissions_needed: ["github_api_read"],
+    triggers: ["review pr", "check opey's pr", "did opey build this right", "pr ready"],
+    sample_prompts: ["Review Opey's PR for ticket XYZ.", "Check if the PR looks correct."],
+  },
+  {
     tool_key: "kayley_pulse",
     name: "Kayley Pulse Dashboard",
     description: "Read or trigger Kayley's health dashboard snapshot for key services.",

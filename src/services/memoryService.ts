@@ -1343,6 +1343,7 @@ export type MemoryToolName =
   | 'cancel_task'
   | 'list_active_tasks'
   | 'kayley_pulse'
+  | 'review_pr'
   | 'workspace_action'
   | 'delegate_to_engineering'
   | 'get_engineering_ticket_status'
@@ -1417,6 +1418,10 @@ export interface ToolCallArgs {
   kayley_pulse: {
     action: 'read' | 'check';
     reason?: string;
+  };
+  review_pr: {
+    pr_url: string;
+    ticket_id?: string;
   };
   workspace_action: {
     action:
@@ -1892,6 +1897,25 @@ export const executeMemoryTool = async (
           const errMsg = error instanceof Error ? error.message : String(error);
           pulseLog.error('Kayley pulse tool failed', { error: errMsg });
           return `Pulse check failed: ${errMsg}`;
+        }
+      }
+      case 'review_pr': {
+        const { pr_url, ticket_id } = args as ToolCallArgs['review_pr'];
+        const reviewLog = clientLogger.scoped('ReviewPr');
+        reviewLog.info('review_pr tool invoked', { pr_url, ticket_id });
+
+        try {
+          const { fetchPrReview, formatPrReview } = await import('../../server/services/githubReviewService');
+          const summary = await fetchPrReview(pr_url);
+          let output = formatPrReview(summary);
+          if (ticket_id) {
+            output = `Reviewing PR for ticket ${ticket_id}\n\n${output}`;
+          }
+          return output;
+        } catch (error) {
+          const errMsg = error instanceof Error ? error.message : String(error);
+          reviewLog.error('review_pr tool failed', { error: errMsg, pr_url });
+          return `PR review failed: ${errMsg}`;
         }
       }
       case 'workspace_action': {

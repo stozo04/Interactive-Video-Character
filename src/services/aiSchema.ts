@@ -545,6 +545,19 @@ export const RetrieveMilaNotesSchema = z.object({
 });
 
 /**
+ * Schema for the review_pr tool.
+ * Used to fetch a GitHub PR's metadata, diff, and CI status for Kayley to review.
+ */
+export const ReviewPrSchema = z.object({
+  pr_url: z.string().describe(
+    "Full GitHub PR URL, e.g. https://github.com/owner/repo/pull/51"
+  ),
+  ticket_id: z.string().optional().describe(
+    "Engineering ticket ID this PR corresponds to — included for context in the review output."
+  ),
+});
+
+/**
  * Schema for the kayley_pulse tool.
  * Used to read or trigger a Kayley health dashboard snapshot.
  */
@@ -741,6 +754,7 @@ export type StoreLessonsLearnedArgs = z.infer<typeof StoreLessonsLearnedSchema>;
 export type RetrieveLessonsLearnedArgs = z.infer<typeof RetrieveLessonsLearnedSchema>;
 export type MilaNoteArgs = z.infer<typeof MilaNoteSchema>;
 export type RetrieveMilaNotesArgs = z.infer<typeof RetrieveMilaNotesSchema>;
+export type ReviewPrArgs = z.infer<typeof ReviewPrSchema>;
 export type KayleyPulseArgs = z.infer<typeof KayleyPulseSchema>;
 export type WorkspaceActionArgs = z.infer<typeof WorkspaceActionSchema>;
 export type DelegateToEngineeringArgs = z.infer<typeof DelegateToEngineeringSchema>;
@@ -809,6 +823,7 @@ export type MemoryToolArgs =
   | { tool: "check_task_status"; args: CheckTaskStatusArgs }
   | { tool: "cancel_task"; args: CancelTaskArgs }
   | { tool: "kayley_pulse"; args: KayleyPulseArgs }
+  | { tool: "review_pr"; args: ReviewPrArgs }
   | { tool: "workspace_action"; args: WorkspaceActionArgs }
   | { tool: "delegate_to_engineering"; args: DelegateToEngineeringArgs }
   | { tool: "get_engineering_ticket_status"; args: EngineeringTicketStatusArgs }
@@ -1996,6 +2011,28 @@ export const GeminiMemoryToolDeclarations = [
     },
   },
   {
+    name: "review_pr",
+    description:
+      "Fetch a GitHub PR's metadata, code diff, and CI check status for review. " +
+      "Use this when Opey opens a PR to verify it matches the original ticket requirements. " +
+      "Returns the PR title, author, state, CI results, description, and full diff in one call.",
+    parameters: {
+      type: "object",
+      properties: {
+        pr_url: {
+          type: "string",
+          description: "Full GitHub PR URL, e.g. https://github.com/owner/repo/pull/51",
+        },
+        ticket_id: {
+          type: "string",
+          description:
+            "Engineering ticket ID this PR corresponds to — included for context in the review output.",
+        },
+      },
+      required: ["pr_url"],
+    },
+  },
+  {
     name: "post_x_tweet",
     description:
       "Post a tweet to X with specific text. " +
@@ -2280,6 +2317,7 @@ export interface PendingToolCall {
     | "check_task_status"
     | "cancel_task"
     | "kayley_pulse"
+    | "review_pr"
     | "workspace_action"
     | "delegate_to_engineering"
     | "get_engineering_ticket_status"

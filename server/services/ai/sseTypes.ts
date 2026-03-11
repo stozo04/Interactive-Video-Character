@@ -106,6 +106,7 @@ const TOOL_DISPLAY_NAMES: Record<string, string> = {
   cancel_task: 'Cancelling task',
   list_active_tasks: 'Listing active tasks',
   kayley_pulse: 'Checking Kayley pulse',
+  review_pr: 'Reviewing Opey PR',
 };
 
 export function getToolDisplayName(toolName: string): string {
