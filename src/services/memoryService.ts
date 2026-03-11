@@ -1417,7 +1417,8 @@ export interface ToolCallArgs {
   };
   list_active_tasks: Record<string, never>;
   kayley_pulse: {
-    action: 'read' | 'check';
+    action: 'read' | 'check' | 'restart';
+    service?: 'opey' | 'tidy' | 'telegram' | 'server';
     reason?: string;
   };
   review_pr: {
@@ -1892,7 +1893,45 @@ export const executeMemoryTool = async (
               reason: 'manual',
               requestedBy: reason ? `kayley:${reason}` : 'kayley',
             });
-            return `${formatRunSummary(run)}\n\nPulse snapshot saved.`; 
+            return `${formatRunSummary(run)}\n\nPulse snapshot saved.`;
+          }
+
+          if (action === 'restart') {
+            const { service } = args as ToolCallArgs['kayley_pulse'];
+            if (!service) return "restart action requires a service parameter (opey, tidy, or telegram).";
+
+            const RESTART_URLS: Record<string, string> = {
+              opey: 'http://127.0.0.1:4013/restart',
+              tidy: 'http://127.0.0.1:4014/restart',
+            };
+
+            if (service === 'telegram' || service === 'server') {
+              // Telegram and the main server both run under tsx watch.
+              // Touching their restartTrigger.ts files causes tsx to detect a change and respawn.
+              const fs = await import('node:fs/promises');
+              const path = await import('node:path');
+              const triggerFile = service === 'telegram'
+                ? 'telegram/restartTrigger.ts'
+                : 'server/restartTrigger.ts';
+              const exportName = service === 'telegram' ? 'TELEGRAM_RESTART_TRIGGER' : 'RESTART_TRIGGER';
+              const comment = service === 'telegram'
+                ? "// This file is intentionally imported by telegram/index.ts to keep it in tsx watch's\n// dependency graph. Kayley's self-healing protocol writes to this file to trigger\n// a Telegram process restart — tsx watch detects the change and restarts the process.\n// Do not delete or remove the import from telegram/index.ts."
+                : "// This file is intentionally imported by server/index.ts to keep it in tsx watch's\n// dependency graph. Kayley's self-healing protocol writes to this file to trigger\n// a server restart — tsx watch detects the change and restarts the process.\n// Do not delete or remove the import from server/index.ts.";
+              const triggerPath = path.resolve(process.cwd(), triggerFile);
+              const content = `${comment}\nexport const ${exportName} = "${Date.now()}";\n`;
+              await fs.writeFile(triggerPath, content, 'utf8');
+              pulseLog.info(`${service} restart triggered via ${triggerFile}`, { service });
+              return `${service} restart triggered — tsx watch will respawn the process in a moment.`;
+            }
+
+            const url = RESTART_URLS[service];
+            const response = await fetch(url, { method: 'POST', signal: AbortSignal.timeout(5000) });
+            const json = await response.json().catch(() => ({}));
+            if (response.ok) {
+              pulseLog.info('Service restart triggered', { service, url });
+              return `${service} restart triggered. Response: ${JSON.stringify(json)}`;
+            }
+            return `Failed to restart ${service} — HTTP ${response.status}: ${JSON.stringify(json)}`;
           }
 
           const config = await readPulseConfig();

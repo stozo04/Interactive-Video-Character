@@ -157,6 +157,7 @@ Corpses rot. Every dead function is a lie about what the codebase does, a trap f
    - **Backward compat:** Telegram/WhatsApp use `POST /agent/message` (no eventBus) — zero behavior change
    - **Security:** `workspace_action` command execution uses same minimal blocked-commands list as Claude Code (format, mkfs, dd, shutdown, etc.)
    - **System prompt:** Sections 21 (web_fetch), 22 (autonomous agent mode), 23 (background tasks) in `toolsAndCapabilities.ts`
+   - **GOTCHA — SSE stream drop causes infinite UI hang:** If the server dies mid-stream (e.g. Kayley restarts it via `restartTrigger.ts`), `reader.read()` can return `{done: true}` cleanly without throwing. The `catch` fallback never fires. `onComplete`/`onError` never get called. `pendingRequestCount` is never decremented. UI is stuck on "..." forever. **Fix (applied 2026-03-11):** Track a `completed` flag in `sendMessageStream()`. After the while loop, if `!completed`, fall back to `sendMessage()` — gets a response if the server is back, or fires `onError` if not. Either way the UI unblocks. See `src/services/agentClient.ts`.
 
 7. **Vite build: bare Node.js builtins must be externalized:**
    - `vite.config.ts` `build.rollupOptions.external` covers `node:`-prefixed imports via `/^node:/`
@@ -165,7 +166,22 @@ Corpses rot. Every dead function is a lie about what the codebase does, a trap f
    - **Fix already applied:** `external` in `vite.config.ts` now includes a regex for all common bare builtin names in addition to `/^node:/`
    - **Rule:** Any new server-side file that gets transitively pulled into the browser build MUST use `node:` prefixed imports (e.g. `import { promisify } from "node:util"`), or the existing regex handles it automatically
 
-8. **Respect the working contract:**
+8. **`localhost` is IPv6 on Windows — always use `127.0.0.1` for local inter-process calls:**
+   - Node.js 18+ resolves `localhost` to `::1` (IPv6) on Windows per OS DNS order
+   - Processes that bind to `127.0.0.1` (IPv4 only) will refuse connections from Node.js `fetch("http://localhost:...")`
+   - `curl` resolves `localhost` to `127.0.0.1` and succeeds — making this invisible in manual testing
+   - **Rule:** All server-side `fetch` calls to local services (health checks, restarts) must use `http://127.0.0.1:<port>`, never `http://localhost:<port>`
+   - **Applied:** `kayley_dashboard/index.ts` uses `127.0.0.1` for all local health check URLs
+
+9. **`kayley_pulse` tool — full capability reference:**
+   - `action: 'read'` — reads `pulse-config.json`, no network calls
+   - `action: 'check'` — runs fresh health check, writes `pulse-config.json`
+   - `action: 'restart'` + `service: 'opey'|'tidy'|'telegram'|'server'` — restarts the named service
+   - Opey/Tidy restart: `POST http://127.0.0.1:{port}/restart`
+   - Telegram/Server restart: writes timestamp to `telegram/restartTrigger.ts` or `server/restartTrigger.ts` — tsx watch detects and respawns
+   - WhatsApp is NOT monitored (not in active use)
+
+10. **Respect the working contract:**
    - For non-trivial work: discuss approach + tradeoffs BEFORE coding
    - For bugs: form no hypothesis until you've read the execution path
    - For changes: surface assumptions, ask clarifying questions

@@ -211,6 +211,29 @@ export interface StreamCallbacks {
   onActionEnd?: (event: SSEActionEndEvent) => void;
   onComplete: (result: OrchestratorResult) => void;
   onError: (error: string) => void;
+  onRetrying?: () => void;
+}
+
+// ============================================================================
+// Retry helpers
+// ============================================================================
+
+const RETRY_POLL_INTERVAL_MS = 500;
+const RETRY_TIMEOUT_MS = 12_000;
+
+/** Polls GET /agent/health until the server responds or the timeout elapses. */
+async function waitForServer(): Promise<boolean> {
+  const deadline = Date.now() + RETRY_TIMEOUT_MS;
+  while (Date.now() < deadline) {
+    try {
+      const res = await fetch(`${AGENT_BASE_URL}/health`, { method: 'GET' });
+      if (res.ok) return true;
+    } catch {
+      // still down
+    }
+    await new Promise(resolve => setTimeout(resolve, RETRY_POLL_INTERVAL_MS));
+  }
+  return false;
 }
 
 // ============================================================================
@@ -220,6 +243,7 @@ export interface StreamCallbacks {
 async function sendMessageStream(
   request: AgentMessageRequest,
   callbacks: StreamCallbacks,
+  _attempt = 0,
 ): Promise<void> {
   try {
     const response = await fetch(`${AGENT_BASE_URL}/message/stream`, {
@@ -242,6 +266,7 @@ async function sendMessageStream(
 
     const decoder = new TextDecoder();
     let buffer = '';
+    let completed = false;
 
     while (true) {
       const { done, value } = await reader.read();
@@ -275,9 +300,11 @@ async function sendMessageStream(
               callbacks.onActionEnd?.(event);
               break;
             case 'turn_complete':
+              completed = true;
               callbacks.onComplete(event.result);
               break;
             case 'turn_error':
+              completed = true;
               callbacks.onError(event.error);
               break;
             // turn_start — no action needed
@@ -287,17 +314,34 @@ async function sendMessageStream(
         }
       }
     }
-  } catch (err) {
-    // Fallback: try regular sendMessage on connection failure
-    try {
-      const result = await sendMessage(request);
-      callbacks.onComplete(result);
-    } catch (fallbackErr) {
-      callbacks.onError(
-        fallbackErr instanceof Error ? fallbackErr.message : String(fallbackErr),
-      );
+
+    if (!completed) {
+      // Stream ended without turn_complete — server likely restarted mid-stream.
+      await handleIncompleteStream(request, callbacks, _attempt);
     }
+  } catch {
+    // Connection-level failure (ERR_CONNECTION_REFUSED etc.) — server likely restarting.
+    await handleIncompleteStream(request, callbacks, _attempt);
   }
+}
+
+async function handleIncompleteStream(
+  request: AgentMessageRequest,
+  callbacks: StreamCallbacks,
+  attempt: number,
+): Promise<void> {
+  if (attempt === 0) {
+    // First failure: wait for the server to come back up, then retry the full stream.
+    callbacks.onRetrying?.();
+    const serverBack = await waitForServer();
+    if (serverBack) {
+      return sendMessageStream(request, callbacks, 1);
+    }
+    callbacks.onError('Server did not come back online within 12 seconds.');
+    return;
+  }
+  // Second failure: give up.
+  callbacks.onError('Failed to process message after retry.');
 }
 
 export const agentClient = {

@@ -20,10 +20,9 @@ const MAX_HISTORY = 50;
 const REQUEST_TIMEOUT_MS = 6_000;
 
 const DEFAULT_SERVER_BASE_URL = "http://localhost:4010";
-const DEFAULT_WHATSAPP_HEALTH_URL = "http://localhost:4011";
-const DEFAULT_TELEGRAM_HEALTH_URL = "http://localhost:4012";
-const DEFAULT_OPEY_HEALTH_URL = "http://localhost:4013";
-const DEFAULT_TIDY_HEALTH_URL = "http://localhost:4014";
+const DEFAULT_TELEGRAM_HEALTH_URL = "http://127.0.0.1:4012";
+const DEFAULT_OPEY_HEALTH_URL = "http://127.0.0.1:4013";
+const DEFAULT_TIDY_HEALTH_URL = "http://127.0.0.1:4014";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -74,14 +73,6 @@ function getServerBaseUrl(): string {
   const configured = process.env.KAYLEY_PULSE_SERVER_URL ?? process.env.SERVER_BASE_URL;
   if (configured && configured.trim()) return configured.trim().replace(/\/+$/, "");
   return DEFAULT_SERVER_BASE_URL;
-}
-
-function getWhatsAppHealthUrl(): string {
-  const configured = process.env.WHATSAPP_HEALTH_URL ?? process.env.WHATSAPP_BRIDGE_URL;
-  if (configured && configured.trim()) return configured.trim().replace(/\/+$/, "");
-  const port = process.env.WHATSAPP_HEALTH_PORT;
-  if (port && port.trim()) return `http://localhost:${port.trim()}`;
-  return DEFAULT_WHATSAPP_HEALTH_URL;
 }
 
 function getTelegramHealthUrl(): string {
@@ -244,26 +235,6 @@ async function checkTelegramHealth(): Promise<PulseServiceStatus> {
   };
 }
 
-async function checkWhatsAppHealth(): Promise<PulseServiceStatus> {
-  const baseUrl = getWhatsAppHealthUrl();
-  const response = await fetchJsonWithTimeout(`${baseUrl}/health`);
-
-  if (!response.ok) {
-    return { ok: false, latencyMs: response.latencyMs, error: response.error };
-  }
-
-  const connected = response.json?.connected === true;
-  const ok = response.json?.ok === true && connected;
-  return {
-    ok,
-    latencyMs: response.latencyMs,
-    error: ok ? undefined : response.json?.error || "WhatsApp not connected",
-    details: {
-      connected,
-    },
-  };
-}
-
 function summarizeRun(services: Record<string, PulseServiceStatus>): {
   overallStatus: PulseOverallStatus;
   okCount: number;
@@ -400,20 +371,18 @@ export async function runPulseCheck(options?: {
     requestedBy: options?.requestedBy ?? null,
   });
 
-  const [server, opey, tidy, telegram, whatsapp] = await Promise.all([
+  const [server, opey, tidy, telegram] = await Promise.all([
     checkMultiAgentHealth(),
     checkOpeyHealth(),
     checkTidyHealth(),
     checkTelegramHealth(),
-    checkWhatsAppHealth(),
   ]);
 
   const services: Record<string, PulseServiceStatus> = {
-    server: server,
-    opey: opey,
-    tidy: tidy,
-    telegram: telegram,
-    whatsapp: whatsapp,
+    server,
+    opey,
+    tidy,
+    telegram,
   };
 
   const summary = summarizeRun(services);

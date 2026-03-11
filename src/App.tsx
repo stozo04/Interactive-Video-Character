@@ -1296,6 +1296,17 @@ const App: React.FC = () => {
             },
             onComplete: resolve,
             onError: (err) => reject(new Error(err)),
+            onRetrying: () => {
+              const tc: import('./types').ToolCallDisplay = {
+                callIndex: turnToolCalls.length,
+                toolName: 'reconnecting',
+                toolDisplayName: 'Reconnecting...',
+                status: 'running',
+                startedAt: Date.now(),
+              };
+              turnToolCalls.push(tc);
+              setActiveToolCalls([...turnToolCalls]);
+            },
           },
         );
       });

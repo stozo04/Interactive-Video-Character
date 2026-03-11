@@ -562,10 +562,11 @@ export const ReviewPrSchema = z.object({
  * Used to read or trigger a Kayley health dashboard snapshot.
  */
 export const KayleyPulseSchema = z.object({
-  action: z.enum(["read", "check"]).describe(
-    "Use read to fetch the latest pulse status. Use check to trigger a fresh health check and update pulse-config.json."
+  action: z.enum(["read", "check", "restart"]).describe(
+    "Use read to fetch the latest pulse status. Use check to trigger a fresh health check and update pulse-config.json. Use restart to restart a specific service."
   ),
-  reason: z.string().optional().describe("Optional short reason for manual checks."),
+  service: z.enum(["opey", "tidy", "telegram", "server"]).optional().describe("Required when action='restart'. Which service to restart."),
+  reason: z.string().optional().describe("Optional short reason for manual checks or restarts."),
 });
 
 /**
@@ -2008,20 +2009,26 @@ export const GeminiMemoryToolDeclarations = [
   {
     name: "kayley_pulse",
     description:
-      "Read or trigger Kayley's health dashboard (pulse) snapshot. " +
+      "Read, trigger, or act on Kayley's health dashboard (pulse). " +
       "Use action='read' to fetch the latest saved status and history count. " +
-      "Use action='check' to run a fresh health check across Opey, Tidy, Telegram, WhatsApp, and the main server.",
+      "Use action='check' to run a fresh health check across Opey, Tidy, Telegram, and the main server. " +
+      "Use action='restart' with service='opey'|'tidy'|'telegram' to restart a specific service.",
     parameters: {
       type: "object",
       properties: {
         action: {
           type: "string",
-          enum: ["read", "check"],
-          description: "read fetches the latest snapshot, check triggers a new run.",
+          enum: ["read", "check", "restart"],
+          description: "read fetches the latest snapshot, check triggers a new run, restart restarts a service.",
+        },
+        service: {
+          type: "string",
+          enum: ["opey", "tidy", "telegram", "server"],
+          description: "Required when action='restart'. Which service to restart.",
         },
         reason: {
           type: "string",
-          description: "Optional short reason for manual checks.",
+          description: "Optional short reason for manual checks or restarts.",
         },
       },
       required: ["action"],
