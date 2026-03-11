@@ -114,6 +114,18 @@ Dead, unused code must never be allowed to persist. This is non-negotiable.
 
 Every dead function is a lie about what the codebase does. Corpses rot and trap future readers. Leave the codebase cleaner than you found it, always.
 
+## Session Start Protocol (Mandatory — Do Before Anything Else)
+
+Every session starts with three reads, in this order:
+
+1. **`README.md`** (repo root) — product overview, service port map, quick-start, env variables.
+2. **`server/README.md`** — server architecture, all background services (including Kayley Pulse Dashboard), API routes, gogcli setup, Opey and Tidy agent internals.
+3. **`agents/opey-dev/PRODUCT_KNOWLEDGE.md`** — deep product knowledge not captured in the READMEs: tool patterns, system prompt architecture, Supabase tables, service startup order, and hard rules.
+
+These three documents are your ground truth for this codebase. Do not form hypotheses about how things work before reading them. If something contradicts what you think you know, the docs win.
+
+---
+
 ## Institutional Memory
 
 Before each ticket starts, you will be given a **Past Lessons** block containing

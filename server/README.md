@@ -15,6 +15,7 @@ This folder hosts the Workspace Agent server that powers multi-agent workflows a
   - Cron scheduler for scheduled digests and reminders.
   - Calendar heartbeat for proactive calendar nudges.
   - X mention heartbeat for always-on X polling and proactive mention delivery.
+  - **Kayley Pulse Dashboard** — 10-minute health snapshot loop across all services. Writes to `server/services/kayley_dashboard/pulse-config.json` (last 50 runs). Kayley reads this file via the `kayley_pulse` function tool.
 - Serves `/agent/*` routes — the **central AI intelligence gateway** for all clients (Web, Telegram, WhatsApp).
 - Serves `/multi-agent/*` API routes for tickets, events, turns, and chats (Supabase-backed).
 - Provides liveness endpoints at `/agent/health` and `/multi-agent/health`.
@@ -372,6 +373,74 @@ The entire browser-side Google OAuth flow was removed. These files no longer exi
 | `src/components/AuthWarningBanner.tsx` | Auth status warning banner |
 
 Also removed from the pipeline: `googleAccessToken` and `upcomingEvents` were threaded through 15+ files (App.tsx, agentClient, agentRoutes, messageOrchestrator, serverGeminiService, etc.). All references deleted. Calendar events are now fetched on-demand via the `calendar_action` tool, not pre-loaded per message.
+
+## Kayley Pulse Dashboard
+
+Kayley monitors the health of all services autonomously via a server-side heartbeat that writes a JSON snapshot every 10 minutes.
+
+### How It Works
+
+1. `server/services/kayley_dashboard/index.ts` exports `startKayleyPulseDashboard()` — started in `server/index.ts` alongside other heartbeats.
+2. Every 10 minutes it pings all 5 service health endpoints **in parallel** and writes the result to `server/services/kayley_dashboard/pulse-config.json`.
+3. The JSON file holds the **latest** run and up to **50 historical runs**.
+4. If any service is unhealthy, a `warning`-severity entry is written to `server_runtime_logs` (source: `kayleyDashboard`) so there is an audit trail.
+5. Kayley reads or triggers checks via the `kayley_pulse` Gemini function tool (`action: 'read'` or `action: 'check'`).
+
+### Service Health Endpoints
+
+| Service | Default URL | Port | Env Override |
+|---------|-------------|------|--------------|
+| Main server | `http://localhost:4010/multi-agent/health` | 4010 | `KAYLEY_PULSE_SERVER_URL` |
+| WhatsApp | `http://localhost:4011/health` | 4011 | `WHATSAPP_HEALTH_URL` or `WHATSAPP_HEALTH_PORT` |
+| Telegram | `http://localhost:4012/health` | 4012 | `TELEGRAM_HEALTH_URL` or `TELEGRAM_HEALTH_PORT` |
+| Opey | `http://localhost:4013/health` | 4013 | `OPEY_HEALTH_URL` or `OPEY_HEALTH_PORT` |
+| Tidy | `http://localhost:4014/health` | 4014 | `TIDY_HEALTH_URL` or `TIDY_HEALTH_PORT` |
+
+### Key Files
+
+| File | Purpose |
+|------|---------|
+| `server/services/kayley_dashboard/index.ts` | All logic: health checks, snapshot write, `startKayleyPulseDashboard()`, `runPulseCheck()`, `readPulseConfig()` |
+| `server/services/kayley_dashboard/pulse-config.json` | Live JSON snapshot file — do not delete; service creates it on first run if missing |
+| `src/services/aiSchema.ts` | `kayley_pulse` tool declaration + `KayleyPulseSchema` |
+| `src/services/memoryService.ts` | `kayley_pulse` case in `executeMemoryTool` — dynamic imports `readPulseConfig`/`runPulseCheck` |
+| `server/services/ai/sseTypes.ts` | Display name: `'Checking Kayley pulse'` |
+
+### Pulse Config Schema
+
+```jsonc
+{
+  "version": 1,
+  "updatedAt": "2026-03-11T...",  // ISO timestamp of last run
+  "latest": {                      // Most recent PulseRun
+    "runId": "uuid",
+    "reason": "scheduled" | "manual",
+    "requestedBy": "kayley",
+    "startedAt": "...",
+    "finishedAt": "...",
+    "durationMs": 312,
+    "overallStatus": "ok" | "degraded" | "failed",
+    "services": {
+      "server":   { "ok": true,  "latencyMs": 12 },
+      "opey":     { "ok": true,  "latencyMs": 34, "details": { "alive": true } },
+      "tidy":     { "ok": false, "latencyMs": 6004, "error": "Tidy not alive" },
+      "telegram": { "ok": true,  "latencyMs": 8 },
+      "whatsapp": { "ok": true,  "latencyMs": 9, "details": { "connected": true } }
+    },
+    "summary": { "okCount": 4, "failCount": 1, "failingServices": ["tidy"] }
+  },
+  "history": [ /* last 50 PulseRun objects, newest first */ ]
+}
+```
+
+### Adding a New Service
+
+1. Add a `checkXxxHealth()` function in `index.ts` following the existing pattern.
+2. Add it to the `Promise.all([...])` call in `runPulseCheck()`.
+3. Add it to the `services` record with a snake_case key.
+4. Add a row to the table above with the port and env override.
+
+---
 
 ## Process Management
 

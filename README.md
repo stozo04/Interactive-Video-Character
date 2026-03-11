@@ -177,6 +177,23 @@ ai-interactive-chat/
 
 ---
 
+## Service Port Map
+
+Every process in this system has a fixed port. These are the authoritative defaults — override via the corresponding env variable documented in each service.
+
+| Port | Process | Health Endpoint | Start Command |
+|------|---------|-----------------|---------------|
+| `3000` | Vite web UI (dev) | _(none)_ | `npm run dev:web` |
+| `4010` | Main agent server | `GET /agent/health`, `GET /multi-agent/health` | `npm run agent:dev` |
+| `4011` | WhatsApp bridge | `GET /health` | `npm run whatsapp:dev` |
+| `4012` | Telegram bot | `GET /health` | `npm run telegram:dev` |
+| `4013` | Opey dev agent | `GET /health` | `npm run opey:dev` |
+| `4014` | Tidy hygiene agent | `GET /health` | `npm run tidy:dev` |
+
+> The **Kayley Pulse Dashboard** (auto-started by the main server on port 4010) pings all five health endpoints every 10 minutes and writes a snapshot to `server/services/kayley_dashboard/pulse-config.json`. See [Server README](server/README.md#kayley-pulse-dashboard) for details.
+
+---
+
 ## Environment Variables
 
 ### Server-only (never exposed to browser)
