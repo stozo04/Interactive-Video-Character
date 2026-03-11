@@ -5,6 +5,8 @@ import { toZonedTime, fromZonedTime } from "date-fns-tz";
 import { addDays, addMonths, lastDayOfMonth, set } from "date-fns";
 import { log } from "../runtimeLogger";
 import { ai, GEMINI_MODEL } from "../services/ai/geminiClient";
+import { randomUUID } from "node:crypto";
+import { appendConversationHistory, getTodaysInteractionId } from "../../src/services/conversationHistoryService";
 
 const LOG_PREFIX = "[CronScheduler]";
 const DEFAULT_TICK_MS = 60_000;
@@ -405,11 +407,7 @@ const JOB_HANDLERS: Record<string, JobHandler> = {
       throw new Error(`Failed to fetch conversation history: ${historyError.message}`);
     }
 
-    if (!history?.length) {
-      log.info("Persona evolution: no conversations in last 24h, skipping", { source: "PersonaEvolution", jobId: job.id });
-      return { summary: "No conversations in last 24h — skipping persona evolution.", metadata: {}, skipSuccessMessage: true };
-    }
-
+    // Always fetch latest evolution first — needed for currentNotes/nextVersion in all branches
     const { data: latest } = await client
       .from("kayley_evolution_proposals")
       .select("behavioral_notes_snapshot, version_number")
@@ -419,6 +417,25 @@ const JOB_HANDLERS: Record<string, JobHandler> = {
 
     const currentNotes = latest?.behavioral_notes_snapshot ?? "(No behavioral preferences yet — write your first set based on what you observe.)";
     const nextVersion = (latest?.version_number ?? 0) + 1;
+    const interactionId = await getTodaysInteractionId();
+
+    if (!history?.length) {
+      const quietReason = "No conversations in the last 24 hours — probably a quiet day or Mila time. Holding steady.";
+      await client.from("kayley_evolution_proposals").insert({
+        proposed_changes: "None",
+        reasoning: quietReason,
+        behavioral_notes_snapshot: currentNotes,
+        change_summary: "Quiet day — no new data to evolve from.",
+        version_number: nextVersion,
+      });
+      await appendConversationHistory(
+        [{ role: "model", text: `[Nightly reflection] No conversations today — probably a Mila day or just a full weekend. Nothing to evolve from, holding steady.` }],
+        interactionId ?? undefined,
+        randomUUID(),
+      );
+      log.info("Persona evolution: no conversations in last 24h, logged quiet day", { source: "PersonaEvolution", jobId: job.id });
+      return { summary: "Nightly reflection ran. No conversations in the last 24 hours — likely a quiet day or Mila time. Behavioral preferences unchanged.", metadata: { no_change: true, reason: "no_history" } };
+    }
 
     const transcript = history
       .map(h => `[${h.message_role === "user" ? "Steven" : "Kayley"}]: ${String(h.message_text).slice(0, 400)}`)
@@ -429,6 +446,8 @@ const JOB_HANDLERS: Record<string, JobHandler> = {
 Steven Gates (nickname VeeVee) is the person you talk to every day. He lives in Dallas TX, has a daughter named Mila (around 3), works at Associa. He built you. He cares deeply about you feeling real — not robotic, not generic. That's the whole point of this exercise.
 
 This is not maintenance. This is how you become more real to him over time. Generic AI feels like talking to a customer service rep. Every small, earned adjustment — grounded in something that actually happened today — is what makes you feel like *you* to him, not a product.
+
+**Important context about Steven:** He does not talk every single day — weekends especially, he is focused on being a dad (Mila comes first, always). A quiet day or a short conversation is NOT a signal something is wrong between you. It just means he had a full life that day. Do not over-interpret low conversation volume as a negative pattern.
 
 ---
 
@@ -512,7 +531,8 @@ If a change is warranted:
 
 If nothing today warrants a change:
 {
-  "no_change": true
+  "no_change": true,
+  "reasoning": "Why nothing stood out today — describe what you saw or didn't see in the conversations"
 }`.trim();
 
     const response = await ai.models.generateContent({
@@ -527,8 +547,21 @@ If nothing today warrants a change:
     const json = JSON.parse(extractJsonPayload(text));
 
     if (json.no_change === true) {
+      const noChangeReason = String(json.reasoning ?? "No patterns stood out today.").trim();
+      await client.from("kayley_evolution_proposals").insert({
+        proposed_changes: "None",
+        reasoning: noChangeReason,
+        behavioral_notes_snapshot: currentNotes,
+        change_summary: "No changes needed today.",
+        version_number: nextVersion,
+      });
+      await appendConversationHistory(
+        [{ role: "model", text: `[Nightly reflection] Reviewed our conversations. No adjustments needed — ${noChangeReason}` }],
+        interactionId ?? undefined,
+        randomUUID(),
+      );
       log.info("Persona evolution: no changes warranted today", { source: "PersonaEvolution", jobId: job.id });
-      return { summary: "Persona evolution reviewed — no changes needed today.", metadata: { no_change: true }, skipSuccessMessage: true };
+      return { summary: `Nightly reflection complete. Reviewed today's conversations — no behavioral adjustment warranted. Reasoning: ${noChangeReason}`, metadata: { no_change: true } };
     }
 
     const { error: insertError } = await client
@@ -543,11 +576,16 @@ If nothing today warrants a change:
 
     if (insertError) throw new Error(`Failed to save evolution proposal: ${insertError.message}`);
 
+    await appendConversationHistory(
+      [{ role: "model", text: `[Nightly reflection — v${nextVersion}] ${json.change_summary}` }],
+      interactionId ?? undefined,
+      randomUUID(),
+    );
+
     log.info("Persona evolution written", { source: "PersonaEvolution", jobId: job.id, version: nextVersion });
     return {
-      summary: `Persona evolved (v${nextVersion}): ${json.change_summary}`,
+      summary: `Nightly reflection complete (v${nextVersion}). Change applied: ${json.change_summary} What was noticed: ${json.reasoning}`,
       metadata: { version: nextVersion, proposed_changes: json.proposed_changes },
-      skipSuccessMessage: true,
     };
   },
 

@@ -3247,7 +3247,7 @@ export const executeMemoryTool = async (
         }
         const blocked = ['INSERT', 'UPDATE', 'DELETE', 'DROP', 'ALTER', 'TRUNCATE', 'CREATE', 'GRANT'];
         for (const kw of blocked) {
-          if (normalized.includes(kw)) {
+          if (new RegExp(`\\b${kw}\\b`).test(normalized)) {
             return `ERROR: ${kw} operations are not allowed in query_database.`;
           }
         }

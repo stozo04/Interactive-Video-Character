@@ -127,6 +127,9 @@ async function tick(): Promise<void> {
           .update({
             status: "active",
             next_run_at: nextRun.toISOString(),
+            last_run_at: new Date().toISOString(),
+            last_run_status: "success",
+            last_error: null,
           })
           .eq("id", job.id);
       } catch (err) {
@@ -140,7 +143,7 @@ async function tick(): Promise<void> {
         // Reset to active so it can be retried next tick
         await supabase
           .from("cron_jobs")
-          .update({ status: "active" })
+          .update({ status: "active", last_run_at: new Date().toISOString(), last_run_status: "failed", last_error: errMsg })
           .eq("id", job.id);
       }
     }
