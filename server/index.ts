@@ -8,6 +8,7 @@ import { createAgentRouter } from "./routes/agentRoutes";
 import { startCronScheduler } from "./scheduler/cronScheduler";
 import { startCalendarHeartbeat } from "./services/calendarHeartbeat";
 import { startXMentionHeartbeat } from "./services/xMentionHeartbeat";
+import { startKayleyPulseDashboard } from "./services/kayley_dashboard";
 import { log } from "./runtimeLogger";
 import "./restartTrigger"; // kept in tsx watch dependency graph for Kayley's self-healing restart mechanic
 
@@ -169,6 +170,10 @@ runtimeLog.info("Calendar heartbeat started", { source: "serverIndex" });
 // X mention heartbeat: 5-minute interval, proactive mention notifications
 const xMentionHeartbeat = startXMentionHeartbeat();
 runtimeLog.info("X mention heartbeat started", { source: "serverIndex" });
+
+// Kayley pulse dashboard: 10-minute interval health snapshotting
+const kayleyPulseDashboard = startKayleyPulseDashboard();
+runtimeLog.info("Kayley pulse dashboard started", { source: "serverIndex" });
 
 // 6) HTTP server: routes incoming requests to the right handler.
 runtimeLog.info("Creating HTTP server", {
@@ -353,6 +358,11 @@ function shutdown(signal: string): void {
     source: "serverIndex",
   });
   xMentionHeartbeat.stop();
+
+  runtimeLog.info("Stopping Kayley pulse dashboard", {
+    source: "serverIndex",
+  });
+  kayleyPulseDashboard.stop();
 
   runtimeLog.info("Closing HTTP server", {
     source: "serverIndex",

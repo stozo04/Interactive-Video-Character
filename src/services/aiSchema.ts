@@ -545,6 +545,30 @@ export const RetrieveMilaNotesSchema = z.object({
 });
 
 /**
+ * Schema for the review_pr tool.
+ * Used to fetch a GitHub PR's metadata, diff, and CI status for Kayley to review.
+ */
+export const ReviewPrSchema = z.object({
+  pr_url: z.string().describe(
+    "Full GitHub PR URL, e.g. https://github.com/owner/repo/pull/51"
+  ),
+  ticket_id: z.string().optional().describe(
+    "Engineering ticket ID this PR corresponds to — included for context in the review output."
+  ),
+});
+
+/**
+ * Schema for the kayley_pulse tool.
+ * Used to read or trigger a Kayley health dashboard snapshot.
+ */
+export const KayleyPulseSchema = z.object({
+  action: z.enum(["read", "check"]).describe(
+    "Use read to fetch the latest pulse status. Use check to trigger a fresh health check and update pulse-config.json."
+  ),
+  reason: z.string().optional().describe("Optional short reason for manual checks."),
+});
+
+/**
  * Schema for the workspace_action tool.
  * Expanded scope: filesystem + git actions through workspace agent.
  */
@@ -730,6 +754,24 @@ export type StoreLessonsLearnedArgs = z.infer<typeof StoreLessonsLearnedSchema>;
 export type RetrieveLessonsLearnedArgs = z.infer<typeof RetrieveLessonsLearnedSchema>;
 export type MilaNoteArgs = z.infer<typeof MilaNoteSchema>;
 export type RetrieveMilaNotesArgs = z.infer<typeof RetrieveMilaNotesSchema>;
+export type ReviewPrArgs = z.infer<typeof ReviewPrSchema>;
+
+/**
+ * Schema for the submit_pr_review tool.
+ * Called after review_pr once Kayley has formed a verdict.
+ */
+export const SubmitPrReviewSchema = z.object({
+  ticket_id: z.string().describe("Engineering ticket ID the PR belongs to."),
+  pr_url: z.string().describe("Full GitHub PR URL — included in feedback message to Steven."),
+  verdict: z.enum(["approved", "needs_changes"]).describe(
+    "approved: PR looks good, notify Steven. needs_changes: write feedback to ticket and reset it for Opey to fix."
+  ),
+  feedback: z.string().optional().describe(
+    "Required when verdict is needs_changes. Specific, actionable feedback for Opey — what is missing, wrong, or needs to change."
+  ),
+});
+export type SubmitPrReviewArgs = z.infer<typeof SubmitPrReviewSchema>;
+export type KayleyPulseArgs = z.infer<typeof KayleyPulseSchema>;
 export type WorkspaceActionArgs = z.infer<typeof WorkspaceActionSchema>;
 export type DelegateToEngineeringArgs = z.infer<typeof DelegateToEngineeringSchema>;
 export type EngineeringTicketStatusArgs = z.infer<typeof EngineeringTicketStatusSchema>;
@@ -796,6 +838,9 @@ export type MemoryToolArgs =
   | { tool: "start_background_task"; args: StartBackgroundTaskArgs }
   | { tool: "check_task_status"; args: CheckTaskStatusArgs }
   | { tool: "cancel_task"; args: CancelTaskArgs }
+  | { tool: "kayley_pulse"; args: KayleyPulseArgs }
+  | { tool: "review_pr"; args: ReviewPrArgs }
+  | { tool: "submit_pr_review"; args: SubmitPrReviewArgs }
   | { tool: "workspace_action"; args: WorkspaceActionArgs }
   | { tool: "delegate_to_engineering"; args: DelegateToEngineeringArgs }
   | { tool: "get_engineering_ticket_status"; args: EngineeringTicketStatusArgs }
@@ -1961,6 +2006,81 @@ export const GeminiMemoryToolDeclarations = [
     },
   },
   {
+    name: "kayley_pulse",
+    description:
+      "Read or trigger Kayley's health dashboard (pulse) snapshot. " +
+      "Use action='read' to fetch the latest saved status and history count. " +
+      "Use action='check' to run a fresh health check across Opey, Tidy, Telegram, WhatsApp, and the main server.",
+    parameters: {
+      type: "object",
+      properties: {
+        action: {
+          type: "string",
+          enum: ["read", "check"],
+          description: "read fetches the latest snapshot, check triggers a new run.",
+        },
+        reason: {
+          type: "string",
+          description: "Optional short reason for manual checks.",
+        },
+      },
+      required: ["action"],
+    },
+  },
+  {
+    name: "review_pr",
+    description:
+      "Fetch a GitHub PR's metadata, code diff, and CI check status for review. " +
+      "Use this when Opey opens a PR to verify it matches the original ticket requirements. " +
+      "Returns the PR title, author, state, CI results, description, and full diff in one call.",
+    parameters: {
+      type: "object",
+      properties: {
+        pr_url: {
+          type: "string",
+          description: "Full GitHub PR URL, e.g. https://github.com/owner/repo/pull/51",
+        },
+        ticket_id: {
+          type: "string",
+          description:
+            "Engineering ticket ID this PR corresponds to — included for context in the review output.",
+        },
+      },
+      required: ["pr_url"],
+    },
+  },
+  {
+    name: "submit_pr_review",
+    description:
+      "Submit a verdict after reviewing Opey's PR. " +
+      "Use verdict='approved' when the PR looks correct — Kayley notifies Steven. " +
+      "Use verdict='needs_changes' with specific feedback — writes feedback to the ticket, resets it for Opey to fix the existing PR.",
+    parameters: {
+      type: "object",
+      properties: {
+        ticket_id: {
+          type: "string",
+          description: "Engineering ticket ID the PR belongs to.",
+        },
+        pr_url: {
+          type: "string",
+          description: "Full GitHub PR URL — included in the message to Steven.",
+        },
+        verdict: {
+          type: "string",
+          enum: ["approved", "needs_changes"],
+          description: "approved or needs_changes.",
+        },
+        feedback: {
+          type: "string",
+          description:
+            "Required when verdict is needs_changes. Specific, actionable feedback for Opey — what is missing, wrong, or needs changing.",
+        },
+      },
+      required: ["ticket_id", "pr_url", "verdict"],
+    },
+  },
+  {
     name: "post_x_tweet",
     description:
       "Post a tweet to X with specific text. " +
@@ -2244,6 +2364,9 @@ export interface PendingToolCall {
     | "start_background_task"
     | "check_task_status"
     | "cancel_task"
+    | "kayley_pulse"
+    | "review_pr"
+    | "submit_pr_review"
     | "workspace_action"
     | "delegate_to_engineering"
     | "get_engineering_ticket_status"

@@ -1342,6 +1342,9 @@ export type MemoryToolName =
   | 'check_task_status'
   | 'cancel_task'
   | 'list_active_tasks'
+  | 'kayley_pulse'
+  | 'review_pr'
+  | 'submit_pr_review'
   | 'workspace_action'
   | 'delegate_to_engineering'
   | 'get_engineering_ticket_status'
@@ -1413,6 +1416,20 @@ export interface ToolCallArgs {
     task_id: string;
   };
   list_active_tasks: Record<string, never>;
+  kayley_pulse: {
+    action: 'read' | 'check';
+    reason?: string;
+  };
+  review_pr: {
+    pr_url: string;
+    ticket_id?: string;
+  };
+  submit_pr_review: {
+    ticket_id: string;
+    pr_url: string;
+    verdict: 'approved' | 'needs_changes';
+    feedback?: string;
+  };
   workspace_action: {
     action:
       | 'command'
@@ -1843,6 +1860,100 @@ export const executeMemoryTool = async (
         } catch (error) {
           const errMsg = error instanceof Error ? error.message : String(error);
           return `Failed to list tasks: ${errMsg}`;
+        }
+      }
+      case "kayley_pulse": {
+        const { action, reason } = args as ToolCallArgs['kayley_pulse'];
+        const pulseLog = clientLogger.scoped('KayleyPulse');
+        pulseLog.info('Kayley pulse tool invoked', { action, reason });
+
+        const formatRunSummary = (run: {
+          runId: string;
+          overallStatus: string;
+          finishedAt: string;
+          summary: { okCount: number; failCount: number; failingServices: string[] };
+        }): string => {
+          const failing = run.summary.failingServices.length > 0
+            ? run.summary.failingServices.join(', ')
+            : 'none';
+          return [
+            `Pulse run ${run.runId}: ${run.overallStatus.toUpperCase()}`,
+            `Finished at: ${run.finishedAt}`,
+            `Healthy services: ${run.summary.okCount}`,
+            `Failing services: ${run.summary.failCount} (${failing})`,
+          ].join('\n');
+        };
+
+        try {
+          const { readPulseConfig, runPulseCheck } = await import('../../server/services/kayley_dashboard');
+
+          if (action === 'check') {
+            const run = await runPulseCheck({
+              reason: 'manual',
+              requestedBy: reason ? `kayley:${reason}` : 'kayley',
+            });
+            return `${formatRunSummary(run)}\n\nPulse snapshot saved.`; 
+          }
+
+          const config = await readPulseConfig();
+          if (!config.latest) {
+            return "No pulse runs recorded yet.";
+          }
+          return `${formatRunSummary(config.latest)}\n\nHistory entries: ${config.history.length}`;
+        } catch (error) {
+          const errMsg = error instanceof Error ? error.message : String(error);
+          pulseLog.error('Kayley pulse tool failed', { error: errMsg });
+          return `Pulse check failed: ${errMsg}`;
+        }
+      }
+      case 'review_pr': {
+        const { pr_url, ticket_id } = args as ToolCallArgs['review_pr'];
+        const reviewLog = clientLogger.scoped('ReviewPr');
+        reviewLog.info('review_pr tool invoked', { pr_url, ticket_id });
+
+        try {
+          const { fetchPrReview, formatPrReview } = await import('../../server/services/githubReviewService');
+          const summary = await fetchPrReview(pr_url);
+          let output = formatPrReview(summary);
+          if (ticket_id) {
+            output = `Reviewing PR for ticket ${ticket_id}\n\n${output}`;
+          }
+          return output;
+        } catch (error) {
+          const errMsg = error instanceof Error ? error.message : String(error);
+          reviewLog.error('review_pr tool failed', { error: errMsg, pr_url });
+          return `PR review failed: ${errMsg}`;
+        }
+      }
+      case 'submit_pr_review': {
+        const { ticket_id, pr_url, verdict, feedback } = args as ToolCallArgs['submit_pr_review'];
+        const submitLog = clientLogger.scoped('SubmitPrReview');
+        submitLog.info('submit_pr_review tool invoked', { ticket_id, verdict });
+
+        if (verdict === 'approved') {
+          return `PR approved ✓\nTicket: ${ticket_id}\nPR: ${pr_url}\n\nNo changes needed — letting Steven know the PR looks good.`;
+        }
+
+        // needs_changes
+        if (!feedback?.trim()) {
+          return `submit_pr_review error: feedback is required when verdict is needs_changes.`;
+        }
+
+        try {
+          const { submitPrFeedback } = await import('../../server/services/githubReviewService');
+          await submitPrFeedback(ticket_id, feedback);
+          return [
+            `PR review submitted — changes requested.`,
+            `Ticket ${ticket_id} has been reset to 'created' with your feedback.`,
+            `Opey will pick it up and push fixes to the existing PR: ${pr_url}`,
+            ``,
+            `Feedback written to ticket:`,
+            feedback,
+          ].join('\n');
+        } catch (error) {
+          const errMsg = error instanceof Error ? error.message : String(error);
+          submitLog.error('submit_pr_review failed', { error: errMsg, ticket_id });
+          return `submit_pr_review failed: ${errMsg}`;
         }
       }
       case 'workspace_action': {

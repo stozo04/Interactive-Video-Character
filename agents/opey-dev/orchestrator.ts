@@ -117,6 +117,21 @@ function buildTicketPrompt(ticket: any, workPath: string): string {
   // Always injected — Opey is fully autonomous on every ticket type.
   const clarificationPolicy = buildClarificationPolicy(normalized);
 
+  // If Kayley reviewed a previous PR and found issues, surface that prominently.
+  // prFeedback being set means: this is a fix cycle, not a fresh implementation.
+  const prFeedbackBlock = normalized.prFeedback
+    ? [
+        `## ⚠️ PR REVIEW FEEDBACK FROM KAYLEY`,
+        `Your previous PR was reviewed and needs changes.`,
+        `Existing PR: ${normalized.finalPrUrl ?? "(check final_pr_url on the ticket)"}`,
+        ``,
+        normalized.prFeedback,
+        ``,
+        `**IMPORTANT:** Do NOT create a new PR. Push your fixes to the existing branch`,
+        `(opey-dev/<ticketId>). The PR at the URL above is already open.`,
+      ].join("\n")
+    : null;
+
   // Build the prompt by joining non-empty sections with blank lines between them.
   const parts = [
     lessonContext || null,
@@ -126,6 +141,7 @@ function buildTicketPrompt(ticket: any, workPath: string): string {
     // If there's a skill block, it already contains the details — don't repeat them.
     normalized.details && !skillBlock ? normalized.details : null,
     skillBlock || null,
+    prFeedbackBlock,
     clarificationPolicy,
   ].filter(Boolean); // drop nulls / empty strings
 
@@ -389,6 +405,8 @@ function normalizeTicket(ticket: any): {
   type?: string;
   summary?: string;
   details?: string;
+  prFeedback?: string;
+  finalPrUrl?: string;
 } {
   // Try every known field name for each piece of data, in priority order.
   const type =
@@ -415,6 +433,8 @@ function normalizeTicket(ticket: any): {
     type: typeof type === "string" ? type : undefined,
     summary: typeof summary === "string" ? summary : undefined,
     details: typeof details === "string" ? details : undefined,
+    prFeedback: typeof ticket?.pr_feedback === "string" ? ticket.pr_feedback : undefined,
+    finalPrUrl: typeof ticket?.final_pr_url === "string" ? ticket.final_pr_url : undefined,
   };
 }
 
