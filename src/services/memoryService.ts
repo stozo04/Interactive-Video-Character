@@ -1342,6 +1342,7 @@ export type MemoryToolName =
   | 'check_task_status'
   | 'cancel_task'
   | 'list_active_tasks'
+  | 'kayley_pulse'
   | 'workspace_action'
   | 'delegate_to_engineering'
   | 'get_engineering_ticket_status'
@@ -1413,6 +1414,10 @@ export interface ToolCallArgs {
     task_id: string;
   };
   list_active_tasks: Record<string, never>;
+  kayley_pulse: {
+    action: 'read' | 'check';
+    reason?: string;
+  };
   workspace_action: {
     action:
       | 'command'
@@ -1843,6 +1848,50 @@ export const executeMemoryTool = async (
         } catch (error) {
           const errMsg = error instanceof Error ? error.message : String(error);
           return `Failed to list tasks: ${errMsg}`;
+        }
+      }
+      case "kayley_pulse": {
+        const { action, reason } = args as ToolCallArgs['kayley_pulse'];
+        const pulseLog = clientLogger.scoped('KayleyPulse');
+        pulseLog.info('Kayley pulse tool invoked', { action, reason });
+
+        const formatRunSummary = (run: {
+          runId: string;
+          overallStatus: string;
+          finishedAt: string;
+          summary: { okCount: number; failCount: number; failingServices: string[] };
+        }): string => {
+          const failing = run.summary.failingServices.length > 0
+            ? run.summary.failingServices.join(', ')
+            : 'none';
+          return [
+            `Pulse run ${run.runId}: ${run.overallStatus.toUpperCase()}`,
+            `Finished at: ${run.finishedAt}`,
+            `Healthy services: ${run.summary.okCount}`,
+            `Failing services: ${run.summary.failCount} (${failing})`,
+          ].join('\n');
+        };
+
+        try {
+          const { readPulseConfig, runPulseCheck } = await import('../../server/services/kayley_dashboard');
+
+          if (action === 'check') {
+            const run = await runPulseCheck({
+              reason: 'manual',
+              requestedBy: reason ? `kayley:${reason}` : 'kayley',
+            });
+            return `${formatRunSummary(run)}\n\nPulse snapshot saved.`; 
+          }
+
+          const config = await readPulseConfig();
+          if (!config.latest) {
+            return "No pulse runs recorded yet.";
+          }
+          return `${formatRunSummary(config.latest)}\n\nHistory entries: ${config.history.length}`;
+        } catch (error) {
+          const errMsg = error instanceof Error ? error.message : String(error);
+          pulseLog.error('Kayley pulse tool failed', { error: errMsg });
+          return `Pulse check failed: ${errMsg}`;
         }
       }
       case 'workspace_action': {

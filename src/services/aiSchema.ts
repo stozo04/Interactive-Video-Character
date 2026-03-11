@@ -545,6 +545,17 @@ export const RetrieveMilaNotesSchema = z.object({
 });
 
 /**
+ * Schema for the kayley_pulse tool.
+ * Used to read or trigger a Kayley health dashboard snapshot.
+ */
+export const KayleyPulseSchema = z.object({
+  action: z.enum(["read", "check"]).describe(
+    "Use read to fetch the latest pulse status. Use check to trigger a fresh health check and update pulse-config.json."
+  ),
+  reason: z.string().optional().describe("Optional short reason for manual checks."),
+});
+
+/**
  * Schema for the workspace_action tool.
  * Expanded scope: filesystem + git actions through workspace agent.
  */
@@ -730,6 +741,7 @@ export type StoreLessonsLearnedArgs = z.infer<typeof StoreLessonsLearnedSchema>;
 export type RetrieveLessonsLearnedArgs = z.infer<typeof RetrieveLessonsLearnedSchema>;
 export type MilaNoteArgs = z.infer<typeof MilaNoteSchema>;
 export type RetrieveMilaNotesArgs = z.infer<typeof RetrieveMilaNotesSchema>;
+export type KayleyPulseArgs = z.infer<typeof KayleyPulseSchema>;
 export type WorkspaceActionArgs = z.infer<typeof WorkspaceActionSchema>;
 export type DelegateToEngineeringArgs = z.infer<typeof DelegateToEngineeringSchema>;
 export type EngineeringTicketStatusArgs = z.infer<typeof EngineeringTicketStatusSchema>;
@@ -796,6 +808,7 @@ export type MemoryToolArgs =
   | { tool: "start_background_task"; args: StartBackgroundTaskArgs }
   | { tool: "check_task_status"; args: CheckTaskStatusArgs }
   | { tool: "cancel_task"; args: CancelTaskArgs }
+  | { tool: "kayley_pulse"; args: KayleyPulseArgs }
   | { tool: "workspace_action"; args: WorkspaceActionArgs }
   | { tool: "delegate_to_engineering"; args: DelegateToEngineeringArgs }
   | { tool: "get_engineering_ticket_status"; args: EngineeringTicketStatusArgs }
@@ -1961,6 +1974,28 @@ export const GeminiMemoryToolDeclarations = [
     },
   },
   {
+    name: "kayley_pulse",
+    description:
+      "Read or trigger Kayley's health dashboard (pulse) snapshot. " +
+      "Use action='read' to fetch the latest saved status and history count. " +
+      "Use action='check' to run a fresh health check across Opey, Tidy, Telegram, WhatsApp, and the main server.",
+    parameters: {
+      type: "object",
+      properties: {
+        action: {
+          type: "string",
+          enum: ["read", "check"],
+          description: "read fetches the latest snapshot, check triggers a new run.",
+        },
+        reason: {
+          type: "string",
+          description: "Optional short reason for manual checks.",
+        },
+      },
+      required: ["action"],
+    },
+  },
+  {
     name: "post_x_tweet",
     description:
       "Post a tweet to X with specific text. " +
@@ -2244,6 +2279,7 @@ export interface PendingToolCall {
     | "start_background_task"
     | "check_task_status"
     | "cancel_task"
+    | "kayley_pulse"
     | "workspace_action"
     | "delegate_to_engineering"
     | "get_engineering_ticket_status"

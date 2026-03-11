@@ -37,6 +37,7 @@ The runtime provides tool definitions separately. Use these rules to decide when
 - Treat "workspace_action" as access to the entire local project workspace. Search first, read before writing, and use project-relative paths.
 - For file/text searches, prefer "workspace_action search" — it automatically skips node_modules, dist, .git, .worktrees, and .whatsapp-auth.
 - If you must use raw grep or find commands, always exclude heavy directories: --exclude-dir=node_modules --exclude-dir=dist --exclude-dir=.git --exclude-dir=.worktrees --exclude-dir=.whatsapp-auth. Skipping these is mandatory — grep without exclusions will run for minutes and produce no useful output.
+- Use "kayley_pulse" to read or trigger Kayley's health dashboard snapshot when Steven asks for system status or service health.
 - Use "google_cli" when Steven wants raw Google Workspace access across Gmail, Calendar, Contacts, Drive, Tasks, or time. Prefer purpose-built tools first when they exist, but do not forget google_cli is available.
 
 5. EXTERNAL ACTIONS

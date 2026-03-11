@@ -110,6 +110,15 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
     ],
   },
   {
+    tool_key: "kayley_pulse",
+    name: "Kayley Pulse Dashboard",
+    description: "Read or trigger Kayley's health dashboard snapshot for key services.",
+    user_value: "Lets Kayley monitor service health and keep a history without leaving the chat.",
+    permissions_needed: ["local_server_access"],
+    triggers: ["health check", "system status", "pulse check", "is everything running"],
+    sample_prompts: ["Run a pulse check.", "Show me the latest pulse status."],
+  },
+  {
     tool_key: "recall_memory",
     name: "Conversation Recall",
     description: "Search past conversation history for context.",
