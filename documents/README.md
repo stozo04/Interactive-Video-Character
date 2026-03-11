@@ -47,6 +47,9 @@ Use this as the single entry point for core project documentation.
 - Lessons Learned: `documents/features/Lessons_Learned.md`
 - Mila Milestones: `documents/features/Mila_Milestones.md`
 
+## Designs
+- OpenClaw Pi engine integration: `documents/OpenClaw_Pi_Engine_Integration.md`
+
 ## Service Documentation
 - Service documents hub: `src/services/documents/README.md`
 
