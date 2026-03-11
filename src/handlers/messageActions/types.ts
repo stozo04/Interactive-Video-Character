@@ -107,7 +107,7 @@ export interface PendingTweetDraft {
   id: string;
   tweetText: string;
   includeSelfie: boolean;
-  selfieScene?: string | null;
+  selfieScene: string | null;
 }
 
 /**

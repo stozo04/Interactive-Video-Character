@@ -158,7 +158,14 @@ Corpses rot. Every dead function is a lie about what the codebase does, a trap f
    - **Security:** `workspace_action` command execution uses same minimal blocked-commands list as Claude Code (format, mkfs, dd, shutdown, etc.)
    - **System prompt:** Sections 21 (web_fetch), 22 (autonomous agent mode), 23 (background tasks) in `toolsAndCapabilities.ts`
 
-7. **Respect the working contract:**
+7. **Vite build: bare Node.js builtins must be externalized:**
+   - `vite.config.ts` `build.rollupOptions.external` covers `node:`-prefixed imports via `/^node:/`
+   - **Gotcha:** Server-side files imported (transitively) into the build graph may use bare builtin names (`'util'`, `'fs'`, `'path'`, `'child_process'`, etc.) without the `node:` prefix
+   - Rollup stubs these as `__vite-browser-external`, which doesn't export named exports → hard build error: `"promisify" is not exported by "__vite-browser-external"`
+   - **Fix already applied:** `external` in `vite.config.ts` now includes a regex for all common bare builtin names in addition to `/^node:/`
+   - **Rule:** Any new server-side file that gets transitively pulled into the browser build MUST use `node:` prefixed imports (e.g. `import { promisify } from "node:util"`), or the existing regex handles it automatically
+
+8. **Respect the working contract:**
    - For non-trivial work: discuss approach + tradeoffs BEFORE coding
    - For bugs: form no hypothesis until you've read the execution path
    - For changes: surface assumptions, ask clarifying questions

@@ -1,7 +1,7 @@
 ﻿// server/services/kayley_dashboard/index.ts
 // Kayley Dashboard (pulse) - periodic service health checks + snapshot file.
 
-import { log } from "../runtimeLogger";
+import { log } from "../../runtimeLogger";
 import { ai, GEMINI_MODEL } from "../ai/geminiClient";
 import { bot, getStevenChatId } from "../../../telegram/telegramClient";
 import {
