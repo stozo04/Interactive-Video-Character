@@ -99,7 +99,8 @@
       "Bash(agents/kayley/.venv-qwen/Scripts/python.exe:*)",
       "WebFetch(domain:pypi.org)",
       "Bash(py:*)",
-      "WebFetch(domain:deepwiki.com)"
+      "WebFetch(domain:deepwiki.com)",
+      "Bash(git fetch:*)"
     ]
   },
   "enabledPlugins": {
