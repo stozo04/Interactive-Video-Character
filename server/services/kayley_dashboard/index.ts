@@ -15,7 +15,7 @@ const REQUEST_TIMEOUT_MS = 6_000;
 
 const DEFAULT_SERVER_BASE_URL = "http://localhost:4010";
 const DEFAULT_WHATSAPP_HEALTH_URL = "http://localhost:4011";
-const DEFAULT_TELEGRAM_HEALTH_URL = "http://localhost:4011";
+const DEFAULT_TELEGRAM_HEALTH_URL = "http://localhost:4012";
 const DEFAULT_OPEY_HEALTH_URL = "http://localhost:4013";
 const DEFAULT_TIDY_HEALTH_URL = "http://localhost:4014";
 
@@ -376,6 +376,15 @@ export async function runPulseCheck(options?: {
     failCount: run.summary.failCount,
     failingServices: run.summary.failingServices.join(", ") || "none",
   });
+
+  if (run.overallStatus !== "ok") {
+    runtimeLog.warning("Kayley pulse: degraded or failed services detected", {
+      source: "kayleyDashboard",
+      runId,
+      overallStatus: run.overallStatus,
+      failingServices: run.summary.failingServices,
+    });
+  }
 
   return run;
 }
