@@ -100,7 +100,9 @@
       "WebFetch(domain:pypi.org)",
       "Bash(py:*)",
       "WebFetch(domain:deepwiki.com)",
-      "Bash(git fetch:*)"
+      "Bash(git fetch:*)",
+      "Bash(powercfg.exe /query SCHEME_CURRENT SUB_SLEEP)",
+      "Bash(powershell.exe -Command \"Get-ScheduledTask | Where-Object {$_.TaskName -like '*kayley*' -or $_.TaskName -like '*tidy*' -or $_.TaskName -like '*opey*'} | Select-Object TaskName,State\" 2>&1)"
     ]
   },
   "enabledPlugins": {

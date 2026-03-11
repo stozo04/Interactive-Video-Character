@@ -1,43 +1,43 @@
 {
   "version": 1,
-  "updatedAt": "2026-03-11T14:02:26.075Z",
+  "updatedAt": "2026-03-11T14:22:34.444Z",
   "latest": {
-    "runId": "d2893719-1aa7-43e5-8d3b-bf7547a06202",
+    "runId": "07f24f8e-9b45-4163-b533-f015704acd3a",
     "reason": "scheduled",
-    "startedAt": "2026-03-11T14:02:25.882Z",
-    "finishedAt": "2026-03-11T14:02:26.075Z",
-    "durationMs": 193,
+    "startedAt": "2026-03-11T14:22:34.250Z",
+    "finishedAt": "2026-03-11T14:22:34.444Z",
+    "durationMs": 194,
     "overallStatus": "ok",
     "services": {
       "server": {
         "ok": true,
-        "latencyMs": 192,
+        "latencyMs": 193,
         "details": {
-          "latencyMs": 170,
+          "latencyMs": 169,
           "status": 200
         }
       },
       "opey": {
         "ok": true,
-        "latencyMs": 9,
+        "latencyMs": 10,
         "details": {
           "alive": true,
           "currentTicketId": null,
-          "lastPollAt": 1773237733048
+          "lastPollAt": 1773238933297
         }
       },
       "tidy": {
         "ok": true,
-        "latencyMs": 23,
+        "latencyMs": 10,
         "details": {
           "alive": true,
           "isProcessing": false,
-          "lastTickAt": 1773237702366
+          "lastTickAt": 1773238902499
         }
       },
       "telegram": {
         "ok": true,
-        "latencyMs": 23,
+        "latencyMs": 27,
         "details": {
           "transport": "telegram"
         }
@@ -50,6 +50,150 @@
     }
   },
   "history": [
+    {
+      "runId": "07f24f8e-9b45-4163-b533-f015704acd3a",
+      "reason": "scheduled",
+      "startedAt": "2026-03-11T14:22:34.250Z",
+      "finishedAt": "2026-03-11T14:22:34.444Z",
+      "durationMs": 194,
+      "overallStatus": "ok",
+      "services": {
+        "server": {
+          "ok": true,
+          "latencyMs": 193,
+          "details": {
+            "latencyMs": 169,
+            "status": 200
+          }
+        },
+        "opey": {
+          "ok": true,
+          "latencyMs": 10,
+          "details": {
+            "alive": true,
+            "currentTicketId": null,
+            "lastPollAt": 1773238933297
+          }
+        },
+        "tidy": {
+          "ok": true,
+          "latencyMs": 10,
+          "details": {
+            "alive": true,
+            "isProcessing": false,
+            "lastTickAt": 1773238902499
+          }
+        },
+        "telegram": {
+          "ok": true,
+          "latencyMs": 27,
+          "details": {
+            "transport": "telegram"
+          }
+        }
+      },
+      "summary": {
+        "okCount": 4,
+        "failCount": 0,
+        "failingServices": []
+      }
+    },
+    {
+      "runId": "3d749ddd-cf4d-475e-bcd1-d4f2e8bf9277",
+      "reason": "scheduled",
+      "startedAt": "2026-03-11T14:19:39.922Z",
+      "finishedAt": "2026-03-11T14:19:40.171Z",
+      "durationMs": 249,
+      "overallStatus": "ok",
+      "services": {
+        "server": {
+          "ok": true,
+          "latencyMs": 249,
+          "details": {
+            "latencyMs": 235,
+            "status": 200
+          }
+        },
+        "opey": {
+          "ok": true,
+          "latencyMs": 7,
+          "details": {
+            "alive": true,
+            "currentTicketId": null,
+            "lastPollAt": 1773238753260
+          }
+        },
+        "tidy": {
+          "ok": true,
+          "latencyMs": 7,
+          "details": {
+            "alive": true,
+            "isProcessing": false,
+            "lastTickAt": 1773238722483
+          }
+        },
+        "telegram": {
+          "ok": true,
+          "latencyMs": 25,
+          "details": {
+            "transport": "telegram"
+          }
+        }
+      },
+      "summary": {
+        "okCount": 4,
+        "failCount": 0,
+        "failingServices": []
+      }
+    },
+    {
+      "runId": "b773ce70-3da5-45f2-a105-4c8d7c1226b7",
+      "reason": "scheduled",
+      "startedAt": "2026-03-11T14:09:54.948Z",
+      "finishedAt": "2026-03-11T14:09:55.100Z",
+      "durationMs": 152,
+      "overallStatus": "ok",
+      "services": {
+        "server": {
+          "ok": true,
+          "latencyMs": 151,
+          "details": {
+            "latencyMs": 133,
+            "status": 200
+          }
+        },
+        "opey": {
+          "ok": true,
+          "latencyMs": 8,
+          "details": {
+            "alive": true,
+            "currentTicketId": null,
+            "lastPollAt": 1773238183145
+          }
+        },
+        "tidy": {
+          "ok": true,
+          "latencyMs": 24,
+          "details": {
+            "alive": true,
+            "isProcessing": false,
+            "lastTickAt": 1773238182430
+          }
+        },
+        "telegram": {
+          "ok": true,
+          "latencyMs": 24,
+          "details": {
+            "transport": "telegram"
+          }
+        }
+      },
+      "summary": {
+        "okCount": 4,
+        "failCount": 0,
+        "failingServices": []
+      }
+    },
     {
       "runId": "d2893719-1aa7-43e5-8d3b-bf7547a06202",
       "reason": "scheduled",
