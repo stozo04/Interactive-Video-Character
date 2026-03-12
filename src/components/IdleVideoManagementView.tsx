@@ -1,6 +1,9 @@
 import React, { useState, useRef } from 'react';
 import { CharacterProfile } from '../types';
 import LoadingSpinner from './LoadingSpinner';
+import { clientLogger } from '../services/clientLogger';
+
+const LOG_PREFIX = '[IdleVideoManagementView]';
 
 interface ManagedIdleVideo {
   id: string;
@@ -49,7 +52,7 @@ const IdleVideoManagementView: React.FC<IdleVideoManagementViewProps> = ({
         videoInputRef.current.value = '';
       }
     } catch (error) {
-      console.error('Failed to add idle video:', error);
+      clientLogger.error(`${LOG_PREFIX} Failed to add idle video`, { error: error instanceof Error ? error.message : String(error) });
       setAddError('Failed to add idle video. Please try again.');
     }
   };
@@ -68,7 +71,7 @@ const IdleVideoManagementView: React.FC<IdleVideoManagementViewProps> = ({
     try {
       await onDeleteIdleVideo(videoId);
     } catch (error) {
-      console.error('Failed to delete idle video:', error);
+      clientLogger.error(`${LOG_PREFIX} Failed to delete idle video`, { error: error instanceof Error ? error.message : String(error) });
       alert('Failed to delete idle video. Please try again.');
     }
   };
