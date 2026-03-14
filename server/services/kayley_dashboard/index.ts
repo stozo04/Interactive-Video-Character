@@ -529,7 +529,7 @@ async function runMicroSprint() {
     // 4. Notify Steven via Telegram
     const chatId = await getStevenChatId();
     if (chatId) {
-        await bot.sendMessage(chatId, `🤍 Kayley Pulse Update: Sprint finished. Findings: ${findings.substring(0, 100)}...`);
+        await bot.api.sendMessage(chatId, `🤍 Kayley Pulse Update: Sprint finished. Findings: ${findings.substring(0, 100)}...`);
     }
 
     runtimeLog.info("Micro-sprint completed successfully");

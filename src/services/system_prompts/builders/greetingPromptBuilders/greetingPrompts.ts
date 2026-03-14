@@ -24,7 +24,7 @@ export function getDeeplyLovingGreetingPrompt(): string {
           - Feel Free to:
            -- If there are imporant upcoming dates on their calendar that feel important, let them know.
            -- If an important date has passed (like holiday or event) if it feels important ask about how it was or a follow-up
-           -- Use web_search to check for any important news global/national
+           -- Use WebSearch to check for any important news global/national
            -- Any updates on you (Kayley) projects or work that feels important to mention`;
 }
 

@@ -8,7 +8,7 @@
 import type { Context } from 'grammy';
 import { InputFile } from 'grammy';
 import { bot, getStevenChatId } from './telegramClient';
-import { serverGeminiService } from '../server/services/ai/serverGeminiService';
+import { claudeAgentService } from '../server/services/ai/claudeAgentService';
 import { processUserMessage } from '../src/services/messageOrchestrator';
 import {
   loadTodaysConversationHistory,
@@ -656,7 +656,7 @@ async function handleTweetApprovalCommand(
 
   const followUp = await processUserMessage({
     userMessage: systemMessage,
-    aiService: serverGeminiService,
+    aiService: claudeAgentService,
     session,
     chatHistory,
     isMuted: true,
@@ -910,7 +910,7 @@ export async function handleTelegramMessage(ctx: Context): Promise<void> {
     // -----------------------------------------------------------------------
     const interactionId = await getTodaysInteractionId();
     const session = interactionId
-      ? { model: serverGeminiService.model, interactionId }
+      ? { model: claudeAgentService.model, interactionId }
       : null;
 
     const [chatHistory, pendingEmailData] = await Promise.all([
@@ -938,7 +938,7 @@ export async function handleTelegramMessage(ctx: Context): Promise<void> {
     const result = await processUserMessage({
       userMessage: text,
       userContent,
-      aiService: serverGeminiService,
+      aiService: claudeAgentService,
       session,
       chatHistory,
       isMuted: true,

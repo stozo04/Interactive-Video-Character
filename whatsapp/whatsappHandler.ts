@@ -1,5 +1,5 @@
 import { sentMessageIds, type WASocket } from "./baileyClient";
-import { serverGeminiService } from "../server/services/ai/serverGeminiService";
+import { claudeAgentService } from "../server/services/ai/claudeAgentService";
 import { processUserMessage } from "../src/services/messageOrchestrator";
 import {
   loadTodaysConversationHistory,
@@ -811,7 +811,7 @@ export async function handleWhatsAppMessage(
 
     const interactionId = await getTodaysInteractionId();
     const session = interactionId
-      ? { model: serverGeminiService.model, interactionId }
+      ? { model: claudeAgentService.model, interactionId }
       : null;
 
     runtimeLog.info("Interaction context loaded", {
@@ -871,7 +871,7 @@ export async function handleWhatsAppMessage(
     const result = await processUserMessage({
       userMessage: text,
       userContent,
-      aiService: serverGeminiService,
+      aiService: claudeAgentService,
       session,
       chatHistory,
       isMuted: true,
@@ -1418,7 +1418,7 @@ async function handleTweetApprovalCommand(
 
   const followUp = await processUserMessage({
     userMessage: systemMessage,
-    aiService: serverGeminiService,
+    aiService: claudeAgentService,
     session,
     chatHistory,
     isMuted: true,

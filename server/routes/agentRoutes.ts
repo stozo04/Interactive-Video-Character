@@ -4,13 +4,14 @@
 // POST /agent/message  — process a user message through the full orchestrator
 // POST /agent/greeting — generate a daily greeting
 //
-// Uses ServerGeminiService (SDK Chat sessions + automatic function calling)
-// instead of the browser GeminiService (Interactions API + manual tool loop).
-// The Gemini API key stays server-side and never reaches the browser.
+// Uses ClaudeAgentService (Claude Agent SDK + MCP tools) for all AI calls.
+// Built-in SDK tools (Read/Write/Bash/Glob/Grep/WebSearch/WebFetch) replace
+// custom workspace_action and file tools. Domain tools (memory, Google, email,
+// etc.) are served via in-process MCP server.
 
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { log } from "../runtimeLogger";
-import { serverGeminiService } from "../services/ai/serverGeminiService";
+import { claudeAgentService } from "../services/ai/claudeAgentService";
 import { processUserMessage } from "../../src/services/messageOrchestrator";
 import type { UserContent } from "../../src/services/aiService";
 import type { ChatMessage, NewEmailPayload } from "../../src/types";
@@ -105,7 +106,7 @@ import type { AIChatSession } from "../../src/services/aiService";
 
 const sessions = new Map<string, AIChatSession>();
 
-// Per-session turn lock — ensures Gemini SDK chat sessions process one turn at a time.
+// Per-session turn lock — ensures AI agent sessions process one turn at a time.
 // New requests wait for the previous turn to finish before starting.
 const sessionTurnChains = new Map<string, Promise<void>>();
 
@@ -287,7 +288,7 @@ async function handleAgentMessage(req: IncomingMessage, res: ServerResponse): Pr
       userMessage: body.message,
       userMessageForAI: body.messageForAI,
       userContent: body.userContent,
-      aiService: serverGeminiService,
+      aiService: claudeAgentService,
       session,
       chatHistory: body.chatHistory || [],
       isMuted: body.isMuted ?? false,
@@ -341,7 +342,7 @@ async function handleAgentGreeting(req: IncomingMessage, res: ServerResponse): P
       sessionId: body.sessionId,
     });
 
-    const greetingResult = await serverGeminiService.generateGreeting();
+    const greetingResult = await claudeAgentService.generateGreeting();
 
     // Store the session for subsequent messages
     if (greetingResult.session) {
@@ -665,7 +666,7 @@ async function handleAgentMessageStream(req: IncomingMessage, res: ServerRespons
       taskNotificationCount: taskNotifications.length,
     });
 
-    // Serialize turns per session — Gemini SDK chat sessions can't handle concurrent sends.
+    // Serialize turns per session — agent SDK sessions can't handle concurrent sends.
     // If a previous turn is still processing, this request waits in the queue.
     // The SSE connection stays open (turn_start already sent) so the client knows we're waiting.
     const result = await withSessionLock(body.sessionId, async () => {
@@ -675,7 +676,7 @@ async function handleAgentMessageStream(req: IncomingMessage, res: ServerRespons
         userMessage: messageWithNotifications,
         userMessageForAI: body.messageForAI,
         userContent: body.userContent,
-        aiService: serverGeminiService,
+        aiService: claudeAgentService,
         session,
         chatHistory: body.chatHistory || [],
         isMuted: body.isMuted ?? false,

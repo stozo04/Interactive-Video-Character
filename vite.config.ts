@@ -216,7 +216,7 @@ export default defineConfig(({ mode }) => {
           // Server-only code pulled into the build graph uses Node.js builtins
           // both with and without the node: prefix. Externalize both forms so
           // Rollup doesn't try to bundle named exports from browser stubs.
-          external: [/^node:/, /^(fs|path|os|crypto|child_process|util|stream|events|net|http|https|url|buffer|readline|tty|worker_threads|zlib|assert|timers|querystring|string_decoder|vm|cluster|dgram|dns|perf_hooks|tls|v8)(\/.*)?$/],
+          external: [/^node:/, /^(fs|path|os|crypto|child_process|util|stream|events|process|net|http|https|url|buffer|readline|tty|worker_threads|zlib|assert|timers|querystring|string_decoder|vm|cluster|dgram|dns|perf_hooks|tls|v8)(\/.*)?$/, /^@anthropic-ai\//],
         },
       },
       resolve: {
