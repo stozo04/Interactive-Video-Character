@@ -456,7 +456,7 @@ const App: React.FC = () => {
     try {
       const savedCharacters = await dbService.getCharacters();
       setCharacters(savedCharacters.sort((a, b) => b.createdAt - a.createdAt));
-      setView('selectCharacter');
+      setView((prev) => (prev === 'loading' ? 'selectCharacter' : prev));
     } catch (error) {
       clientLogger.error(`${LOG_PREFIX} Failed to load characters`, { source: 'App.tsx', error: error instanceof Error ? error.message : String(error) });
       setErrorMessage('Failed to load characters. Check console for details.');
