@@ -1,6 +1,4 @@
 import React, { useState, useEffect } from 'react';
-import { UserFact } from '../services/memoryService';
-import { CharacterFact } from '../services/characterFactsService';
 import { TableType } from '../services/adminService';
 
 interface FactEditModalProps {
